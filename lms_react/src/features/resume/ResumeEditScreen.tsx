@@ -44,6 +44,7 @@ export function ResumeEditScreen() {
   const [mode, setMode] = useState<'doc' | 'edit'>(reviewer ? 'doc' : 'edit');
   const [panel, setPanel] = useState<'coach' | 'review' | 'ask' | 'jobs'>('coach');
   const [current, setCurrent] = useState<string>(search.get('section') ?? 'basicInfo');
+  const [saveState, setSaveState] = useState<'idle' | 'saved'>('idle');
 
   if (resume === undefined) {
     return (
@@ -57,11 +58,16 @@ export function ResumeEditScreen() {
 
   const done = computeSections(resume.content);
   const filled = ResumeSectionKeys.filter((k) => done[k]).length;
-  const patch = (change: Partial<ResumeContent>) =>
+  const patch = (change: Partial<ResumeContent>) => {
+    setSaveState('idle');
     updateResume(resume.id, {
       content: { ...resume.content, ...change },
-      revisionCount: resume.revisionCount + 1,
     });
+  };
+  const saveResume = () => {
+    updateResume(resume.id, { revisionCount: resume.revisionCount + 1 });
+    setSaveState('saved');
+  };
 
   const backTo = reviewer
     ? user.role === 'admin'
@@ -117,8 +123,14 @@ export function ResumeEditScreen() {
             )
           : mode === 'edit' && (
               <>
-                <button type="button" className="btn btn--outline btn--md">
-                  저장
+                <button
+                  type="button"
+                  className="btn btn--outline btn--md"
+                  onClick={saveResume}
+                  aria-live="polite"
+                >
+                  {saveState === 'saved' && <Icon name="check" size={17} />}
+                  {saveState === 'saved' ? '저장됨' : '저장'}
                 </button>
                 {resume.status === 'draft' && (
                   <button
@@ -192,7 +204,10 @@ export function ResumeEditScreen() {
                   className="input"
                   value={resume.title}
                   maxLength={100}
-                  onChange={(e) => updateResume(resume.id, { title: e.target.value })}
+                  onChange={(e) => {
+                    setSaveState('idle');
+                    updateResume(resume.id, { title: e.target.value });
+                  }}
                 />
                 <span className="resume-doc__count">{resume.title.length}/100</span>
               </span>

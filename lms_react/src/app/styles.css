@@ -5334,8 +5334,9 @@ a.link {
 }
 
 @media (max-width: 1180px) {
-  /* 한 줄로 접히면 화면 전체가 같이 구른다. */
+  /* 한 줄로 접히면 문서 전체 다음에 코치 패널이 이어지고 화면 전체가 같이 구른다. */
   .resume-edit__body {
+    display: block;
     grid-template-columns: minmax(0, 1fr);
     overflow-y: auto;
   }
@@ -5345,6 +5346,11 @@ a.link {
   .review-nav {
     overflow: visible;
     border-right: 0;
+  }
+
+  .resume-coach {
+    border-top: 1px solid var(--border);
+    background: var(--surface);
   }
 }
 
@@ -5474,6 +5480,68 @@ a.link {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.coach-msg__content {
+  min-width: 0;
+  flex: 1;
+}
+
+.review-suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 26%, var(--border));
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.review-suggestion p {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.review-suggestion__label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.review-suggestion__revision {
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--success) 10%, var(--surface));
+}
+
+.review-suggestion small {
+  color: var(--text-hint);
+}
+
+.review-suggestion .btn {
+  align-self: flex-end;
+}
+
+.review-suggestion__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.coach-chat__notice {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-bottom: 10px;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .coach-chat__suggest {

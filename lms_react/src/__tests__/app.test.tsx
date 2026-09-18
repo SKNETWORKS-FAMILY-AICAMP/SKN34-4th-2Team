@@ -155,6 +155,39 @@ describe('역할별 셸', () => {
 });
 
 describe('데이터가 실제로 흐른다', () => {
+  it('이력서 버전은 편집 중이 아니라 저장할 때 증가한다', async () => {
+    await render('/resume/r-demo-1/edit');
+    await loginAs('학생');
+    await render('/resume/r-demo-1/edit');
+
+    const before = getDb().resumes.find((resume) => resume.id === 'r-demo-1')!.revisionCount;
+    const title = container.querySelector('.resume-doc__field input') as HTMLInputElement;
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(title, '데이터 분석가 이력서');
+      title.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await flush();
+
+    expect(getDb().resumes.find((resume) => resume.id === 'r-demo-1')!.revisionCount).toBe(before);
+    click('저장');
+    await flush();
+    expect(getDb().resumes.find((resume) => resume.id === 'r-demo-1')!.revisionCount).toBe(before + 1);
+    expect(container.textContent).toContain('저장됨');
+  });
+
+  it('이력서 Doc 보기에서 입력칸을 숨기고 PDF 내보내기를 제공한다', async () => {
+    await render('/resume/r-demo-1/edit');
+    await loginAs('학생');
+    await render('/resume/r-demo-1/edit');
+
+    click('Doc');
+    await flush();
+    expect(container.querySelector('.resume-doc input')).toBeNull();
+    expect(container.querySelector('[aria-label="PDF 내보내기"]')).not.toBeNull();
+    expect(container.textContent).toContain('미작성');
+  });
+
   it('학생이 기록을 제출하면 관리자 기록실 대기 건수가 는다', async () => {
     const before = getDb().submissions.filter((s) => s.status === 'pending').length;
     await render('/records/create/blog');
