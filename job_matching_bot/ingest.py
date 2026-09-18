@@ -24,6 +24,7 @@ from typing import Any, Callable
 from job_matching_bot.config import ARTIFACTS_DIR, DEFAULT_SARAMIN_INPUT, now
 from job_matching_bot.ingestion.record_files import latest_by_id, read_records, record_ids
 from job_matching_bot.ingestion import raw_store
+from job_matching_bot.ingestion import jobkorea
 from job_matching_bot.ingestion import saramin
 from job_matching_bot.ingestion.job_store import open_store
 from job_matching_bot.schemas.job_posting import Job
@@ -47,6 +48,15 @@ SOURCES: dict[
             record.get("source_job_id") or (record.get("list_item") or {}).get("source_job_id") or ""
         ),
         DEFAULT_SARAMIN_INPUT,
+    ),
+    "JOBKOREA_POC": (
+        jobkorea.normalize_jobkorea,
+        jobkorea.PARSER_VERSION,
+        lambda record: str(
+            record.get("source_job_id") or (record.get("list_item") or {}).get("source_job_id") or ""
+        ),
+        # 크롤러가 받는 족족 붙여 쓰는 파일. 사람인과 달리 한 번에 끝나지 않아 jsonl이다.
+        ARTIFACTS_DIR / "job_raw" / "JOBKOREA_POC" / "details.jsonl",
     ),
 }
 

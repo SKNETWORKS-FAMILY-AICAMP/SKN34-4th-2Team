@@ -775,6 +775,52 @@ class ChatService(_LivenessMixin):
             self._store_path = DEFAULT_STORE
         return self._store_path
 
+    def search_jobs(self, request: schemas.JobSearchRequest) -> schemas.JobSearchResponse:
+        """필터를 그대로 받아 조건에 맞는 공고를 준다. LLM을 부르지 않는다.
+
+        `chat`의 검색 갈래와 저장소 조회는 같지만, 말을 조건으로 옮기는 호출과 답 문장을
+        쓰는 호출이 빠진다. 사용자가 필터를 손으로 골랐으니 해석할 말이 없다.
+
+        마감·조기마감 거르기는 그대로 한다. 즐겨찾기에 담은 뒤 자기소개서를 쓸 때가
+        되어서야 "이미 닫힌 공고"라고 막히면 늦다.
+        """
+        if not self.store_path.exists():
+            raise StoreUnavailable("공고 저장소가 없습니다. 공유 파일을 먼저 받아 주세요.")
+        filters = _to_job_filters(request.filters)
+        if filters.is_empty:
+            return schemas.JobSearchResponse(jobs=[], total=0, summary=filters.summary())
+        result = store_search.search(
+            self.store_path,
+            filters,
+            limit=request.top_k,
+            exclude_ids=request.seen_job_ids,
+        )
+        now = datetime.now(store_search.KST)
+        open_now = [hit for hit in result.jobs if not store_search.deadline_passed(hit.deadline, now)]
+        alive = set(self.drop_dead([hit.job_id for hit in open_now]))
+        kept = [hit for hit in open_now if hit.job_id in alive]
+        gone = len(result.jobs) - len(kept)
+        return schemas.JobSearchResponse(
+            jobs=[
+                schemas.JobSearchHit(
+                    job_id=hit.job_id,
+                    company=hit.company,
+                    title=hit.title,
+                    source_url=hit.source_url,
+                    region=hit.region,
+                    career=hit.career_label,
+                    employment_type=hit.employment_type,
+                    deadline=hit.deadline,
+                    tech_stack=hit.tech_stack,
+                    has_detail=hit.has_detail,
+                )
+                for hit in kept
+            ],
+            total=max(result.total - gone, len(kept)),
+            scanned_cap=result.scanned_cap,
+            summary=filters.summary(),
+        )
+
     def chat(self, request: schemas.JobChatRequest) -> schemas.JobChatResponse:
         """말 한 마디에 답한다. 지난 단계마다 걸린 시간을 로그와 응답에 남긴다.
 
