@@ -1,26 +1,162 @@
-# Node
-node_modules/
-dist/
-build/
-*.tsbuildinfo
-
-# Env
-.env
-.env.local
-.env.*.local
-
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-
-# OS / Editor
+# ─────────────────────────────────────────────
+# OS / 에디터 임시 파일
+# ─────────────────────────────────────────────
 .DS_Store
 Thumbs.db
-.vscode/
-.idea/
+*.swp
+*~
+*.bak
+*.tmp
 
-# Logs
+# ─────────────────────────────────────────────
+# IDE (IntelliJ / Android Studio / VS Code / Cursor)
+# ─────────────────────────────────────────────
+.idea/
+*.iml
+*.ipr
+*.iws
+
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# Cursor 로컬 캐시 (규칙 파일 .cursor/rules/ 는 필요 시 !.cursor/rules/ 로 예외 추가)
+.cursor/
+
+# ─────────────────────────────────────────────
+# Flutter / Dart
+# ─────────────────────────────────────────────
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+**/doc/api/
+app.*.symbols
+app.*.map.json
+
+# 플랫폼별 빌드 산출물 (ephemeral)
+**/ios/Flutter/ephemeral/
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Runner/GeneratedPluginRegistrant.*
+**/macos/Flutter/ephemeral/
+**/linux/flutter/ephemeral/
+**/windows/flutter/ephemeral/
+
+# ─────────────────────────────────────────────
+# Android
+# ─────────────────────────────────────────────
+/android/.gradle/
+/android/local.properties
+/android/key.properties
+/android/app/debug/
+/android/app/profile/
+/android/app/release/
+**/*.keystore
+**/*.jks
+
+# ─────────────────────────────────────────────
+# iOS / macOS (CocoaPods 등)
+# ─────────────────────────────────────────────
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/**/xcuserdata/
+**/macos/Pods/
+**/macos/**/xcuserdata/
+
+# ─────────────────────────────────────────────
+# Firebase / Cloud Functions
+# ─────────────────────────────────────────────
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+ui-debug.log
+pubsub-debug.log
+database-debug.log
+
+functions/node_modules/
+functions/lib/
+
+# ─────────────────────────────────────────────
+# Node.js (scripts 등 하위 패키지)
+# ─────────────────────────────────────────────
+node_modules/
+scripts/node_modules/
+
+# ─────────────────────────────────────────────
+# 환경 변수 / 비밀값 / 가상환경
+# ─────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+functions/.env
+functions/.env.*
+!functions/.env.example
+
+# 시드 스크립트 실행 시 생성되는 rules 백업
+config/firebase/firestore.rules.production.bak
+firestore.rules.production.bak
+
+# 학생 일괄 생성 계정 목록 (비밀번호 포함)
+scripts/seed-students-*.csv
+
+# Policy/FAQ VectorDB pipeline 결과물
+vectordb/policy_chunks.jsonl
+vectordb/policy_ingestion_errors.jsonl
+vectordb/.policy_ingestion_state.json
+vectordb/.policy_notion_cache.json
+# 지난 기수 프로젝트 소개 자료. 파이프라인이 만들어 내는 것이라 받아 쓰면 된다.
+vectordb/project_reference_documents.jsonl
+
+# 가상환경
+venv/
+.venv/
+env/
+
+# ─────────────────────────────────────────────
+# 기타
+# ─────────────────────────────────────────────
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+*.class
 *.log
-npm-debug.log*
+*.pyc
+.codex
+graphify-out
+AGENTS.md
+
+# Widget Preview related
+.widget_preview/
+*venv/
+
+# 크롤링 수집 결과 (수십 MB, 재생성 가능)
+job_matching_bot/artifacts/raw/
+
+# 로컬 환경값의 단일 원본은 레포 루트 .env이다.
+.env
+.env.*
+!.env.example
+
+# Dart가 만든 이력서 평문 정답지. 파이썬 판과 대조할 때만 쓴다.
+test/tmp_dump/
+
+
+# ppt 산출물
+/presentation
+# 첨삭 평가 실행 결과 (모델 출력·비용 발생 산출물)
+cover_letter_rag/evaluation/runs/
+
+# React/Vite (lms_react)
+dist/
+*.tsbuildinfo

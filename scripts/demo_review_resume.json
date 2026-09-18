@@ -1,0 +1,85 @@
+{
+  "_comment": "첨삭 시연용 가상 이력서(실제 인물 아님). 학생 데모 계정에 seed-resume-mocks.mjs --data demo_review_resume.json 으로 넣는다. 첫 첨삭에서 보이도록 일부러 넣은 것: 명사형으로 끊긴 문장(핵심역량·교육·활동), 붙여 써야 할 띄어쓰기('만들때', '걸릴때'), 결과가 빠진 프로젝트 설명(질문이 나옴), 방법이 빠진 어려움 극복 경험. 대화에서 답할 사실은 _demo_answers에 있다(이력서에는 없는 내용이라 답하면 수정안이 생긴다). 시연 공고는 추천 1위 (주)토마토에이아이 AI엔지니어(SARAMIN-54927314, 마감 2026-10-03)로 로컬에서 미리 확인했다. resume_mocks.json과 달리 job_matching_bot mock_resumes()와 짝이 아니다.",
+  "_demo_answers": [
+    "[수강생 LMS 챗봇 · 검색/결과 질문] 질문을 규정·공지·프로젝트 세 가지로 먼저 나누는 라우터를 만들고, 공지는 기수 필터를 걸었어요. 직접 만든 평가 질문 40개로 확인했더니 맞는 문서를 가져온 질문이 25개에서 36개로 늘었어요.",
+    "[수강생 LMS 챗봇 · 답변 속도 질문] 답변을 스트리밍으로 바꿔서 첫 글자가 나올 때까지 약 6초 걸리던 게 1.5초 정도로 줄었어요.",
+    "[어려움 극복 경험 질문] 공지와 규정 문서가 한 곳에 섞여 있어서 생긴 문제라, 문서를 종류별 네임스페이스로 나눠 다시 적재하고 질문 분류 라우터를 제가 직접 만들었어요. 평가 질문 40개로 확인했더니 맞는 문서를 가져온 질문이 25개에서 36개로 늘었어요.",
+    "[중고 노트북 시세 예측 · 결과 질문] 게시글 1만 2천 건을 정리해서 선형회귀, 랜덤포레스트, XGBoost를 비교했고 XGBoost가 평균 오차 약 9만 원으로 가장 좋았어요.",
+    "[Docker 배포 질문] FastAPI 챗봇 서버를 Docker 이미지로 만들고 docker compose로 팀 서버에 올렸어요.",
+    "[장단점 질문] 검색이 틀린 질문 15개를 하나씩 원인을 찾아 정리했고, 라우터와 필터를 고친 뒤 그중 11개가 맞는 문서를 찾게 됐어요. 시간이 오래 걸리는 점은 작업마다 마감 시간을 먼저 정하는 걸로 보완하고 있어요.",
+    "[본인이 맡은 범위 질문] 질문 분류 라우터와 기수 필터, 네임스페이스 재적재, 평가 질문 40개 작성은 제가 직접 했어요.",
+    "[비개발 직군 협업 질문] LMS 챗봇을 만들 때 운영 매니저님께 수강생이 자주 묻는 문의 30개를 받아 평가 질문으로 만들고, 매주 답변 결과를 공유해 안내 문구를 함께 고쳤어요.",
+    "[데이터 분석 동아리 질문] 공공자전거 대여 데이터를 시간대와 날씨별로 나눠 pandas로 집계했고, 비 오는 날 대여량이 평소의 절반 정도로 줄어드는 결과를 발표했어요.",
+    "[없는 경험을 물을 때 · 예: 클라우드, 파인튜닝, Kubernetes] 그런 경험은 없어요."
+  ],
+  "personas": {
+    "demo_review_ai": {
+      "title": "AI 서비스 개발자 지원 이력서",
+      "content": {
+        "basicInfo": {"name": "", "phone": "010-0000-0034", "email": "", "birthDate": "2000-04-17", "githubUrl": "https://github.com/example-ai-service", "blogUrl": ""},
+        "coreCompetencies": {
+          "text": "Python, FastAPI 로 LLM 기반 서비스 백엔드 개발. LangChain 과 Pinecone 으로 RAG 검색 구현 경험. Docker 로 배포 환경 구성 해봄."
+        },
+        "experience": [],
+        "education": [{"id": "edu-1", "school": "예시대학교", "major": "통계학과", "startDate": "2019-03", "endDate": "2025-02", "status": "졸업"}],
+        "techStack": [
+          {"id": "ts-1", "name": "Python", "level": "중급"},
+          {"id": "ts-2", "name": "FastAPI", "level": "중급"},
+          {"id": "ts-3", "name": "LangChain", "level": "중급"},
+          {"id": "ts-4", "name": "Pinecone", "level": "초급"},
+          {"id": "ts-5", "name": "pandas", "level": "중급"},
+          {"id": "ts-6", "name": "Docker", "level": "초급"},
+          {"id": "ts-7", "name": "MySQL", "level": "초급"}
+        ],
+        "certifications": [{"id": "cert-1", "name": "SQLD", "issuer": "한국데이터산업진흥원", "acquiredDate": "2025-06"}],
+        "awards": [],
+        "trainingExperience": [
+          {"id": "tr-1", "course": "SK네트웍스 Family AI 캠프 34기", "organization": "PLAYDATA", "startDate": "2026-03", "endDate": "2026-09", "description": "Python, 머신러닝, LLM 서비스 개발 수업. 팀 프로젝트 3회"}
+        ],
+        "otherActivities": [
+          {"id": "act-1", "name": "교내 데이터 분석 동아리", "startDate": "2022-03", "endDate": "2023-12", "description": "공공자전거 대여 데이터 분석. 학기말 발표 2회"}
+        ],
+        "projects": [
+          {
+            "id": "prj-1", "name": "수강생 LMS 챗봇", "startDate": "2026-07", "endDate": "2026-09",
+            "role": "백엔드·RAG(4인 팀)", "techStack": "Python, FastAPI, LangChain, Pinecone, OpenAI API",
+            "description": "수강생이 공지와 규정을 물어보면 답해 주는 챗봇을 만들었습니다. 저는 공지·규정 문서를 Pinecone에 적재하고 질문에 맞는 문서를 찾는 검색 부분을 맡았습니다. 답변 속도도 개선했습니다.",
+            "url": ""
+          },
+          {
+            "id": "prj-2", "name": "중고 노트북 시세 예측", "startDate": "2026-05", "endDate": "2026-06",
+            "role": "데이터 분석(3인 팀)", "techStack": "Python, pandas, scikit-learn, XGBoost",
+            "description": "중고거래 게시글을 크롤링해서 노트북 가격을 예측하는 모델을 만들었습니다. 저는 데이터 전처리와 모델 비교를 맡았습니다.",
+            "url": ""
+          }
+        ],
+        "selfIntroduction": {
+          "intro": {
+            "subtitle": "데이터에서 서비스로",
+            "body": "통계학을 전공하며 데이터를 다루는 일에 흥미를 느꼈고, 부트캠프에서 LLM 챗봇을 직접 만들면서 AI 서비스 개발자를 목표로 하게 되었습니다."
+          },
+          "motivation": {
+            "subtitle": "사람들이 쓰는 AI",
+            "body": "사람들이 매일 쓰는 서비스에 AI 기능을 넣는 일을 하고 싶어서 지원하게 되었습니다."
+          },
+          "challenge": {
+            "subtitle": "엉뚱한 문서를 찾던 챗봇",
+            "body": "LMS 챗봇을 만들때 공지를 물어봤는데 규정 문서가 검색되는 문제가 있었습니다. 팀원들과 여러 방법을 시도해서 해결했습니다."
+          },
+          "growth": {
+            "subtitle": "직접 찾아보는 습관",
+            "body": "어릴 때부터 궁금한 것은 직접 찾아보는 성격이었고, 이 습관이 데이터 분석 공부로 이어졌습니다."
+          },
+          "strengthsWeaknesses": {
+            "subtitle": "끈기 / 완벽주의",
+            "body": "장점은 끝까지 파고드는 끈기입니다. 단점은 완벽주의 성향이 있어서 작업 시간이 오래 걸릴때가 있다는 점입니다."
+          },
+          "aspiration": {
+            "subtitle": "빠르게 배우는 개발자",
+            "body": "입사 후에는 빠르게 배워서 회사에 도움이 되는 개발자가 되겠습니다."
+          }
+        }
+      }
+    }
+  }
+}

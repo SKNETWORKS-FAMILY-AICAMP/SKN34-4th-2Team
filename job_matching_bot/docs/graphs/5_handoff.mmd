@@ -1,0 +1,16 @@
+sequenceDiagram
+  participant 앱
+  participant 추천 as 추천 모듈
+  participant DB as Pinecone
+  participant 첨삭 as 첨삭 모듈
+  participant 원문 as job_store.sqlite
+  앱->>추천: 이력서 + 조건
+  추천->>DB: 질의문으로 검색
+  DB-->>추천: 후보 25
+  추천->>추천: 하드 필터 → LLM 재정렬 → 근거 검증
+  추천-->>앱: 공고 5개 (job_id, 근거, 우려)
+  Note over 앱: 사용자가 공고 하나 선택
+  앱->>첨삭: job_id + 이력서
+  첨삭->>원문: job_id로 조회
+  원문-->>첨삭: 공고 원문 전체
+  첨삭-->>앱: 이력서 피드백

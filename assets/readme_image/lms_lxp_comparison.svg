@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380" role="img" aria-labelledby="title desc">
+  <title id="title">기존 LMS의 한계와 LXP로 바꾸는 이유</title>
+  <desc id="desc">왼쪽 노랑·오렌지색 열은 기존 LMS의 한계, 오른쪽 파란색 열은 LXP의 개선 방향이다. 운영 통합, 문서 기반 질의응답, 근거 기반 답변, 학습·취업 지원을 비교한다.</desc>
+  <rect width="600" height="380" fill="#FFF4CC"/>
+  <rect x="600" width="600" height="380" fill="#EAF4FF"/>
+  <rect width="600" height="60" fill="#F4AA35"/>
+  <rect x="600" width="600" height="60" fill="#2563EB"/>
+  <g font-family="'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif" font-size="24" font-weight="700">
+    <text x="300" y="39" text-anchor="middle" fill="#63320A">기존 LMS의 한계</text>
+    <text x="900" y="39" text-anchor="middle" fill="#FFFFFF">LXP로 바꾸는 이유</text>
+  </g>
+  <g font-family="'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif" font-size="18" fill="#713B11">
+    <text x="24" y="106">출결·공지·제출·이력서·평가가 폼·채널·시트로 흩어짐</text>
+    <text x="24" y="186">규정·FAQ는 노션에 있고 학생은 매번 찾아 헤맴</text>
+    <text x="24" y="266">챗봇이 일반 LLM이면 규정을 지어냄</text>
+    <text x="24" y="346">수업 자료·취업 준비는 LMS 밖 작업</text>
+  </g>
+  <g font-family="'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif" font-size="18" fill="#163D6B">
+    <text x="624" y="106">역할별 셸 + 기수 격리로 운영을 한곳에 모은다</text>
+    <text x="624" y="186">내외부 문서를 임베딩해 RAG로 질의한다</text>
+    <text x="624" y="266">검색된 청크 + Firebase 실데이터만 근거로 답한다</text>
+    <text x="624" y="346">공부방·Job Coach를 학습 경험으로 붙인다</text>
+  </g>
+  <path d="M600 0V380 M0 60H1200 M0 140H1200 M0 220H1200 M0 300H1200" fill="none" stroke="#CBD5E1" stroke-width="1"/>
+  <line x1="600" y1="0" x2="600" y2="380" stroke="#64748B" stroke-width="4"/>
+  <rect x="0.5" y="0.5" width="1199" height="379" fill="none" stroke="#CBD5E1"/>
+</svg>

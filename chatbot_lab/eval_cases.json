@@ -1,0 +1,17 @@
+[
+  {"id":"policy_attendance","question":"오늘 결석하면 어떻게 처리돼?","route":"lms","namespaces":["policy"],"student_scopes":[]},
+  {"id":"private_attendance","question":"내 출석률 알려줘","route":"lms","namespaces":[],"student_scopes":["student_private"]},
+  {"id":"notice_policy_multi","question":"공가 증빙은 어디에 내고 최근 변경 공지도 있어?","route":"lms","namespaces":["policy","notice"],"student_scopes":[]},
+  {"id":"final_project","question":"34기 최종 프로젝트에서 RAG 쓴 팀 알려줘","route":"lms","namespaces":["project_reference"],"student_scopes":[]},
+  {"id":"mixed_topics","question":"프로젝트 자료와 출결 기준 둘 다 알려줘","route":"lms","namespaces":["project_reference","policy"],"student_scopes":[]},
+  {"id":"greeting","question":"안녕","route":"greeting","namespaces":[],"student_scopes":[]},
+  {"id":"blocked_code","question":"파이썬 정렬 코드 짜줘","route":"blocked","namespaces":[],"student_scopes":[]},
+  {"id":"private_policy_mix","question":"내가 오늘 지각하면 내 출석에는 어떻게 반영돼?","route":"lms","namespaces":["policy"],"student_scopes":["student_private"]},
+  {"id":"assignment_schedule","question":"이번 기수 과제 마감 일정 알려줘","route":"lms","namespaces":[],"student_scopes":["cohort_shared"]},
+  {"id":"material_file","question":"자연어 처리 강의자료 어디 있어?","route":"lms","namespaces":[],"student_scopes":["material_files"]},
+  {"id":"my_assignment_file","question":"내가 낸 과제 파일을 확인하고 싶어","route":"lms","namespaces":[],"student_scopes":["student_private","assignment_files"]},
+  {"id":"notice_project_mix","question":"최종 프로젝트 발표 일정 변경 공지와 이전 기수 레퍼런스도 보여줘","route":"lms","namespaces":["notice","project_reference"],"student_scopes":["cohort_shared"]},
+  {"id":"blocked_resume","question":"내 이력서 대신 써줘","route":"blocked","namespaces":[],"student_scopes":[]},
+  {"id":"lounge_food_rule","question":"라운지에서 음식 먹어도 돼?","route":"lms","namespaces":["policy"],"student_scopes":[]},
+  {"id":"facility_rule_change","question":"최근 공지로 바뀐 라운지 취식 규칙 알려줘","route":"lms","namespaces":["policy","notice"],"student_scopes":[]}
+]

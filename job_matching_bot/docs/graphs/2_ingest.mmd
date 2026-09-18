@@ -1,0 +1,13 @@
+flowchart LR
+  subgraph API["A. 공식 API 승인 시"]
+    A1["API 키 발급"] --> A2["주기 호출<br>목록 + 상세"] --> A3["JSON 응답<br>조건이 구조화돼 옴"]
+  end
+  subgraph CRAWL["B. 승인 전 — 크롤링 (현재)"]
+    B1["목록 페이지 수집"] --> B2["상세 요강 수집<br>3~5초 대기"] --> B3["HTML 파싱<br>이미지 본문은 body_is_image"]
+  end
+  A3 --> N["원본 레코드<br>같은 모양"]
+  B3 --> N
+  N --> V["유효성 검사"] --> D["중복 제거·최신 선택"] --> E["필드 정규화·본문 정제"] --> S[("job_store.sqlite")]
+  S --> H{"embed_hash<br>마지막에 올린 것과 다른가?"}
+  H -->|같다| I["건너뜀 — 비용 0"]
+  H -->|다르다| J["임베딩"] --> K[("Pinecone")]

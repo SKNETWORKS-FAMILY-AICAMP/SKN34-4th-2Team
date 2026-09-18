@@ -1,0 +1,61 @@
+{
+  "active_student_uid": "mock-student-001",
+  "active_cohort_id": "cohort_34",
+  "today": "2026-09-13",
+  "collections": {
+    "users": {
+      "mock-student-001": {"displayName":"테스트 학생","email":"student34@example.test","role":"student","isActive":true,"cohortId":"cohort_34"}
+    },
+    "cohorts": {
+      "cohort_34": {
+        "document": {"name":"SKN AI CAMP 34기","startDate":"2026-08-18","endDate":"2026-12-31"},
+        "curriculumSheets": {
+          "sheet-2026-08": {
+            "uploadedAt":"2026-07-31T18:00:00+09:00",
+            "rows":[
+              {"dateLabel":"2026-08-18","subject":"훈련"},{"dateLabel":"2026-08-19","subject":"훈련"},
+              {"dateLabel":"2026-08-20","subject":"훈련"},{"dateLabel":"2026-08-21","subject":"훈련"},
+              {"dateLabel":"2026-08-24","subject":"훈련"},{"dateLabel":"2026-08-25","subject":"훈련"},
+              {"dateLabel":"2026-08-26","subject":"훈련"},{"dateLabel":"2026-08-27","subject":"훈련"},
+              {"dateLabel":"2026-08-28","subject":"훈련"},{"dateLabel":"2026-08-31","subject":"훈련"},
+              {"dateLabel":"2026-09-01","subject":"훈련"},{"dateLabel":"2026-09-02","subject":"훈련"},
+              {"dateLabel":"2026-09-03","subject":"훈련"},{"dateLabel":"2026-09-04","subject":"훈련"},
+              {"dateLabel":"2026-09-07","subject":"훈련"},{"dateLabel":"2026-09-08","subject":"훈련"},
+              {"dateLabel":"2026-09-09","subject":"훈련"},{"dateLabel":"2026-09-10","subject":"훈련"},
+              {"dateLabel":"2026-09-11","subject":"훈련"}
+            ]
+          }
+        },
+        "attendances": {
+          "attendance-001":{"userId":"mock-student-001","dateKey":"2026-08-18","status":"late","sourceLabel":"지각","checkIn":"10:05","checkOut":"17:52"},
+          "attendance-002":{"userId":"mock-student-001","dateKey":"2026-08-19","status":"present","sourceLabel":"출석","checkIn":"09:08","checkOut":"17:51"},
+          "attendance-003":{"userId":"mock-student-001","dateKey":"2026-08-20","status":"present","sourceLabel":"출석","checkIn":"08:57","checkOut":"17:51"},
+          "attendance-004":{"userId":"mock-student-001","dateKey":"2026-08-21","status":"present","sourceLabel":"출석","checkIn":"09:00","checkOut":"18:09"},
+          "attendance-005":{"userId":"mock-student-001","dateKey":"2026-08-24","status":"officialLeave","officialLeaveType":"sick","sourceLabel":"질병/입원"},
+          "attendance-006":{"userId":"mock-student-001","dateKey":"2026-08-25","status":"present","sourceLabel":"출석","checkIn":"09:00","checkOut":"17:53"},
+          "attendance-007":{"userId":"mock-student-001","dateKey":"2026-08-26","status":"late","sourceLabel":"지각","checkIn":"13:44","checkOut":"17:52"},
+          "attendance-008":{"userId":"mock-student-001","dateKey":"2026-08-27","status":"present","sourceLabel":"출석","checkIn":"08:55","checkOut":"17:52"},
+          "attendance-009":{"userId":"mock-student-001","dateKey":"2026-08-28","status":"present","sourceLabel":"출석","checkIn":"08:56","checkOut":"17:51"},
+          "attendance-010":{"userId":"mock-student-001","dateKey":"2026-08-31","status":"present","sourceLabel":"출석","checkIn":"09:08","checkOut":"17:52"},
+          "attendance-011":{"userId":"mock-student-001","dateKey":"2026-09-01","status":"late","sourceLabel":"지각","checkIn":"09:24","checkOut":"18:19"},
+          "attendance-012":{"userId":"mock-student-001","dateKey":"2026-09-02","status":"present","sourceLabel":"출석","checkIn":"08:55","checkOut":"18:07"},
+          "attendance-013":{"userId":"mock-student-001","dateKey":"2026-09-03","status":"present","sourceLabel":"출석","checkIn":"08:57","checkOut":"17:52"},
+          "attendance-014":{"userId":"mock-student-001","dateKey":"2026-09-04","status":"officialLeave","officialLeaveType":"vacation","sourceLabel":"휴가"},
+          "attendance-015":{"userId":"mock-student-001","dateKey":"2026-09-07","status":"present","sourceLabel":"출석","checkIn":"08:54","checkOut":"17:53"},
+          "attendance-016":{"userId":"mock-student-001","dateKey":"2026-09-08","status":"present","sourceLabel":"출석","checkIn":"09:08","checkOut":"18:02"},
+          "attendance-017":{"userId":"mock-student-001","dateKey":"2026-09-09","status":"late","sourceLabel":"지각","checkIn":"14:01","checkOut":"17:54"},
+          "attendance-018":{"userId":"mock-student-001","dateKey":"2026-09-10","status":"late","sourceLabel":"지각","checkIn":"10:26","checkOut":"18:23"},
+          "attendance-019":{"userId":"mock-student-001","dateKey":"2026-09-11","status":"late","sourceLabel":"지각","checkIn":"11:34","checkOut":"17:52"}
+        },
+        "todos":{"todo-001":{"userId":"mock-student-001","title":"프로젝트 회고 작성","completed":false,"dueDate":"2026-09-16"}},
+        "assignments":{
+          "assignment-001":{"title":"RAG 미니 프로젝트","dueDate":"2026-09-18","published":true},
+          "assignment-002":{"title":"데이터 전처리 과제","dueDate":"2026-09-10","published":true}
+        },
+        "assignmentSubmissions":{"assignment-002":{"userId":"mock-student-001","submittedAt":"2026-09-09T20:14:00+09:00","status":"submitted"}},
+        "userProgress":{"mock-student-001":{"completedLessons":18,"totalLessons":30,"updatedAt":"2026-09-12T17:30:00+09:00"}},
+        "schedules":{"schedule-001":{"title":"1차 프로젝트 발표","startAt":"2026-09-25T10:00:00+09:00","cohortId":"cohort_34"}}
+      }
+    }
+  }
+}

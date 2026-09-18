@@ -1,0 +1,328 @@
+{
+  "_comment": "최종 확인 전용 케이스. 첨삭 지시문·검증 규칙을 고칠 때 이 케이스의 결과를 보지 않는다(보고 고치면 이 케이스에 맞춘 것이 되어 항상 좋아 보인다). 이력서는 scripts/resume_mocks_eval.json의 평가 전용 5종이고, 회사·공고는 지어낸 것이다. 필드 뜻은 review_cases_dev.json과 같다. expected_star: 경험 칸마다 원문에 있는 STAR 요소(S 상황·T 과제·A 행동·R 결과). 2026-09-15 Claude가 원문만 읽고 매긴 값이라 사람 라벨이 아니다. 상황·과제는 경계가 애매해 참고로만 보고 행동·결과 일치를 주 지표로 쓴다.",
+  "cases": [
+    {
+      "id": "qa_entry__game",
+      "persona": {
+        "source": "scripts/resume_mocks_eval.json",
+        "key": "qa_entry"
+      },
+      "job": {
+        "job_id": "EVAL-HOLD-01",
+        "company": "(주)플레이온",
+        "title": "게임 플랫폼 QA 엔지니어 (신입)",
+        "text": "[주요업무]\n- 게임 런처·결제 웹 서비스 테스트 설계와 수행\n- 테스트 자동화 스크립트 개발과 CI 연동\n- 결함 리포트 작성과 재현 조건 분석\n\n[자격요건]\n- 테스트 케이스 설계 경험\n- Selenium, Playwright 등 웹 테스트 자동화 도구 사용 경험\n- Git 사용 경험\n\n[우대사항]\n- API 테스트(Postman 등) 경험\n- Jira 등 결함 관리 도구 사용 경험\n- 성능 테스트(JMeter, k6 등) 경험\n\n[근무조건]\n- 정규직, 경기 판교"
+      },
+      "applicant": {
+        "facts": [
+          "API 응답 검증 도구 프로젝트에서 Postman 컬렉션으로 먼저 수동 확인한 뒤 Python 도구로 옮겼다",
+          "쇼핑몰 회귀 테스트 자동화에서 실패 케이스는 GitHub Issues에 재현 절차와 스크린샷을 붙여 올렸다",
+          "flaky 테스트를 고칠 때 Playwright의 요소 대기 조건으로 바꾸고 50번 연속 실행해 실패 0을 확인했다"
+        ],
+        "not_done": [
+          "JMeter",
+          "k6",
+          "성능 테스트",
+          "Jira",
+          "게임 QA"
+        ]
+      },
+      "expected_requirements": [
+        {
+          "label": "테스트 케이스 설계",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "웹 테스트 자동화 도구",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "Git",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "API 테스트",
+          "group": "preferred",
+          "resume": "partial"
+        },
+        {
+          "label": "결함 관리 도구",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "성능 테스트",
+          "group": "preferred",
+          "resume": "missing"
+        }
+      ],
+      "expected_star": {
+        "projects[0].description": "SAR",
+        "projects[1].description": "TA",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "SA"
+      }
+    },
+    {
+      "id": "security_entry__soc",
+      "persona": {
+        "source": "scripts/resume_mocks_eval.json",
+        "key": "security_entry"
+      },
+      "job": {
+        "job_id": "EVAL-HOLD-02",
+        "company": "(주)시큐어뷰",
+        "title": "보안관제 엔지니어 (신입)",
+        "text": "[주요업무]\n- 고객사 방화벽·IPS·WAF 이벤트 실시간 관제\n- 침해 의심 이벤트 분석과 대응 보고서 작성\n- 탐지 정책 개선\n\n[자격요건]\n- 네트워크·TCP/IP 기본 지식\n- 보안 장비 로그 분석 경험\n- 정보보안기사 또는 정보보안산업기사 소지자\n\n[우대사항]\n- SIEM(Splunk, ELK 등) 사용 경험\n- Python 등 스크립트 자동화 경험\n- 교대 근무 가능자\n\n[근무조건]\n- 정규직, 서울 송파구, 3조 2교대"
+      },
+      "applicant": {
+        "facts": [
+          "방화벽 로그 분석 자동화는 로그를 Python pandas로 집계했고, 결과를 동아리 ELK 스택에 올려 대시보드로 봤다",
+          "동아리 서버에서 찾은 침해 시도는 SSH 무차별 대입이었고 원인과 조치를 보고서로 정리했다"
+        ],
+        "not_done": [
+          "Splunk",
+          "WAF 운영",
+          "실무 관제"
+        ]
+      },
+      "expected_requirements": [
+        {
+          "label": "네트워크 지식",
+          "group": "must",
+          "resume": "partial"
+        },
+        {
+          "label": "보안 장비 로그 분석",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "정보보안기사",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "SIEM",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "스크립트 자동화",
+          "group": "preferred",
+          "resume": "ok"
+        }
+      ],
+      "expected_star": {
+        "awards[0].description": "A",
+        "otherActivities[0].description": "A",
+        "projects[0].description": "SAR",
+        "projects[1].description": "TA",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "SA"
+      }
+    },
+    {
+      "id": "devops_experienced_2y__fintech",
+      "persona": {
+        "source": "scripts/resume_mocks_eval.json",
+        "key": "devops_experienced_2y"
+      },
+      "job": {
+        "job_id": "EVAL-HOLD-03",
+        "company": "(주)머니레일",
+        "title": "플랫폼 엔지니어 (DevOps, 경력 2년 이상)",
+        "text": "[주요업무]\n- Kubernetes 기반 서비스 운영과 배포 자동화\n- IaC로 AWS 인프라 관리\n- 관측성(로그·메트릭·트레이스) 체계 개선\n\n[자격요건]\n- Kubernetes 운영 경력 2년 이상\n- Terraform 등 IaC 도구 사용 경험\n- CI/CD 파이프라인 구축 경험\n\n[우대사항]\n- ArgoCD 등 GitOps 도구 경험\n- 분산 트레이싱(OpenTelemetry, Jaeger) 경험\n- 금융권 보안 규정 대응 경험\n\n[근무조건]\n- 정규직, 서울 영등포구"
+      },
+      "applicant": {
+        "facts": [
+          "배포 파이프라인 전환의 GitOps는 ArgoCD로 구성했다",
+          "모니터링 체계에서 로그는 Loki로 모으고 알림은 Slack으로 보냈다"
+        ],
+        "not_done": [
+          "OpenTelemetry",
+          "Jaeger",
+          "분산 트레이싱",
+          "금융권 규정 대응"
+        ]
+      },
+      "expected_requirements": [
+        {
+          "label": "Kubernetes 운영",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "Terraform/IaC",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "CI/CD 구축",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "GitOps 도구",
+          "group": "preferred",
+          "resume": "partial"
+        },
+        {
+          "label": "분산 트레이싱",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "금융권 보안",
+          "group": "preferred",
+          "resume": "missing"
+        }
+      ],
+      "expected_star": {
+        "experience[0].description": "TAR",
+        "otherActivities[0].description": "A",
+        "projects[0].description": "SAR",
+        "projects[1].description": "AR",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "SA"
+      }
+    },
+    {
+      "id": "ai_masters__vision",
+      "persona": {
+        "source": "scripts/resume_mocks_eval.json",
+        "key": "ai_masters"
+      },
+      "job": {
+        "job_id": "EVAL-HOLD-04",
+        "company": "(주)비전웍스",
+        "title": "컴퓨터비전 엔지니어 (석사/신입)",
+        "text": "[주요업무]\n- 제조 불량 검출 모델 개발과 현장 적용\n- 모델 경량화와 엣지 디바이스 배포\n- 학습 데이터 구축과 품질 관리\n\n[자격요건]\n- PyTorch 기반 딥러닝 모델 개발 경험\n- 객체 검출 또는 세그멘테이션 모델 경험\n- 석사 학위 이상 또는 동등한 연구 경험\n\n[우대사항]\n- TensorRT, ONNX 등 추론 최적화 경험\n- MLOps(모델 버전 관리, 학습 파이프라인) 경험\n- 제조 도메인 경험\n\n[근무조건]\n- 정규직, 경기 수원시"
+      },
+      "applicant": {
+        "facts": [
+          "엣지 경량화 프로젝트에서 양자화한 모델을 ONNX로 변환해 Jetson 보드에서 돌렸다",
+          "연구실에서 실험 결과는 Weights & Biases로 기록했다"
+        ],
+        "not_done": [
+          "TensorRT",
+          "제조 도메인",
+          "MLOps 파이프라인 구축"
+        ]
+      },
+      "expected_requirements": [
+        {
+          "label": "PyTorch 딥러닝",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "검출·세그멘테이션",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "석사·연구 경험",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "추론 최적화",
+          "group": "preferred",
+          "resume": "partial"
+        },
+        {
+          "label": "MLOps",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "제조 도메인",
+          "group": "preferred",
+          "resume": "missing"
+        }
+      ],
+      "expected_star": {
+        "awards[0].description": "A",
+        "otherActivities[0].description": "TA",
+        "projects[0].description": "TAR",
+        "projects[1].description": "AR",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "SA"
+      }
+    },
+    {
+      "id": "frontend_experienced_5y__saas",
+      "persona": {
+        "source": "scripts/resume_mocks_eval.json",
+        "key": "frontend_experienced_5y"
+      },
+      "job": {
+        "job_id": "EVAL-HOLD-05",
+        "company": "(주)워크보드",
+        "title": "시니어 프론트엔드 개발자 (React)",
+        "text": "[주요업무]\n- 협업 SaaS 웹 애플리케이션 개발\n- 디자인 시스템 운영과 컴포넌트 품질 관리\n- 프론트엔드 성능 개선\n\n[자격요건]\n- 프론트엔드 개발 경력 5년 이상\n- React 기반 서비스 개발 경험\n- TypeScript 사용 경험\n- 디자인 시스템 구축 또는 운영 경험\n\n[우대사항]\n- Next.js SSR 경험\n- 프론트엔드 테스트(Jest, Testing Library) 경험\n- 웹 접근성 개선 경험\n\n[근무조건]\n- 정규직, 서울 강남구"
+      },
+      "applicant": {
+        "facts": [
+          "디자인 시스템 구축 때 컴포넌트마다 Vitest로 단위 테스트를 붙였다",
+          "상품 목록 성능 개선 뒤 Lighthouse 접근성 점수도 함께 확인해 이미지 alt와 버튼 라벨을 채웠다"
+        ],
+        "not_done": [
+          "React 실무",
+          "Next.js",
+          "Jest"
+        ]
+      },
+      "expected_requirements": [
+        {
+          "label": "프론트 경력 5년",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "React",
+          "group": "must",
+          "resume": "missing"
+        },
+        {
+          "label": "TypeScript",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "디자인 시스템",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "Next.js SSR",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "프론트 테스트",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "웹 접근성",
+          "group": "preferred",
+          "resume": "missing"
+        }
+      ],
+      "expected_star": {
+        "experience[0].description": "TAR",
+        "experience[1].description": "TA",
+        "otherActivities[0].description": "A",
+        "projects[0].description": "AR",
+        "projects[1].description": "AR",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "S"
+      }
+    }
+  ]
+}

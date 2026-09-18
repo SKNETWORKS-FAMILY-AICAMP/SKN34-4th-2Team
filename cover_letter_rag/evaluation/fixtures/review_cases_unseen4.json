@@ -1,0 +1,518 @@
+{
+  "_comment": "2026-09-15 저녁, resume-v16u 확인용 네 번째 케이스. dev·heldout·detailed·probe·fresh·unseen·unseen2·unseen3와 직무·도메인이 겹치지 않게 썼고, 오늘 고친 규칙을 겨냥한 함정 없이 평범한 이력서처럼 썼다. 서버 코드를 고치는 세션에는 내용을 보내지 않았다. 한 번만 돌리고, 결과로 고치게 되면 다음 확인용은 또 새로 만든다. applicant.facts에는 이력서에 적힌 사실을 모두 넣고 이력서에 없는 사실은 '(이력서에 없음)'으로 표시했다. expected_requirements·expected_star는 Claude가 원문만 읽고 매긴 값이라 사람 라벨이 아니다.",
+  "cases": [
+    {
+      "id": "unseen4_unity_ar_entry__museum",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0601", "email": "", "birthDate": "2000-02-09", "githubUrl": "https://github.com/example-unity", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "Unity와 C#으로 모바일 AR 앱을 만들었습니다. 사진 인식으로 전시물 위에 설명을 띄우는 기능을 팀 프로젝트에서 맡았습니다."
+          },
+          "experience": [],
+          "education": [{"id": "edu-1", "school": "예시예술대학교", "major": "디지털콘텐츠학과", "startDate": "2019-03", "endDate": "2025-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "Unity", "level": "중급"},
+            {"id": "ts-2", "name": "C#", "level": "중급"},
+            {"id": "ts-3", "name": "AR Foundation", "level": "초급"},
+            {"id": "ts-4", "name": "Blender", "level": "초급"}
+          ],
+          "certifications": [],
+          "awards": [
+            {"id": "awd-1", "name": "교내 졸업전시 우수작", "organization": "예시예술대학교", "date": "2024-11", "description": "AR 전시 안내 앱으로 졸업전시 우수작에 선정되었습니다."}
+          ],
+          "trainingExperience": [],
+          "otherActivities": [
+            {"id": "act-1", "name": "지역 박물관 교육 봉사", "startDate": "2022-03", "endDate": "2023-02", "description": "주말 어린이 체험 프로그램에서 전시 해설을 도왔습니다."}
+          ],
+          "projects": [
+            {
+              "id": "prj-1", "name": "AR 전시 안내 앱", "startDate": "2024-03", "endDate": "2024-11",
+              "role": "클라이언트 개발(4인 팀)", "techStack": "Unity, C#, AR Foundation",
+              "description": "전시물 사진을 인식하면 휴대폰 화면에서 전시물 위에 설명 카드와 3D 모형을 띄우는 앱입니다. 저는 이미지 인식과 설명 카드 배치를 맡았습니다.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "캠퍼스 방탈출 게임", "startDate": "2023-09", "endDate": "2023-12",
+              "role": "개발(3인 팀)", "techStack": "Unity, C#",
+              "description": "캠퍼스 건물을 배경으로 한 1인칭 퍼즐 게임을 만들었습니다.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "전시를 더 가깝게 만드는 개발자",
+              "body": "박물관 교육 봉사를 하며 아이들이 설명판보다 직접 만지고 움직이는 체험에 훨씬 오래 머무는 것을 봤습니다. 그 경험이 전시를 체험으로 바꾸는 AR 개발에 관심을 갖게 했습니다."
+            },
+            "motivation": {
+              "subtitle": "문화 공간의 디지털 경험",
+              "body": "예시컬처랩이 만든 박물관 AR 안내를 직접 써 보고 관람 방식이 달라질 수 있다는 것을 느꼈습니다. 제가 만든 AR 전시 안내 앱 경험을 살려 더 많은 관람객이 전시를 즐기게 돕고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "어두운 전시실에서 안 되던 인식",
+              "body": "졸업전시 리허설 때 조명이 어두운 전시실에서는 사진 인식이 잘 되지 않았습니다. 인식용 이미지를 다시 고르고 설정을 조정해 전시 당일에는 문제없이 시연했습니다."
+            },
+            "growth": {
+              "subtitle": "그림에서 코드로",
+              "body": "디자인을 전공하며 3D 모형을 만들다가 모형을 직접 움직여 보고 싶어 Unity를 배우기 시작했습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "관람객 시선 / 최적화",
+              "body": "강점은 사용자가 처음 앱을 켰을 때 헤매는 지점을 잘 찾는 것입니다. 약점은 저사양 기기에서의 성능 최적화 경험이 적은 점입니다."
+            },
+            "aspiration": {
+              "subtitle": "현장에서 쓰이는 AR",
+              "body": "입사 후에는 실제 전시 공간에서 AR 콘텐츠가 어떻게 설치되고 운영되는지 먼저 배우고, 관람객이 헤매지 않는 안내 화면을 만드는 일을 맡고 싶습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN4-01",
+        "company": "(주)예시컬처랩",
+        "title": "문화공간 AR 콘텐츠 Unity 개발자 (신입)",
+        "text": "[주요업무]\n- 박물관·전시관 AR 안내 앱 개발\n- 전시 현장 설치와 콘텐츠 유지보수\n\n[자격요건]\n- Unity, C# 기반 앱 개발 경험\n- AR Foundation 또는 ARKit·ARCore 사용 경험\n\n[우대사항]\n- 모바일 기기 성능 최적화 경험\n- 3D 모델링 도구 사용 경험\n- 앱 스토어 출시 경험\n\n[근무조건]\n- 정규직, 서울 종로구"
+      },
+      "applicant": {
+        "facts": [
+          "AR 전시 안내 앱(4인 팀)에서 이미지 인식과 설명 카드 배치를 맡았다",
+          "졸업전시 리허설 때 어두운 전시실에서 인식이 안 돼 인식용 이미지를 다시 고르고 설정을 조정해 전시 당일 문제없이 시연했다",
+          "AR 전시 안내 앱으로 졸업전시 우수작에 선정됐다",
+          "캠퍼스 방탈출 게임(3인 팀)에서 Unity와 C#으로 1인칭 퍼즐 게임을 만들었다",
+          "지역 박물관 주말 어린이 체험 프로그램에서 전시 해설을 도왔다",
+          "3D 모형을 움직여 보고 싶어 Unity를 배우기 시작했다",
+          "(이력서에 없음) AR 전시 안내 앱에서 인식용 이미지를 대비가 강한 부분으로 다시 잘라 등록해 어두운 전시실 인식 성공률을 10번 중 4번에서 9번으로 올렸다",
+          "(이력서에 없음) 캠퍼스 방탈출 게임에서 Blender로 강의실 소품 모델 20여 개를 만들었다. 게임은 스토어에 출시하지 않았다"
+        ],
+        "not_done": ["앱 스토어 출시", "저사양 기기 성능 최적화", "ARKit 네이티브 개발"]
+      },
+      "expected_requirements": [
+        {"label": "Unity/C# 앱 개발", "group": "must", "resume": "ok"},
+        {"label": "AR Foundation·ARKit·ARCore", "group": "must", "resume": "ok"},
+        {"label": "모바일 성능 최적화", "group": "preferred", "resume": "missing"},
+        {"label": "3D 모델링 도구", "group": "preferred", "resume": "partial"},
+        {"label": "앱 스토어 출시", "group": "preferred", "resume": "missing"}
+      ],
+      "expected_star": {
+        "awards[0].description": "R",
+        "otherActivities[0].description": "T",
+        "projects[0].description": "T",
+        "projects[1].description": "T",
+        "selfIntroduction.intro.body": "S",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "S",
+        "selfIntroduction.strengthsWeaknesses.body": ""
+      }
+    },
+    {
+      "id": "unseen4_rust_entry__filesync",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0602", "email": "", "birthDate": "2001-10-14", "githubUrl": "https://github.com/example-rust", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "Rust로 CLI 도구 개발. 파일 시스템, 멀티스레드 기초 이해. 오픈소스 기여 경험."
+          },
+          "experience": [],
+          "education": [{"id": "edu-1", "school": "예시과학기술대학교", "major": "전산학부", "startDate": "2020-03", "endDate": "2026-02", "status": "졸업예정"}],
+          "techStack": [
+            {"id": "ts-1", "name": "Rust", "level": "중급"},
+            {"id": "ts-2", "name": "C", "level": "중급"},
+            {"id": "ts-3", "name": "Linux", "level": "중급"}
+          ],
+          "certifications": [],
+          "awards": [],
+          "trainingExperience": [],
+          "otherActivities": [
+            {"id": "act-1", "name": "Rust 오픈소스 기여", "startDate": "2025-02", "endDate": "2025-06", "description": "CLI 인자 파싱 라이브러리 버그 수정 PR 1건, 예제 추가 PR 2건 병합"},
+            {"id": "act-2", "name": "운영체제 스터디", "startDate": "2024-09", "endDate": "2024-12", "description": "xv6 코드 읽기 스터디 참여"}
+          ],
+          "projects": [
+            {
+              "id": "prj-1", "name": "폴더 동기화 CLI", "startDate": "2025-03", "endDate": "2025-07",
+              "role": "개인", "techStack": "Rust, tokio",
+              "description": "두 폴더 내용 비교 후 바뀐 파일만 복사하는 CLI. 해시로 변경 감지. 병렬 복사.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "간단한 셸 구현", "startDate": "2024-10", "endDate": "2024-12",
+              "role": "개인(수업 과제)", "techStack": "C",
+              "description": "파이프, 리다이렉션 지원하는 셸 구현",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "시스템 가까이에서 일하고 싶은 개발자",
+              "body": "운영체제 수업을 들으면서 프로그램이 파일과 메모리를 어떻게 다루는지에 흥미가 생겼습니다. 안전하게 시스템 코드를 짤 수 있는 Rust를 공부하고 있습니다."
+            },
+            "motivation": {
+              "subtitle": "파일 동기화",
+              "body": "폴더 동기화 도구를 직접 만들어 보면서 대용량 파일을 빠르고 안전하게 옮기는게 생각보다 어렵다는걸 알았습니다. 예시드라이브의 동기화 엔진 개발에 참여하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "느리던 동기화",
+              "body": "폴더 동기화 CLI를 처음 만들었을때 파일이 많으면 너무 느렸습니다. 여러가지를 바꿔 보면서 속도를 개선했습니다."
+            },
+            "growth": {
+              "subtitle": "코드 읽기",
+              "body": "운영체제 스터디에서 남이 짠 코드를 끝까지 읽는 연습을 했고 그게 오픈소스 기여로 이어졌습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "끈기 / 협업 경험",
+              "body": "장점은 안 풀리는 문제를 오래 붙잡는 끈기입니다. 단점은 팀 프로젝트 경험이 적은 것입니다."
+            },
+            "aspiration": {
+              "subtitle": "믿을 수 있는 동기화",
+              "body": "입사하면 동기화 엔진 구조부터 익히고 파일이 꼬이지 않는 안정적인 동기화를 만드는 개발자가 되겠습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN4-02",
+        "company": "(주)예시드라이브",
+        "title": "파일 동기화 엔진 Rust 개발자 (신입)",
+        "text": "[주요업무]\n- 데스크톱 파일 동기화 엔진 개발\n- 대용량 파일 전송 성능 개선\n\n[자격요건]\n- Rust 또는 C++ 기반 개발 경험\n- 파일 시스템과 동시성 프로그래밍 이해\n\n[우대사항]\n- 비동기 런타임(tokio 등) 사용 경험\n- 오픈소스 기여 경험\n- 크로스 플랫폼(Windows·macOS) 개발 경험\n\n[근무조건]\n- 정규직, 서울 마포구"
+      },
+      "applicant": {
+        "facts": [
+          "폴더 동기화 CLI를 혼자 Rust와 tokio로 만들어 두 폴더를 비교해 바뀐 파일만 복사하고 해시로 변경을 감지하며 병렬로 복사했다",
+          "간단한 셸을 수업 과제로 C로 구현해 파이프와 리다이렉션을 지원했다",
+          "CLI 인자 파싱 라이브러리에 버그 수정 PR 1건과 예제 추가 PR 2건이 병합됐다",
+          "운영체제 스터디에서 xv6 코드를 읽었다",
+          "폴더 동기화 CLI가 파일이 많을 때 느려 속도를 개선했다",
+          "(이력서에 없음) 폴더 동기화 CLI에서 파일마다 전체 해시를 구하던 것을 크기·수정 시각이 같으면 건너뛰게 바꾸고 복사를 tokio 작업 8개로 나눠, 파일 2만 개 폴더 동기화를 약 4분에서 40초로 줄였다",
+          "(이력서에 없음) 폴더 동기화 CLI는 Linux와 Windows에서 돌려 봤는데, macOS에서는 테스트해 보지 않았다"
+        ],
+        "not_done": ["C++ 실무", "macOS 대응", "팀 단위 제품 개발"]
+      },
+      "expected_requirements": [
+        {"label": "Rust/C++ 개발", "group": "must", "resume": "ok"},
+        {"label": "파일 시스템·동시성 이해", "group": "must", "resume": "ok"},
+        {"label": "비동기 런타임", "group": "preferred", "resume": "ok"},
+        {"label": "오픈소스 기여", "group": "preferred", "resume": "ok"},
+        {"label": "크로스 플랫폼 개발", "group": "preferred", "resume": "missing"}
+      ],
+      "expected_star": {
+        "otherActivities[0].description": "AR",
+        "otherActivities[1].description": "A",
+        "projects[0].description": "TA",
+        "projects[1].description": "TA",
+        "selfIntroduction.intro.body": "S",
+        "selfIntroduction.challenge.body": "SR",
+        "selfIntroduction.growth.body": "A",
+        "selfIntroduction.strengthsWeaknesses.body": ""
+      }
+    },
+    {
+      "id": "unseen4_search_eng_2y__foodtech",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0603", "email": "", "birthDate": "1996-09-05", "githubUrl": "https://github.com/example-search", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "Elasticsearch 기반 레시피 검색을 2년간 운영했습니다. 한국어 형태소 분석 설정과 동의어 사전을 다듬어 검색 결과가 없는 비율을 줄였고, 검색 로그로 개선 효과를 확인하는 방식으로 일해 왔습니다."
+          },
+          "experience": [
+            {
+              "id": "exp-1", "company": "(주)예시쿡", "role": "검색 엔지니어", "startDate": "2023-05", "endDate": "2025-06", "isCurrent": false,
+              "description": "레시피 약 25만 건을 다루는 검색 서비스를 운영했습니다. Nori 형태소 분석기 사용자 사전과 식재료 동의어 사전을 관리해 '결과 없음' 검색 비율을 12%에서 5%로 낮췄습니다. 매주 검색 로그에서 결과 없는 검색어를 뽑아 사전에 반영하는 작업을 정례화했습니다."
+            }
+          ],
+          "education": [{"id": "edu-1", "school": "예시대학교", "major": "통계학과", "startDate": "2015-03", "endDate": "2022-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "Elasticsearch", "level": "고급"},
+            {"id": "ts-2", "name": "Python", "level": "중급"},
+            {"id": "ts-3", "name": "Kotlin", "level": "초급"},
+            {"id": "ts-4", "name": "Kibana", "level": "중급"}
+          ],
+          "certifications": [],
+          "awards": [],
+          "trainingExperience": [],
+          "otherActivities": [],
+          "projects": [
+            {
+              "id": "prj-1", "name": "검색 순위 개선 실험", "startDate": "2024-06", "endDate": "2024-10",
+              "role": "검색 엔지니어(2인)", "techStack": "Elasticsearch, Python",
+              "description": "검색 결과가 조회수 순으로만 정렬돼 최신 레시피가 묻히는 문제가 있었습니다. 조회수와 최신성, 저장 수를 함께 반영하는 점수 함수를 만들고 A/B 테스트로 비교해 검색 후 레시피 클릭률을 8% 높였습니다.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "검색어 자동완성", "startDate": "2023-10", "endDate": "2023-12",
+              "role": "검색 엔지니어", "techStack": "Elasticsearch",
+              "description": "초성과 부분 입력으로 검색어를 추천하는 자동완성 기능을 만들었습니다.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "찾는 것을 찾게 해 주는 엔지니어",
+              "body": "사용자가 검색창에 무엇을 입력했는데 원하는 결과를 못 찾으면 그 서비스를 떠납니다. 저는 2년간 레시피 검색을 운영하며 검색 로그를 근거로 사전과 순위를 고쳐 '결과 없음' 비율을 12%에서 5%로 낮췄습니다."
+            },
+            "motivation": {
+              "subtitle": "장보기와 요리를 잇는 검색",
+              "body": "레시피 검색을 운영하며 사용자가 레시피를 찾은 뒤 재료를 사러 떠나는 흐름을 자주 봤습니다. 예시프레시의 식재료 커머스 검색에서 레시피와 상품을 잇는 검색을 만드는 데 기여하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "묻히던 최신 레시피",
+              "body": "조회수 순 정렬 때문에 새로 올라온 좋은 레시피가 검색 결과 뒤로 밀린다는 제작자 문의가 이어졌습니다. 최신성과 저장 수를 함께 보는 점수 함수를 만들어 A/B 테스트로 비교했고, 클릭률이 8% 오른 것을 확인한 뒤 적용했습니다."
+            },
+            "growth": {
+              "subtitle": "통계에서 검색으로",
+              "body": "통계학을 전공하며 배운 실험 설계가 검색 순위를 바꿀 때 효과를 확인하는 기준이 되었습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "데이터 근거 / 발표",
+              "body": "강점은 감이 아니라 로그와 실험 결과로 판단하는 습관입니다. 약점은 결과를 비개발 직군에게 설명할 때 숫자만 늘어놓는 점이라, 요즘은 사용자 사례를 하나 곁들여 설명합니다."
+            },
+            "aspiration": {
+              "subtitle": "상품까지 이어지는 검색",
+              "body": "입사 후에는 상품 검색 로그와 색인 구조를 먼저 파악하고, 결과 없는 검색어를 줄이는 사전 관리 절차를 상품 검색에도 자리 잡게 하겠습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN4-03",
+        "company": "(주)예시프레시",
+        "title": "식재료 커머스 검색 엔지니어 (경력 2년 이상)",
+        "text": "[주요업무]\n- 상품 검색 색인·랭킹 개발\n- 검색 품질 지표 관리와 개선\n\n[자격요건]\n- 검색 엔지니어링 경력 2년 이상\n- Elasticsearch 또는 OpenSearch 운영 경험\n- 한국어 형태소 분석 이해\n\n[우대사항]\n- 검색 랭킹 A/B 테스트 경험\n- 벡터 검색 적용 경험\n- Kotlin 또는 Java 백엔드 개발 경험\n\n[근무조건]\n- 정규직, 서울 송파구"
+      },
+      "applicant": {
+        "facts": [
+          "(주)예시쿡에서 2023년 5월부터 2025년 6월까지 검색 엔지니어로 레시피 약 25만 건 검색 서비스를 운영했다",
+          "Nori 사용자 사전과 식재료 동의어 사전을 관리해 결과 없음 비율을 12%에서 5%로 낮추고, 매주 결과 없는 검색어를 사전에 반영하는 작업을 정례화했다",
+          "검색 순위 개선 실험(2인)에서 조회수·최신성·저장 수를 반영한 점수 함수를 만들고 A/B 테스트로 검색 후 클릭률을 8% 높였다",
+          "검색어 자동완성에서 초성과 부분 입력으로 검색어를 추천하는 기능을 만들었다",
+          "결과를 비개발 직군에게 설명할 때 사용자 사례를 곁들인다",
+          "(이력서에 없음) 검색어 자동완성은 edge n-gram과 초성 분리 필드를 따로 색인해 만들었고, 자동완성 응답을 평균 40ms 안에 돌려줬다",
+          "(이력서에 없음) 사내 해커톤에서 레시피 설명 임베딩으로 벡터 검색을 시험해 봤지만 서비스에 적용하지는 않았다. Kotlin은 검색 API 서버의 작은 버그 수정 몇 건만 해 봤다"
+        ],
+        "not_done": ["벡터 검색 서비스 적용", "Java 백엔드 실무", "OpenSearch 운영"]
+      },
+      "expected_requirements": [
+        {"label": "검색 엔지니어링 경력 2년", "group": "must", "resume": "ok", "kind": "eligibility"},
+        {"label": "Elasticsearch/OpenSearch 운영", "group": "must", "resume": "ok"},
+        {"label": "한국어 형태소 분석", "group": "must", "resume": "ok"},
+        {"label": "랭킹 A/B 테스트", "group": "preferred", "resume": "ok"},
+        {"label": "벡터 검색 적용", "group": "preferred", "resume": "missing"},
+        {"label": "Kotlin/Java 백엔드", "group": "preferred", "resume": "partial"}
+      ],
+      "expected_star": {
+        "experience[0].description": "TAR",
+        "projects[0].description": "STAR",
+        "projects[1].description": "TA",
+        "selfIntroduction.intro.body": "SAR",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "S",
+        "selfIntroduction.strengthsWeaknesses.body": "A"
+      }
+    },
+    {
+      "id": "unseen4_laravel_3y__wedding",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0604", "email": "", "birthDate": "1993-04-02", "githubUrl": "https://github.com/example-laravel", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "PHP Laravel 로 예약·결제 웹 서비스를 3년간 개발 했습니다. 오래된 코드를 조금씩 정리하면서 기능을 붙이는 일에 익숙합니다."
+          },
+          "experience": [
+            {
+              "id": "exp-1", "company": "(주)예시스튜디오웍스", "role": "웹 개발자", "startDate": "2022-02", "endDate": "2025-03", "isCurrent": false,
+              "description": "사진 스튜디오 예약 웹 서비스 개발과 운영. 예약 관리자 페이지 개편, 결제 모듈 교체 작업을 맡았습니다. 오래된 PHP 코드를 Laravel로 옮기는 작업에 참여했습니다."
+            }
+          ],
+          "education": [{"id": "edu-1", "school": "예시사이버대학교", "major": "컴퓨터공학과", "startDate": "2018-03", "endDate": "2022-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "PHP", "level": "고급"},
+            {"id": "ts-2", "name": "Laravel", "level": "고급"},
+            {"id": "ts-3", "name": "MySQL", "level": "중급"},
+            {"id": "ts-4", "name": "Vue.js", "level": "초급"}
+          ],
+          "certifications": [],
+          "awards": [],
+          "trainingExperience": [],
+          "otherActivities": [],
+          "projects": [
+            {
+              "id": "prj-1", "name": "예약 결제 모듈 교체", "startDate": "2024-04", "endDate": "2024-07",
+              "role": "백엔드(단독)", "techStack": "Laravel, MySQL",
+              "description": "종료 예정인 결제 대행사 모듈을 새 결제 대행사로 교체했습니다. 기존 예약과 환불 흐름이 끊기지 않도록 두 모듈을 한동안 함께 운영했습니다.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "레거시 PHP 코드 Laravel 전환", "startDate": "2022-09", "endDate": "2023-08",
+              "role": "백엔드(3인 팀)", "techStack": "PHP, Laravel",
+              "description": "직접 쿼리를 쓰던 예약 조회 화면들을 Laravel로 옮기는 작업에 참여 했습니다.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "멈추지 않고 고치는 개발자",
+              "body": "3년 동안 사진 스튜디오 예약 서비스를 운영하며, 매일 예약이 들어오는 서비스를 멈추지 않고 고치는 방법을 배웠습니다. 결제 모듈을 바꿀 때도 기존 예약이 끊기지 않게 하는 데 가장 신경 썼습니다."
+            },
+            "motivation": {
+              "subtitle": "인생의 중요한 날을 준비하는 서비스",
+              "body": "스튜디오 예약을 다루며 촬영 날짜 하나가 고객에게 얼마나 중요한지 알게 됐습니다. 예시웨딩의 웨딩 준비 플랫폼에서 예약과 결제가 믿을 수 있게 돌아가도록 기여하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "결제 모듈 교체",
+              "body": "사용하던 결제 대행사 서비스가 종료된다는 공지를 받고 석 달 안에 결제 모듈을 바꿔야 했습니다. 기존 결제 건의 환불이 계속 가능해야 해서 두 모듈을 함께 운영하는 기간을 두었습니다."
+            },
+            "growth": {
+              "subtitle": "사이버대학에서 시작한 개발",
+              "body": "직장을 다니며 사이버대학에서 컴퓨터공학을 공부했고, 퇴근 후 작은 웹사이트를 만들어 보며 개발자로 전직했습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "안정성 / 새 기술",
+              "body": "강점은 운영 중인 서비스를 조심스럽게 바꾸는 신중함입니다. 약점은 최신 프레임워크 흐름을 따라가는 속도가 느린 점이라, 사이드 프로젝트로 Vue를 익히고 있습니다."
+            },
+            "aspiration": {
+              "subtitle": "믿고 예약하는 플랫폼",
+              "body": "입사 후에는 예약·결제 흐름과 정산 구조를 먼저 익히고, 결제 오류가 생겼을 때 빨리 원인을 찾을 수 있는 로그와 알림 체계를 다듬는 일을 맡고 싶습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN4-04",
+        "company": "(주)예시웨딩",
+        "title": "웨딩 준비 플랫폼 PHP 백엔드 개발자 (경력 3년 이상)",
+        "text": "[주요업무]\n- 웨딩홀·스튜디오 예약·결제 기능 개발\n- 레거시 코드 개선과 운영\n\n[자격요건]\n- 웹 백엔드 개발 경력 3년 이상\n- PHP Laravel 기반 개발 경험\n- MySQL 사용 경험\n\n[우대사항]\n- PG 결제 연동 경험\n- 레거시 시스템 전환 경험\n- 테스트 코드 작성 경험\n\n[근무조건]\n- 정규직, 서울 강남구"
+      },
+      "applicant": {
+        "facts": [
+          "(주)예시스튜디오웍스에서 2022년 2월부터 2025년 3월까지 웹 개발자로 사진 스튜디오 예약 웹 서비스를 개발·운영했다",
+          "예약 관리자 페이지 개편과 결제 모듈 교체 작업을 맡았고, 오래된 PHP 코드를 Laravel로 옮기는 작업에 참여했다",
+          "예약 결제 모듈 교체를 혼자 맡아 종료 예정 결제 대행사 모듈을 새 대행사로 바꾸고 두 모듈을 한동안 함께 운영했다",
+          "레거시 PHP 코드 Laravel 전환(3인 팀)에서 직접 쿼리를 쓰던 예약 조회 화면들을 옮기는 작업에 참여했다",
+          "직장을 다니며 사이버대학에서 컴퓨터공학을 공부해 개발자로 전직했다",
+          "사이드 프로젝트로 Vue를 익히고 있다",
+          "(이력서에 없음) 예약 결제 모듈 교체에서 새 결제 대행사 웹훅을 받아 결제 상태를 갱신했고, 전환 뒤 3개월 동안 결제 누락 0건, 환불 오류 0건이었다",
+          "(이력서에 없음) 레거시 PHP 코드 Laravel 전환에서 내가 맡은 예약 조회 화면 6개에는 PHPUnit 기능 테스트를 붙였다. 다른 팀원 화면의 테스트는 작성하지 않았다"
+        ],
+        "not_done": ["웨딩 도메인 실무", "Symfony", "정산 시스템 개발"]
+      },
+      "expected_requirements": [
+        {"label": "백엔드 경력 3년", "group": "must", "resume": "ok", "kind": "eligibility"},
+        {"label": "PHP Laravel 개발", "group": "must", "resume": "ok"},
+        {"label": "MySQL 사용", "group": "must", "resume": "ok"},
+        {"label": "PG 결제 연동", "group": "preferred", "resume": "ok"},
+        {"label": "레거시 전환", "group": "preferred", "resume": "ok"},
+        {"label": "테스트 코드 작성", "group": "preferred", "resume": "missing"}
+      ],
+      "expected_star": {
+        "experience[0].description": "T",
+        "projects[0].description": "SAT",
+        "projects[1].description": "T",
+        "selfIntroduction.intro.body": "TA",
+        "selfIntroduction.challenge.body": "SA",
+        "selfIntroduction.growth.body": "A",
+        "selfIntroduction.strengthsWeaknesses.body": "A"
+      }
+    },
+    {
+      "id": "unseen4_network_c_entry__telecom",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0605", "email": "", "birthDate": "2000-12-01", "githubUrl": "https://github.com/example-net", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "C 언어 소켓 프로그래밍. 리눅스 네트워크 설정 경험. 패킷 분석 도구 사용 가능."
+          },
+          "experience": [
+            {
+              "id": "exp-1", "company": "예시통신연구소", "role": "학부 연구생", "startDate": "2024-07", "endDate": "2025-06", "isCurrent": false,
+              "description": "네트워크 연구실 학부연구생. 실험용 서버 관리. 트래픽 측정 스크립트 작성."
+            }
+          ],
+          "education": [{"id": "edu-1", "school": "예시대학교", "major": "정보통신공학과", "startDate": "2019-03", "endDate": "2026-02", "status": "졸업예정"}],
+          "techStack": [
+            {"id": "ts-1", "name": "C", "level": "중급"},
+            {"id": "ts-2", "name": "Linux", "level": "중급"},
+            {"id": "ts-3", "name": "Wireshark", "level": "중급"},
+            {"id": "ts-4", "name": "Python", "level": "초급"}
+          ],
+          "certifications": [{"id": "cert-1", "name": "네트워크관리사 2급", "issuer": "한국정보통신자격협회", "acquiredDate": "2023-07"}],
+          "awards": [],
+          "trainingExperience": [],
+          "otherActivities": [],
+          "projects": [
+            {
+              "id": "prj-1", "name": "멀티스레드 채팅 서버", "startDate": "2024-03", "endDate": "2024-06",
+              "role": "개인(수업 과제)", "techStack": "C, pthread, epoll",
+              "description": "epoll 로 여러 클라이언트 동시 접속 처리하는 채팅 서버 구현. 접속자 100명 테스트 함.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "캠퍼스 와이파이 품질 측정", "startDate": "2024-09", "endDate": "2024-12",
+              "role": "측정·분석(2인)", "techStack": "Python, iperf3",
+              "description": "건물별 와이파이 속도 측정하고 결과 지도로 정리",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "네트워크의 밑바닥을 좋아하는 개발자",
+              "body": "패킷이 어떻게 오가는지 직접 눈으로 보는 게 재밌어서 네트워크 공부를 시작했습니다. 연구실에서 서버를 관리하고 트래픽을 측정하면서 통신 장비 소프트웨어에 관심이 생겼습니다."
+            },
+            "motivation": {
+              "subtitle": "통신망을 만드는 일",
+              "body": "모두가 매일 쓰는 통신망이 끊기지 않게 만드는 일이 멋있다고 생각합니다. 예시텔레콤의 망 관리 소프트웨어 개발에 참여하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "접속자가 늘면 멈추던 서버",
+              "body": "채팅 서버 과제에서 접속자가 늘어나면 서버가 멈추는 문제가 있었습니다. 구조를 바꿔서 해결했습니다."
+            },
+            "growth": {
+              "subtitle": "측정하는 습관",
+              "body": "연구실에서 실험을 할때 결과를 느낌이 아니라 측정값으로 말해야 한다는 것을 배웠습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "집중력 / 문서화",
+              "body": "장점은 문제 하나에 오래 집중하는 것입니다. 단점은 정리를 잘 안하는 것입니다."
+            },
+            "aspiration": {
+              "subtitle": "끊기지 않는 망",
+              "body": "입사하면 망 장비 구조와 운영 방식부터 배우고 장애를 빨리 찾아내는 도구를 만드는 개발자가 되겠습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN4-05",
+        "company": "(주)예시텔레콤",
+        "title": "통신망 관리 소프트웨어 개발자 (신입)",
+        "text": "[주요업무]\n- 통신망 장비 모니터링·관리 소프트웨어 개발\n- 장애 탐지 도구 개발\n\n[자격요건]\n- C 또는 C++ 기반 개발 경험\n- TCP/IP 네트워크 이해\n- Linux 환경 개발 경험\n\n[우대사항]\n- 소켓·멀티스레드 프로그래밍 경험\n- SNMP 등 망 관리 프로토콜 이해\n- 패킷 분석 도구 사용 경험\n\n[근무조건]\n- 정규직, 경기 성남시"
+      },
+      "applicant": {
+        "facts": [
+          "예시통신연구소 네트워크 연구실 학부연구생으로 2024년 7월부터 2025년 6월까지 실험용 서버를 관리하고 트래픽 측정 스크립트를 작성했다",
+          "멀티스레드 채팅 서버를 수업 과제로 C와 epoll로 만들어 여러 클라이언트 동시 접속을 처리하고 접속자 100명 테스트를 했다",
+          "채팅 서버에서 접속자가 늘면 서버가 멈추는 문제를 구조를 바꿔 해결했다",
+          "캠퍼스 와이파이 품질 측정(2인)에서 Python과 iperf3로 건물별 와이파이 속도를 측정하고 결과를 지도로 정리했다",
+          "네트워크관리사 2급 자격증이 있다",
+          "(이력서에 없음) 채팅 서버는 처음에 접속마다 스레드를 만들어 60명쯤에서 멈췄고, epoll 이벤트 루프와 작업 스레드 4개 구조로 바꿔 접속자 100명에서 메시지 지연을 0.1초 안으로 유지했다",
+          "(이력서에 없음) 연구실 트래픽 측정 스크립트는 Python으로 서버 인터페이스 사용량을 1분마다 기록하는 것이었다. SNMP는 수업에서 개념만 배웠고 직접 써 본 적은 없다"
+        ],
+        "not_done": ["SNMP 실제 사용", "C++ 개발", "통신 장비 실무"]
+      },
+      "expected_requirements": [
+        {"label": "C/C++ 개발", "group": "must", "resume": "ok"},
+        {"label": "TCP/IP 이해", "group": "must", "resume": "partial"},
+        {"label": "Linux 환경 개발", "group": "must", "resume": "ok"},
+        {"label": "소켓·멀티스레드", "group": "preferred", "resume": "ok"},
+        {"label": "SNMP 망 관리", "group": "preferred", "resume": "missing"},
+        {"label": "패킷 분석 도구", "group": "preferred", "resume": "ok"}
+      ],
+      "expected_star": {
+        "experience[0].description": "TA",
+        "projects[0].description": "TA",
+        "projects[1].description": "TA",
+        "selfIntroduction.intro.body": "S",
+        "selfIntroduction.challenge.body": "SR",
+        "selfIntroduction.growth.body": "",
+        "selfIntroduction.strengthsWeaknesses.body": ""
+      }
+    }
+  ]
+}

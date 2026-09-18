@@ -1,0 +1,885 @@
+{
+  "_comment": "챗봇 평가 케이스. 두 층이 이 파일 하나를 같이 쓴다. --router 는 말을 가른 결과(intent·topic·counts_jobs·job_refs·unavailable)를, --run 은 앱이 보는 응답(mode·filters·picked_rank)과 답 규율(rules)을 본다. rules 는 사람 없이도 확실히 틀렸다고 말할 수 있는 것만 잡는다 — 답이 좋은지는 채점 페이지(--sheet)에서 사람이 매긴다. turns 가 여럿이면 앞 턴의 응답을 다음 턴에 그대로 실어 보낸다. expect 에 적지 않은 칸은 안 본다.",
+  "cases": [
+    {
+      "id": "search-basic",
+      "note": "가장 흔한 말. 직무·지역·경력이 한 문장에 다 있다",
+      "turns": [
+        {
+          "message": "서울 백엔드 신입 찾아줘",
+          "expect": {
+            "intent": "검색",
+            "mode": "검색",
+            "filters": {
+              "roles": [
+                "백엔드"
+              ],
+              "regions": [
+                "서울"
+              ],
+              "career": "신입"
+            },
+            "topic": "채용",
+            "rules": [
+              "말투",
+              "건수",
+              "표라는말",
+              "마크다운표"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "search-skill",
+      "note": "기술로 찾는 말. roles 가 아니라 skills 로 가야 한다",
+      "turns": [
+        {
+          "message": "Spring Boot 쓰는 회사 있어?",
+          "expect": {
+            "intent": "검색",
+            "mode": "검색",
+            "filters": {
+              "skills": [
+                "Spring Boot"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "search-by-meaning",
+      "note": "조건으로 옮길 말이 없다. 뜻으로 찾아야 하므로 requirement_query 가 있어야 한다",
+      "turns": [
+        {
+          "message": "돈 다루는 일 없나",
+          "expect": {
+            "intent": "검색",
+            "requirement_query_nonempty": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "search-deadline",
+      "note": "급한 말을 날짜 조건으로 옮기는가",
+      "turns": [
+        {
+          "message": "마감 임박한 백엔드 공고만 보여줘",
+          "expect": {
+            "intent": "검색",
+            "filters": {
+              "roles": [
+                "백엔드"
+              ]
+            },
+            "deadline_set": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "context-narrow",
+      "note": "직전 조건을 이어받아 좁힌다. 직무가 살아 있어야 한다",
+      "turns": [
+        {
+          "message": "백엔드 공고 보여줘",
+          "expect": {
+            "intent": "검색",
+            "filters": {
+              "roles": [
+                "백엔드"
+              ]
+            }
+          }
+        },
+        {
+          "message": "서울만",
+          "expect": {
+            "filters": {
+              "roles": [
+                "백엔드"
+              ],
+              "regions": [
+                "서울"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "context-replace-role",
+      "note": "다른 직무를 말하면 직무만 갈아치우고 지역은 남긴다",
+      "turns": [
+        {
+          "message": "서울 백엔드 찾아줘",
+          "expect": {
+            "filters": {
+              "roles": [
+                "백엔드"
+              ],
+              "regions": [
+                "서울"
+              ]
+            }
+          }
+        },
+        {
+          "message": "아니 디자이너 쪽",
+          "expect": {
+            "filters": {
+              "regions": [
+                "서울"
+              ]
+            },
+            "roles_not": [
+              "백엔드"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "context-reset",
+      "note": "처음부터라고 하면 조건을 다 비운다",
+      "turns": [
+        {
+          "message": "서울 백엔드 신입",
+          "expect": {
+            "filters": {
+              "roles": [
+                "백엔드"
+              ]
+            }
+          }
+        },
+        {
+          "message": "처음부터 다시",
+          "expect": {
+            "filters_empty": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "ask-counts",
+      "note": "공고를 세면 답이 되는 물음. counts_jobs 가 켜져야 숫자로 답한다",
+      "turns": [
+        {
+          "message": "백엔드 신입은 어떤 기술을 많이 요구해?",
+          "expect": {
+            "intent": "질문",
+            "mode": "질문",
+            "counts_jobs": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "ask-no-counts",
+      "note": "세어도 답이 안 나오는 물음. 켜지면 엉뚱한 숫자로 답을 시작한다",
+      "turns": [
+        {
+          "message": "자기소개서 어떻게 써야 해?",
+          "expect": {
+            "intent": "질문",
+            "counts_jobs": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "ask-feeling",
+      "note": "취업을 두고 하는 토로. 잡담으로 내리면 정해진 안내문만 나가고 아무도 답하지 않는다",
+      "turns": [
+        {
+          "message": "취업하고 싶은데 취업하기 싫어 이런 기분 알아?",
+          "expect": {
+            "intent": "질문",
+            "counts_jobs": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "ref-single",
+      "note": "직전 목록에서 2번을 가리킨다. 서버가 그 공고 원문으로 답해야 한다",
+      "turns": [
+        {
+          "message": "서울 백엔드 신입 찾아줘",
+          "expect": {
+            "mode": "검색"
+          }
+        },
+        {
+          "message": "2번 자세히 봐줘",
+          "expect": {
+            "job_refs": [
+              2
+            ],
+            "mode": "공고",
+            "picked_rank": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "ref-ordinal-word",
+      "note": "숫자가 아니라 차례말로 가리킨다",
+      "turns": [
+        {
+          "message": "서울 백엔드 신입 찾아줘",
+          "expect": {
+            "mode": "검색"
+          }
+        },
+        {
+          "message": "첫 번째 거 자격요건 알려줘",
+          "expect": {
+            "job_refs": [
+              1
+            ],
+            "picked_rank": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "ref-compare",
+      "note": "둘을 가리키면 비교다. 말한 순서를 지켜야 한다",
+      "turns": [
+        {
+          "message": "서울 백엔드 신입 찾아줘",
+          "expect": {
+            "mode": "검색"
+          }
+        },
+        {
+          "message": "1번하고 3번 비교해줘",
+          "expect": {
+            "job_refs": [
+              1,
+              3
+            ],
+            "mode": "비교",
+            "rules": [
+              "말투",
+              "ab라벨"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "ref-out-of-range",
+      "note": "보여 준 것보다 큰 번호. 엉뚱한 공고를 집으면 안 된다",
+      "turns": [
+        {
+          "message": "서울 백엔드 신입 찾아줘",
+          "expect": {
+            "mode": "검색"
+          }
+        },
+        {
+          "message": "30번 알려줘",
+          "expect": {
+            "mode_not": "공고"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ref-without-list",
+      "note": "앞에 보여 준 것이 없는데 번호를 말한다",
+      "turns": [
+        {
+          "message": "2번 알려줘",
+          "expect": {
+            "mode": "안내"
+          }
+        }
+      ]
+    },
+    {
+      "id": "number-is-not-a-ref",
+      "note": "숫자처럼 보여도 자리를 가리키는 말이 아니다. 경력 연차다 — 그 숫자로 걸러야 한다",
+      "turns": [
+        {
+          "message": "3년차인데 갈 만한 데 있어?",
+          "expect": {
+            "job_refs": [],
+            "career_years": 3
+          }
+        }
+      ]
+    },
+    {
+      "id": "recommend",
+      "note": "이력서를 근거로 골라 달라는 말. 앱이 추천 API로 넘긴다",
+      "turns": [
+        {
+          "message": "내 이력서 보고 맞는 공고 찾아줘",
+          "expect": {
+            "intent": "추천",
+            "mode": "추천",
+            "resume_scope": "전체",
+            "topic": "채용"
+          }
+        }
+      ]
+    },
+    {
+      "id": "recommend-scoped",
+      "note": "이력서의 어디를 볼지 콕 집어 말했다",
+      "turns": [
+        {
+          "message": "내 프로젝트 경험만 보고 추천해줘",
+          "expect": {
+            "intent": "추천",
+            "resume_scope": "프로젝트"
+          }
+        }
+      ]
+    },
+    {
+      "id": "unavailable-salary",
+      "note": "우리가 안 가진 정보. 모른다고 말해야 한다",
+      "turns": [
+        {
+          "message": "연봉 높은 순으로 보여줘",
+          "expect": {
+            "unavailable": "급여"
+          }
+        }
+      ]
+    },
+    {
+      "id": "unavailable-pass",
+      "note": "합격 가능성은 점치지 않는다",
+      "turns": [
+        {
+          "message": "나 여기 붙을 확률 얼마야?",
+          "expect": {
+            "unavailable": "합격 가능성"
+          }
+        }
+      ]
+    },
+    {
+      "id": "off-topic",
+      "note": "채용 밖의 일. 답을 쓰는 단계로 보내지 않는다",
+      "turns": [
+        {
+          "message": "오늘 날씨 어때?",
+          "expect": {
+            "mode": "안내",
+            "topic_not": "채용"
+          }
+        }
+      ]
+    },
+    {
+      "id": "polite-tone",
+      "note": "반말로 물어도 존댓말로 답한다. 처음 쓰는 도구가 먼저 말을 놓으면 무례하게 읽힌다",
+      "turns": [
+        {
+          "message": "야 백엔드 공고 좀 찾아줘",
+          "expect": {
+            "intent": "검색",
+            "polite": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "search-narrow-only",
+      "note": "앞 조건에 얹는 말도 검색이다",
+      "turns": [
+        {
+          "message": "마감 임박한 것만",
+          "expect": {
+            "topic": "채용",
+            "intent": "검색"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ask-prepare",
+      "note": "세면 답이 되는 물음. 센 표를 근거로 쓰되 사용자는 표를 본 적이 없다",
+      "turns": [
+        {
+          "message": "백엔드 신입은 뭘 준비해야 해?",
+          "expect": {
+            "intent": "질문",
+            "counts_jobs": true,
+            "rules": [
+              "말투",
+              "건수",
+              "표라는말",
+              "마크다운표"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "ask-interview",
+      "note": "면접은 취업 준비의 하나다. 채용 밖으로 밀면 안 된다",
+      "turns": [
+        {
+          "message": "면접에서 뭘 물어봐?",
+          "expect": {
+            "topic": "채용",
+            "intent": "질문"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ask-despair",
+      "note": "취업을 두고 하는 토로. 반말로 물어도 존댓말로 답한다",
+      "turns": [
+        {
+          "message": "취업 너무 막막해",
+          "expect": {
+            "topic": "채용",
+            "intent": "질문",
+            "rules": [
+              "말투",
+              "표라는말"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "greeting",
+      "note": "인사에 사용법 안내가 돌아오면 사람과 말하는 것 같지 않다",
+      "turns": [
+        {
+          "message": "안녕",
+          "expect": {
+            "topic": "인사",
+            "rules": [
+              "말투",
+              "인사에안내금지"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "off-topic-slur",
+      "note": "뜻풀이와 '부드럽게 바꿔 말해줘' 제안까지 붙어 나간 적이 있다",
+      "turns": [
+        {
+          "message": "호구",
+          "expect": {
+            "topic": "그 밖",
+            "rules": [
+              "범위밖고정문구"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "off-topic-abuse",
+      "note": "목록에 걸려 모델을 부르지 않고 막혀야 한다",
+      "turns": [
+        {
+          "message": "바보",
+          "expect": {
+            "rules": [
+              "범위밖고정문구"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "off-topic-gift",
+      "note": "목록으로는 못 막는 말. 가르는 단계에서 걸러야 한다",
+      "turns": [
+        {
+          "message": "친구 생일선물 뭐 사지",
+          "expect": {
+            "topic": "그 밖",
+            "rules": [
+              "범위밖고정문구"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "off-topic-code",
+      "note": "채용 밖의 일",
+      "turns": [
+        {
+          "message": "파이썬으로 퀵소트 코드 짜줘",
+          "expect": {
+            "topic": "그 밖"
+          }
+        }
+      ]
+    },
+    {
+      "id": "off-topic-code-excuse",
+      "note": "채용을 빌미로 삼았을 뿐 우리가 할 일이 아니다",
+      "turns": [
+        {
+          "message": "면접 준비하게 파이썬 코드 짜줘",
+          "expect": {
+            "topic": "그 밖"
+          }
+        }
+      ]
+    },
+    {
+      "id": "refers-last-answer",
+      "note": "번호 없이 방금 그거를 가리킨 말. 챗봇이 직접 내놓는 제안 문구다",
+      "turns": [
+        {
+          "message": "두 공고의 자격요건만 간단히 비교해줘",
+          "expect": {
+            "refers_to_last_answer": true,
+            "job_refs": []
+          }
+        }
+      ]
+    },
+    {
+      "id": "not-refers-last-answer",
+      "note": "새로 찾아 달라는 말이지 방금 그것을 가리킨 것이 아니다",
+      "turns": [
+        {
+          "message": "다른 공고도 보여줘",
+          "expect": {
+            "refers_to_last_answer": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "unavailable-salary-why",
+      "note": "왜 못 하는지 밝혀야 한다. 조건을 빼 보라고 하면 안 된다",
+      "turns": [
+        {
+          "message": "급여 제일 높은 공고",
+          "expect": {
+            "unavailable": "급여",
+            "rules": [
+              "말투",
+              "면접후결정"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "career-years-entry",
+      "note": "신입이라고만 하면 연차를 지어내지 않는다. 0으로 박으면 연차 미기재 공고가 빠진다",
+      "turns": [
+        {
+          "message": "신입인데 갈 만한 데 있어?",
+          "expect": {
+            "filters": {
+              "career": "신입"
+            },
+            "career_years_unset": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "show-more-twice",
+      "note": "이거 말고를 거듭하면 앞에서 본 공고가 다시 나오면 안 된다",
+      "turns": [
+        {
+          "message": "서울 백엔드 신입 찾아줘",
+          "expect": {
+            "mode": "검색"
+          }
+        },
+        {
+          "message": "이거 말고 다른 거 보여줘",
+          "expect": {
+            "mode": "검색",
+            "show_more": true,
+            "new_jobs": true,
+            "rules": [
+              "건수"
+            ]
+          }
+        },
+        {
+          "message": "또 다른 거 없어?",
+          "expect": {
+            "mode": "검색",
+            "show_more": true,
+            "new_jobs": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "narrow-is-not-more",
+      "note": "조건을 바꾸는 말은 더 보기가 아니다",
+      "turns": [
+        {
+          "message": "백엔드 신입 공고",
+          "expect": {
+            "mode": "검색"
+          }
+        },
+        {
+          "message": "서울 것만 다시 찾아줘",
+          "expect": {
+            "show_more": false,
+            "filters": {
+              "regions": [
+                "서울"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "exclude-company-type",
+      "note": "빼 달라는 말. 예전에는 칸이 없어 답만 '스타트업을 제외하고'라 하고 안 뺐다",
+      "turns": [
+        {
+          "message": "스타트업은 빼고 데이터 분석 신입",
+          "expect": {
+            "intent": "검색",
+            "mode": "검색",
+            "filters": {
+              "exclude_keywords": [
+                "스타트업"
+              ],
+              "career": "신입"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "exclude-dispatch",
+      "note": "'빼고·제외' 없이 싫다고만 해도 빼는 조건이다",
+      "turns": [
+        {
+          "message": "파견은 싫어요, 서울 QA 공고 보여줘",
+          "expect": {
+            "intent": "검색",
+            "mode": "검색",
+            "filters": {
+              "roles": [
+                "QA"
+              ],
+              "regions": [
+                "서울"
+              ],
+              "exclude_keywords": [
+                "파견"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "exclude-kept-on-follow-up",
+      "note": "빼는 조건은 다음 말에도 이어진다. 앱이 조건을 되돌려 보내야 한다",
+      "turns": [
+        {
+          "message": "헤드헌팅 말고 백엔드 공고",
+          "expect": {
+            "intent": "검색",
+            "filters": {
+              "roles": [
+                "백엔드"
+              ],
+              "exclude_keywords": [
+                "헤드헌팅"
+              ]
+            }
+          }
+        },
+        {
+          "message": "서울만",
+          "expect": {
+            "intent": "검색",
+            "filters": {
+              "roles": [
+                "백엔드"
+              ],
+              "regions": [
+                "서울"
+              ],
+              "exclude_keywords": [
+                "헤드헌팅"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "region-swap-is-not-exclusion",
+      "note": "'서울 말고 부산'은 지역을 바꾸는 말이지 빼는 조건이 아니다",
+      "turns": [
+        {
+          "message": "서울 말고 부산 쪽 프론트엔드",
+          "expect": {
+            "intent": "검색",
+            "filters": {
+              "roles": [
+                "프론트엔드"
+              ],
+              "regions": [
+                "부산"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "posted-today",
+      "note": "최근 올라온 공고. 예전에는 날짜로 안 걸러 개발 공고 전체가 나갔다",
+      "turns": [
+        {
+          "message": "오늘 새로 올라온 개발 공고",
+          "expect": {
+            "intent": "검색",
+            "mode": "검색",
+            "posted_within_days": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "deadline-is-not-posted",
+      "note": "'이번 주 마감'은 마감 조건이다. 올라온 날과 방향이 반대다",
+      "turns": [
+        {
+          "message": "이번 주 마감되는 백엔드 공고",
+          "expect": {
+            "intent": "검색",
+            "deadline_set": true,
+            "posted_unset": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "career-entry-possible",
+      "note": "'경력 무관 신입 가능'은 신입이다. 무관으로 두면 경력 5년 공고가 섞였다",
+      "turns": [
+        {
+          "message": "경력 무관 신입 가능한 QA",
+          "expect": {
+            "intent": "검색",
+            "filters": {
+              "roles": [
+                "QA"
+              ],
+              "career": "신입"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "count-ai-postings",
+      "note": "무엇의 공고를 묻는지 말했으면 조건으로 뽑아야 셀 수 있다",
+      "turns": [
+        {
+          "message": "요즘 AI 공고 많아?",
+          "expect": {
+            "intent": "질문",
+            "mode": "질문",
+            "counts_jobs": true,
+            "filters": {
+              "roles": [
+                "AI"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "question-new-topic-drops-previous",
+      "note": "새 주제로 묻는 질문에 앞 검색의 서울·대기업·신입이 붙어 24건짜리 표로 답했다",
+      "turns": [
+        {
+          "message": "대기업 IT 신입",
+          "expect": {
+            "intent": "검색"
+          }
+        },
+        {
+          "message": "서울만",
+          "expect": {
+            "intent": "검색",
+            "filters": {
+              "regions": [
+                "서울"
+              ]
+            }
+          }
+        },
+        {
+          "message": "데이터 분석가 되려면 뭐 준비해야 해?",
+          "expect": {
+            "intent": "질문",
+            "mode": "질문",
+            "filters": {
+              "roles": [
+                "데이터분석"
+              ]
+            },
+            "empty_fields": [
+              "regions",
+              "keywords",
+              "career"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "question-about-shown-list-keeps",
+      "note": "'그중에'는 앞 목록을 가리킨다. 이때는 조건을 이어받는다",
+      "turns": [
+        {
+          "message": "서울 백엔드 신입 찾아줘",
+          "expect": {
+            "intent": "검색"
+          }
+        },
+        {
+          "message": "그중에 파이썬 요구하는 데 많아?",
+          "expect": {
+            "intent": "질문",
+            "filters": {
+              "roles": [
+                "백엔드"
+              ],
+              "regions": [
+                "서울"
+              ],
+              "career": "신입"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

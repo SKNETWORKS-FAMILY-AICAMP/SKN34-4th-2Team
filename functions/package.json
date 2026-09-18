@@ -1,0 +1,28 @@
+{
+  "name": "playdata-lms-functions",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PLAYDATA LMS Cloud Functions",
+  "main": "lib/index.js",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "shell": "npm run build && firebase functions:shell",
+    "start": "npm run shell",
+    "deploy": "npm run build && firebase deploy --only functions",
+    "deploy:assessments": "npm run build && firebase deploy --only functions:generateAssessmentQuestions,functions:getAssessmentForTake,functions:submitAssessment,functions:getAssessmentReview,functions:adjustAssessmentScores",
+    "logs": "firebase functions:log"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "firebase-functions": "^6.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

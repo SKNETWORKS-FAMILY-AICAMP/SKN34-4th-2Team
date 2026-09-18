@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "737679563447",
+    "project_id": "skn34-3rd-2team",
+    "storage_bucket": "skn34-3rd-2team.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:737679563447:android:c08172132e8b68848bcb32",
+        "android_client_info": {
+          "package_name": "com.playdata.playdata_lms"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBTjWQxkJpntmMNbvsEzZZJ4DSFPddKInw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

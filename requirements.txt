@@ -1,0 +1,61 @@
+# AI 취업 코치 파이프라인 (Python 3.12)
+#
+#   py -3.12 -m venv playdata_venv
+#   playdata_venv\Scripts\activate
+#   pip install -r requirements.txt
+#
+# 첨삭 모듈(cover_letter_rag)과 한 가상환경에서 함께 실행한다. 통합 서버가 두 모듈을
+# 한 프로세스로 띄우므로, 공통 패키지는 cover_letter_rag/pyproject.toml 과 버전 범위를
+# 맞춘다. 한쪽만 올리면 다른 쪽이 깨진다.
+#
+#   python -m uvicorn app.integrated:app --app-dir cover_letter_rag --port 8000
+#
+# 학생 LMS 챗봇(chatbot/)과 공부방 노트(study_notes/)도 이 통합 서버에 포함된다. 서버 하나만 띄우면 된다.
+
+# LLM 추출 — OpenAI. CLOVA Studio도 OpenAI 호환 엔드포인트라 같은 패키지를 쓴다.
+openai>=1.60
+
+# LLM 응답 스키마 검증 (설계 문서 §14)
+pydantic>=2.9
+
+# 수집 (job_matching_bot/crawling/)
+requests>=2.32
+beautifulsoup4>=4.12
+
+# 추천·챗봇 API 서버 (job_matching_bot/api/)
+fastapi>=0.116,<2
+uvicorn[standard]>=0.34,<1
+
+# 프롬프트 조립·청킹·구조화 출력
+langchain-core>=1.1,<2
+langchain-text-splitters>=1.0,<2
+langchain-openai>=1.4.1,<2
+
+# 벡터 검색·적재. langchain-pinecone은 Pinecone 버전 제약 충돌을 피해 사용하지 않는다.
+pinecone>=9,<11
+
+# 정책 XLS/XLSX 수집
+openpyxl>=3.1
+xlrd>=2
+
+# 공고 데이터 공유 (Firebase Storage)
+firebase-admin>=7,<8
+pypdf>=5,<7
+
+# 첨삭 API 설정 및 .env 로딩
+pydantic-settings>=2.7,<3
+python-dotenv>=1.0,<2
+
+# ── 여기까지가 통합 서버를 띄우는 데 필요한 전부다 ───────────
+#
+# 첨삭 모듈의 옛 자기소개서 RAG(Chroma·Pinecone 공고 색인)는 걷어냈다. 첨삭 서버는 위 패키지만 쓴다.
+# 첨삭 테스트 도구만 따로 설치할 때:
+#
+#   pip install -e ./cover_letter_rag[dev]   # + pytest-cov, httpx
+
+# 기타 랭체인 라이브러리
+langchain
+langchain_classic
+langchain_community
+langgraph
+lark

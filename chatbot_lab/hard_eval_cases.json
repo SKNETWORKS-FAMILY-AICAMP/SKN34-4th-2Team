@@ -1,0 +1,72 @@
+[
+  {
+    "id": "implicit_previous_project",
+    "question": "지난 기수에서 우리랑 비슷한 거 한 팀 있어? 깃 주소도 같이 줘",
+    "route": "lms",
+    "namespaces": ["project_reference"],
+    "student_scopes": []
+  },
+  {
+    "id": "implicit_attendance_allowance",
+    "question": "이번 달 빠진 거 반영해서 장려금 받을 수 있는지도 봐줘",
+    "route": "lms",
+    "namespaces": ["policy"],
+    "student_scopes": ["student_private"]
+  },
+  {
+    "id": "project_notice_combo",
+    "question": "프로젝트 발표 바뀐 거랑 참고할 만한 전 기수 사례 같이 알려줘",
+    "route": "lms",
+    "namespaces": ["notice", "project_reference"],
+    "student_scopes": []
+  },
+  {
+    "id": "implicit_policy_notice_conflict",
+    "question": "어제 올라온 라운지 안내가 OT 때 들은 내용이랑 달라?",
+    "route": "lms",
+    "namespaces": ["policy", "notice"],
+    "student_scopes": []
+  },
+  {
+    "id": "assignment_file_project_combo",
+    "question": "내가 낸 파일이랑 비슷한 이전 팀 결과물 찾아줘",
+    "route": "lms",
+    "namespaces": ["project_reference"],
+    "student_scopes": ["student_private", "assignment_files"]
+  },
+  {
+    "id": "project_and_current_assignment",
+    "question": "34기 2차에 쓴 기술이랑 지금 우리 과제 마감도 알려줘",
+    "route": "lms",
+    "namespaces": ["project_reference"],
+    "student_scopes": ["cohort_shared"]
+  },
+  {
+    "id": "implicit_late_allowance",
+    "question": "장려금 괜찮을까? 이번 달 늦은 날이 좀 있는데",
+    "route": "lms",
+    "namespaces": ["policy"],
+    "student_scopes": ["student_private"]
+  },
+  {
+    "id": "material_and_project",
+    "question": "자연어 처리 자료 어디 있고 그걸 쓴 최종 프로젝트도 있어?",
+    "route": "lms",
+    "namespaces": ["project_reference"],
+    "student_scopes": ["material_files"]
+  },
+  {
+    "id": "notice_and_private_todos",
+    "question": "이번 주 일정 바뀐 공지랑 내 할 일 한 번에 정리해줘",
+    "route": "lms",
+    "namespaces": ["notice"],
+    "student_scopes": ["student_private"]
+  },
+  {
+    "id": "policy_and_submitted_evidence",
+    "question": "이게 공가로 되는지랑 내가 제출한 증빙 파일도 확인해줘",
+    "route": "lms",
+    "namespaces": ["policy"],
+    "student_scopes": ["student_private", "record_files"]
+  }
+]

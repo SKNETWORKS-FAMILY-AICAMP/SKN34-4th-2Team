@@ -1,0 +1,185 @@
+{
+  "_comment": "평가 전용 가상 이력서. 구조는 resume_mocks.json 과 똑같고 같은 직렬화기(resume_text_builder)를 쓴다. 앱의 목업 메뉴에는 안 넣는다 — 거긴 사람이 눌러 쓰는 곳이고 여기는 재는 곳이다. 기존 5종으로 프롬프트와 가중치를 고쳤으므로, 같은 것으로 다시 재면 자기 데이터에 맞춘 셈이 된다. 직무·연차·학력·자격증이 기존과 겹치지 않게 골랐다.",
+  "personas": {
+    "qa_entry": {
+      "title": "[평가] QA 엔지니어 신입 — 자동화 테스트",
+      "content": {
+        "basicInfo": {"name": "", "phone": "010-0000-0011", "email": "", "birthDate": "2001-04-09", "githubUrl": "https://github.com/example-qa", "blogUrl": ""},
+        "coreCompetencies": {"text": "Selenium과 Playwright로 웹 서비스 회귀 테스트를 자동화했습니다. 테스트 케이스를 직접 설계하고 CI에 붙여 배포 전에 돌아가게 만든 경험이 있습니다."},
+        "experience": [],
+        "education": [{"id": "edu-1", "school": "한국대학교", "major": "컴퓨터공학과", "startDate": "2020-03", "endDate": "2025-02", "status": "졸업"}],
+        "techStack": [
+          {"id": "ts-1", "name": "Python", "level": "중급"},
+          {"id": "ts-2", "name": "Selenium", "level": "고급"},
+          {"id": "ts-3", "name": "Playwright", "level": "중급"},
+          {"id": "ts-4", "name": "JavaScript", "level": "초급"},
+          {"id": "ts-5", "name": "SQL", "level": "중급"},
+          {"id": "ts-6", "name": "Git", "level": "중급"}
+        ],
+        "certifications": [
+          {"id": "cert-1", "name": "정보처리기사", "issuer": "한국산업인력공단", "acquiredDate": "2025-05"},
+          {"id": "cert-2", "name": "ISTQB", "issuer": "ISTQB", "acquiredDate": "2025-08"}
+        ],
+        "awards": [],
+        "trainingExperience": [{"id": "tr-1", "course": "SK네트웍스 Family AI 캠프 34기", "organization": "PLAYDATA", "startDate": "2026-03", "endDate": "2026-09", "description": "테스트 자동화와 데이터 처리를 함께 배우려고 수강"}],
+        "otherActivities": [],
+        "projects": [
+          {"id": "prj-1", "name": "쇼핑몰 회귀 테스트 자동화", "startDate": "2026-05", "endDate": "2026-08", "role": "QA(단독)", "techStack": "Python, Selenium, pytest", "description": "주문·결제 흐름 120개 케이스를 자동화하고 GitHub Actions에 붙였습니다. 수동 회귀에 이틀 걸리던 것이 40분이 됐습니다.", "url": ""},
+          {"id": "prj-2", "name": "API 응답 검증 도구", "startDate": "2026-03", "endDate": "2026-04", "role": "QA", "techStack": "Python, SQL", "description": "응답 JSON을 스키마와 대조하고 어긋난 필드를 표로 뽑아 주는 도구를 만들었습니다.", "url": ""}
+        ],
+        "selfIntroduction": {
+          "intro": {"subtitle": "버그가 왜 났는지까지 적는 QA", "body": "재현 절차만 남기지 않고 어느 조건에서 갈리는지 좁혀서 전달합니다."},
+          "motivation": {"subtitle": "배포 전에 막는 일을 하고 싶습니다", "body": "수동 회귀를 돌리다 보니 사람이 매번 같은 곳을 놓친다는 걸 알았습니다. 자동화해 두면 사람은 새로 생긴 위험만 보면 됩니다. 그 구조를 만드는 일을 하고 싶습니다."},
+          "challenge": {"subtitle": "불안정한 테스트를 걷어낸 일", "body": "자동화한 케이스가 열 번에 한 번씩 실패해 아무도 안 믿게 됐습니다. 로그를 모아 보니 화면 전환을 기다리지 않고 다음 동작을 하는 것이 원인이었습니다. 대기 조건을 요소 기준으로 바꿔 실패율을 0으로 만들었습니다."},
+          "growth": {"subtitle": "많이 잡는 것에서 빨리 알리는 것으로", "body": "처음에는 케이스를 늘리는 데 집중했습니다. 그런데 결과가 나오기까지 한 시간이 걸리면 개발자가 이미 다음 일을 하고 있습니다. 자주 깨지는 것부터 먼저 돌리게 순서를 바꿨습니다."},
+          "strengthsWeaknesses": {"subtitle": "기록은 꼼꼼하고 속도는 아쉽습니다", "body": "재현 절차와 조건을 빠짐없이 적는 편입니다. 대신 처음 보는 도메인에서는 케이스를 잡는 데 시간이 걸립니다."},
+          "aspiration": {"subtitle": "테스트가 배포를 막지 않게", "body": "테스트 때문에 배포가 늦어지는 팀을 여럿 봤습니다. 빠르고 믿을 수 있는 테스트를 만들어 그 반대가 되게 하고 싶습니다."}
+        }
+      }
+    },
+    "security_entry": {
+      "title": "[평가] 정보보안 신입 — 네트워크·관제",
+      "content": {
+        "basicInfo": {"name": "", "phone": "010-0000-0012", "email": "", "birthDate": "2000-11-30", "githubUrl": "", "blogUrl": "https://example-sec.tistory.com"},
+        "coreCompetencies": {"text": "방화벽·IPS 로그를 분석해 오탐을 걸러내고 차단 정책을 제안한 경험이 있습니다. 리눅스 서버 취약점 점검을 스크립트로 자동화했습니다."},
+        "experience": [],
+        "education": [{"id": "edu-1", "school": "충남대학교", "major": "정보보호학과", "startDate": "2019-03", "endDate": "2025-02", "status": "졸업"}],
+        "techStack": [
+          {"id": "ts-1", "name": "Linux", "level": "고급"},
+          {"id": "ts-2", "name": "Python", "level": "중급"},
+          {"id": "ts-3", "name": "Wireshark", "level": "중급"},
+          {"id": "ts-4", "name": "Snort", "level": "중급"},
+          {"id": "ts-5", "name": "Network", "level": "고급"},
+          {"id": "ts-6", "name": "SQL", "level": "초급"}
+        ],
+        "certifications": [
+          {"id": "cert-1", "name": "정보보안기사", "issuer": "한국인터넷진흥원", "acquiredDate": "2025-06"},
+          {"id": "cert-2", "name": "리눅스마스터", "issuer": "한국정보통신진흥협회", "acquiredDate": "2024-09"}
+        ],
+        "awards": [{"id": "awd-1", "name": "대학생 정보보호 경진대회 장려상", "organization": "한국인터넷진흥원", "date": "2024-10", "description": "웹 취약점 분석 부문으로 참가해 SQL 인젝션 탐지 규칙을 제안했습니다."}],
+        "trainingExperience": [{"id": "tr-1", "course": "SK네트웍스 Family AI 캠프 34기", "organization": "PLAYDATA", "startDate": "2026-03", "endDate": "2026-09", "description": "보안 로그를 데이터로 다루는 법을 배우려고 수강"}],
+        "otherActivities": [{"id": "act-1", "name": "교내 보안 동아리 운영", "startDate": "2023-03", "endDate": "2024-12", "description": "주 1회 모의해킹 실습을 진행하고 결과를 정리해 공유했습니다."}],
+        "projects": [
+          {"id": "prj-1", "name": "방화벽 로그 분석 자동화", "startDate": "2026-06", "endDate": "2026-08", "role": "단독", "techStack": "Python, Linux", "description": "하루 200만 건 로그에서 반복되는 오탐 패턴을 뽑아 규칙으로 만들었습니다. 확인해야 할 알림이 하루 300건에서 40건이 됐습니다.", "url": ""},
+          {"id": "prj-2", "name": "서버 취약점 점검 스크립트", "startDate": "2026-04", "endDate": "2026-05", "role": "단독", "techStack": "Python, Linux", "description": "계정·권한·불필요 서비스를 점검해 보고서로 뽑는 스크립트를 작성했습니다.", "url": ""}
+        ],
+        "selfIntroduction": {
+          "intro": {"subtitle": "알림을 줄이는 관제", "body": "모든 알림을 보는 것보다 봐야 할 알림만 남기는 일이 중요하다고 생각합니다."},
+          "motivation": {"subtitle": "사고가 나기 전에 보고 싶습니다", "body": "실습에서 침해 흔적을 사후에 찾는 일을 해 봤는데, 이미 일어난 일을 되짚는 것이었습니다. 그전에 막는 자리에서 일하고 싶습니다."},
+          "challenge": {"subtitle": "오탐 때문에 아무도 안 보던 알림", "body": "동아리에서 운영하던 서버의 IPS 알림이 하루 수백 건이라 아무도 안 열어 봤습니다. 한 달치를 모아 보니 같은 스캐너 몇 개가 대부분이었습니다. 그것을 제외 규칙으로 만들고 남은 것만 보게 바꿔 실제 침해 시도를 하나 찾았습니다."},
+          "growth": {"subtitle": "차단하는 것에서 설명하는 것으로", "body": "처음에는 의심스러우면 다 막았습니다. 그런데 업무가 막히면 결국 규칙을 풀게 됩니다. 왜 막아야 하는지 근거를 정리해 전달하는 쪽으로 바꿨습니다."},
+          "strengthsWeaknesses": {"subtitle": "끈질기지만 늦습니다", "body": "원인을 찾을 때까지 파고드는 편입니다. 대신 판단이 필요한 순간에 확신이 설 때까지 기다리는 버릇이 있습니다."},
+          "aspiration": {"subtitle": "막는 이유를 설명할 수 있는 사람", "body": "보안이 업무를 막는 부서로 보이지 않게, 근거를 들고 이야기할 수 있는 담당자가 되고 싶습니다."}
+        }
+      }
+    },
+    "devops_experienced_2y": {
+      "title": "[평가] DevOps 경력 2년 — Kubernetes/AWS",
+      "content": {
+        "basicInfo": {"name": "", "phone": "010-0000-0013", "email": "", "birthDate": "1998-02-14", "githubUrl": "https://github.com/example-devops", "blogUrl": ""},
+        "coreCompetencies": {"text": "AWS EKS에서 마이크로서비스 20여 개를 운영하고 GitHub Actions로 배포 파이프라인을 만들었습니다. Terraform으로 인프라를 코드로 관리한 경험이 있습니다."},
+        "experience": [{"id": "exp-1", "company": "(주)예시클라우드", "role": "DevOps 엔지니어", "startDate": "2024-03", "endDate": "2026-03", "isCurrent": false, "description": "EKS 클러스터 운영, CI/CD 구축, 모니터링 체계 도입. 배포 실패율을 12%에서 2%로 줄였습니다."}],
+        "education": [{"id": "edu-1", "school": "경기전문대학", "major": "컴퓨터정보과(3년제)", "startDate": "2016-03", "endDate": "2019-02", "status": "졸업"}],
+        "techStack": [
+          {"id": "ts-1", "name": "Kubernetes", "level": "고급"},
+          {"id": "ts-2", "name": "Docker", "level": "고급"},
+          {"id": "ts-3", "name": "AWS", "level": "고급"},
+          {"id": "ts-4", "name": "Terraform", "level": "중급"},
+          {"id": "ts-5", "name": "Python", "level": "중급"},
+          {"id": "ts-6", "name": "Linux", "level": "고급"},
+          {"id": "ts-7", "name": "Prometheus", "level": "중급"}
+        ],
+        "certifications": [{"id": "cert-1", "name": "AWS Certified", "issuer": "Amazon Web Services", "acquiredDate": "2025-01"}],
+        "awards": [],
+        "trainingExperience": [],
+        "otherActivities": [{"id": "act-1", "name": "사내 인프라 스터디 진행", "startDate": "2025-03", "endDate": "2026-02", "description": "격주로 운영 사례를 읽고 우리 환경에 적용할 지점을 정리해 공유했습니다."}],
+        "projects": [
+          {"id": "prj-1", "name": "배포 파이프라인 전환", "startDate": "2025-02", "endDate": "2025-06", "role": "DevOps(단독)", "techStack": "Kubernetes, GitHub Actions, Terraform", "description": "수동 배포를 GitOps로 바꿔 배포 시간을 50분에서 9분으로 줄이고 롤백을 한 번에 하게 만들었습니다.", "url": ""},
+          {"id": "prj-2", "name": "모니터링·알림 체계 구축", "startDate": "2024-09", "endDate": "2024-12", "role": "DevOps", "techStack": "Prometheus, Grafana", "description": "서비스별 지표와 알림 기준을 정리해 장애 인지 시간을 30분에서 4분으로 줄였습니다.", "url": ""}
+        ],
+        "selfIntroduction": {
+          "intro": {"subtitle": "고치는 것보다 안 나게 만드는 쪽", "body": "2년간 장애 대응을 하며 같은 일이 반복되지 않게 만드는 데 시간을 더 썼습니다."},
+          "motivation": {"subtitle": "규모가 커질 때 무너지는 지점을 다루고 싶습니다", "body": "서비스가 늘수록 사람이 손으로 챙기던 것이 먼저 무너집니다. 그걸 코드로 옮겨 두는 일을 계속하고 싶습니다."},
+          "challenge": {"subtitle": "새벽 배포가 실패하던 일", "body": "배포 실패가 매주 한두 번 났고 늘 새벽이었습니다. 로그를 모아 보니 이미지 빌드와 배포가 같은 러너에서 돌아 자원이 모자란 것이 원인이었습니다. 단계를 나누고 자원을 따로 잡아 실패율을 12%에서 2%로 줄였습니다."},
+          "growth": {"subtitle": "혼자 아는 것에서 문서로", "body": "처음에는 내가 알면 된다고 생각했습니다. 휴가 중에 장애가 나 연락을 받고 나서 생각이 바뀌었습니다. 지금은 절차를 먼저 적고 자동화합니다."},
+          "strengthsWeaknesses": {"subtitle": "자동화에 욕심이 많습니다", "body": "반복되는 일을 보면 스크립트로 만들고 싶어 합니다. 대신 한 번 쓰고 말 것까지 만들다 시간을 쓴 적이 있습니다."},
+          "aspiration": {"subtitle": "새벽에 일어나지 않는 팀", "body": "장애가 나도 자동으로 되돌아가고, 사람은 아침에 원인을 보는 구조를 만들고 싶습니다."}
+        }
+      }
+    },
+    "ai_masters": {
+      "title": "[평가] AI 연구 석사 — 컴퓨터비전",
+      "content": {
+        "basicInfo": {"name": "", "phone": "010-0000-0014", "email": "", "birthDate": "1997-08-03", "githubUrl": "https://github.com/example-cv", "blogUrl": ""},
+        "coreCompetencies": {"text": "PyTorch로 객체 검출 모델을 학습하고 경량화해 엣지 기기에 올린 경험이 있습니다. 석사 과정에서 의료 영상 분할을 주제로 연구했습니다."},
+        "experience": [],
+        "education": [
+          {"id": "edu-1", "school": "부산대학교", "major": "전자공학과", "startDate": "2016-03", "endDate": "2022-02", "status": "졸업"},
+          {"id": "edu-2", "school": "부산대학교 대학원", "major": "인공지능학과", "startDate": "2022-03", "endDate": "2026-02", "status": "졸업"}
+        ],
+        "techStack": [
+          {"id": "ts-1", "name": "Python", "level": "고급"},
+          {"id": "ts-2", "name": "PyTorch", "level": "고급"},
+          {"id": "ts-3", "name": "OpenCV", "level": "고급"},
+          {"id": "ts-4", "name": "컴퓨터비전", "level": "고급"},
+          {"id": "ts-5", "name": "딥러닝", "level": "고급"},
+          {"id": "ts-6", "name": "Docker", "level": "초급"},
+          {"id": "ts-7", "name": "CUDA", "level": "중급"}
+        ],
+        "certifications": [],
+        "awards": [{"id": "awd-1", "name": "한국정보과학회 학부생 논문 경진대회 우수상", "organization": "한국정보과학회", "date": "2021-12", "description": "저조도 영상에서의 객체 검출 개선안을 발표했습니다."}],
+        "trainingExperience": [],
+        "otherActivities": [{"id": "act-1", "name": "연구실 GPU 서버 관리", "startDate": "2023-03", "endDate": "2026-02", "description": "연구원 12명이 쓰는 서버의 작업 스케줄과 환경을 관리했습니다."}],
+        "projects": [
+          {"id": "prj-1", "name": "의료 영상 분할 모델", "startDate": "2024-03", "endDate": "2026-01", "role": "제1저자", "techStack": "Python, PyTorch, OpenCV", "description": "MRI 영상에서 병변 영역을 분할하는 모델을 설계했습니다. 공개 데이터셋 기준 기존 기법 대비 Dice 0.81에서 0.87로 올렸습니다.", "url": ""},
+          {"id": "prj-2", "name": "엣지 기기용 검출 모델 경량화", "startDate": "2023-06", "endDate": "2023-12", "role": "단독", "techStack": "PyTorch, CUDA", "description": "가지치기와 양자화로 모델 크기를 4분의 1로 줄이고 추론 속도를 3배 올렸습니다. 정확도 하락은 2%p였습니다.", "url": ""}
+        ],
+        "selfIntroduction": {
+          "intro": {"subtitle": "논문으로 끝내지 않는 연구", "body": "지표만 올리는 것이 아니라 실제 기기에서 도는 데까지 해 보는 편입니다."},
+          "motivation": {"subtitle": "연구실 밖에서 쓰이는 모델을 만들고 싶습니다", "body": "학습 환경에서 잘 나오던 모델이 현장 영상에서는 크게 떨어지는 것을 여러 번 봤습니다. 그 간극을 좁히는 일을 제품 쪽에서 해 보고 싶습니다."},
+          "challenge": {"subtitle": "데이터가 적어 학습이 안 되던 일", "body": "의료 영상은 라벨이 비쌉니다. 500장으로는 과적합이 심했습니다. 비슷한 도메인에서 사전학습한 뒤 미세조정하고 증강을 설계해 Dice를 0.81에서 0.87로 올렸습니다."},
+          "growth": {"subtitle": "지표에서 쓸모로", "body": "처음에는 벤치마크 숫자만 봤습니다. 지도교수님이 임상의에게 결과를 보여 주라고 해서 가져갔더니, 정확도보다 어디를 왜 그렇게 봤는지를 물었습니다. 그때부터 설명 가능성을 같이 봅니다."},
+          "strengthsWeaknesses": {"subtitle": "깊게 파고 넓게 못 봅니다", "body": "하나의 문제를 오래 붙드는 편입니다. 대신 주변 기술을 두루 익히는 데는 느립니다."},
+          "aspiration": {"subtitle": "현장에서 버티는 모델", "body": "조명이 나쁘고 기기가 느린 곳에서도 제 몫을 하는 모델을 만들고 싶습니다."}
+        }
+      }
+    },
+    "frontend_experienced_5y": {
+      "title": "[평가] 프론트엔드 경력 5년 — Vue/Nuxt",
+      "content": {
+        "basicInfo": {"name": "", "phone": "010-0000-0015", "email": "", "birthDate": "1994-05-22", "githubUrl": "https://github.com/example-vue", "blogUrl": "https://example-vue.dev"},
+        "coreCompetencies": {"text": "Vue와 Nuxt로 커머스 프런트를 5년간 개발·운영했습니다. 디자인 시스템을 만들어 팀 전체가 쓰게 했고 웹 성능 지표를 개선한 경험이 있습니다."},
+        "experience": [
+          {"id": "exp-1", "company": "(주)예시커머스", "role": "프론트엔드 개발자", "startDate": "2023-01", "endDate": "2026-03", "isCurrent": false, "description": "상품·주문 화면 개발과 디자인 시스템 구축. 컴포넌트 60여 개를 만들어 화면 개발 시간을 절반으로 줄였습니다."},
+          {"id": "exp-2", "company": "(주)예시스튜디오", "role": "웹 퍼블리셔·프론트엔드", "startDate": "2021-03", "endDate": "2022-12", "isCurrent": false, "description": "반응형 웹사이트 20여 건 제작과 유지보수."}
+        ],
+        "education": [{"id": "edu-1", "school": "서울디자인대학교", "major": "시각디자인학과", "startDate": "2013-03", "endDate": "2020-02", "status": "졸업"}],
+        "techStack": [
+          {"id": "ts-1", "name": "JavaScript", "level": "고급"},
+          {"id": "ts-2", "name": "TypeScript", "level": "고급"},
+          {"id": "ts-3", "name": "Vue.js", "level": "고급"},
+          {"id": "ts-4", "name": "Nuxt.js", "level": "고급"},
+          {"id": "ts-5", "name": "CSS", "level": "고급"},
+          {"id": "ts-6", "name": "Storybook", "level": "중급"},
+          {"id": "ts-7", "name": "Vite", "level": "중급"}
+        ],
+        "certifications": [{"id": "cert-1", "name": "웹디자인기능사", "issuer": "한국산업인력공단", "acquiredDate": "2019-06"}],
+        "awards": [],
+        "trainingExperience": [],
+        "otherActivities": [{"id": "act-1", "name": "사내 프런트 코드 리뷰 문화 도입", "startDate": "2024-01", "endDate": "2025-12", "description": "리뷰 기준을 정리해 공유하고 주간 회고를 진행했습니다."}],
+        "projects": [
+          {"id": "prj-1", "name": "디자인 시스템 구축", "startDate": "2024-03", "endDate": "2024-10", "role": "프론트엔드(리드)", "techStack": "Vue.js, TypeScript, Storybook", "description": "공통 컴포넌트 60여 개와 토큰을 정리해 배포했습니다. 새 화면 개발에 걸리던 시간이 평균 5일에서 2일이 됐습니다.", "url": ""},
+          {"id": "prj-2", "name": "상품 목록 성능 개선", "startDate": "2025-04", "endDate": "2025-07", "role": "프론트엔드(단독)", "techStack": "Nuxt.js, Vite", "description": "번들 분할과 이미지 지연 로딩으로 LCP를 3.4초에서 1.6초로 줄였습니다.", "url": ""}
+        ],
+        "selfIntroduction": {
+          "intro": {"subtitle": "혼자 빨리보다 팀이 빨리", "body": "5년간 화면을 만들면서 같은 것을 여러 번 만들지 않게 하는 데 시간을 썼습니다."},
+          "motivation": {"subtitle": "규모가 있는 서비스의 프런트를 맡고 싶습니다", "body": "화면 수가 늘면 일관성이 먼저 무너집니다. 디자인 시스템을 만들어 그걸 막아 본 경험을 더 큰 곳에서 써 보고 싶습니다."},
+          "challenge": {"subtitle": "아무도 안 쓰던 공통 컴포넌트", "body": "공통 컴포넌트를 만들어 뒀는데 팀원들이 각자 새로 만들었습니다. 물어보니 쓰는 법을 몰라서였습니다. Storybook으로 문서를 붙이고 리뷰에서 먼저 찾아보게 하니 그때부터 쓰였습니다."},
+          "growth": {"subtitle": "코드에서 합의로", "body": "처음에는 좋은 코드를 짜면 팀이 따라올 줄 알았습니다. 아니었습니다. 왜 이렇게 하는지 합의하는 자리를 먼저 만들어야 했습니다."},
+          "strengthsWeaknesses": {"subtitle": "정리를 잘하고 새 것은 늦습니다", "body": "쌓인 것을 정리하는 일을 잘합니다. 대신 새 프레임워크를 받아들이는 속도는 빠르지 않습니다."},
+          "aspiration": {"subtitle": "오래 고칠 수 있는 화면", "body": "만들 때보다 고칠 때 편한 코드를 남기고 싶습니다."}
+        }
+      }
+    }
+  }
+}
