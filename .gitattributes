@@ -1,0 +1,24 @@
+# 줄바꿈 통일 — 저장소에는 항상 LF로 담는다.
+# Windows/macOS가 섞인 팀이라 이게 없으면 내용 변화 없이 개행만 바뀐 파일이
+# 계속 '수정됨'으로 떠서 diff가 묻힌다.
+* text=auto eol=lf
+
+# Windows 전용 스크립트는 CRLF여야 실행된다.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# 바이너리 — 절대 변환하지 않는다.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.pdf   binary
+*.ttf   binary
+*.otf   binary
+*.woff  binary
+*.woff2 binary
+*.jar   binary
+*.keystore binary
