@@ -1,0 +1,145 @@
+/*
+ * 코스모스 블루 팔레트 — Flutter `core/theme/app_colors.dart`를 옮겼다.
+ *
+ * Dart 쪽은 같은 이름이 밝기에 따라 다른 값을 돌려주는 getter였다. CSS에서는
+ * 변수 하나가 그 자리를 대신하고, `[data-theme="dark"]`가 값만 갈아 끼운다.
+ */
+
+/* 앱이 쓰는 글꼴. assets/fonts/Paperlogy에서 가져왔다. */
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('/fonts/Paperlogy-4Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('/fonts/Paperlogy-5Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('/fonts/Paperlogy-6SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('/fonts/Paperlogy-7Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('/fonts/Paperlogy-8ExtraBold.ttf') format('truetype');
+  font-weight: 800;
+  font-display: swap;
+}
+
+:root {
+  /* 버튼·링크 색. 설정의 「사이드바 색」이 실행 중에 이 값을 바꾼다. */
+  --primary: #0284c7;
+  --primary-dark: #0369a1;
+  --primary-light: #e0f2fe;
+  --secondary: #6b7280;
+
+  /* 어두운 사이드바 팔레트 — 설정에서 고른 값이 들어온다. */
+  --rail-dark-bg: #0f172a;
+  --rail-dark-border: #1e293b;
+  --rail-dark-accent: #38bdf8;
+  --rail-dark-muted: #94a3b8;
+
+  /* 마일리지 카드 바탕 — 사이드바 색을 따라 바뀐다. */
+  --mileage-card-start: #0369a1;
+  --mileage-card-end: #0f172a;
+  --mileage-card-glow: rgba(2, 132, 199, 0.35);
+
+  --background: #f8f9fb;
+  --surface: #ffffff;
+  --surface-variant: #f3f5f9;
+
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --text-hint: #9ca3af;
+
+  --border: #e5e7eb;
+  --divider: #f3f4f6;
+
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #3b82f6;
+
+  /* 사이드바는 기본이 밝다. 설정에서 어둡게 바꿀 수 있다. */
+  --rail-bg: #ffffff;
+  --rail-fg: #374151;
+  --rail-fg-muted: #6b7280;
+  --rail-selected-bg: #e8f0ff;
+  --rail-selected-fg: #0055ff;
+  --rail-border: #e5e7eb;
+
+  --shadow: rgba(15, 23, 42, 0.06);
+
+  --rail-width: 208px;
+  --radius: 14px;
+
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  /* primary 세 가지는 팔레트가 정한다. 여기서 덮어쓰지 않는다. */
+  --secondary: #9aa3af;
+
+  --background: #0f1216;
+  --surface: #171a1f;
+  --surface-variant: #1f232a;
+
+  --text-primary: #e8eaed;
+  --text-secondary: #9aa3af;
+  --text-hint: #6b7280;
+
+  --border: #2a2f37;
+  --divider: #232830;
+
+  --success: #34d399;
+  --warning: #fbbf24;
+  --error: #f87171;
+  --info: #60a5fa;
+
+  --rail-bg: #171a1f;
+  --rail-fg: #cbd2da;
+  --rail-fg-muted: #8b94a1;
+  --rail-selected-bg: #17233d;
+  --rail-selected-fg: #6ea2ff;
+  --rail-border: #2a2f37;
+
+  --shadow: rgba(0, 0, 0, 0.4);
+
+  color-scheme: dark;
+}
+
+/* 사이드바만 어둡게 — Flutter의 sideRailDarkMode */
+[data-rail='dark'] {
+  --rail-bg: var(--rail-dark-bg);
+  --rail-fg: rgba(255, 255, 255, 0.82);
+  --rail-fg-muted: var(--rail-dark-muted);
+  --rail-selected-bg: rgba(255, 255, 255, 0.14);
+  --rail-selected-fg: var(--rail-dark-accent);
+  --rail-border: var(--rail-dark-border);
+}
+
+/* 밀도 「좁게」 — AppSpace.compactRatio 0.65 */
+:root {
+  --gap-lg: 16px;
+  --gap: 12px;
+  --gap-sm: 8px;
+  --pad: 16px;
+}
+
+[data-density='compact'] {
+  --gap-lg: 10px;
+  --gap: 8px;
+  --gap-sm: 5px;
+  --pad: 11px;
+}
