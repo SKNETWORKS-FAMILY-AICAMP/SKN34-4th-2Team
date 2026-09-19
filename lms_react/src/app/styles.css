@@ -4008,6 +4008,50 @@ a.link {
   .screen {
     padding: 16px;
   }
+
+  .board-page {
+    margin: -16px;
+  }
+}
+
+.study-note-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.study-note-chips .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.study-scope-options {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+  min-height: 68px;
+  margin: 16px 0 10px;
+}
+
+.study-scope-options > .chip {
+  width: auto;
+}
+
+.study-scope-options .checkbox {
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: var(--surface-variant);
+  overflow-wrap: anywhere;
+}
+
+.callout--error {
+  border-color: color-mix(in srgb, var(--error) 30%, transparent);
+  background: color-mix(in srgb, var(--error) 8%, var(--surface));
+  color: var(--error);
 }
 
 /* ── 챗봇 ─────────────────────────────────────────────── */
@@ -5351,6 +5395,81 @@ a.link {
   .resume-coach {
     border-top: 1px solid var(--border);
     background: var(--surface);
+  }
+}
+
+.feed-post__content {
+  white-space: pre-wrap;
+}
+
+.feed-comments {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.feed-comments__list {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.feed-comment {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.feed-comment__body {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--surface-variant);
+}
+
+.feed-comment__body strong {
+  font-size: 13px;
+}
+
+.feed-comment__body p {
+  margin: 5px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.feed-comment__delete {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-hint);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.feed-comments__form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.feed-comments__form .input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  min-height: 58px;
+  resize: vertical;
+}
+
+@media (max-width: 560px) {
+  .feed-comments__form {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 

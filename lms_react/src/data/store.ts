@@ -18,6 +18,7 @@ import {
   seedMileageTransactions,
   seedNotices,
   seedPosts,
+  seedPostComments,
   seedPurchaseRequests,
   seedQualExams,
   seedResumeFeedbacks,
@@ -49,6 +50,7 @@ import type {
   MileageTransaction,
   Notice,
   Post,
+  PostComment,
   PurchaseRequest,
   QualExamSchedule,
   Resume,
@@ -78,6 +80,7 @@ export interface Database {
   scheduledNotices: ScheduledNotice[];
   alertPopups: AlertPopup[];
   posts: Post[];
+  postComments: PostComment[];
   todos: Todo[];
   submissions: Submission[];
   attendances: Attendance[];
@@ -114,6 +117,7 @@ function initial(): Database {
     scheduledNotices: seedScheduledNotices,
     alertPopups: seedAlertPopups,
     posts: seedPosts,
+    postComments: seedPostComments,
     todos: seedTodos,
     submissions: seedSubmissions,
     attendances: seedAttendances,

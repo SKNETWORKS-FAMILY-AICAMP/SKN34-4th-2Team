@@ -323,6 +323,15 @@ export interface ResumeFeedback {
   createdAt?: Date;
 }
 
+export interface PostComment {
+  id: string;
+  postId: string;
+  authorId: string;
+  authorName: string;
+  content: string;
+  createdAt?: Date;
+}
+
 /** 이력서 첨삭 API sentence_reviews 항목과 대응하는 프런트 계약 */
 export interface ResumeReviewSuggestion {
   index: number;

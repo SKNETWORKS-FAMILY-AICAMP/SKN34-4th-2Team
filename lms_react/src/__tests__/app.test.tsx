@@ -212,6 +212,49 @@ describe('데이터가 실제로 흐른다', () => {
     expect(after.some((s) => s.title === '2주차 회고')).toBe(true);
   });
 
+  it('소통 피드 게시글에 댓글을 등록한다', async () => {
+    await render('/board');
+    await loginAs('학생');
+    await render('/board');
+
+    click('소통 피드');
+    await flush();
+    const commentsButton = container.querySelector('button[aria-label="댓글 3"]') as HTMLButtonElement;
+    act(() => commentsButton.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await flush();
+
+    const input = container.querySelector(
+      'textarea[aria-label="김하늘 게시글에 댓글 작성"]',
+    ) as HTMLTextAreaElement;
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+      setter?.call(input, '조인 실습 정리 감사합니다!');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    click('댓글 등록');
+    await flush();
+
+    expect(getDb().postComments.some((comment) => comment.content === '조인 실습 정리 감사합니다!')).toBe(true);
+    expect(getDb().posts.find((post) => post.id === 'p1')?.commentCount).toBe(4);
+    expect(container.textContent).toContain('댓글 4');
+  });
+
+  it('공부방에서 범위를 골라 로컬 수업노트를 만든다', async () => {
+    const before = getDb().studyNotes.length;
+    await render('/study-room/notes/src1');
+    await loginAs('학생');
+    await render('/study-room/notes/src1');
+
+    click('2026-09-19');
+    click('선택한 범위 정리하기');
+    await flush();
+
+    expect(getDb().studyNotes.length).toBe(before + 1);
+    expect(getDb().studyNotes.at(-1)?.scopeKey).toBe('date:2026-09-19');
+    expect(container.textContent).toContain('2026-09-19 수업 요약');
+    expect(container.textContent).toContain('실제 내용 생성은 공부방 API 연결 후');
+  });
+
   it('기록 상세 보기에서 제출 내용과 증빙 상태를 확인한다', async () => {
     await render('/records');
     await loginAs('학생');
