@@ -15,6 +15,7 @@ import {
   Badge,
   Button,
   Card,
+  Dialog,
   EmptyState,
   PageHeader,
   ProgressBar,
@@ -73,13 +74,27 @@ export function AssessmentsScreen() {
 function AssessmentRow({ assessment, uid }: { assessment: Assessment; uid: string }) {
   const submission = useMyAssessmentSubmission(assessment.id, uid);
   const state = windowState(assessment);
+  const [notice, setNotice] = useState('');
   const done = submission !== undefined;
   const closed = state === 'closed';
+
+  const unavailableMessage =
+    state === 'before'
+      ? '아직 응시 기간이 아닙니다.'
+      : state === 'closed' && !done
+        ? '종료된 평가이며 응시 기록이 없습니다.'
+        : '';
 
   return (
     <Link
       className="assess-row"
       to={done ? assessmentResultPath(assessment.id) : assessmentTakePath(assessment.id)}
+      aria-disabled={unavailableMessage !== ''}
+      onClick={(event) => {
+        if (unavailableMessage === '') return;
+        event.preventDefault();
+        setNotice(unavailableMessage);
+      }}
     >
       <span className={`assess-row__tile${closed ? ' assess-row__tile--closed' : ''}`}>
         <span>{closed ? '종료' : state === 'before' ? '예정' : '진행중'}</span>
@@ -98,6 +113,7 @@ function AssessmentRow({ assessment, uid }: { assessment: Assessment; uid: strin
         <span className="hint">
           {assessment.questionCount}문제 · {assessment.maxScore}점
         </span>
+        {notice !== '' && <span className="field__error" role="status">{notice}</span>}
       </span>
 
       {done && (
@@ -120,8 +136,10 @@ export function AssessmentTakeScreen() {
   const navigate = useNavigate();
   const assessment = useAssessment(assessmentId);
   const questions = useAssessmentQuestions(assessmentId);
+  const submission = useMyAssessmentSubmission(assessmentId, user.uid);
   const [answers, setAnswers] = useState<Record<string, number | string | null>>({});
   const [index, setIndex] = useState(0);
+  const [confirmSubmit, setConfirmSubmit] = useState(false);
 
   if (assessment === undefined) {
     return (
@@ -133,13 +151,59 @@ export function AssessmentTakeScreen() {
     );
   }
 
+  if (submission !== undefined) {
+    return (
+      <div className="screen__inner">
+        <Card>
+          <EmptyState message="이미 응시한 평가입니다." />
+          <Row>
+            <Spacer />
+            <Link className="btn btn--primary btn--md" to={assessmentResultPath(assessment.id)}>
+              결과 보기
+            </Link>
+            <Spacer />
+          </Row>
+        </Card>
+      </div>
+    );
+  }
+
+  const state = windowState(assessment);
+  if (!assessment.published || state !== 'open') {
+    const message = !assessment.published
+      ? '공개되지 않은 평가입니다.'
+      : state === 'before'
+        ? '아직 응시 기간이 아닙니다.'
+        : '종료된 평가이며 응시 기록이 없습니다.';
+    return (
+      <div className="screen__inner">
+        <Card>
+          <EmptyState message={message} />
+          <Row>
+            <Spacer />
+            <Link className="btn btn--outline btn--md" to={RoutePaths.assessments}>목록으로</Link>
+            <Spacer />
+          </Row>
+        </Card>
+      </div>
+    );
+  }
+
   const question = questions[index];
   const answered = questions.filter((q) => answers[q.id] !== undefined && answers[q.id] !== '').length;
   const last = index >= questions.length - 1;
 
-  const finish = () => {
+  const submit = () => {
     submitAssessment(assessment, questions, user, answers);
     navigate(assessmentResultPath(assessment.id), { replace: true });
+  };
+
+  const finish = () => {
+    if (answered < questions.length) {
+      setConfirmSubmit(true);
+      return;
+    }
+    submit();
   };
 
   return (
@@ -187,12 +251,27 @@ export function AssessmentTakeScreen() {
             </Button>
             <Spacer />
             {last ? (
-              <Button onClick={finish}>제출</Button>
+              <Button onClick={finish}>제출하기</Button>
             ) : (
               <Button onClick={() => setIndex((i) => i + 1)}>다음</Button>
             )}
           </Row>
         </Card>
+      )}
+
+      {confirmSubmit && (
+        <Dialog
+          title="미응답 문항 확인"
+          onClose={() => setConfirmSubmit(false)}
+          actions={
+            <>
+              <Button variant="outline" onClick={() => setConfirmSubmit(false)}>계속 풀기</Button>
+              <Button onClick={submit}>그대로 제출</Button>
+            </>
+          }
+        >
+          <p>{questions.length - answered}문항이 비어 있습니다. 그대로 제출할까요?</p>
+        </Dialog>
       )}
     </div>
   );

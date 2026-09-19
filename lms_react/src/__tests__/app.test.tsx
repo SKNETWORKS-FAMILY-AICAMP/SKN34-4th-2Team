@@ -212,6 +212,26 @@ describe('데이터가 실제로 흐른다', () => {
     expect(after.some((s) => s.title === '2주차 회고')).toBe(true);
   });
 
+  it('기록 상세 보기에서 제출 내용과 증빙 상태를 확인한다', async () => {
+    await render('/records');
+    await loginAs('학생');
+    await render('/records');
+
+    click('상세 보기');
+    await flush();
+
+    const dialog = container.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog).not.toBeNull();
+    expect(dialog.textContent).toContain('제출 상세');
+    expect(dialog.textContent).toContain('제출자');
+    expect(dialog.textContent).toContain('팀 스터디');
+    expect(dialog.textContent).toContain('첨부된 증빙이 없습니다');
+
+    click('닫기', dialog);
+    await flush();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
   it('관리자가 승인하면 학생 화면의 상태도 바뀐다', async () => {
     const before = getDb().submissions.filter((s) => s.status === 'pending').length;
     expect(before).toBeGreaterThan(0);
@@ -226,6 +246,45 @@ describe('데이터가 실제로 흐른다', () => {
     await flush();
 
     expect(getDb().submissions.filter((s) => s.status === 'pending').length).toBe(before - 1);
+  });
+
+  it('응시 기간이 끝난 평가는 직접 주소로 들어가도 막는다', async () => {
+    const submissions = getDb().assessmentSubmissions;
+    const ownIndex = submissions.findIndex(
+      (submission) => submission.assessmentId === 'a2' && submission.userId === DemoAccounts.studentUid,
+    );
+    submissions.splice(ownIndex, 1);
+
+    await render('/assessments/a2/take');
+    await loginAs('학생');
+    await render('/assessments/a2/take');
+
+    expect(container.textContent).toContain('종료된 평가이며 응시 기록이 없습니다.');
+    expect(container.textContent).not.toContain('Python에서 리스트를 만드는 기호는?');
+  });
+
+  it('미응답 문항이 있으면 확인한 뒤에만 평가를 제출한다', async () => {
+    await render('/assessments/a1/take');
+    await loginAs('학생');
+    await render('/assessments/a1/take');
+
+    click('다음');
+    await flush();
+    click('제출하기');
+    await flush();
+
+    const dialog = container.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog.textContent).toContain('2문항이 비어 있습니다. 그대로 제출할까요?');
+    expect(getDb().assessmentSubmissions.some(
+      (submission) => submission.assessmentId === 'a1' && submission.userId === DemoAccounts.studentUid,
+    )).toBe(false);
+
+    click('그대로 제출', dialog);
+    await flush();
+    expect(container.textContent).toContain('34기 2차 성취도평가 결과');
+    expect(getDb().assessmentSubmissions.some(
+      (submission) => submission.assessmentId === 'a1' && submission.userId === DemoAccounts.studentUid,
+    )).toBe(true);
   });
 
   it('구매 요청을 승인하면 마일리지가 차감된다', async () => {
