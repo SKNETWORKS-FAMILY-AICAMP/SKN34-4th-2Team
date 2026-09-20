@@ -5333,18 +5333,23 @@ a.link {
   color: var(--text-primary);
 }
 
-@media (max-width: 1180px) {
-  /* 한 줄로 접히면 화면 전체가 같이 구른다. */
+/* 학생 편집 화면의 기준 — `resume_edit_screen.dart`의 wide(>= 1000)와 같다.
+   이 아래로는 코치를 상단바 버튼으로 열고 닫고, 열면 이력서 아래에 붙는다. */
+@media (max-width: 999px) {
   .resume-edit__body {
     grid-template-columns: minmax(0, 1fr);
     overflow-y: auto;
+    /* 남는 높이에 맞춰 행을 늘이지 않는다. 늘이면 내용보다 작은 행이 생긴다. */
+    align-content: start;
   }
 
-  .resume-doc,
-  .resume-coach,
-  .review-nav {
+  .resume-edit__body > .resume-doc,
+  .resume-edit__body > .resume-coach {
     overflow: visible;
     border-right: 0;
+    /* 두 칸이 각자 스크롤하던 때의 값. 이제는 내용만큼 자라야 하고,
+       0으로 두면 행이 내용보다 작아져 밖으로 삐져나와 겹쳐 보인다. */
+    min-height: auto;
   }
 }
 
@@ -5715,6 +5720,12 @@ a.link {
   grid-template-columns: minmax(0, 1fr) 208px 364px;
 }
 
+/* 좁은 화면에서 코치(검토자는 피드백)를 접어 둔 상태. 이력서만 남는다. */
+.resume-edit__body--solo,
+.resume-edit__body--review.resume-edit__body--solo {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .resume-edit__owner {
   font-size: 14px;
   font-weight: 600;
@@ -5896,9 +5907,19 @@ a.link {
   color: var(--success);
 }
 
-@media (max-width: 1180px) {
+/* 검토자는 구역 목록이 한 칸 더 붙어 기준이 더 높다 (wide >= 1120). */
+@media (max-width: 1119px) {
   .resume-edit__body--review {
     grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+    align-content: start;
+  }
+
+  .resume-edit__body--review > .resume-doc,
+  .resume-edit__body--review > .review-nav {
+    overflow: visible;
+    border-right: 0;
+    min-height: auto;
   }
 
   .review-nav {

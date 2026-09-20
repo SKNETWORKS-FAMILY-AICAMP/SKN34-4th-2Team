@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { RoutePaths } from '../../app/routePaths';
@@ -25,6 +25,62 @@ import { ResumePrintDoc } from './ResumePrintDoc';
 import { SectionBody } from './ResumeSections';
 import { RobotHead } from '../../ui/RobotHead';
 
+/** 코치 열림 상태를 남긴다 — Flutter의 SharedPreferences 자리 */
+const COACH_VISIBILITY_KEY = 'resume_edit_coach_visible';
+
+/**
+ * 넓은 화면인가 — `resume_edit_screen.dart`의 `wide` 그대로.
+ * 검토자는 왼쪽에 구역 목록이 하나 더 붙어서 기준이 더 높다.
+ */
+function useWide(reviewer: boolean): boolean {
+  const query = `(min-width: ${reviewer ? 1120 : 1000}px)`;
+  const [wide, setWide] = useState(() => window.matchMedia(query).matches);
+
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const onChange = () => setWide(media.matches);
+    media.addEventListener('change', onChange);
+    setWide(media.matches);
+    return () => media.removeEventListener('change', onChange);
+  }, [query]);
+
+  return wide;
+}
+
+/**
+ * AI 코치 패널을 보일지.
+ *
+ * 넓으면 기본으로 열어 두고(지난번에 접어 뒀다면 그대로 접힌 채로), 좁으면 본문을
+ * 먼저 보인다 — 좁은 화면에서는 늘 닫힌 채로 시작한다. 원본과 같다.
+ */
+function useCoachVisible(wide: boolean): [boolean, (visible: boolean) => void] {
+  const [visible, setVisible] = useState(wide);
+  const initialized = useRef(false);
+
+  useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+    if (!wide) return;
+    try {
+      const saved = window.localStorage.getItem(COACH_VISIBILITY_KEY);
+      if (saved !== null) setVisible(saved === 'true');
+    } catch {
+      /* 저장소를 못 읽어도 기본값으로 연다 */
+    }
+  }, [wide]);
+
+  const set = (next: boolean) => {
+    setVisible(next);
+    try {
+      window.localStorage.setItem(COACH_VISIBILITY_KEY, String(next));
+    } catch {
+      /* 못 남겨도 이번 화면에서는 바뀐 대로 보인다 */
+    }
+  };
+
+  return [visible, set];
+}
+
 /**
  * 이력서 편집 — features/resume/presentation/resume_edit_screen.dart
  *
@@ -40,6 +96,10 @@ export function ResumeEditScreen() {
   const user = useCurrentUser();
   const navigate = useNavigate();
   const reviewer = user.role !== 'student';
+  const wide = useWide(reviewer);
+  const [coachVisible, setCoachVisible] = useCoachVisible(wide);
+  // 넓어지면 패널이 오른쪽 제자리로 돌아오므로 접는 개념이 없다.
+  const showCoach = wide || coachVisible;
 
   const [mode, setMode] = useState<'doc' | 'edit'>(reviewer ? 'doc' : 'edit');
   const [panel, setPanel] = useState<'coach' | 'review' | 'ask' | 'jobs'>('coach');
@@ -78,6 +138,30 @@ export function ResumeEditScreen() {
         </button>
         {reviewer && <span className="resume-edit__owner">{resume.userDisplayName}님의 이력서</span>}
         <span className="spacer" />
+        {/* 좁을 때만 나온다. 넓으면 패널이 늘 오른쪽에 있어 접을 일이 없다. */}
+        {!wide && (
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => setCoachVisible(!coachVisible)}
+            aria-expanded={coachVisible}
+            aria-label={
+              coachVisible
+                ? (reviewer ? '피드백 접기' : 'AI 코치 접기')
+                : (reviewer ? '피드백 열기' : 'AI 코치 열기')
+            }
+            title={
+              coachVisible
+                ? (reviewer ? '피드백 접기' : 'AI 코치 접기')
+                : (reviewer ? '피드백 열기' : 'AI 코치 열기')
+            }
+          >
+            <Icon
+              name={coachVisible ? 'keyboard_arrow_down' : reviewer ? 'chat_bubble' : 'smart_toy'}
+              size={20}
+            />
+          </button>
+        )}
         {!reviewer && <FeedbackBell resume={resume} onGoTo={setCurrent} />}
         <span className="seg">
           {(['doc', 'edit'] as const).map((m) => (
@@ -180,7 +264,11 @@ export function ResumeEditScreen() {
         </div>
       )}
 
-      <div className={`resume-edit__body${reviewer ? ' resume-edit__body--review' : ''}`}>
+      <div
+        className={`resume-edit__body${reviewer ? ' resume-edit__body--review' : ''}${
+          showCoach ? '' : ' resume-edit__body--solo'
+        }`}
+      >
         <div className="resume-doc">
           <label className="resume-doc__field">
             <span className="resume-doc__label">이력서 제목</span>
@@ -239,7 +327,7 @@ export function ResumeEditScreen() {
           ))}
         </div>
 
-        {reviewer ? (
+        {!showCoach ? null : reviewer ? (
           <ReviewPanel
             resume={resume}
             current={current}
