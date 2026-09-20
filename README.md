@@ -123,7 +123,10 @@ Flutter 앱의 실제 화면은 `onboarding/output/pdf/*.pdf`(역할별 가이�
 화면을 고친 뒤에는 직접 찍어서 확인합니다.
 
 ```bash
-node shot.mjs out-dir   # 빌드된 앱을 띄워 역할별 주요 화면을 캡처
+npm run build                  # 미리보기는 dist 를 띄운다
+node tools/shot.mjs all        # 역할별 전 화면
+node tools/shot.mjs resume     # 이력서 흐름만
+node tools/shot.mjs            # 할 수 있는 목록 보기
 ```
 
 ## 구조
