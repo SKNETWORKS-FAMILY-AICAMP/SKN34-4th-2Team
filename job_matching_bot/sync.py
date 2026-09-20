@@ -33,7 +33,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from job_matching_bot.config import ARTIFACTS_DIR, DEFAULT_SARAMIN_INPUT
+from job_matching_bot.config import ARTIFACTS_DIR
 from job_matching_bot.env import ensure_loaded
 from job_matching_bot.ingest import DEFAULT_RAW_ROOT, DEFAULT_STORE, SOURCES, ingest
 from job_matching_bot.ingestion.record_files import latest_by_id, read_records, record_ids
@@ -82,7 +82,9 @@ def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="크롤 원본 → 저장소 → Pinecone 적재")
-    parser.add_argument("--input", type=Path, default=DEFAULT_SARAMIN_INPUT, help="크롤 원본 JSONL")
+    # 기본값을 사람인으로 박아 두면 `--source JOBKOREA_POC` 만 주고 부를 때 사람인
+    # 원본을 잡코리아로 적재한다. 출처를 정한 뒤 SOURCES 에서 꺼낸다.
+    parser.add_argument("--input", type=Path, default=None, help="크롤 원본 JSONL. 기본은 출처별 경로")
     parser.add_argument("--source", default="SARAMIN_POC", choices=sorted(SOURCES))
     parser.add_argument("--store", type=Path, default=DEFAULT_STORE)
     parser.add_argument("--raw-root", type=Path, default=DEFAULT_RAW_ROOT)
@@ -104,6 +106,8 @@ def main() -> int:
     parser.add_argument("--skip-index", action="store_true", help="저장소까지만 하고 Pinecone은 건드리지 않는다")
     parser.add_argument("--dry-run", action="store_true", help="아무것도 쓰지 않고 계획만 출력")
     args = parser.parse_args()
+    if args.input is None:
+        args.input = SOURCES[args.source][3]
 
     ensure_loaded()
     started = datetime.now()

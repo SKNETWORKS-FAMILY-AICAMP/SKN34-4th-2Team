@@ -42,6 +42,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from datetime import datetime
@@ -192,7 +193,7 @@ def normalize_jobkorea(
         posted_at=posted_at,
         deadline=deadline,
         status=status,
-        content_hash=str(abs(hash(raw_for_hash))),
+        content_hash=f"sha256:{hashlib.sha256(raw_for_hash.encode('utf-8')).hexdigest()}",
         parser_version=PARSER_VERSION,
         field_provenance={
             "career": conditions.get("경력", ""),
