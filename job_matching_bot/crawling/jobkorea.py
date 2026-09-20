@@ -639,6 +639,27 @@ def main() -> int:
     rows = list(merged.values())
     print(f"[목록] 고유 {len(rows):,}건")
 
+    def write_list(saved: int = 0, failed: int = 0) -> None:
+        payload = {
+            "source": SOURCE,
+            "duties": duties,
+            "duty_labels": {d: DUTY_CATEGORIES.get(d, d) for d in duties},
+            "detail_duties": sorted(detail_duties),
+            "collected_at": datetime.now(KST).isoformat(timespec="seconds"),
+            "list_count": len(rows),
+            "detail_saved": saved,
+            "detail_failed": failed,
+            "detail_file": str(args.detail_file),
+            "list": rows,
+        }
+        output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # 목록을 먼저 떨군다. 사람인 배치가 `sweeps/`에 그러는 것과 같은 이유다 — 상세는
+    # 몇 시간이 걸리고, 그동안 무슨 일이 생기면 훑기 몇 시간이 통째로 날아간다.
+    # 상세가 끝나면 건수를 채워 같은 파일에 다시 쓴다.
+    write_list()
+    print(f"[저장] 목록 {output}")
+
     saved = 0
     failed = 0
     if args.details:
@@ -694,20 +715,8 @@ def main() -> int:
                 )
                 polite_delay(args.min_delay, args.max_delay)
 
-    payload = {
-        "source": SOURCE,
-        "duties": duties,
-        "duty_labels": {d: DUTY_CATEGORIES.get(d, d) for d in duties},
-        "detail_duties": sorted(detail_duties),
-        "collected_at": datetime.now(KST).isoformat(timespec="seconds"),
-        "list_count": len(rows),
-        "detail_saved": saved,
-        "detail_failed": failed,
-        "detail_file": str(args.detail_file),
-        "list": rows,
-    }
-    output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[저장] {output}")
+    write_list(saved, failed)
+    print(f"[저장] {output}  (상세 {saved:,}건 · 실패 {failed:,}건)")
     return 0
 
 
