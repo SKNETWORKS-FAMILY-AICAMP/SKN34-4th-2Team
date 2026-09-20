@@ -418,13 +418,13 @@ def main() -> int:
         return 0
 
     store.record_list_seen(
-        result.seen, {c: result.totals[c] for c in result.complete}, now
+        result.seen, {c: result.totals[c] for c in result.complete}, now, source=SOURCE
     )
     # 목록에서 본 공고를 챗봇 검색용 표에 담는다. **상세를 안 받는 대분류만** 담는다 —
     # 상세를 받는 쪽은 며칠 안에 `jobs`에 들어오므로 목록에 담아 봐야 중복이다.
     # 이것 덕에 "서울 영업직 있어?"에 답할 수 있다. `jobs`는 건드리지 않는다.
     listed = store.record_list_jobs(
-        result.records, now, skip_categories=DETAIL_CATEGORIES
+        result.records, now, source=SOURCE, skip_categories=DETAIL_CATEGORIES
     )
     summary["list_jobs"] = listed
     print(f"[목록 적재] 챗봇 검색용 {listed:,}건")

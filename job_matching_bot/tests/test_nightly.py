@@ -145,30 +145,30 @@ class ObservedTest(unittest.TestCase):
 
     def test_full_sweep_is_authoritative(self):
         # 일요일: 전 대분류 완전. it-1은 IT에서, sales-1은 영업에서 봤고 unknown-1은 어디에도 없다.
-        self.store.record_list_seen({"2": {"it-1"}, "8": {"sales-1"}}, {"2": 1, "8": 1}, DAY1)
+        self.store.record_list_seen({"2": {"it-1"}, "8": {"sales-1"}}, {"2": 1, "8": 1}, DAY1, source="SARAMIN_POC")
         observed = self._observed({"it-1", "sales-1"}, DAY1, authoritative=True)
         self.assertEqual({"it-1", "sales-1"}, observed)
 
     def test_weekday_keeps_weekly_category_jobs_and_unknown_ones(self):
-        self.store.record_list_seen({"2": {"it-1"}, "8": {"sales-1"}}, {"2": 1, "8": 1}, DAY1)
+        self.store.record_list_seen({"2": {"it-1"}, "8": {"sales-1"}}, {"2": 1, "8": 1}, DAY1, source="SARAMIN_POC")
         monday = DAY1 + timedelta(days=1)
         # 월요일: IT만 완전히 훑었는데 it-1이 없다 → 사라짐. sales-1은 영업을 안 훑었으니 살아 있음.
         # unknown-1은 기록이 없고 전 대분류를 훑은 것도 아니니 모름 → 살아 있음.
-        self.store.record_list_seen({"2": set()}, {"2": 0}, monday)
+        self.store.record_list_seen({"2": set()}, {"2": 0}, monday, source="SARAMIN_POC")
         observed = self._observed(set(), monday, authoritative=False)
         self.assertEqual({"sales-1", "unknown-1"}, observed)
 
     def test_weekly_evidence_expires_after_window(self):
-        self.store.record_list_seen({"8": {"sales-1"}}, {"8": 1}, DAY1)
+        self.store.record_list_seen({"8": {"sales-1"}}, {"8": 1}, DAY1, source="SARAMIN_POC")
         later = DAY1 + timedelta(days=16)
-        self.store.record_list_seen({"2": set()}, {"2": 0}, later)
+        self.store.record_list_seen({"2": set()}, {"2": 0}, later, source="SARAMIN_POC")
         self.assertNotIn("sales-1", self._observed(set(), later, authoritative=False))
 
     def test_incomplete_sweep_does_not_invalidate_earlier_sighting(self):
-        self.store.record_list_seen({"2": {"it-1"}}, {"2": 1}, DAY1)
+        self.store.record_list_seen({"2": {"it-1"}}, {"2": 1}, DAY1, source="SARAMIN_POC")
         monday = DAY1 + timedelta(days=1)
         # IT를 훑다 끊겼다(complete에 없음). it-1을 못 봤어도 어제 기록이 살아 있다.
-        self.store.record_list_seen({"2": set()}, {}, monday)
+        self.store.record_list_seen({"2": set()}, {}, monday, source="SARAMIN_POC")
         self.assertIn("it-1", self._observed(set(), monday, authoritative=False))
 
     def test_removal_candidates_are_those_about_to_hit_the_limit(self):
