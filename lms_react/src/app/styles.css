@@ -6302,3 +6302,41 @@ a.link {
     margin: 42pt 48pt 34pt;
   }
 }
+
+/* ── 불러오는 중 ───────────────────────────────────────── */
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skeleton__row {
+  height: 72px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, var(--surface-variant) 25%, var(--border) 50%, var(--surface-variant) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-sweep {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* 원본과 같이, 움직임을 끈 사람에게는 멈춰 보인다. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton__row { animation: none; }
+}
+
+/* 화면에는 안 보이고 스크린리더만 읽는 문구 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -7,7 +7,7 @@ import { ResumeSectionKeys, ResumeSectionLabels, ResumeStatusLabels } from '../.
 import type { Resume, ResumeContent } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { MoreMenu } from '../../ui/MoreMenu';
-import { Badge, Button, Card, EmptyState } from '../../ui/components';
+import { Badge, Button, Card, EmptyState, ErrorState, Skeleton } from '../../ui/components';
 import { formatDate, formatDateTime } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
 
@@ -47,10 +47,28 @@ function filledCount(resume: Resume): number {
 /** 이력서 관리 — 기본 이력서 카드 + 다른 이력서 표 */
 export function ResumeScreen() {
   const user = useCurrentUser();
-  const resumes = useMyResumes(user.uid);
+  const query = useMyResumes(user.uid);
   const navigate = useNavigate();
   const [tab, setTab] = useState<'all' | 'draft' | 'feedbackRequested' | 'approved'>('all');
 
+  // 훅은 모두 위에서 부른 뒤에 갈라진다 — 렌더마다 호출 순서가 같아야 하므로.
+  // 지금은 메모리라 loading이 항상 false지만, 서버를 붙이면 여기가 실제로 걸린다.
+  if (query.loading) {
+    return (
+      <div className="screen__inner">
+        <Skeleton rows={4} />
+      </div>
+    );
+  }
+  if (query.error !== null) {
+    return (
+      <div className="screen__inner">
+        <ErrorState message="이력서를 불러오지 못했습니다" onRetry={() => window.location.reload()} />
+      </div>
+    );
+  }
+
+  const resumes = query.data ?? [];
   const base = resumes.find((r) => r.isBaseResume) ?? resumes[0];
   const others = resumes.filter((r) => r.id !== base?.id);
   const count = (status: string) => resumes.filter((r) => r.status === status).length;

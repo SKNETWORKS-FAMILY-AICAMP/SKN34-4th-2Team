@@ -14,6 +14,7 @@ import type {
   Notice,
   Post,
   PurchaseRequest,
+  QualExamSchedule,
   Resume,
   ResumeFeedback,
   ScheduledNotice,
@@ -33,6 +34,26 @@ import { dateKeyOf } from './seed';
  * 다른 참조가 되어 무한 렌더가 되므로, 목록을 거르는 select는 `useFiltered`로
  * 감싸 원본 배열이 바뀔 때만 다시 거른다.
  */
+/**
+ * 화면이 보는 조회 결과.
+ *
+ * 지금은 메모리라 언제나 즉시 성공한다. 하지만 서버를 붙이면 **첫 렌더에 데이터가
+ * 없다** — 응답이 오기 전에 화면은 이미 그려져야 하기 때문이다. 그때 화면 26개를
+ * 다시 열지 않으려면 「아직 없을 수 있다」를 지금부터 타입에 담아 둬야 한다.
+ *
+ * 서버로 옮길 때 바뀌는 곳은 이 파일 안쪽뿐이고, 화면은 그대로 둔다.
+ */
+export interface Query<T> {
+  data: T | undefined;
+  loading: boolean;
+  error: Error | null;
+}
+
+/** 메모리 조회를 Query 모양으로 감싼다. 훗날 여기가 fetch 자리가 된다. */
+function ready<T>(data: T): Query<T> {
+  return { data, loading: false, error: null };
+}
+
 export function useDb<T>(select: (db: Database) => T): T {
   // 매 렌더마다 새 배열을 돌려주면 useSyncExternalStore가 값이 바뀐 줄 알고
   // 다시 그리고, 그 렌더가 또 새 배열을 만든다. 얕은 비교로 같으면 지난 값을
@@ -403,8 +424,9 @@ export function useResumes(): Resume[] {
   return useDb((db) => db.resumes);
 }
 
-export function useMyResumes(uid: string): Resume[] {
-  return useDb((db) => db.resumes.filter((r) => r.userId === uid));
+/** ⬇︎ Query 로 바꾼 것 — 나머지 훅은 아직 예전 모양이다 (시범) */
+export function useMyResumes(uid: string): Query<Resume[]> {
+  return ready(useDb((db) => db.resumes.filter((r) => r.userId === uid)));
 }
 
 export function useResume(id: string | undefined): Resume | undefined {
@@ -765,6 +787,7 @@ export function updateMileageSettings(patch: Partial<import('../domain/types').M
 
 // ── 자격 시험 ──────────────────────────────────────────
 
-export function useQualExams() {
-  return useDb((db) => db.qualExams);
+/** ⬇︎ Query 로 바꾼 것 (시범) */
+export function useQualExams(): Query<QualExamSchedule[]> {
+  return ready(useDb((db) => db.qualExams));
 }
