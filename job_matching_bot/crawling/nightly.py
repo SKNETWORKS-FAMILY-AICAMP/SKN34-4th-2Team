@@ -302,11 +302,15 @@ def run_sync(detail_file: Path, observed: set[str], store_path: Path, as_of: dat
     stamp = run_stamp(as_of)
     observed_file = work_dir / f"{stamp}_observed.json"
     observed_file.write_text(json.dumps([{"source_job_id": i} for i in sorted(observed)]), encoding="utf-8")
+    # `--skip-index`: 인덱스는 두 출처가 다 들어오고 **묶은 뒤에** 한 번에 올린다.
+    # 여기서 올리면 잡코리아가 들어오기 전 상태로 올라가, 나중에 대표가 바뀐 만큼
+    # 지웠다 다시 올리게 된다.
     command = [
         sys.executable, "-m", "job_matching_bot.sync",
         "--input", str(detail_file), "--observed", str(observed_file),
         "--store", str(store_path), "--as-of", as_of.isoformat(),
         "--report", str(work_dir / f"{stamp}_sync.json"),
+        "--skip-index",
     ]
     print("[적재] " + " ".join(command[2:]), flush=True)
     return subprocess.run(command, cwd=str(REPO_ROOT)).returncode
@@ -382,16 +386,49 @@ def finish_jobkorea(
 
     # 사라짐 판정(`--observed`)은 아직 넘기지 않는다. 사이트가 대분류당 1만에서 막아
     # "안 보이면 사라진 것"을 아직 믿을 수 없다. 소분류로 쪼개 전량을 받게 된 뒤에 켠다.
+    #
+    # `--skip-index`: Pinecone 에는 아직 올리지 않는다. 같은 공고가 두 사이트에 다
+    # 올라와 있는데(IT 상세에서만 1,100쌍) 묶는 코드가 아직 없다. 그대로 올리면 한
+    # 공고가 벡터 둘이 되어 추천 목록에 두 번 뜬다. `find_reposts` 는 못 막는다 —
+    # `(회사, 요건본문해시)` 로 묶는데 두 사이트의 본문 추출이 달라 해시가 안 맞는다.
+    # 묶기를 붙이면 이 옵션을 빼면 된다. 그날 밤 한꺼번에 올라간다.
     command = [
         sys.executable, "-m", "job_matching_bot.sync",
         "--source", JOBKOREA_SOURCE, "--input", str(JOBKOREA_DETAIL_FILE),
         "--store", str(store_path), "--as-of", as_of.isoformat(),
         "--report", str(work_dir / f"{run_stamp(as_of)}_sync_jobkorea.json"),
+        "--skip-index",
     ]
     print("[잡코리아 적재] " + " ".join(command[2:]), flush=True)
     info["crawl_exit_code"] = code
     info["sync_exit_code"] = subprocess.run(command, cwd=str(REPO_ROOT)).returncode
     return info
+
+
+def run_regroup(store_path: Path, work_dir: Path, as_of: datetime) -> dict[str, Any]:
+    """같은 공고를 묶어 `group_key` 에 적는다. 새 짝이 급증하면 스스로 멈춘다."""
+    report = work_dir / f"{run_stamp(as_of)}_regroup.json"
+    command = [
+        sys.executable, "-m", "job_matching_bot.regroup",
+        "--store", str(store_path), "--report", str(report), "--apply",
+    ]
+    print("[묶기] " + " ".join(command[2:]), flush=True)
+    code = subprocess.run(command, cwd=str(REPO_ROOT)).returncode
+    try:
+        return {"exit_code": code, **json.loads(report.read_text(encoding="utf-8"))}
+    except (OSError, ValueError):
+        return {"exit_code": code}
+
+
+def run_index(store_path: Path, as_of: datetime, work_dir: Path) -> int:
+    """묶기까지 끝난 상태로 Pinecone 을 맞춘다. 대표만 올라간다."""
+    command = [
+        sys.executable, "-m", "job_matching_bot.sync", "--index-only",
+        "--store", str(store_path), "--as-of", as_of.isoformat(),
+        "--report", str(work_dir / f"{run_stamp(as_of)}_index.json"),
+    ]
+    print("[인덱스] " + " ".join(command[2:]), flush=True)
+    return subprocess.run(command, cwd=str(REPO_ROOT)).returncode
 
 
 def share_store_file(store_path: Path) -> dict[str, Any]:
@@ -588,6 +625,10 @@ def main() -> int:
         summary["jobkorea"] = finish_jobkorea(
             jobkorea_proc, jobkorea_list, args.store, now, NIGHTLY_DIR
         )
+
+    # 5c. 같은 공고 묶기 → 대표만 인덱스. 두 출처가 다 들어온 뒤라야 짝을 찾는다.
+    summary["regroup"] = run_regroup(args.store, NIGHTLY_DIR, now)
+    summary["index_exit_code"] = run_index(args.store, now, NIGHTLY_DIR)
 
     # 6. 공유 파일. 여기서 실패해도 수집·적재는 이미 끝났으므로 배치를 실패로 만들지 않는다.
     if not args.no_share:

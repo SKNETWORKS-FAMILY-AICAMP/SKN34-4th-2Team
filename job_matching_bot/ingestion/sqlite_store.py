@@ -257,6 +257,9 @@ class SqliteJobStore:
             ("list_seen", "first_seen_at", "TEXT"),
             ("list_jobs", "deadline", "TEXT"),
             ("list_jobs", "support_text", "TEXT"),
+            # 같은 공고가 두 사이트에 올라온 것을 한 묶음으로 본다. 대표 하나만
+            # 인덱스에 올리고, 화면에서 형제의 링크를 같이 보여 줄 때 이 값으로 찾는다.
+            ("jobs", "group_key", "TEXT"),
         ):
             have = {row[1] for row in self.conn.execute(f"PRAGMA table_info({table})")}
             if column not in have:
@@ -271,6 +274,11 @@ class SqliteJobStore:
                 continue
             with self.conn:
                 self.conn.execute(f"ALTER TABLE jobs ADD COLUMN {column} TEXT")
+
+        # `group_key` 는 위에서 붙인 칸이라 인덱스도 여기서 만든다. `_SCHEMA` 에 두면
+        # 새 저장소에서 아직 없는 칸을 가리켜 터진다.
+        with self.conn:
+            self.conn.execute("CREATE INDEX IF NOT EXISTS jobs_group ON jobs(group_key)")
 
     # ── 옛 호출 방식(load/save) 호환 ─────────────────────────────
     def load(self) -> "SqliteJobStore":
@@ -572,6 +580,21 @@ class SqliteJobStore:
                 "UPDATE jobs SET embed_hash = ?, indexed_embed_hash = ?, indexed_at = ? WHERE job_id = ?",
                 [(h, h, stamp, job_id) for job_id, h in hashes.items()],
             )
+
+    def group_keys(self) -> dict[str, str | None]:
+        """{job_id: group_key}. 어제와 견줘 오늘 새로 묶인 짝을 찾을 때 쓴다."""
+        return {
+            row["job_id"]: row["group_key"]
+            for row in self.conn.execute("SELECT job_id, group_key FROM jobs")
+        }
+
+    def set_group_keys(self, keys: dict[str, str]) -> int:
+        """묶음 표시를 적는다. 값이 그대로인 행은 건드리지 않는다."""
+        current = self.group_keys()
+        changed = [(key, job_id) for job_id, key in keys.items() if current.get(job_id) != key]
+        with self.conn:
+            self.conn.executemany("UPDATE jobs SET group_key = ? WHERE job_id = ?", changed)
+        return len(changed)
 
     def clear_indexed(self, job_ids: Iterable[str]) -> None:
         with self.conn:

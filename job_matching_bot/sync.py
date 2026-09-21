@@ -78,6 +78,41 @@ def record_run(
     store.close()
 
 
+def _index(args, report: dict[str, Any], as_of: datetime, started: datetime) -> int:
+    """인덱스만 맞춘다. 두 출처를 적재하고 묶은 뒤에 부른다.
+
+    적재 단계(1~6)를 건너뛰므로 원본도 출처도 필요 없다. 무엇을 올릴지는 저장소에
+    적힌 것만 보고 정한다 — 품질 판정, `group_key` 로 고른 대표, `embed_hash` 대조.
+    """
+    from job_matching_bot.retrieval.pinecone_index import client, ensure_index
+    from job_matching_bot.retrieval.upsert import delete_ids, load_store, plan, upsert
+
+    info = ensure_index()
+    index = client().Index(info["name"])
+    jobs, tracker = load_store(args.store)
+    vectors = 0
+    try:
+        changed, to_delete, stats = plan(jobs, index, force=False, tracker=tracker)
+        for key, value in stats.items():
+            print(f"  {key}: {value:,}")
+        if to_delete:
+            delete_ids(index, to_delete, tracker=tracker)
+            print(f"  {len(to_delete):,}건 삭제")
+        if changed:
+            vectors = upsert(changed, index, tracker=tracker)
+        total = index.describe_index_stats().get("total_vector_count", 0)
+        report["index"] = {**stats, "삭제": len(to_delete), "적재 후 벡터": total, "올린 벡터": vectors}
+        print(f"  인덱스 벡터 수: {total:,}")
+    finally:
+        if tracker is not None:
+            tracker.close()
+    report["elapsed_seconds"] = round((datetime.now() - started).total_seconds(), 1)
+    args.report.parent.mkdir(parents=True, exist_ok=True)
+    args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"리포트 {args.report}")
+    return 0
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -104,6 +139,9 @@ def main() -> int:
     parser.add_argument("--no-llm", action="store_true", default=True, help="요건 추출에 LLM을 쓰지 않는다(기본)")
     parser.add_argument("--llm", dest="no_llm", action="store_false", help="LLM 요건 추출을 켠다")
     parser.add_argument("--skip-index", action="store_true", help="저장소까지만 하고 Pinecone은 건드리지 않는다")
+    # 두 출처를 각각 적재하고 **묶은 뒤에** 인덱스를 한 번에 맞추기 위한 길.
+    # 원본을 읽지 않으므로 `--input` 도 `--source` 도 필요 없다.
+    parser.add_argument("--index-only", action="store_true", help="적재는 건너뛰고 인덱스만 맞춘다")
     parser.add_argument("--dry-run", action="store_true", help="아무것도 쓰지 않고 계획만 출력")
     args = parser.parse_args()
     if args.input is None:
@@ -115,6 +153,9 @@ def main() -> int:
     if as_of.tzinfo is None:
         as_of = as_of.replace(tzinfo=KST)
     report: dict[str, Any] = {"started_at": started.isoformat(timespec="seconds"), "as_of": as_of.isoformat()}
+    if args.index_only:
+        print("적재는 건너뛰고 인덱스만 맞춥니다")
+        return _index(args, report, as_of, started)
     print(f"적재 파이프라인 시작 · 원본 {args.input}")
 
     # 1~2. 원본 읽기와 유효성 검사

@@ -94,7 +94,35 @@ def embed_batch(embeddings, batch: list[str], attempts: int = 6) -> list[list[fl
     raise RuntimeError("unreachable")
 
 
-def plan(jobs: list[Job], index, force: bool, tracker=None) -> tuple[list[Job], list[str], dict[str, int]]:
+def _representatives(jobs: list[Job], groups: dict[str, str]) -> list[Job]:
+    """묶음마다 하나씩 남긴다. `group_key` 가 없는 공고는 혼자인 것으로 본다.
+
+    누구를 대표로 할지는 `regroup` 이 정한 규칙과 같다 — 요건 낱말이 많은 쪽,
+    같으면 `job_id` 가 앞선 쪽.
+    """
+    from job_matching_bot.retrieval.grouping import body_tokens
+
+    best: dict[str, Job] = {}
+    loose: list[Job] = []
+    for job in jobs:
+        key = groups.get(job.job_id)
+        if not key:
+            loose.append(job)
+            continue
+        champ = best.get(key)
+        if champ is None:
+            best[key] = job
+            continue
+        mine, theirs = len(body_tokens(job)), len(body_tokens(champ))
+        if mine > theirs or (mine == theirs and job.job_id < champ.job_id):
+            best[key] = job
+    return loose + list(best.values())
+
+
+def plan(
+    jobs: list[Job], index, force: bool, tracker=None,
+    groups: dict[str, str] | None = None,
+) -> tuple[list[Job], list[str], dict[str, int]]:
     """(올릴 공고, 지울 ID, 통계).
 
     올릴 대상은 `dedup.select`가 정한다. 마감 지난 공고와 재등록 공고를 걸러서,
@@ -106,6 +134,19 @@ def plan(jobs: list[Job], index, force: bool, tracker=None) -> tuple[list[Job], 
     stats = {"저장소": len(jobs)}
     selected, select_stats = dedup.select(jobs)
     stats.update(select_stats)
+
+    # 같은 공고가 두 사이트에 올라온 것은 **대표 하나만** 올린다. 둘 다 올리면 학생의
+    # 추천 목록에 한 공고가 두 번 뜬다. 짝은 `regroup` 이 미리 `group_key` 에 적어 둔다.
+    # `dedup.find_reposts` 는 못 막는다 — 두 사이트의 본문 추출이 달라 해시가 안 맞는다.
+    if groups is None and tracker is not None and hasattr(tracker, "group_keys"):
+        groups = {k: v for k, v in tracker.group_keys().items() if v}
+    dropped_siblings = 0
+    if groups:
+        reps = _representatives(selected, groups)
+        dropped_siblings = len(selected) - len(reps)
+        selected = reps
+    stats["같은 공고(대표 아님)"] = dropped_siblings
+
     keep = {j.job_id for j in selected}
 
     if tracker is not None:
