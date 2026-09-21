@@ -110,9 +110,50 @@ python -m uvicorn app.integrated:app --app-dir cover_letter_rag --host 127.0.0.1
 | `service.py` | 권한 확인, 범위 검증, 노트 ID, 생성 선점·저장 |
 | `git_tools.py` | 저장소 주소·브랜치·경로 검증, clone/fetch 캐시, 날짜별 변경 파일, 노트북 → 텍스트 |
 | `pipeline.py` | 프롬프트, 자료 묶기, LLM 호출, 노트·복습 문제 분리 |
+| `practice/` | 실습 문제 생성·검증 (아래 「실습 문제」) |
 
 ## 알려진 한계
 
 - 한 번에 8개 파일까지만 정리한다. 하루 수업 파일이 더 많으면 나눠서 만들어야 한다.
 - 노트는 학생마다 따로 만든다. 같은 날 같은 범위를 여러 학생이 열면 LLM도 학생 수만큼 부른다.
-- 자동 테스트가 없다.
+- 노트 생성 자체에는 자동 테스트가 없다. 실습 문제 검증은 `study_notes/tests/`에 있다.
+
+## 실습 문제 (1단계: 생성 + 검증)
+
+노트의 복습 문제는 읽기만 되는 마크다운이다. 여기서는 **실행해서 채점할 수 있는 문제**를 따로 만든다.
+아직 저장·API·화면은 없다. 몇 개 날짜로 돌려 **검증 통과율**부터 잰다.
+
+```
+수업 자료 → LLM 초안(JSON) → 실행 전 거름(ast) → Pyodide로 실행 → 떨어진 것만 1회 고쳐 재검증
+```
+
+| 종류 | 통과 조건 |
+|---|---|
+| `concept` | 보기 3개 이상, 정답 번호가 범위 안 (실행 안 함) |
+| `code_output` | 두 번 돌려 출력이 같고, 4줄·160자 이하. **정답은 LLM 예상이 아니라 실행 결과** |
+| `code_blank` | 빈칸(`__1__`)을 `None`으로 채우면 테스트 실패, 모범 답으로 채우면 통과. 학생 답도 글자 비교가 아니라 테스트로 채점 |
+| `code_fix` | 버그 코드 + 테스트는 실패(시간 초과 포함), 모범답안 + 테스트는 통과 |
+| `code_write` | 빈 함수 + 테스트는 실패, 모범답안 + 테스트는 통과 |
+
+실행 전에 버리는 코드: 파일 읽기(`open`, `read_csv` …), 네트워크, `input()`, `os`·`sys`, 현재 시각,
+표준 라이브러리 일부·numpy·pandas 외의 패키지.
+
+```powershell
+cd practice_verifier; npm install; cd ..
+python -m study_notes.practice.trial --repo https://github.com/ORG/REPO --date 2026-09-15
+python -m study_notes.practice.trial --local lesson.ipynb
+python -m unittest study_notes.tests.test_practice_verify
+```
+
+결과 JSON은 저장소 캐시 폴더의 `practice_runs/`에 남는다(`--out`으로 바꿀 수 있다). 모델은 노트와 따로
+`PRACTICE_MODEL`(비우면 `gpt-5.6-luna`)을 쓴다. 34기 멀티모달 3일로 비교했을 때 `gpt-4o-mini`는 torch·cv2로
+짜다 막히거나 코드 문제를 포기했고, luna는 18문제가 한 번에 검증을 통과했다.
+
+| 파일 | 역할 |
+|---|---|
+| `practice/models.py` | 문제 구조, LLM 초안 정리 |
+| `practice/generate.py` | 출제·고치기 프롬프트, LLM 호출, 토큰 집계 |
+| `practice/verify.py` | 통과 규칙 (여기에만 있다) |
+| `practice/runner.py` | `practice_verifier/`를 subprocess로 부른다. Docker로 가면 HTTP로 바꿀 자리 |
+| `practice/build.py` | 생성 → 검증 → 고치기 → 통계 |
+| `practice/trial.py` | 시험 실행 CLI |
