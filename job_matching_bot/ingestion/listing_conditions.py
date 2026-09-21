@@ -128,6 +128,9 @@ KST = timezone(timedelta(hours=9))
 _DEADLINE_DATE = re.compile(r"~\s*(\d{1,2})[./](\d{1,2})")
 _TODAY = re.compile(r"오늘\s*마감")
 _TOMORROW = re.compile(r"내일\s*마감")
+# 잡코리아만 쓰는 표기. 사람인 목록에는 없어서 처음에 빠졌고, 그동안 3,261건이
+# 마감일 없이 들어갔다.
+_DAY_AFTER = re.compile(r"모레\s*마감")
 # 끝이 정해지지 않은 것. 마감일로 거르면 안 된다.
 _OPEN_ENDED = re.compile(r"상시\s*채용|채용\s*시\s*마감|수시\s*채용")
 
@@ -153,6 +156,8 @@ def deadline_from_listing(support_text: str, today: date | None = None) -> str |
         return f"{now.isoformat()}T23:59:59+09:00"
     if _TOMORROW.search(text):
         return f"{(now + timedelta(days=1)).isoformat()}T23:59:59+09:00"
+    if _DAY_AFTER.search(text):
+        return f"{(now + timedelta(days=2)).isoformat()}T23:59:59+09:00"
     hit = _DEADLINE_DATE.search(text)
     if not hit:
         return None
