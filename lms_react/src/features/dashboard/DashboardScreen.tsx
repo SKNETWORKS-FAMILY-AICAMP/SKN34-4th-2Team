@@ -312,7 +312,8 @@ function CurriculumCard() {
 
 /** 다가오는 자격 시험 — widgets/qual_exam_schedule_section.dart */
 function QualExamCard() {
-  const exams = useQualExams();
+  // 대시보드의 곁가지 카드라 화면 전체를 막지 않는다. 못 불러오면 이 칸만 비운다.
+  const { data: exams = [] } = useQualExams();
   const upcoming = exams.slice(0, 2);
 
   return (

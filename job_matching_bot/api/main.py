@@ -242,3 +242,16 @@ def chat(request: schemas.JobChatRequest) -> schemas.JobChatResponse:
         return _with_chat_ops(_chat.chat(request))
     except StoreUnavailable as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/api/v1/jobs/search", response_model=schemas.JobSearchResponse)
+def search_jobs(request: schemas.JobSearchRequest) -> schemas.JobSearchResponse:
+    """조건으로 공고를 찾는다. 자기소개서 탭의 공고 찾기가 쓴다.
+
+    `/jobs/chat`과 같은 저장소를 같은 방식으로 조회하지만 말을 해석하지 않으므로
+    LLM 호출이 0이다. 필터를 직접 고르는 화면에는 이쪽이 맞다.
+    """
+    try:
+        return _chat.search_jobs(request)
+    except StoreUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error

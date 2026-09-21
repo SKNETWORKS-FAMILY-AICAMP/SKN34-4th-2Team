@@ -30,21 +30,42 @@ git push -u origin feature/<작업명>
 
 `feat` / `fix` / `docs` / `refactor` / `test` / `chore`
 
+---
 
-
-
-# PLAYDATA LXP — React 프로토타입
+# PLAYDATA LXP — React 프로토타입 (`lms_react/`)
 
 Flutter 앱(`lib/`)을 React + TypeScript + Vite로 옮긴 프로토타입입니다. 학생·강사·관리자
 세 역할의 화면 전부가 들어 있고, 데이터는 Flutter의 데모 저장소(`lib/shared/demo/`)를
 옮긴 메모리 목업입니다. Firebase는 쓰지 않습니다.
 
+## 실행 방법
+
+Node 20 이상이 필요합니다(Vite 6 요구 사항, Node 24.18.0에서 검증).
+
 ```bash
-npm install
-npm run dev      # http://localhost:5173
-npm test         # vitest 43개
-npm run build
+cd lms_react
+
+npm install      # 최초 1회 — 의존성 148개
+npm run dev      # 개발 서버 → http://localhost:5173
+npm test         # vitest 44개
+npm run build    # 타입 체크(tsc -b) + 프로덕션 번들 → dist/
+npm run preview  # 빌드 결과 미리보기
 ```
+
+## 현재 상태 (2026-09-19 기준)
+
+| 항목 | 상태 |
+| --- | --- |
+| 화면 | 학생·강사·관리자 전 화면 구현 |
+| 이용 안내 투어 | 역할별 14 / 12 / 17스텝 동작 |
+| 테스트 | ✅ 4개 파일 44개 전부 통과 (`npm test`) |
+| 빌드 | ✅ 성공 — 107 모듈, JS 468 kB (gzip 137 kB) |
+| DB 연동 | ❌ 없음 — Firestore 미연결, 메모리 저장소만 |
+| LLM 연동 | ❌ 없음 — 규칙 기반 응답으로 대체 |
+
+React 쪽에는 `fetch`·`axios` 호출이 한 건도 없습니다. Firebase를 쓰는 쪽은 Flutter
+앱(`lib/`, 39개 파일)이고, Python LLM 백엔드(`chatbot/`, `cover_letter_rag/`,
+`job_matching_bot/`)도 아직 React와 연결돼 있지 않습니다.
 
 ## 로그인
 
@@ -102,7 +123,10 @@ Flutter 앱의 실제 화면은 `onboarding/output/pdf/*.pdf`(역할별 가이�
 화면을 고친 뒤에는 직접 찍어서 확인합니다.
 
 ```bash
-node shot.mjs out-dir   # 빌드된 앱을 띄워 역할별 주요 화면을 캡처
+npm run build                  # 미리보기는 dist 를 띄운다
+node tools/shot.mjs all        # 역할별 전 화면
+node tools/shot.mjs resume     # 이력서 흐름만
+node tools/shot.mjs            # 할 수 있는 목록 보기
 ```
 
 ## 구조
@@ -151,5 +175,13 @@ src/__tests__/app.test.tsx        앱 전체 — 로그인, 역할 가드, 데�
 src/tour/__tests__/               투어 상태·배치 계산·dismiss 저장
 ```
 
-`npm test`로 43개가 모두 돕니다.
+`npm test`로 44개가 모두 돕니다 (앱 18개 + 투어 26개).
 
+
+## 다음 할 일
+
+- [ ] 데이터 연동 — [lms_react/src/data/repository.ts](lms_react/src/data/repository.ts)가 교체 지점.
+      화면은 전부 이 훅만 보고 있어 여기만 바꾸면 됨 (Firestore 직결 또는 백엔드 REST 경유)
+- [ ] LLM 연동 — 챗봇(`chatbot/api.py`), 이력서 코치(`cover_letter_rag/`),
+      공고 추천(`job_matching_bot/`)의 FastAPI 엔드포인트 연결
+- [ ] 파일 업로드 및 인증 연동

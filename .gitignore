@@ -17,6 +17,7 @@ Thumbs.db
 *.iws
 
 .vscode/*
+!.vscode/settings.json
 !.vscode/extensions.json
 !.vscode/launch.json
 !.vscode/tasks.json
@@ -132,6 +133,8 @@ migrate_working_dir/
 *.class
 *.log
 *.pyc
+__pycache__/
+.pytest_cache/
 .codex
 graphify-out
 AGENTS.md

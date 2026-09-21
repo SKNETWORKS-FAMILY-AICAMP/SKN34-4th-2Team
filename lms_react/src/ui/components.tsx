@@ -139,6 +139,37 @@ export function EmptyState({ icon = '🗒', message, action }: { icon?: string; 
   );
 }
 
+/**
+ * 불러오는 중 — 내용이 들어올 자리의 모양을 미리 잡아 준다.
+ *
+ * 스피너 대신 회색 덩어리를 쓰는 이유: 데이터가 도착할 때 화면이 덜 튄다.
+ */
+export function Skeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="skeleton" aria-busy="true" aria-live="polite">
+      <span className="sr-only">불러오는 중</span>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="skeleton__row" />
+      ))}
+    </div>
+  );
+}
+
+/** 못 불러왔을 때. 원인을 그대로 보여 주기보다 다시 해볼 길을 준다. */
+export function ErrorState({ message = '불러오지 못했습니다', onRetry }: { message?: string; onRetry?: () => void }) {
+  return (
+    <div className="empty" role="alert">
+      <span className="empty__icon" aria-hidden>⚠️</span>
+      <p className="empty__msg">{message}</p>
+      {onRetry !== undefined && (
+        <Button variant="outline" onClick={onRetry}>
+          다시 시도
+        </Button>
+      )}
+    </div>
+  );
+}
+
 export function Avatar({ name, photoUrl, size = 32 }: { name: string; photoUrl?: string; size?: number }) {
   const style = { width: size, height: size, fontSize: size * 0.42 };
   if (photoUrl !== undefined && photoUrl !== '') {

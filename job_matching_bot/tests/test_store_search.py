@@ -420,7 +420,7 @@ class ListingOnlySearchTest(unittest.TestCase):
                 {"source_job_id": "3", "company": "부산회사", "title": "영업관리",
                  "job_sectors": ["영업관리"], "source_url": "https://x/3",
                  "condition_text": "부산 해운대구 경력 3년↑ · 계약직 학력무관"},
-            ], NOW)
+            ], NOW, source="SARAMIN_POC")
 
     def tearDown(self):
         self.temp.cleanup()
@@ -499,7 +499,7 @@ class ListingSkipCategoryTest(unittest.TestCase):
 
     def stored(self, records, skip=()):
         with SqliteJobStore(self.path) as store:
-            store.record_list_jobs(records, NOW, skip_categories=skip)
+            store.record_list_jobs(records, NOW, source="SARAMIN_POC", skip_categories=skip)
             rows = store.conn.execute(
                 "SELECT source_job_id FROM list_jobs ORDER BY source_job_id").fetchall()
         return [r["source_job_id"] for r in rows]

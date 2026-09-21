@@ -107,9 +107,14 @@ CREATE TABLE IF NOT EXISTS list_seen (
     cat_mcls TEXT NOT NULL,
     seen_at TEXT NOT NULL,
     first_seen_at TEXT,
-    PRIMARY KEY (source_job_id, cat_mcls)
+    source TEXT NOT NULL DEFAULT 'SARAMIN_POC',
+    -- 번호는 사이트마다 따로 매긴다. 사람인 rec_idx도 8자리, 잡코리아 공고번호도
+    -- 8자리라 출처를 키에 넣지 않으면 다른 공고가 같은 행을 덮어쓴다.
+    PRIMARY KEY (source, source_job_id, cat_mcls)
 );
 CREATE INDEX IF NOT EXISTS list_seen_at ON list_seen(seen_at);
+-- 키 앞자리가 source라 번호만으로 찾는 질의가 인덱스를 잃는다. 따로 둔다.
+CREATE INDEX IF NOT EXISTS list_seen_job ON list_seen(source_job_id);
 CREATE TABLE IF NOT EXISTS link_checks (
     job_id TEXT PRIMARY KEY,
     checked_at TEXT NOT NULL,
@@ -127,7 +132,7 @@ CREATE TABLE IF NOT EXISTS link_checks (
 --
 -- 열 이름을 `jobs`와 같게 둔다. 검색이 두 표를 같은 규칙으로 읽는다.
 CREATE TABLE IF NOT EXISTS list_jobs (
-    source_job_id TEXT PRIMARY KEY,
+    source_job_id TEXT NOT NULL,
     job_id TEXT NOT NULL,
     source_url TEXT,
     company TEXT,
@@ -142,9 +147,12 @@ CREATE TABLE IF NOT EXISTS list_jobs (
     deadline TEXT,            -- 목록의 `~09.30` `오늘마감` 을 읽은 값. 모르면 NULL
     support_text TEXT,        -- 마감 표기 원문
     seen_at TEXT NOT NULL,
-    first_seen_at TEXT
+    first_seen_at TEXT,
+    source TEXT NOT NULL DEFAULT 'SARAMIN_POC',
+    PRIMARY KEY (source, source_job_id)
 );
 CREATE INDEX IF NOT EXISTS list_jobs_seen ON list_jobs(seen_at);
+CREATE INDEX IF NOT EXISTS list_jobs_job ON list_jobs(source_job_id);
 -- 조건 검색이 `jobs`에 쓰는 SQL을 그대로 쓰기 위한 뷰. 목록에는 없는 칸을 상수로
 -- 채운다. 실제 값을 저장해 두면 늘 같은 값이 4만 줄 쌓이고, 나중에 "이게 진짜 값인가"
 -- 헷갈린다. 뷰로 두면 없다는 것이 드러난다.
@@ -156,7 +164,7 @@ SELECT
     deadline,                 -- `~09.30` `오늘마감` 을 읽은 값. 못 읽으면 NULL
     '[]'    AS tech_stack,    -- 기술 태그는 상세에서만 나온다
     ''      AS description,   -- 본문 없음. 이것이 상세 미수집의 표시다
-    seen_at, first_seen_at
+    seen_at, first_seen_at, source
 FROM list_jobs;
 CREATE TABLE IF NOT EXISTS list_sweeps (
     cat_mcls TEXT PRIMARY KEY,
@@ -206,6 +214,19 @@ def _effective_image_flag(description: str | None, flagged: object) -> bool:
     쓸 때와 읽을 때 달라진다.
     """
     return bool(flagged) and not has_requirement_text(description or "")
+
+
+# `jobs.job_id`는 `SARAMIN-54947118` 꼴이다. 목록 표도 같은 규칙을 써야 두 표를
+# 오갈 수 있다. 접두사는 출처 이름에서 `_POC`를 뗀 것인데, 새 사이트가 그 규칙을
+# 벗어나면 여기에 적는다.
+_JOB_ID_PREFIX = {
+    "SARAMIN_POC": "SARAMIN",
+    "JOBKOREA_POC": "JOBKOREA",
+}
+
+
+def job_id_prefix(source: str) -> str:
+    return _JOB_ID_PREFIX.get(source, source.removesuffix("_POC"))
 
 
 class SqliteJobStore:
@@ -592,18 +613,28 @@ class SqliteJobStore:
         }
 
     def record_list_seen(
-        self, seen: dict[str, set[str]], complete: dict[str, int], at: datetime, *, keep_days: int = 60
+        self,
+        seen: dict[str, set[str]],
+        complete: dict[str, int],
+        at: datetime,
+        *,
+        source: str,
+        keep_days: int = 60,
     ) -> None:
-        """seen: {대분류: 오늘 본 source_job_id}. complete: {끝까지 훑은 대분류: 사이트 total_count}."""
+        """seen: {대분류: 오늘 본 source_job_id}. complete: {끝까지 훑은 대분류: 사이트 total_count}.
+
+        `source`는 기본값을 두지 않는다. 빠뜨리면 다른 사이트의 공고가 사람인으로
+        기록되는데, 그건 조용히 틀리는 쪽이라 부를 때마다 적게 한다.
+        """
         stamp = at.isoformat()
         with self.conn:
             self.conn.executemany(
                 # seen_at은 갱신하고 first_seen_at은 처음 값을 지킨다. 상세를 아직
                 # 못 받은 공고가 얼마나 기다렸는지 재는 근거가 된다.
-                "INSERT INTO list_seen (source_job_id, cat_mcls, seen_at, first_seen_at) "
-                "VALUES (?, ?, ?, ?) "
-                "ON CONFLICT(source_job_id, cat_mcls) DO UPDATE SET seen_at = excluded.seen_at",
-                [(job_id, cat, stamp, stamp) for cat, ids in seen.items() for job_id in ids],
+                "INSERT INTO list_seen (source, source_job_id, cat_mcls, seen_at, first_seen_at) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(source, source_job_id, cat_mcls) DO UPDATE SET seen_at = excluded.seen_at",
+                [(source, job_id, cat, stamp, stamp) for cat, ids in seen.items() for job_id in ids],
             )
             self.conn.executemany(
                 "INSERT INTO list_sweeps (cat_mcls, swept_at, total_count, seen) VALUES (?, ?, ?, ?) "
@@ -612,7 +643,10 @@ class SqliteJobStore:
                 [(cat, stamp, total, len(seen.get(cat, ()))) for cat, total in complete.items()],
             )
             self.conn.execute(
-                "DELETE FROM list_seen WHERE seen_at < ?", ((at - timedelta(days=keep_days)).isoformat(),)
+                # 제 출처만 지운다. 사이트마다 수집 주기가 달라, 한쪽 배치가 다른
+                # 쪽 관측을 지우면 그쪽 공고가 통째로 사라진 것처럼 보인다.
+                "DELETE FROM list_seen WHERE source = ? AND seen_at < ?",
+                (source, (at - timedelta(days=keep_days)).isoformat()),
             )
 
     def record_list_jobs(
@@ -620,6 +654,7 @@ class SqliteJobStore:
         records: Iterable[dict[str, Any]],
         at: datetime,
         *,
+        source: str,
         skip_categories: Iterable[str] = (),
         keep_days: int = 60,
     ) -> int:
@@ -653,6 +688,7 @@ class SqliteJobStore:
         } if skip else set()
 
         rows = []
+        prefix = job_id_prefix(source)
         seen: set[str] = set()
         for record in records:
             job_id = str(record.get("source_job_id") or "")
@@ -662,8 +698,9 @@ class SqliteJobStore:
             text = str(record.get("condition_text") or "")
             cond = conditions_from_listing(text)
             rows.append((
+                source,
                 job_id,
-                f"SARAMIN-{job_id}",
+                f"{prefix}-{job_id}",
                 str(record.get("source_url") or ""),
                 clean_company_name(str(record.get("company") or "")),
                 clean_listing_text(str(record.get("title") or "")),
@@ -681,11 +718,11 @@ class SqliteJobStore:
             ))
         with self.conn:
             self.conn.executemany(
-                "INSERT INTO list_jobs (source_job_id, job_id, source_url, company, title, "
+                "INSERT INTO list_jobs (source, source_job_id, job_id, source_url, company, title, "
                 "keywords, region, career_type, min_career_years, education, employment_type, "
                 "condition_text, deadline, support_text, seen_at, first_seen_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(source_job_id) DO UPDATE SET "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(source, source_job_id) DO UPDATE SET "
                 "source_url = excluded.source_url, company = excluded.company, "
                 "title = excluded.title, keywords = excluded.keywords, "
                 "region = excluded.region, career_type = excluded.career_type, "
@@ -698,8 +735,9 @@ class SqliteJobStore:
             # 목록에서 사라진 지 오래된 것은 지운다. 상세를 받은 공고는 `jobs`에 있으니
             # 여기서 지워도 잃는 것이 없다.
             self.conn.execute(
-                "DELETE FROM list_jobs WHERE seen_at < ?",
-                ((at - timedelta(days=keep_days)).isoformat(),),
+                # 관측 표와 같은 이유로 제 출처만 지운다.
+                "DELETE FROM list_jobs WHERE source = ? AND seen_at < ?",
+                (source, (at - timedelta(days=keep_days)).isoformat()),
             )
         return len(rows)
 

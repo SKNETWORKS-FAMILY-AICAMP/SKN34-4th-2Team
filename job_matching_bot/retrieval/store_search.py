@@ -609,7 +609,9 @@ def search(
         f"SELECT {_HIT_COLUMNS}, {relevance} AS relevance, 0 AS has_detail, "
         "keywords, first_seen_at FROM list_jobs_search WHERE " + " AND ".join(listing_where)
         # 상세를 받은 공고는 `jobs`에 있다. 같은 공고가 두 번 나오지 않게 뺀다.
-        + " AND source_job_id NOT IN (SELECT source_job_id FROM jobs)"
+        # 번호만으로 견주면 안 된다 — 사이트마다 따로 매긴 번호라, 사람인 상세가
+        # 있다는 이유로 번호가 같은 잡코리아 목록이 통째로 사라진다.
+        + " AND (source, source_job_id) NOT IN (SELECT source, source_job_id FROM jobs)"
     )
     # 목록에서만 본 공고를 뺄 때가 둘이다.
     # - 기업형태로 걸렀을 때. 기업 정보는 상세에만 있어 맞는지 알 수 없다.

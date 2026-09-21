@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useQualExams } from '../../data/repository';
 import type { QualExamSchedule } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
+import { ErrorState, Skeleton } from '../../ui/components';
 import { formatYmd, parseYmd } from '../../utils/format';
 
 /**
@@ -18,9 +19,15 @@ const HAYSTACK = (e: QualExamSchedule) =>
 const examDayOf = (e: QualExamSchedule) => e.docExamStartDt ?? e.pracExamStartDt;
 
 export function QualExamScreen() {
-  const exams = useQualExams();
+  const examsQuery = useQualExams();
   const [query, setQuery] = useState('');
 
+  if (examsQuery.loading) return <Skeleton rows={3} />;
+  if (examsQuery.error !== null) {
+    return <ErrorState message="시험 일정을 불러오지 못했습니다" onRetry={() => window.location.reload()} />;
+  }
+
+  const exams = examsQuery.data ?? [];
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const q = query.trim().toLowerCase();

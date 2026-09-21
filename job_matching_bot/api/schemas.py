@@ -400,6 +400,45 @@ class JobChatResponse(StrictModel):
     timings_ms: dict[str, int] = Field(default_factory=dict)
 
 
+class JobSearchRequest(StrictModel):
+    """조건을 직접 받아 공고를 찾는다. 챗봇과 달리 말을 해석하는 LLM 호출이 없다.
+
+    자기소개서 탭의 공고 찾기가 쓴다. 사용자가 필터를 손으로 고르므로 말을 조건으로
+    옮길 일이 없고, 그래서 답이 1초 안에 온다.
+    """
+
+    filters: ChatFilters
+    top_k: int = Field(default=20, ge=1, le=50)
+    seen_job_ids: list[str] = Field(
+        default_factory=list,
+        max_length=3000,
+        description="다음 쪽을 볼 때 이미 본 공고 id 전부. 서버가 빼고 다음 것을 준다",
+    )
+
+
+class JobSearchHit(StrictModel):
+    job_id: str
+    company: str
+    title: str
+    source_url: str
+    region: str
+    career: str
+    employment_type: str
+    deadline: str | None = None
+    tech_stack: list[str] = Field(default_factory=list)
+    # 상세 본문이 있는가. False면 목록에서만 본 공고라 자기소개서를 쓸 근거가 없다.
+    has_detail: bool = True
+
+
+class JobSearchResponse(StrictModel):
+    jobs: list[JobSearchHit] = Field(default_factory=list)
+    total: int = Field(description="조건에 맞는 전체 건수. jobs는 그중 한 쪽")
+    scanned_cap: bool = Field(
+        default=False, description="상한에 걸려 세다 만 경우. total이 실제보다 작다"
+    )
+    summary: str = Field(default="", description="무엇으로 걸렀는지 사람 말로")
+
+
 class HealthResponse(StrictModel):
     status: Literal["ok"] = "ok"
     index_name: str

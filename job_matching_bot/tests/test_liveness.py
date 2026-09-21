@@ -176,7 +176,7 @@ class ListingOnlyLivenessTest(unittest.TestCase):
              "job_sectors": ["영업관리"], "source_url": "https://x/777",
              "condition_text": "서울 마포구 신입 · 정규직 고졸↑",
              "support_text": "입사지원 ~12.31"},
-        ], self.now)
+        ], self.now, source="SARAMIN_POC")
         store.close()
         self.opened: list[str] = []
 

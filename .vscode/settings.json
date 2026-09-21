@@ -1,0 +1,15 @@
+{
+  // 탐색기·검색에서 파이썬 캐시 숨기기 (git에서는 이미 무시되는 것들)
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.pytest_cache": true,
+    "**/*.pyc": true
+  },
+  "search.exclude": {
+    "**/__pycache__": true,
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/playdata_venv": true,
+    "**/job_matching_bot/artifacts": true
+  }
+}

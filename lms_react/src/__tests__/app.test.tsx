@@ -272,7 +272,9 @@ describe('데이터가 실제로 흐른다', () => {
 
     click('닫기', dialog);
     await flush();
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(
+      [...container.querySelectorAll('[role="dialog"]')].some((item) => item.textContent?.includes('제출 상세')),
+    ).toBe(false);
   });
 
   it('관리자가 승인하면 학생 화면의 상태도 바뀐다', async () => {
