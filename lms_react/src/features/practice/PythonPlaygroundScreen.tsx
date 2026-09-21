@@ -21,7 +21,7 @@ const OLD_STORE_KEY = 'lxp.pythonNotebook.v1';
 const SESSION = 'playground';
 const TIMEOUT_MS = 10_000;
 
-/** problem — 실습 세트의 문제 셀. 학생이 새로 만들 수는 없고 세트를 열면 채워진다 */
+/** problem — 복습 세트의 문제 셀. 학생이 새로 만들 수는 없고 세트를 열면 채워진다 */
 type CellType = 'code' | 'markdown' | 'problem';
 
 /** 불러오기 예시 — 34기 멀티모달 수업(2026-09)의 코드에서 브라우저로 돌 수 있는 부분만 옮겼다. */
@@ -508,13 +508,13 @@ function Playground({ setId }: { setId: string | null }) {
               <>
                 <Link to={RoutePaths.studyRoomPlayground}>파이썬 연습장</Link>
                 <Icon name="chevron_right" size={16} />
-                <span>실습 문제</span>
+                <span>복습 문제</span>
               </>
             ) : (
               <span>파이썬 연습장</span>
             )}
           </nav>
-          <h1 className="study-head__title">{set ? `${set.dayLabel} 실습 · ${set.title}` : '파이썬 연습장'}</h1>
+          <h1 className="study-head__title">{set ? `${set.dayLabel} 복습 · ${set.title}` : '파이썬 연습장'}</h1>
           <p className="study-head__desc">
             {set
               ? `${set.lessonDate} 수업 코드로 만든 문제 ${set.problems.length}개. 문제 사이에 셀을 추가해 자유롭게 시험해 봐도 됩니다.`
@@ -621,7 +621,7 @@ function Playground({ setId }: { setId: string | null }) {
       {setId && !set && (
         <div className="py-kernel-note" role="status">
           <Icon name="info" size={18} />
-          <span>찾는 실습 세트가 없어요. 학습실의 「실습 문제」 목록에서 다시 골라 주세요.</span>
+          <span>찾는 복습 세트가 없어요. 학습실의 「복습 문제」 목록에서 다시 골라 주세요.</span>
         </div>
       )}
 

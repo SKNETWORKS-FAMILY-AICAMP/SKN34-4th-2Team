@@ -134,7 +134,7 @@ const PRACTICE_KIND_LABEL: Record<string, string> = {
   code_write: '함수 작성',
 };
 
-/** 실습 문제 — 수업일마다 만든 세트. 누르면 연습장에서 문제 셀로 열린다. */
+/** 복습 문제 — 수업일마다 만든 세트. 누르면 연습장에서 문제 셀로 열린다. */
 function PracticeSetsSection({ cohortId, uid }: { cohortId: string; uid: string }) {
   const sets = usePracticeSets(cohortId);
   const attempts = useMyPracticeAttempts(uid);
@@ -142,9 +142,9 @@ function PracticeSetsSection({ cohortId, uid }: { cohortId: string; uid: string 
   return (
     <section className="practice-sets">
       <header className="study-section__head">
-        <h2 className="study-section__title">실습 문제</h2>
+        <h2 className="study-section__title">복습 문제</h2>
       </header>
-      <p className="study-section__desc">수업 저장소의 코드로 만든 문제입니다. 연습장에서 바로 실행하고 채점해요.</p>
+      <p className="study-section__desc">그날 수업 코드로 만든 복습 문제입니다. 연습장에서 바로 실행하고 채점해요.</p>
       <div className="practice-sets__list">
         {sets.map((s) => {
           const mine = attempts.filter((a) => a.setId === s.id);

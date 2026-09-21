@@ -26,6 +26,7 @@ import type { MissionGuidanceItem } from '../../domain/missions';
 import { useCurrentUser } from '../auth/session';
 import { NoticeDetailDialog } from '../board/NoticeDetailDialog';
 import { MySeatingDashboardSection } from '../seating/SeatingScreen';
+import { TodayReviewCard } from '../practice/TodayReviewCard';
 
 /**
  * 대시보드 — features/dashboard/presentation/dashboard_screen.dart
@@ -34,7 +35,7 @@ import { MySeatingDashboardSection } from '../seating/SeatingScreen';
  * 미션·(확정 직후) 내 자리·커리큘럼·자격 시험·승인 현황을 둔다.
  *
  * 1080px 이하에서는 한 줄로 쌓는다. 순서는 CSS(order)가 정한다:
- * 프로필·마일리지 → 출석·미션 → 공지·추천·설문 → 나머지 카드.
+ * 프로필·마일리지 → 오늘 복습 → 출석·미션 → 공지·추천·설문 → 나머지 카드.
  */
 export function DashboardScreen() {
   const notices = useNotices();
@@ -47,6 +48,8 @@ export function DashboardScreen() {
           <ProfileCard />
           <MileageCard />
         </div>
+
+        <TodayReviewCard />
 
         <section className="section">
           <header className="section__head">
