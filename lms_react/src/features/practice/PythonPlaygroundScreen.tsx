@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import { RoutePaths } from '../../app/routePaths';
+import { recordPracticeAttempt, useMyPracticeAttempts, usePracticeSet } from '../../data/repository';
+import type { PracticeSet } from '../../domain/types';
+import { useCurrentUser } from '../auth/session';
 import { Icon } from '../../ui/Icon';
 import { CodeEditor } from './CodeEditor';
 import { NotebookMarkdown } from './NotebookMarkdown';
+import { ProblemCell } from './ProblemCell';
 import { PYODIDE_VERSION, type RunResult, type TableData } from './pythonProtocol';
-import { usePythonRunner, type RunnerStatus } from './pythonRunner';
+import { usePythonRunner, type RunnerStatus, type RunOptions } from './pythonRunner';
 
 /**
  * 셀 내용만 이 브라우저에 임시로 둔다(학생 계정과 무관). 서버 저장은 DB를 붙일 때 이 자리를 바꾼다.
@@ -17,7 +21,8 @@ const OLD_STORE_KEY = 'lxp.pythonNotebook.v1';
 const SESSION = 'playground';
 const TIMEOUT_MS = 10_000;
 
-type CellType = 'code' | 'markdown';
+/** problem — 실습 세트의 문제 셀. 학생이 새로 만들 수는 없고 세트를 열면 채워진다 */
+type CellType = 'code' | 'markdown' | 'problem';
 
 /** 불러오기 예시 — 34기 멀티모달 수업(2026-09)의 코드에서 브라우저로 돌 수 있는 부분만 옮겼다. */
 const EXAMPLES: { id: string; label: string; source: string; type: CellType; code: string }[] = [
@@ -134,15 +139,18 @@ interface Cell {
   count: number | null;
   state: CellState;
   ms: number | null;
+  /** 문제 셀이면 세트 안 몇 번째 문제인지 */
+  problemIndex: number | null;
 }
 
 let cellSeq = 0;
-function newCell(code = '', type: CellType = 'code'): Cell {
+function newCell(code = '', type: CellType = 'code', problemIndex: number | null = null): Cell {
   cellSeq += 1;
   return {
     id: `c${Date.now().toString(36)}${cellSeq}`,
     type,
     code,
+    problemIndex,
     editing: type === 'markdown' && code.trim() === '',
     lines: [],
     value: null,
@@ -156,18 +164,46 @@ function newCell(code = '', type: CellType = 'code'): Cell {
 
 const CLEAR_OUTPUT = { lines: [], value: null, table: null, images: [], count: null, state: 'idle' as CellState, ms: null };
 
-function loadNotebook(): { cells: Cell[]; stdin: string } {
+/** 세트를 처음 열 때의 셀 — 안내 · 문제 셀들 · 자유 셀 */
+function setCells(set: PracticeSet): Cell[] {
+  return [
+    newCell(
+      `${set.lessonDate} 수업 저장소(\`${set.sourceTitle}\`)의 파일 ${set.files.length}개로 만든 문제입니다. ` +
+        '문제 셀에서 **실행**하면 그 코드가 이 노트북에 남아 아래 셀에서 불러 쓸 수 있고, ' +
+        '**채점**은 숨긴 테스트와 함께 새 공간에서 따로 돌립니다.',
+      'markdown',
+    ),
+    ...set.problems.map((p, i) => newCell(p.starterCode, 'problem', i)),
+    newCell('# 자유롭게 시험해 보는 칸 — 위 문제 셀에서 실행한 함수를 불러 써 보세요\n'),
+  ];
+}
+
+function storeKey(set: PracticeSet | undefined): string {
+  return set ? `${STORE_KEY}:${set.id}` : STORE_KEY;
+}
+
+function loadNotebook(set: PracticeSet | undefined): { cells: Cell[]; stdin: string } {
   try {
-    const raw = window.localStorage.getItem(STORE_KEY);
+    const raw = window.localStorage.getItem(storeKey(set));
     if (raw) {
-      const saved = JSON.parse(raw) as { cells?: { type?: CellType; source?: string }[]; stdin?: string };
+      const saved = JSON.parse(raw) as {
+        cells?: { type?: CellType; source?: string; problemIndex?: number | null }[];
+        stdin?: string;
+      };
       if (Array.isArray(saved.cells) && saved.cells.length) {
         return {
-          cells: saved.cells.map((c) => newCell(String(c.source ?? ''), c.type === 'markdown' ? 'markdown' : 'code')),
+          cells: saved.cells
+            .filter((c) => c.type !== 'problem' || (set && c.problemIndex != null && set.problems[c.problemIndex]))
+            .map((c) =>
+              c.type === 'problem'
+                ? newCell(String(c.source ?? ''), 'problem', c.problemIndex ?? 0)
+                : newCell(String(c.source ?? ''), c.type === 'markdown' ? 'markdown' : 'code'),
+            ),
           stdin: saved.stdin ?? '',
         };
       }
     }
+    if (set) return { cells: setCells(set), stdin: '' };
     const old = window.localStorage.getItem(OLD_STORE_KEY);
     if (old) {
       const saved = JSON.parse(old) as { cells?: string[]; stdin?: string };
@@ -181,11 +217,11 @@ function loadNotebook(): { cells: Cell[]; stdin: string } {
   return { cells: FIRST_CELLS.map((c) => newCell(c.source, c.type)), stdin: '민지\n3' };
 }
 
-function saveNotebook(cells: Cell[], stdin: string) {
+function saveNotebook(key: string, cells: Cell[], stdin: string) {
   try {
     window.localStorage.setItem(
-      STORE_KEY,
-      JSON.stringify({ cells: cells.map((c) => ({ type: c.type, source: c.code })), stdin }),
+      key,
+      JSON.stringify({ cells: cells.map((c) => ({ type: c.type, source: c.code, problemIndex: c.problemIndex })), stdin }),
     );
   } catch {
     // 저장이 막혀 있어도 연습장은 돈다.
@@ -219,8 +255,17 @@ function errorText(result: RunResult): string {
  * - 코드는 서버로 가지 않고 이 브라우저 안(Pyodide)에서만 돈다.
  */
 export function PythonPlaygroundScreen() {
+  const [params] = useSearchParams();
+  const setId = params.get('set');
+  return <Playground key={setId ?? 'free'} setId={setId} />;
+}
+
+function Playground({ setId }: { setId: string | null }) {
   const { runner, status } = usePythonRunner();
-  const initial = useRef(loadNotebook());
+  const user = useCurrentUser();
+  const set = usePracticeSet(setId);
+  const attempts = useMyPracticeAttempts(user.uid).filter((a) => a.setId === setId);
+  const initial = useRef(loadNotebook(set));
   const [cells, setCells] = useState<Cell[]>(initial.current.cells);
   const [stdin, setStdin] = useState(initial.current.stdin);
   const [showStdin, setShowStdin] = useState(false);
@@ -239,7 +284,7 @@ export function PythonPlaygroundScreen() {
   const counter = useRef(0);
   const lastGeneration = useRef(0);
 
-  useEffect(() => saveNotebook(cells, stdin), [cells, stdin]);
+  useEffect(() => saveNotebook(storeKey(set), cells, stdin), [set, cells, stdin]);
 
   const patch = (id: string, change: Partial<Cell> | ((c: Cell) => Partial<Cell>)) =>
     setCells((prev) => prev.map((c) => (c.id === id ? { ...c, ...(typeof change === 'function' ? change(c) : change) } : c)));
@@ -248,6 +293,41 @@ export function PythonPlaygroundScreen() {
     setActiveId(id);
     setFocus((f) => ({ id, n: f.n + 1 }));
   };
+
+  /** 워커를 새로 띄웠으면(첫 실행 제외) 앞 셀들의 변수는 없다. */
+  const noteGeneration = (keepId?: string) => {
+    if (lastGeneration.current !== 0 && runner.generation !== lastGeneration.current) {
+      counter.current = 0;
+      setCells((prev) => prev.map((c) => (c.id === keepId ? c : { ...c, count: null })));
+      setKernelNote('파이썬을 다시 띄워서 앞 셀에서 만든 변수가 사라졌어요. 필요한 셀을 위에서부터 다시 실행하세요.');
+    }
+    lastGeneration.current = runner.generation;
+  };
+
+  /** 문제 셀의 실행·채점도 같은 줄에 선다 — 앞 실행을 끊지 않게. */
+  const runQueued = (steps: string[], options: RunOptions): Promise<RunResult> =>
+    new Promise((resolve) => {
+      pending.current += 1;
+      setBusy(true);
+      queue.current = queue.current
+        .then(async () => {
+          const result = await runner.run(steps, options);
+          noteGeneration();
+          resolve(result);
+        })
+        .finally(() => {
+          pending.current -= 1;
+          if (pending.current === 0) setBusy(false);
+        });
+    });
+
+  const runProblemInSession = (code: string) =>
+    runQueued([code], { session: SESSION, displayLast: true, timeoutMs: TIMEOUT_MS });
+
+  /** 채점은 세션 밖 새 공간에서. 노트북에 남은 변수가 테스트에 섞이지 않는다. */
+  const gradeProblem = (steps: string[]) => runQueued(steps, { timeoutMs: 5_000 });
+
+  const passedCount = attempts.filter((a) => a.passed).length;
 
   /** 셀 하나를 실제로 돌린다. 줄 서 있다가 차례가 오면 불린다. */
   const execute = async (id: string, token: number) => {
@@ -286,13 +366,7 @@ export function PythonPlaygroundScreen() {
         }),
     });
 
-    // 워커를 새로 띄웠으면(첫 실행 제외) 앞 셀들의 변수는 없다.
-    if (lastGeneration.current !== 0 && runner.generation !== lastGeneration.current) {
-      counter.current = 0;
-      setCells((prev) => prev.map((c) => (c.id === id ? c : { ...c, count: null })));
-      setKernelNote('파이썬을 다시 띄워서 앞 셀에서 만든 변수가 사라졌어요. 필요한 셀을 위에서부터 다시 실행하세요.');
-    }
-    lastGeneration.current = runner.generation;
+    noteGeneration(id);
 
     const tail: Line[] = [];
     if (result.timedOut) tail.push({ kind: 'err', text: `${TIMEOUT_MS / 1000}초가 지나 멈췄습니다. 반복문이 끝나는지 확인해 보세요.` });
@@ -326,6 +400,8 @@ export function PythonPlaygroundScreen() {
       patch(id, { editing: false });
       return;
     }
+    // 문제 셀은 셀 안의 실행·채점 버튼으로만 돈다
+    if (cell.type === 'problem') return;
     patch(id, { state: 'queued' });
     pending.current += 1;
     setBusy(true);
@@ -390,7 +466,18 @@ export function PythonPlaygroundScreen() {
     });
 
   const remove = (id: string) =>
-    setCells((prev) => (prev.length === 1 ? [newCell()] : prev.filter((c) => c.id !== id)));
+    setCells((prev) => (prev.length === 1 ? [newCell()] : prev.filter((c) => c.id !== id || c.type === 'problem')));
+
+  /** 다음 셀로 넘어간다. 마지막이면 빈 코드 셀을 만든다. */
+  const focusNext = (id: string) => {
+    const list = cellsRef.current;
+    const next = list[list.findIndex((c) => c.id === id) + 1];
+    if (next) focusCell(next.id);
+    else {
+      const created = insertAfter(id);
+      requestAnimationFrame(() => focusCell(created));
+    }
+  };
 
   const changeType = (id: string, type: CellType) => {
     patch(id, { ...CLEAR_OUTPUT, type, editing: type === 'markdown' });
@@ -417,12 +504,35 @@ export function PythonPlaygroundScreen() {
           <nav className="py-crumbs" aria-label="위치">
             <Link to={RoutePaths.studyRoom}>학습실</Link>
             <Icon name="chevron_right" size={16} />
-            <span>파이썬 연습장</span>
+            {set ? (
+              <>
+                <Link to={RoutePaths.studyRoomPlayground}>파이썬 연습장</Link>
+                <Icon name="chevron_right" size={16} />
+                <span>실습 문제</span>
+              </>
+            ) : (
+              <span>파이썬 연습장</span>
+            )}
           </nav>
-          <h1 className="study-head__title">파이썬 연습장</h1>
+          <h1 className="study-head__title">{set ? `${set.dayLabel} 실습 · ${set.title}` : '파이썬 연습장'}</h1>
           <p className="study-head__desc">
-            노트북처럼 셀을 나눠 실행합니다. 앞 셀에서 만든 변수는 다음 셀에서 그대로 쓸 수 있어요. 코드는 이 브라우저 안에서만 돕니다.
+            {set
+              ? `${set.lessonDate} 수업 코드로 만든 문제 ${set.problems.length}개. 문제 사이에 셀을 추가해 자유롭게 시험해 봐도 됩니다.`
+              : '노트북처럼 셀을 나눠 실행합니다. 앞 셀에서 만든 변수는 다음 셀에서 그대로 쓸 수 있어요. 코드는 이 브라우저 안에서만 돕니다.'}
           </p>
+          {set && (
+            <div className="pb-progress" aria-label={`통과 ${passedCount} / ${set.problems.length}`}>
+              <div className="pb-progress__bar">
+                {set.problems.map((_, i) => {
+                  const a = attempts.find((x) => x.index === i);
+                  return <i key={i} className={a?.passed ? 'ok' : a ? 'no' : ''} />;
+                })}
+              </div>
+              <span>
+                통과 <strong>{passedCount}</strong> / {set.problems.length}
+              </span>
+            </div>
+          )}
         </div>
         <span className={`py-status py-status--${status}`} title={`Pyodide ${PYODIDE_VERSION}`}>
           <span className="py-status__lamp" />
@@ -508,6 +618,13 @@ export function PythonPlaygroundScreen() {
         ))}
       </section>
 
+      {setId && !set && (
+        <div className="py-kernel-note" role="status">
+          <Icon name="info" size={18} />
+          <span>찾는 실습 세트가 없어요. 학습실의 「실습 문제」 목록에서 다시 골라 주세요.</span>
+        </div>
+      )}
+
       {kernelNote && (
         <div className="py-kernel-note" role="status">
           <Icon name="info" size={18} />
@@ -520,6 +637,42 @@ export function PythonPlaygroundScreen() {
 
       <div className="py-notebook">
         {cells.map((cell, index) => {
+          if (cell.type === 'problem') {
+            const problem = set?.problems[cell.problemIndex ?? -1];
+            if (!problem) return null;
+            const number = (cell.problemIndex ?? 0) + 1;
+            return (
+              <article
+                key={cell.id}
+                className={`py-nb-cell py-nb-cell--problem${cell.id === activeId ? ' py-nb-cell--active' : ''}`}
+                onClick={() => setActiveId(cell.id)}
+              >
+                <div className="py-nb-cell__prompt" aria-label={`문제 ${number}`}>
+                  Q{number}
+                </div>
+                <div className="py-nb-cell__main">
+                  <ProblemCell
+                    problem={problem}
+                    number={number}
+                    code={cell.code}
+                    attempt={attempts.find((a) => a.index === cell.problemIndex)}
+                    onCodeChange={(code) => patch(cell.id, { code })}
+                    onAttempt={(passed) => set && recordPracticeAttempt(user.uid, set.id, cell.problemIndex ?? 0, passed)}
+                    runInSession={runProblemInSession}
+                    grade={gradeProblem}
+                    onFocus={() => setActiveId(cell.id)}
+                    focusSignal={focus.id === cell.id ? focus.n : 0}
+                    onRunAndNext={() => focusNext(cell.id)}
+                  />
+                  <div className="pb__below">
+                    <button type="button" className="py-icon-btn" onClick={() => focusCell(insertAfter(cell.id))} aria-label="아래에 셀 추가" title="아래에 시험해 볼 셀 추가">
+                      <Icon name="add" size={16} />
+                    </button>
+                  </div>
+                </div>
+              </article>
+            );
+          }
           const isMarkdown = cell.type === 'markdown';
           const rendered = isMarkdown && !cell.editing;
           return (

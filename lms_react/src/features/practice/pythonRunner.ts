@@ -12,7 +12,7 @@ import type { RunnerEvent, RunResult, WorkerRequest } from './pythonProtocol';
  */
 export type RunnerStatus = 'idle' | 'loading' | 'ready' | 'running' | 'error';
 
-interface RunOptions {
+export interface RunOptions {
   timeoutMs?: number;
   /** 노트북 세션 이름. 같은 이름이면 앞에서 만든 변수가 남는다. */
   session?: string;

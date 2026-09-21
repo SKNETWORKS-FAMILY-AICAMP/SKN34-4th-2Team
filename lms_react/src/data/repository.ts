@@ -29,6 +29,8 @@ import type {
   SubmissionStatus,
   Todo,
   User,
+  PracticeAttempt,
+  PracticeSet,
 } from '../domain/types';
 import { getDb, mutate, nextId, subscribe, type Database } from './store';
 import { dateKeyOf } from './seed';
@@ -1023,4 +1025,43 @@ export function updateMileageSettings(patch: Partial<import('../domain/types').M
 /** ⬇︎ Query 로 바꾼 것 (시범) */
 export function useQualExams(): Query<QualExamSchedule[]> {
   return ready(useDb((db) => db.qualExams));
+}
+
+// ── 실습 문제 ──────────────────────────────────────────
+
+/** 기수의 실습 세트 — 최근 수업이 위로 */
+export function usePracticeSets(cohortId: string): PracticeSet[] {
+  return useDb((db) =>
+    db.practiceSets
+      .filter((s) => s.cohortId === cohortId)
+      .sort((a, b) => b.lessonDate.localeCompare(a.lessonDate)),
+  );
+}
+
+export function usePracticeSet(id: string | null | undefined): PracticeSet | undefined {
+  return useDb((db) => (id ? db.practiceSets.find((s) => s.id === id) : undefined));
+}
+
+export function useMyPracticeAttempts(uid: string): PracticeAttempt[] {
+  return useDb((db) => db.practiceAttempts.filter((a) => a.uid === uid));
+}
+
+/** 채점 한 번을 남긴다. 한 번 통과하면 뒤에 틀려도 통과로 둔다. */
+export function recordPracticeAttempt(uid: string, setId: string, index: number, passed: boolean): void {
+  mutate((db) => {
+    const found = db.practiceAttempts.find((a) => a.uid === uid && a.setId === setId && a.index === index);
+    if (!found) {
+      return {
+        practiceAttempts: [
+          ...db.practiceAttempts,
+          { id: nextId('pa'), uid, setId, index, passed, tries: 1, answeredAt: new Date() },
+        ],
+      };
+    }
+    return {
+      practiceAttempts: db.practiceAttempts.map((a) =>
+        a === found ? { ...a, passed: a.passed || passed, tries: a.tries + 1, answeredAt: new Date() } : a,
+      ),
+    };
+  });
 }

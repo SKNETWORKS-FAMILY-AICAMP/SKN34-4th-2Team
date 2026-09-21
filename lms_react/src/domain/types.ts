@@ -463,6 +463,59 @@ export interface StudyNote {
   createdAt?: Date;
 }
 
+// ── 실습 문제 ─────────────────────────────────────────
+// study_notes/practice 가 수업 저장소로 만들고 Pyodide 로 검증한 문제. 모양은 PracticeProblem.to_json() 그대로다.
+
+export type PracticeKind = 'concept' | 'code_output' | 'code_blank' | 'code_fix' | 'code_write';
+
+export interface PracticeProblem {
+  kind: PracticeKind;
+  topic: string;
+  prompt: string;
+  sourceFiles: string[];
+  explanation: string;
+  /** concept */
+  choices: string[];
+  answerIndex: number | null;
+  /** code_* — 학생이 받는 코드. code_blank 는 `__1__` 자리가 빈칸 */
+  starterCode: string;
+  /** code_output — 검증기가 실제로 돌려 얻은 출력 */
+  expectedStdout: string;
+  /** code_blank — 빈칸 모범 답 */
+  blankAnswers: string[];
+  /** 통과했거나 여러 번 틀린 뒤에만 보인다. 서버를 붙이면 그때 받아 온다 */
+  referenceSolution: string;
+  /** 브라우저가 학생 코드 뒤에 이어 돌려 채점한다 */
+  hiddenTests: string;
+  packages: string[];
+}
+
+/** 기수 · 수업일 하나에 세트 하나. 반 전체가 같은 문제를 푼다. */
+export interface PracticeSet {
+  id: string;
+  cohortId: string;
+  /** 수업 저장소 이름 */
+  sourceTitle: string;
+  /** YYYY-MM-DD */
+  lessonDate: string;
+  /** 예: 멀티모달 3일차 */
+  dayLabel: string;
+  title: string;
+  files: string[];
+  model: string;
+  problems: PracticeProblem[];
+}
+
+export interface PracticeAttempt {
+  id: string;
+  uid: string;
+  setId: string;
+  index: number;
+  passed: boolean;
+  tries: number;
+  answeredAt: Date;
+}
+
 // ── 커리큘럼 ───────────────────────────────────────────
 
 export interface CurriculumRow {

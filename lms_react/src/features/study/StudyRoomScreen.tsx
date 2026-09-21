@@ -5,6 +5,8 @@ import { RoutePaths, studyRoomNoteSourcePath } from '../../app/routePaths';
 import {
   createDemoStudyNote,
   useInflearnPackages,
+  useMyPracticeAttempts,
+  usePracticeSets,
   useStudyNotes,
   useStudySources,
   useYoutubeRecommendations,
@@ -94,6 +96,8 @@ export function StudyRoomScreen() {
         </Link>
       </section>
 
+      <PracticeSetsSection cohortId={user.cohortId} uid={user.uid} />
+
       <YoutubeRecommendations cohortName={user.cohortName} />
 
       <section className="study-list">
@@ -119,6 +123,55 @@ export function StudyRoomScreen() {
         )}
       </section>
     </div>
+  );
+}
+
+const PRACTICE_KIND_LABEL: Record<string, string> = {
+  concept: '개념',
+  code_output: '출력 예상',
+  code_blank: '빈칸',
+  code_fix: '디버깅',
+  code_write: '함수 작성',
+};
+
+/** 실습 문제 — 수업일마다 만든 세트. 누르면 연습장에서 문제 셀로 열린다. */
+function PracticeSetsSection({ cohortId, uid }: { cohortId: string; uid: string }) {
+  const sets = usePracticeSets(cohortId);
+  const attempts = useMyPracticeAttempts(uid);
+  if (sets.length === 0) return null;
+  return (
+    <section className="practice-sets">
+      <header className="study-section__head">
+        <h2 className="study-section__title">실습 문제</h2>
+      </header>
+      <p className="study-section__desc">수업 저장소의 코드로 만든 문제입니다. 연습장에서 바로 실행하고 채점해요.</p>
+      <div className="practice-sets__list">
+        {sets.map((s) => {
+          const mine = attempts.filter((a) => a.setId === s.id);
+          const passed = mine.filter((a) => a.passed).length;
+          const kinds = [...new Set(s.problems.map((p) => PRACTICE_KIND_LABEL[p.kind] ?? p.kind))];
+          return (
+            <Link key={s.id} className="practice-set" to={`${RoutePaths.studyRoomPlayground}?set=${encodeURIComponent(s.id)}`}>
+              <span className="practice-set__date">
+                {s.lessonDate.slice(5).replace('-', '/')} · {s.dayLabel}
+              </span>
+              <strong className="practice-set__title">{s.title}</strong>
+              <span className="practice-set__kinds">{kinds.join(' · ')}</span>
+              <span className="practice-set__bar" aria-hidden>
+                {s.problems.map((_, i) => {
+                  const a = mine.find((x) => x.index === i);
+                  return <i key={i} className={a?.passed ? 'ok' : a ? 'no' : ''} />;
+                })}
+              </span>
+              <span className="practice-set__foot">
+                {passed === s.problems.length ? '모두 통과' : mine.length ? `통과 ${passed} / ${s.problems.length}` : `문제 ${s.problems.length}개`}
+                <Icon name="arrow_forward" size={16} />
+              </span>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

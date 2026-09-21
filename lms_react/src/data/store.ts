@@ -35,6 +35,7 @@ import {
   seedUsers,
   seedYoutubeRecommendations,
 } from './seed';
+import { seedPracticeSets } from './practiceSeed';
 import type {
   AiEvalResult,
   AiGenerationLog,
@@ -52,6 +53,8 @@ import type {
   MileageSettings,
   MileageTransaction,
   Notice,
+  PracticeAttempt,
+  PracticeSet,
   Post,
   PostComment,
   PurchaseRequest,
@@ -113,6 +116,10 @@ export interface Database {
   projectTeams: ProjectTeam[];
   seatPresence: SeatPresence[];
   qualExams: QualExamSchedule[];
+  /** 수업일마다 만든 실습 문제 세트 — 기수 공용 */
+  practiceSets: PracticeSet[];
+  /** 학생별 풀이 기록 — 복습 추천·강사 대시보드의 재료 */
+  practiceAttempts: PracticeAttempt[];
   aiLogs: AiGenerationLog[];
   aiEvals: AiEvalResult[];
   /** 알림 팝업 「오늘 하루 보지 않기」 — uid → popupId → dateKey */
@@ -153,6 +160,8 @@ function initial(): Database {
     projectTeams: seedProjectTeams,
     seatPresence: [],
     qualExams: seedQualExams,
+    practiceSets: seedPracticeSets,
+    practiceAttempts: [],
     aiLogs: seedAiLogs,
     aiEvals: seedAiEvals,
     alertDismissals: {},
