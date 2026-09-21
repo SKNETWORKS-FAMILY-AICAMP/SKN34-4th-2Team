@@ -155,6 +155,39 @@ describe('역할별 셸', () => {
 });
 
 describe('데이터가 실제로 흐른다', () => {
+  it('이력서 버전은 편집 중이 아니라 저장할 때 증가한다', async () => {
+    await render('/resume/r-demo-1/edit');
+    await loginAs('학생');
+    await render('/resume/r-demo-1/edit');
+
+    const before = getDb().resumes.find((resume) => resume.id === 'r-demo-1')!.revisionCount;
+    const title = container.querySelector('.resume-doc__field input') as HTMLInputElement;
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(title, '데이터 분석가 이력서');
+      title.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await flush();
+
+    expect(getDb().resumes.find((resume) => resume.id === 'r-demo-1')!.revisionCount).toBe(before);
+    click('저장');
+    await flush();
+    expect(getDb().resumes.find((resume) => resume.id === 'r-demo-1')!.revisionCount).toBe(before + 1);
+    expect(container.textContent).toContain('저장됨');
+  });
+
+  it('이력서 Doc 보기에서 입력칸을 숨기고 PDF 내보내기를 제공한다', async () => {
+    await render('/resume/r-demo-1/edit');
+    await loginAs('학생');
+    await render('/resume/r-demo-1/edit');
+
+    click('Doc');
+    await flush();
+    expect(container.querySelector('.resume-doc input')).toBeNull();
+    expect(container.querySelector('[aria-label="PDF 내보내기"]')).not.toBeNull();
+    expect(container.textContent).toContain('미작성');
+  });
+
   it('학생이 기록을 제출하면 관리자 기록실 대기 건수가 는다', async () => {
     const before = getDb().submissions.filter((s) => s.status === 'pending').length;
     await render('/records/create/blog');
@@ -179,6 +212,71 @@ describe('데이터가 실제로 흐른다', () => {
     expect(after.some((s) => s.title === '2주차 회고')).toBe(true);
   });
 
+  it('소통 피드 게시글에 댓글을 등록한다', async () => {
+    await render('/board');
+    await loginAs('학생');
+    await render('/board');
+
+    click('소통 피드');
+    await flush();
+    const commentsButton = container.querySelector('button[aria-label="댓글 3"]') as HTMLButtonElement;
+    act(() => commentsButton.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await flush();
+
+    const input = container.querySelector(
+      'textarea[aria-label="김하늘 게시글에 댓글 작성"]',
+    ) as HTMLTextAreaElement;
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+      setter?.call(input, '조인 실습 정리 감사합니다!');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    click('댓글 등록');
+    await flush();
+
+    expect(getDb().postComments.some((comment) => comment.content === '조인 실습 정리 감사합니다!')).toBe(true);
+    expect(getDb().posts.find((post) => post.id === 'p1')?.commentCount).toBe(4);
+    expect(container.textContent).toContain('댓글 4');
+  });
+
+  it('공부방에서 범위를 골라 로컬 수업노트를 만든다', async () => {
+    const before = getDb().studyNotes.length;
+    await render('/study-room/notes/src1');
+    await loginAs('학생');
+    await render('/study-room/notes/src1');
+
+    click('2026-09-19');
+    click('선택한 범위 정리하기');
+    await flush();
+
+    expect(getDb().studyNotes.length).toBe(before + 1);
+    expect(getDb().studyNotes.at(-1)?.scopeKey).toBe('date:2026-09-19');
+    expect(container.textContent).toContain('2026-09-19 수업 요약');
+    expect(container.textContent).toContain('실제 내용 생성은 공부방 API 연결 후');
+  });
+
+  it('기록 상세 보기에서 제출 내용과 증빙 상태를 확인한다', async () => {
+    await render('/records');
+    await loginAs('학생');
+    await render('/records');
+
+    click('상세 보기');
+    await flush();
+
+    const dialog = container.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog).not.toBeNull();
+    expect(dialog.textContent).toContain('제출 상세');
+    expect(dialog.textContent).toContain('제출자');
+    expect(dialog.textContent).toContain('팀 스터디');
+    expect(dialog.textContent).toContain('첨부된 증빙이 없습니다');
+
+    click('닫기', dialog);
+    await flush();
+    expect(
+      [...container.querySelectorAll('[role="dialog"]')].some((item) => item.textContent?.includes('제출 상세')),
+    ).toBe(false);
+  });
+
   it('관리자가 승인하면 학생 화면의 상태도 바뀐다', async () => {
     const before = getDb().submissions.filter((s) => s.status === 'pending').length;
     expect(before).toBeGreaterThan(0);
@@ -193,6 +291,45 @@ describe('데이터가 실제로 흐른다', () => {
     await flush();
 
     expect(getDb().submissions.filter((s) => s.status === 'pending').length).toBe(before - 1);
+  });
+
+  it('응시 기간이 끝난 평가는 직접 주소로 들어가도 막는다', async () => {
+    const submissions = getDb().assessmentSubmissions;
+    const ownIndex = submissions.findIndex(
+      (submission) => submission.assessmentId === 'a2' && submission.userId === DemoAccounts.studentUid,
+    );
+    submissions.splice(ownIndex, 1);
+
+    await render('/assessments/a2/take');
+    await loginAs('학생');
+    await render('/assessments/a2/take');
+
+    expect(container.textContent).toContain('종료된 평가이며 응시 기록이 없습니다.');
+    expect(container.textContent).not.toContain('Python에서 리스트를 만드는 기호는?');
+  });
+
+  it('미응답 문항이 있으면 확인한 뒤에만 평가를 제출한다', async () => {
+    await render('/assessments/a1/take');
+    await loginAs('학생');
+    await render('/assessments/a1/take');
+
+    click('다음');
+    await flush();
+    click('제출하기');
+    await flush();
+
+    const dialog = container.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog.textContent).toContain('2문항이 비어 있습니다. 그대로 제출할까요?');
+    expect(getDb().assessmentSubmissions.some(
+      (submission) => submission.assessmentId === 'a1' && submission.userId === DemoAccounts.studentUid,
+    )).toBe(false);
+
+    click('그대로 제출', dialog);
+    await flush();
+    expect(container.textContent).toContain('34기 2차 성취도평가 결과');
+    expect(getDb().assessmentSubmissions.some(
+      (submission) => submission.assessmentId === 'a1' && submission.userId === DemoAccounts.studentUid,
+    )).toBe(true);
   });
 
   it('구매 요청을 승인하면 마일리지가 차감된다', async () => {

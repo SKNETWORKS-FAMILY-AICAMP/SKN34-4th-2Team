@@ -13,6 +13,7 @@ import type {
   MileageTransaction,
   Notice,
   Post,
+  PostComment,
   PurchaseRequest,
   QualExamSchedule,
   Resume,
@@ -224,12 +225,47 @@ export function createPost(authorId: string, authorName: string, content: string
 }
 
 export function deletePost(id: string): void {
-  mutate((db) => ({ posts: db.posts.filter((p) => p.id !== id) }));
+  mutate((db) => ({
+    posts: db.posts.filter((p) => p.id !== id),
+    postComments: db.postComments.filter((comment) => comment.postId !== id),
+  }));
 }
 
 export function likePost(id: string): void {
   mutate((db) => ({
     posts: db.posts.map((p) => (p.id === id ? { ...p, likeCount: p.likeCount + 1 } : p)),
+  }));
+}
+
+export function usePostComments(postId: string): PostComment[] {
+  return useDb((db) => db.postComments.filter((comment) => comment.postId === postId));
+}
+
+export function createPostComment(
+  postId: string,
+  authorId: string,
+  authorName: string,
+  content: string,
+): void {
+  mutate((db) => ({
+    postComments: [
+      ...db.postComments,
+      { id: nextId('pc'), postId, authorId, authorName, content, createdAt: new Date() },
+    ],
+    posts: db.posts.map((post) =>
+      post.id === postId ? { ...post, commentCount: post.commentCount + 1 } : post,
+    ),
+  }));
+}
+
+export function deletePostComment(postId: string, commentId: string): void {
+  mutate((db) => ({
+    postComments: db.postComments.filter((comment) => comment.id !== commentId),
+    posts: db.posts.map((post) =>
+      post.id === postId
+        ? { ...post, commentCount: Math.max(0, post.commentCount - 1) }
+        : post,
+    ),
   }));
 }
 
@@ -593,6 +629,33 @@ export function useStudySources() {
 
 export function useStudyNotes() {
   return useDb((db) => db.studyNotes);
+}
+
+export function createDemoStudyNote(
+  sourceId: string,
+  scopeKey: string,
+  files: { path: string; commit: string }[],
+): string {
+  const id = nextId('note');
+  const label = scopeKey.replace(/^date:|^folder:|^files:/, '');
+  mutate((db) => ({
+    studyNotes: [
+      ...db.studyNotes,
+      {
+        id,
+        sourceId,
+        status: 'done',
+        scopeKey,
+        reportMarkdown:
+          `## ${label} 수업 요약\n\n- 선택한 범위의 핵심 개념을 정리했습니다.\n- 예제 코드를 다시 실행하며 흐름을 확인해 보세요.\n- 실제 내용 생성은 공부방 API 연결 후 저장소 자료를 기반으로 제공됩니다.`,
+        reviewMarkdown:
+          `## 복습 문제\n\n1. ${label}에서 가장 중요한 개념을 한 문장으로 설명해 보세요.\n2. 실습 코드를 다른 입력값으로 바꾸면 결과가 어떻게 달라지는지 확인해 보세요.`,
+        files,
+        createdAt: new Date(),
+      },
+    ],
+  }));
+  return id;
 }
 
 export function useCurriculumSheets() {

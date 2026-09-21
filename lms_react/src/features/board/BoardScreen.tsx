@@ -1,13 +1,16 @@
 import { useState } from 'react';
 
 import {
+  createPostComment,
   createPost,
+  deletePostComment,
   deletePost,
   likePost,
   useNotices,
+  usePostComments,
   usePosts,
 } from '../../data/repository';
-import type { Notice } from '../../domain/types';
+import type { Notice, Post } from '../../domain/types';
 import { StudentTargets } from '../../tour/targets';
 import { useTourTarget } from '../../tour/useTourTarget';
 import {
@@ -188,33 +191,100 @@ function FeedTab() {
           <EmptyState message="아직 올라온 글이 없습니다" />
         </Card>
       ) : (
-        posts.map((post) => (
-          <Card key={post.id}>
-            <Row gap={10}>
-              <Avatar name={post.authorName} />
-              <div>
-                <strong>{post.authorName}</strong>
-                <p className="hint">{formatRelative(post.createdAt)}</p>
-              </div>
-              <Spacer />
-              {post.authorId === user.uid && (
-                <Button variant="text" size="sm" onClick={() => deletePost(post.id)}>
-                  삭제
-                </Button>
-              )}
-            </Row>
-            <p className="muted" style={{ whiteSpace: 'pre-wrap' }}>
-              {post.content}
-            </p>
-            <Row gap={8}>
-              <Button variant="outline" size="sm" onClick={() => likePost(post.id)}>
-                ♡ {post.likeCount}
-              </Button>
-              <span className="hint">댓글 {post.commentCount}</span>
-            </Row>
-          </Card>
-        ))
+        posts.map((post) => <FeedPost key={post.id} post={post} />)
       )}
     </div>
+  );
+}
+
+function FeedPost({ post }: { post: Post }) {
+  const user = useCurrentUser();
+  const comments = usePostComments(post.id);
+  const [expanded, setExpanded] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  const submitComment = () => {
+    const content = draft.trim();
+    if (content === '') return;
+    createPostComment(post.id, user.uid, user.displayName, content);
+    setDraft('');
+    setExpanded(true);
+  };
+
+  return (
+    <Card>
+      <Row gap={10}>
+        <Avatar name={post.authorName} />
+        <div>
+          <strong>{post.authorName}</strong>
+          <p className="hint">{formatRelative(post.createdAt)}</p>
+        </div>
+        <Spacer />
+        {post.authorId === user.uid && (
+          <Button variant="text" size="sm" onClick={() => deletePost(post.id)}>
+            삭제
+          </Button>
+        )}
+      </Row>
+      <p className="muted feed-post__content">{post.content}</p>
+      <Row gap={8}>
+        <Button variant="outline" size="sm" onClick={() => likePost(post.id)}>
+          ♡ {post.likeCount}
+        </Button>
+        <Button
+          variant="text"
+          size="sm"
+          aria-label={`댓글 ${post.commentCount}`}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          댓글 {post.commentCount}
+          <Icon name={expanded ? 'expand_less' : 'expand_more'} size={17} />
+        </Button>
+      </Row>
+
+      {expanded && (
+        <div className="feed-comments">
+          {comments.length === 0 ? (
+            <p className="hint">첫 댓글을 남겨 보세요.</p>
+          ) : (
+            <ul className="feed-comments__list">
+              {comments.map((comment) => (
+                <li key={comment.id} className="feed-comment">
+                  <Avatar name={comment.authorName} size={28} />
+                  <div className="feed-comment__body">
+                    <Row gap={6}>
+                      <strong>{comment.authorName}</strong>
+                      <span className="hint">{formatRelative(comment.createdAt)}</span>
+                      <Spacer />
+                      {comment.authorId === user.uid && (
+                        <button
+                          type="button"
+                          className="feed-comment__delete"
+                          onClick={() => deletePostComment(post.id, comment.id)}
+                        >
+                          삭제
+                        </button>
+                      )}
+                    </Row>
+                    <p>{comment.content}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="feed-comments__form">
+            <TextArea
+              value={draft}
+              rows={2}
+              aria-label={`${post.authorName} 게시글에 댓글 작성`}
+              placeholder="댓글을 입력하세요."
+              onChange={(event) => setDraft(event.target.value)}
+            />
+            <Button size="sm" disabled={draft.trim() === ''} onClick={submitComment}>댓글 등록</Button>
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }

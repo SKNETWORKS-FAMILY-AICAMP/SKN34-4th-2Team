@@ -17,6 +17,7 @@ import type {
   MileageTransaction,
   Notice,
   Post,
+  PostComment,
   PurchaseRequest,
   QualExamSchedule,
   Resume,
@@ -300,6 +301,41 @@ export const seedPosts: Post[] = [
     likeCount: 4,
     commentCount: 1,
     createdAt: daysAgo(1),
+  },
+];
+
+export const seedPostComments: PostComment[] = [
+  {
+    id: 'pc1',
+    postId: 'p1',
+    authorId: DemoAccounts.studentUid,
+    authorName: '이수민',
+    content: '공유 감사합니다! 서브쿼리 부분을 다시 보고 있어요.',
+    createdAt: hoursAgo(3),
+  },
+  {
+    id: 'pc2',
+    postId: 'p1',
+    authorId: 'demo-student-004',
+    authorName: '박서연',
+    content: 'LEFT JOIN 예제가 특히 도움이 됐습니다.',
+    createdAt: hoursAgo(2),
+  },
+  {
+    id: 'pc3',
+    postId: 'p1',
+    authorId: 'demo-student-003',
+    authorName: '정우진',
+    content: '실습 문제도 같이 풀어 볼게요.',
+    createdAt: hoursAgo(1),
+  },
+  {
+    id: 'pc4',
+    postId: 'p2',
+    authorId: 'demo-student-002',
+    authorName: '김하늘',
+    content: '정리 잘 봤어요. 다음 스터디 때 같이 이야기해요!',
+    createdAt: hoursAgo(20),
   },
 ];
 

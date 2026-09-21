@@ -22,6 +22,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Dialog,
   Field,
   PageHeader,
   Row,
@@ -204,6 +205,7 @@ export function MissionGuidancePanel({ submissions }: { submissions: Submission[
 }
 
 function RecordCard({ submission, reviewer }: { submission: Submission; reviewer: boolean }) {
+  const [detailOpen, setDetailOpen] = useState(false);
   const tone =
     submission.status === 'approved'
       ? 'success'
@@ -252,7 +254,7 @@ function RecordCard({ submission, reviewer }: { submission: Submission; reviewer
       )}
 
       <footer className="rec-card__foot">
-        <button type="button" className="btn btn--text btn--sm">
+        <button type="button" className="btn btn--text btn--sm" onClick={() => setDetailOpen(true)}>
           상세 보기
         </button>
         <span className="spacer" />
@@ -275,7 +277,112 @@ function RecordCard({ submission, reviewer }: { submission: Submission; reviewer
           </>
         )}
       </footer>
+
+      {detailOpen && (
+        <SubmissionDetailDialog
+          submission={submission}
+          reviewer={reviewer}
+          onClose={() => setDetailOpen(false)}
+        />
+      )}
     </article>
+  );
+}
+
+function SubmissionDetailDialog({
+  submission,
+  reviewer,
+  onClose,
+}: {
+  submission: Submission;
+  reviewer: boolean;
+  onClose(): void;
+}) {
+  const review = (status: 'approved' | 'rejected') => {
+    reviewSubmission(submission.id, status);
+    onClose();
+  };
+
+  const rows: Array<[string, string | number | undefined]> = [
+    ['제출자', submission.userDisplayName],
+    ['제출 시각', submission.submittedAt === undefined ? undefined : formatDateTime(submission.submittedAt)],
+    ['자격 종류', submission.certType],
+    ['점수', submission.quizScore === undefined ? undefined : `${submission.quizScore}점`],
+    ['학습일자', submission.learningDate === undefined ? undefined : formatDateTime(submission.learningDate)],
+    ['학습 내용', submission.learningContent],
+    ['팀 스터디', submission.isTeamStudy === undefined ? undefined : submission.isTeamStudy ? '예' : '아니오 (개인)'],
+    ['주차', submission.weekLabel],
+    ['적립', submission.mileageAmount > 0 ? `${submission.mileageAmount.toLocaleString()}M` : undefined],
+    ['반려 사유', submission.reviewComment],
+  ];
+
+  return (
+    <Dialog
+      title="제출 상세"
+      onClose={onClose}
+      actions={
+        reviewer && submission.status === 'pending' ? (
+          <>
+            <Button variant="outline" onClick={() => review('rejected')}>반려</Button>
+            <Button onClick={() => review('approved')}>승인</Button>
+          </>
+        ) : (
+          <Button onClick={onClose}>닫기</Button>
+        )
+      }
+    >
+      <div className="submission-detail">
+        <div className="submission-detail__top">
+          <span className="rec-card__type">{RecordTypeLabels[submission.type]}</span>
+          <Badge tone={submission.status === 'approved' ? 'success' : submission.status === 'pending' ? 'warning' : 'error'}>
+            {SubmissionStatusLabels[submission.status]}
+          </Badge>
+        </div>
+        <h3>{submission.title}</h3>
+        <dl className="submission-detail__rows">
+          {rows.map(([label, value]) =>
+            value === undefined || value === '' ? null : (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ),
+          )}
+        </dl>
+
+        {submission.link !== undefined && submission.link !== '' && (
+          <section className="submission-detail__section">
+            <strong>링크</strong>
+            <a href={submission.link} target="_blank" rel="noreferrer">
+              {submission.link}
+              <Icon name="open_in_new" size={15} />
+            </a>
+          </section>
+        )}
+
+        <section className="submission-detail__section">
+          <strong>증빙 파일 ({submission.fileUrls.length})</strong>
+          {submission.fileUrls.length === 0 ? (
+            <p className="hint">첨부된 증빙이 없습니다.</p>
+          ) : (
+            <div className="submission-detail__files">
+              {submission.fileUrls.map((url, index) =>
+                url.startsWith('demo://') ? (
+                  <span key={url} className="submission-file">
+                    <Icon name="image" size={18} /> 데모 파일 {index + 1}
+                  </span>
+                ) : (
+                  <a key={url} className="submission-file" href={url} target="_blank" rel="noreferrer">
+                    <Icon name="attach_file" size={18} /> 파일 {index + 1}
+                    <Icon name="open_in_new" size={14} />
+                  </a>
+                ),
+              )}
+            </div>
+          )}
+        </section>
+      </div>
+    </Dialog>
   );
 }
 
@@ -321,6 +428,7 @@ export function RecordFormScreen({ type }: { type: RecordType }) {
   const [isTeamStudy, setTeamStudy] = useState(true);
   const [learningContent, setLearningContent] = useState('');
   const [quizScore, setQuizScore] = useState('');
+  const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const submit = () => {
@@ -346,7 +454,8 @@ export function RecordFormScreen({ type }: { type: RecordType }) {
       learningContent: type === 'studyCert' ? learningContent.trim() : undefined,
       learningDate: type === 'studyCert' ? new Date() : undefined,
       quizScore: type === 'precourseQuiz' ? Number(quizScore) : undefined,
-      fileUrls: [],
+      // 실제 Storage 연결 전까지 파일명만 데모 URL로 보존한다.
+      fileUrls: evidenceFiles.map((file) => `demo://${encodeURIComponent(file.name)}`),
       mileageGranted: false,
       mileageAmount: 0,
     });
@@ -418,8 +527,35 @@ export function RecordFormScreen({ type }: { type: RecordType }) {
           </Field>
         )}
 
-        <Field label="증빙 파일" hint="프로토타입에서는 파일이 저장되지 않습니다.">
-          <TextInput type="file" disabled />
+        <Field label="증빙 파일" hint="이미지 또는 PDF를 최대 5개까지 선택할 수 있습니다.">
+          <TextInput
+            type="file"
+            accept="image/*,.pdf"
+            multiple
+            onChange={(e) => {
+              const selected = Array.from(e.target.files ?? []);
+              setEvidenceFiles((current) => [...current, ...selected].slice(0, 5));
+              e.target.value = '';
+            }}
+          />
+          {evidenceFiles.length > 0 && (
+            <div className="evidence-files" aria-label="선택한 증빙 파일">
+              {evidenceFiles.map((file, index) => (
+                <span key={`${file.name}-${file.lastModified}`} className="evidence-file">
+                  <Icon name={file.type === 'application/pdf' ? 'picture_as_pdf' : 'image'} size={17} />
+                  <span>{file.name}</span>
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-label={`${file.name} 제거`}
+                    onClick={() => setEvidenceFiles((files) => files.filter((_, i) => i !== index))}
+                  >
+                    <Icon name="close" size={15} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
         </Field>
 
         {error !== null && <span className="field__error">{error}</span>}

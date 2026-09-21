@@ -4008,6 +4008,50 @@ a.link {
   .screen {
     padding: 16px;
   }
+
+  .board-page {
+    margin: -16px;
+  }
+}
+
+.study-note-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.study-note-chips .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.study-scope-options {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+  min-height: 68px;
+  margin: 16px 0 10px;
+}
+
+.study-scope-options > .chip {
+  width: auto;
+}
+
+.study-scope-options .checkbox {
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: var(--surface-variant);
+  overflow-wrap: anywhere;
+}
+
+.callout--error {
+  border-color: color-mix(in srgb, var(--error) 30%, transparent);
+  background: color-mix(in srgb, var(--error) 8%, var(--surface));
+  color: var(--error);
 }
 
 /* ── 챗봇 ─────────────────────────────────────────────── */
@@ -5351,6 +5395,191 @@ a.link {
        0으로 두면 행이 내용보다 작아져 밖으로 삐져나와 겹쳐 보인다. */
     min-height: auto;
   }
+
+  .resume-coach {
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+}
+
+.feed-post__content {
+  white-space: pre-wrap;
+}
+
+.feed-comments {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.feed-comments__list {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.feed-comment {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.feed-comment__body {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--surface-variant);
+}
+
+.feed-comment__body strong {
+  font-size: 13px;
+}
+
+.feed-comment__body p {
+  margin: 5px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.feed-comment__delete {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-hint);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.feed-comments__form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.feed-comments__form .input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  min-height: 58px;
+  resize: vertical;
+}
+
+@media (max-width: 560px) {
+  .feed-comments__form {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+.submission-detail {
+  display: grid;
+  gap: 14px;
+  width: min(430px, calc(100vw - 68px));
+  min-width: 0;
+}
+
+.submission-detail__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.submission-detail h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.submission-detail__rows {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  border-top: 1px solid var(--divider);
+}
+
+.submission-detail__rows > div {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--divider);
+}
+
+.submission-detail__rows dt {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.submission-detail__rows dd {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.submission-detail__section {
+  display: grid;
+  gap: 8px;
+}
+
+.submission-detail__section > a,
+.submission-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--primary);
+  overflow-wrap: anywhere;
+}
+
+.evidence-files {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.evidence-file {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-variant);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.evidence-file > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.submission-detail__files {
+  display: grid;
+  gap: 8px;
+}
+
+.submission-file {
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: var(--surface-variant);
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+@media (max-width: 640px) {
+  .submission-detail__rows > div {
+    grid-template-columns: 82px minmax(0, 1fr);
+  }
 }
 
 /* ── AI 코치 대화 ──────────────────────────────────────── */
@@ -5479,6 +5708,68 @@ a.link {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.coach-msg__content {
+  min-width: 0;
+  flex: 1;
+}
+
+.review-suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 26%, var(--border));
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.review-suggestion p {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.review-suggestion__label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.review-suggestion__revision {
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--success) 10%, var(--surface));
+}
+
+.review-suggestion small {
+  color: var(--text-hint);
+}
+
+.review-suggestion .btn {
+  align-self: flex-end;
+}
+
+.review-suggestion__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.coach-chat__notice {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-bottom: 10px;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .coach-chat__suggest {

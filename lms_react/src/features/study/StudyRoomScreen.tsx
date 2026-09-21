@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 
 import { RoutePaths, studyRoomNoteSourcePath } from '../../app/routePaths';
 import {
+  createDemoStudyNote,
   useInflearnPackages,
   useStudyNotes,
   useStudySources,
@@ -12,8 +13,9 @@ import type { InflearnPackage } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import {
   Badge,
+  Button,
   Card,
-  EmptyState,
+  Checkbox,
   PageHeader,
   Row,
   Spacer,
@@ -265,13 +267,22 @@ export function StudyNotesScreen() {
             </a>
             <Badge tone="neutral">{source.branch}</Badge>
             <Spacer />
-            <Link className="btn btn--outline btn--sm" to={studyRoomNoteSourcePath(source.id)}>
-              노트 열기
+            <Link className="btn btn--filled btn--sm" to={studyRoomNoteSourcePath(source.id)}>
+              새 수업노트 만들기
             </Link>
           </Row>
-          <span className="hint">
-            노트 {notes.filter((n) => n.sourceId === source.id).length}개
-          </span>
+          <div className="study-note-chips">
+            {notes.filter((n) => n.sourceId === source.id).map((note) => (
+              <Link
+                key={note.id}
+                className="chip"
+                to={`${studyRoomNoteSourcePath(source.id)}?note=${encodeURIComponent(note.id)}`}
+              >
+                <Icon name="description" size={16} />
+                {note.scopeKey ?? note.id}
+              </Link>
+            ))}
+          </div>
         </Card>
       ))}
     </div>
@@ -284,28 +295,67 @@ export function StudyNoteSourceScreen() {
   const sources = useStudySources();
   const notes = useStudyNotes().filter((n) => n.sourceId === sourceId);
   const source = sources.find((s) => s.id === sourceId);
-  const [selected, setSelected] = useState(0);
+  const initialNoteId = new URLSearchParams(window.location.search).get('note');
+  const [selectedId, setSelectedId] = useState<string | null>(initialNoteId);
   const [tab, setTab] = useState('report');
+  const [scopeMode, setScopeMode] = useState<'date' | 'folder' | 'file'>('date');
+  const [scopeValue, setScopeValue] = useState('');
+  const [checkedFiles, setCheckedFiles] = useState<string[]>([]);
+  const [error, setError] = useState('');
 
-  const note = notes[selected];
+  const note = notes.find((item) => item.id === selectedId);
+  const files = Array.from(new Set(notes.flatMap((item) => item.files.map((file) => file.path))));
+  const dateChoices = ['2026-09-17', '2026-09-18', '2026-09-19'];
+  const folderChoices = source?.allowedPrefixes ?? [];
+
+  const generate = () => {
+    const selectedFiles = scopeMode === 'file' ? checkedFiles : files.filter((path) =>
+      scopeMode === 'folder' ? path.startsWith(scopeValue) : true,
+    );
+    if ((scopeMode === 'file' && checkedFiles.length === 0) || (scopeMode !== 'file' && scopeValue === '')) {
+      setError(scopeMode === 'file' ? '파일을 1개 이상 선택하세요.' : '정리할 범위를 선택하세요.');
+      return;
+    }
+    const scopeKey = scopeMode === 'date'
+      ? `date:${scopeValue}`
+      : scopeMode === 'folder'
+        ? `folder:${scopeValue}`
+        : `files:${checkedFiles.length}개`;
+    const id = createDemoStudyNote(
+      sourceId ?? '',
+      scopeKey,
+      selectedFiles.slice(0, 8).map((path) => ({ path, commit: 'demo-local' })),
+    );
+    setSelectedId(id);
+    setTab('report');
+    setError('');
+  };
 
   return (
     <div className="screen__inner">
-      <PageHeader title={source?.title ?? '학습 노트'} />
-      {note === undefined ? (
-        <Card>
-          <EmptyState message="생성된 노트가 없습니다" />
-        </Card>
-      ) : (
-        <div className="split">
+      <PageHeader
+        title={source?.title ?? '학습 노트'}
+        description="날짜·폴더·파일 중 필요한 범위만 골라 복습 노트를 만듭니다."
+        actions={<Link className="btn btn--outline btn--sm" to={RoutePaths.studyRoomNotes}>공부방 목록</Link>}
+      />
+      <div className="split">
           <Card padded={false} className="split__side">
             <ul className="list" style={{ padding: '0 12px' }}>
-              {notes.map((n, i) => (
+              <li className="list__item">
+                <button
+                  type="button"
+                  className={`plain-btn${selectedId === null ? ' plain-btn--on' : ''}`}
+                  onClick={() => setSelectedId(null)}
+                >
+                  + 새 수업노트
+                </button>
+              </li>
+              {notes.map((n) => (
                 <li key={n.id} className="list__item">
                   <button
                     type="button"
-                    className={`plain-btn${i === selected ? ' plain-btn--on' : ''}`}
-                    onClick={() => setSelected(i)}
+                    className={`plain-btn${n.id === selectedId ? ' plain-btn--on' : ''}`}
+                    onClick={() => setSelectedId(n.id)}
                   >
                     {n.scopeKey ?? n.id}
                   </button>
@@ -314,6 +364,46 @@ export function StudyNoteSourceScreen() {
             </ul>
           </Card>
 
+          {note === undefined ? (
+            <Card className="split__main" title="새 수업노트 만들기">
+              <p className="muted">정리할 범위를 하나만 고르면 됩니다.</p>
+              <Tabs
+                items={[
+                  { id: 'date', label: '날짜' },
+                  { id: 'folder', label: '폴더' },
+                  { id: 'file', label: '파일' },
+                ]}
+                active={scopeMode}
+                onChange={(id) => {
+                  setScopeMode(id as 'date' | 'folder' | 'file');
+                  setScopeValue('');
+                  setError('');
+                }}
+              />
+              <div className="study-scope-options">
+                {scopeMode === 'date' && dateChoices.map((date) => (
+                  <button key={date} type="button" className={`chip${scopeValue === date ? ' chip--on' : ''}`} onClick={() => setScopeValue(date)}>{date}</button>
+                ))}
+                {scopeMode === 'folder' && folderChoices.map((folder) => (
+                  <button key={folder} type="button" className={`chip${scopeValue === folder ? ' chip--on' : ''}`} onClick={() => setScopeValue(folder)}>{folder}</button>
+                ))}
+                {scopeMode === 'file' && files.map((path) => (
+                  <Checkbox
+                    key={path}
+                    checked={checkedFiles.includes(path)}
+                    onChange={(checked) => setCheckedFiles((current) =>
+                      checked ? [...current, path].slice(0, 8) : current.filter((item) => item !== path),
+                    )}
+                    label={path}
+                  />
+                ))}
+              </div>
+              {scopeMode === 'file' && <span className="hint">{checkedFiles.length}/8개 선택</span>}
+              {error !== '' && <div className="callout callout--error">{error}</div>}
+              <div className="callout">현재는 화면 확인용 로컬 생성입니다. 실제 저장소 분석은 Django·공부방 API 연결 후 동작합니다.</div>
+              <Row><Spacer /><Button onClick={generate}>선택한 범위 정리하기</Button></Row>
+            </Card>
+          ) : (
           <Card className="split__main">
             <Tabs
               items={[
@@ -338,8 +428,8 @@ export function StudyNoteSourceScreen() {
               </ul>
             )}
           </Card>
+          )}
         </div>
-      )}
     </div>
   );
 }
