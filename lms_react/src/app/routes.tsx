@@ -12,6 +12,7 @@ import {
   StudyNotesScreen,
   StudyRoomScreen,
 } from '../features/study/StudyRoomScreen';
+import { PythonPlaygroundScreen } from '../features/practice/PythonPlaygroundScreen';
 import {
   MileageCartScreen,
   MileageScreen,
@@ -95,6 +96,7 @@ export const studentRoutes: AppRoute[] = [
   { path: RoutePaths.seating, element: <SeatingScreen />, roles: student },
   { path: RoutePaths.studyRoom, element: <StudyRoomScreen />, roles: student },
   { path: RoutePaths.studyRoomNotes, element: <StudyNotesScreen />, roles: student },
+  { path: RoutePaths.studyRoomPlayground, element: <PythonPlaygroundScreen />, roles: student },
   { path: '/study-room/notes/:sourceId', element: <StudyNoteSourceScreen />, roles: student },
   { path: RoutePaths.mileage, element: <MileageScreen />, roles: student },
   { path: RoutePaths.mileageShop, element: <MileageShopScreen />, roles: student },

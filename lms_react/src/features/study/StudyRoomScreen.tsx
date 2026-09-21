@@ -83,6 +83,17 @@ export function StudyRoomScreen() {
         </Link>
       </section>
 
+      {/* 파이썬 연습장 — 문제 없이 코드를 바로 돌려 보는 곳 */}
+      <section className="study-entry study-entry--quiet">
+        <div>
+          <strong className="study-entry__title">파이썬 연습장</strong>
+          <p className="study-entry__desc">수업 코드를 옮겨 적고 브라우저에서 바로 실행해 봅니다.</p>
+        </div>
+        <Link className="btn btn--outline btn--md" to={RoutePaths.studyRoomPlayground}>
+          연습장 열기
+        </Link>
+      </section>
+
       <YoutubeRecommendations cohortName={user.cohortName} />
 
       <section className="study-list">

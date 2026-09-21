@@ -3940,6 +3940,594 @@ a.link {
   margin-left: auto;
 }
 
+.study-entry--quiet {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+/* ── 파이썬 연습장 (노트북) ──────────────────────────────
+ * 색은 모두 테마 변수에서 온다. 설정의 밝은·어두운 테마를 그대로 따른다.
+ */
+.py-playground {
+  max-width: 1120px;
+  margin: 0 auto;
+  width: 100%;
+  gap: 14px;
+}
+
+.py-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 4px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.py-crumbs a:hover {
+  color: var(--primary);
+}
+
+.py-status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.py-status strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.py-status__lamp {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-hint);
+}
+
+.py-status--loading .py-status__lamp,
+.py-status--running .py-status__lamp {
+  background: var(--warning);
+  animation: py-pulse 0.9s ease-in-out infinite;
+}
+
+.py-status--running .py-status__lamp {
+  background: var(--primary);
+}
+
+.py-status--ready .py-status__lamp {
+  background: var(--success);
+}
+
+.py-status--error .py-status__lamp {
+  background: var(--error);
+}
+
+@keyframes py-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.py-grow {
+  flex: 1;
+}
+
+/* 도구 줄 */
+.py-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.py-toolbar__on {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.py-keys {
+  position: relative;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.py-keys summary {
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  list-style: none;
+}
+
+.py-keys summary::-webkit-details-marker {
+  display: none;
+}
+
+.py-keys summary:hover,
+.py-keys[open] summary {
+  background: var(--surface-variant);
+  color: var(--text-primary);
+}
+
+.py-keys dl {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  display: grid;
+  grid-template-columns: max-content max-content;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px var(--shadow);
+  white-space: nowrap;
+}
+
+.py-keys dt {
+  font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.py-keys dd {
+  margin: 0;
+}
+
+/* 입력값 */
+.py-stdin {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.py-stdin label {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.py-stdin textarea {
+  resize: vertical;
+  min-height: 64px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-variant);
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.py-stdin textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.py-examples {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.py-examples__label {
+  margin-right: 4px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.py-kernel-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.py-kernel-note > .icon {
+  color: var(--warning);
+}
+
+.py-kernel-note button {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+/* 셀 */
+.py-notebook {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.py-nb-cell {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 6px;
+}
+
+.py-nb-cell__prompt {
+  padding-top: 40px;
+  text-align: right;
+  font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-hint);
+  font-variant-numeric: tabular-nums;
+}
+
+.py-nb-cell--active .py-nb-cell__prompt {
+  color: var(--primary);
+}
+
+.py-nb-cell--running .py-nb-cell__prompt,
+.py-nb-cell--queued .py-nb-cell__prompt {
+  color: var(--warning);
+}
+
+.py-nb-cell__main {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.py-nb-cell--active .py-nb-cell__main {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.py-nb-cell--error .py-nb-cell__main {
+  border-left: 3px solid var(--error);
+}
+
+.py-nb-cell__tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.py-nb-cell__ms {
+  margin-right: 6px;
+  font-size: 11.5px;
+  color: var(--text-hint);
+  font-variant-numeric: tabular-nums;
+}
+
+.py-icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.py-icon-btn:hover:not(:disabled) {
+  background: var(--surface-variant);
+  color: var(--text-primary);
+}
+
+.py-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.py-icon-btn--run {
+  color: var(--primary);
+}
+
+/* 편집기 — CodeMirror(CodeEditor.tsx)가 이 변수로 색을 칠한다 */
+.py-editor {
+  --py-code-bg: #f6f8fb;
+  --py-tok-kw: #0369a1;
+  --py-tok-str: #047857;
+  --py-tok-num: #b45309;
+  --py-tok-com: var(--text-hint);
+  --py-tok-fn: #7c3aed;
+  display: flex;
+  flex-direction: column;
+  background: var(--py-code-bg);
+}
+
+[data-theme='dark'] .py-editor {
+  --py-code-bg: #12151a;
+  --py-tok-kw: #7dd3fc;
+  --py-tok-str: #6ee7b7;
+  --py-tok-num: #fcd34d;
+  --py-tok-fn: #c4b5fd;
+}
+
+.py-editor > .cm-editor {
+  flex: 1;
+}
+
+/* 출력 — 셀 바로 아래. 테마를 따른다 */
+.py-nb-out {
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--divider);
+  font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 360px;
+  overflow: auto;
+  color: var(--text-primary);
+}
+
+.py-nb-out__value {
+  display: flex;
+  gap: 10px;
+}
+
+.py-nb-out__label {
+  flex: none;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.py-line--sys {
+  color: var(--text-secondary);
+  font-family: inherit;
+}
+
+.py-line--err {
+  color: var(--error);
+}
+
+.py-add-cell {
+  align-self: flex-start;
+  margin-left: 58px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.py-add-cell:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.py-add-row {
+  display: flex;
+  gap: 8px;
+  margin-left: 58px;
+}
+
+.py-add-row .py-add-cell {
+  margin-left: 0;
+}
+
+.py-nb-cell__type {
+  height: 26px;
+  margin-left: 4px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+}
+
+/* 마크다운 셀 — 편집 칸 대신 글로 보인다 */
+.py-nb-cell--markdown .py-nb-cell__main {
+  background: var(--surface);
+}
+
+.py-nb-cell--markdown:not(.py-nb-cell--active) .py-nb-cell__main {
+  border-color: transparent;
+}
+
+.py-nb-cell--markdown:not(.py-nb-cell--active) .py-nb-cell__tools {
+  visibility: hidden;
+}
+
+.py-nb-md {
+  padding: 4px 18px 14px;
+  cursor: text;
+}
+
+.nb-md {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+.nb-md > :first-child {
+  margin-top: 0;
+}
+
+.nb-md > :last-child {
+  margin-bottom: 0;
+}
+
+.nb-md h2,
+.nb-md h3,
+.nb-md h4,
+.nb-md h5,
+.nb-md h6 {
+  margin: 14px 0 6px;
+  line-height: 1.35;
+}
+
+.nb-md h2 {
+  font-size: 20px;
+}
+
+.nb-md h3 {
+  font-size: 17px;
+}
+
+.nb-md h4,
+.nb-md h5,
+.nb-md h6 {
+  font-size: 15px;
+}
+
+.nb-md p,
+.nb-md ul,
+.nb-md ol,
+.nb-md blockquote {
+  margin: 6px 0;
+}
+
+.nb-md ul,
+.nb-md ol {
+  padding-left: 22px;
+}
+
+.nb-md code {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--surface-variant);
+  font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  font-size: 0.88em;
+}
+
+.nb-md__code {
+  margin: 8px 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--surface-variant);
+  overflow-x: auto;
+}
+
+.nb-md__code code {
+  padding: 0;
+  background: none;
+}
+
+.nb-md blockquote {
+  padding: 4px 12px;
+  border-left: 3px solid var(--primary);
+  color: var(--text-secondary);
+}
+
+.nb-md a {
+  color: var(--primary);
+}
+
+.nb-md hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
+}
+
+/* 그래프 — 어두운 테마에서도 그림은 흰 바탕 그대로 둔다(matplotlib 기본) */
+.py-nb-out__img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 6px 0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+/* DataFrame 표 */
+.py-nb-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0;
+  white-space: normal;
+}
+
+.py-nb-table__scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.py-nb-table table {
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.py-nb-table th,
+.py-nb-table td {
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--divider);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.py-nb-table thead th {
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.py-nb-table tbody th {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.py-nb-table tbody tr:nth-child(even) {
+  background: var(--surface-variant);
+}
+
+.py-nb-table__shape {
+  font-size: 11.5px;
+  color: var(--text-hint);
+}
+
+.py-foot {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-hint);
+}
+
+@media (max-width: 640px) {
+  .py-nb-cell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .py-nb-cell__prompt {
+    display: none;
+  }
+
+  .py-add-cell {
+    margin-left: 0;
+  }
+}
+
 .study-section__head {
   display: flex;
   align-items: center;
