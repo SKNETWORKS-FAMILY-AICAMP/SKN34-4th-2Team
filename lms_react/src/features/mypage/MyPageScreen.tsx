@@ -54,14 +54,23 @@ export function MyPageScreen() {
             <Icon name="tour" size={18} />
             이용 안내 다시보기
           </button>
-          <button type="button" className="btn btn--text btn--sm">
+          <a className="btn btn--text btn--sm" href={manualUrl(user.role)} target="_blank" rel="noreferrer">
             <Icon name="picture_as_pdf" size={18} />
             PDF 매뉴얼 보기
-          </button>
+          </a>
         </div>
       </div>
     </div>
   );
+}
+
+/**
+ * 역할별 사용 설명서 — Flutter 판 my_page_screen.dart 와 같은 파일.
+ * public/manuals/ 는 onboarding/ 이 만든 PDF 를 web/manuals/ 에서 그대로 옮긴 것이다.
+ */
+function manualUrl(role: string): string {
+  const file = role === 'admin' ? 'admin_manual.pdf' : role === 'instructor' ? 'instructor_manual.pdf' : 'student_manual.pdf';
+  return `/manuals/${file}`;
 }
 
 /** 「SK네트웍스 Family AI 캠프 34기」를 과정 이름과 기수로 나눈다. */
