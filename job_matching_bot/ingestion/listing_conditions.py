@@ -58,6 +58,14 @@ _EMPLOYMENT = re.compile(
     r"(?:\s*외)?"
 )
 _REGION_HEAD = re.compile(r"^(?:" + "|".join(PROVINCES) + r")\S*(?:\s+\S+)?(?:\s*외)?")
+# 사람인은 지역을 맨 앞에, 학력을 맨 뒤에 적는다. 잡코리아는 순서가 다르다 —
+# `경력무관 학력무관 서울 강남구 아르바이트` 처럼 둘 다 가운데 온다. 자리로만 찾으면
+# 103,889건의 지역·학력이 통째로 「미기재」가 된다. 자리에서 못 찾으면 어디서든 찾는다.
+_EDUCATION_ANY = re.compile(
+    r"(?:학력무관|고졸|중졸|초대졸|대학\s*\(2,\s*3년\)|대학교\s*\(4년\)|대졸|석사|박사)"
+    r"\s*(?:이상|↑)?"
+)
+_REGION_ANY = re.compile(r"(?:" + "|".join(PROVINCES) + r")\S*(?:\s+\S+)?(?:\s*외)?")
 
 
 @dataclass(frozen=True)
@@ -88,6 +96,11 @@ def split_condition_text(text: str) -> ListingConditions:
     if tail:
         education = tail.group(0).strip()
         line = line[: tail.start()].strip()
+    else:
+        hit = _EDUCATION_ANY.search(line)
+        if hit:
+            education = hit.group(0).strip()
+            line = (line[: hit.start()] + " " + line[hit.end():]).strip()
 
     employment = ""
     hit = _EMPLOYMENT.search(line)
@@ -100,6 +113,11 @@ def split_condition_text(text: str) -> ListingConditions:
     if head:
         region = head.group(0).strip()
         line = line[head.end():].strip()
+    else:
+        hit = _REGION_ANY.search(line)
+        if hit:
+            region = hit.group(0).strip()
+            line = (line[: hit.start()] + " " + line[hit.end():]).strip()
 
     # 남은 것이 경력이다. 토막을 가르던 가운뎃점은 지운다.
     career = re.sub(r"^[·\s]+|[·\s]+$", "", line)

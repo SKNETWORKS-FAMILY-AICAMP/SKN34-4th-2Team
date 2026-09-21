@@ -178,11 +178,17 @@ LIST_CATEGORIES: tuple[str, ...] = tuple(
 )
 
 # 매일 훑는 대분류. 이력서와 겹치는 직군만 둔다.
-DAILY_CATEGORIES: tuple[str, ...] = (IT_CATEGORY,)
+# 사람인이 상세를 받는 넷(IT개발·데이터·연구R&D·디자인·기획전략)에 맞춘다.
+# 겹침을 재려면 양쪽에 같은 직군의 상세가 있어야 한다. 잡코리아에는 연구·R&D에
+# 해당하는 대분류가 없다 — 엔지니어링·설계와 의료·바이오로 흩어져 있다.
+DAILY_CATEGORIES: tuple[str, ...] = (IT_CATEGORY, "10032", "10026")  # AI·개발·데이터, 디자인, 기획·전략
 
 # **상세를 받는 대분류.** 목록은 주 1회 전부 훑지만 상세는 여기 있는 것만 받는다.
-# 넓히려면 여기에 하나씩 더한다.
-DETAIL_CATEGORIES: tuple[str, ...] = (IT_CATEGORY,)
+# 사람인과 같이 매일 훑는 것과 같은 값으로 둔다.
+DETAIL_CATEGORIES: tuple[str, ...] = DAILY_CATEGORIES
+
+# 상세를 처음 채울 때 앞에 두는 대분류. 겹침 분석을 IT부터 깊게 하려고 IT를 먼저 받는다.
+PRIORITY_CATEGORIES: tuple[str, ...] = (IT_CATEGORY,)
 
 # 2026-09-19에 대분류별 총 건수를 한 번씩 재서 나온 값이다(쪽당 50건 기준).
 #
@@ -669,6 +675,9 @@ def main() -> int:
         list_only = len(rows) - len(targets)
         done = read_done_ids(args.detail_file)
         targets = [r for r in targets if r["source_job_id"] not in done]
+        # 첫 채우기가 여러 밤에 걸친다. 어느 밤에 끊기든 IT부터 차 있도록 앞에 세운다.
+        priority = set(PRIORITY_CATEGORIES)
+        targets.sort(key=lambda r: 0 if priority.intersection(r["categories"]) else 1)
         if args.limit:
             targets = targets[: args.limit]
         print(

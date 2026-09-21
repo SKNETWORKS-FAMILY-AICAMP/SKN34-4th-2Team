@@ -37,7 +37,7 @@ import json
 import subprocess
 import sys
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -50,6 +50,7 @@ from job_matching_bot.config import ARTIFACTS_DIR, RAW_DIR, REPO_ROOT
 from job_matching_bot.crawling.crawl_detail import DETAIL_URL, SOURCE, crawl_details
 from job_matching_bot.crawling.crawl_list import ALL_CATEGORIES, fetch_page, pages_for
 from job_matching_bot.crawling.crawl_detail import is_closed_page
+from job_matching_bot.crawling import jobkorea
 from job_matching_bot.crawling.detail_queue import build_queue
 from job_matching_bot.crawling.http_session import (
     LIST_PAGE_URL,
@@ -92,6 +93,23 @@ SWEEP_KEEP_DAYS = 14
 SWEEP_DIR = RAW_DIR / "sweeps"
 DETAIL_DIR = RAW_DIR / "details"
 NIGHTLY_DIR = ARTIFACTS_DIR / "nightly"
+
+# ── 잡코리아 ────────────────────────────────────────────────
+# **수집은 사람인과 동시에, 적재는 차례로.** 사이트가 다르니 동시에 훑어도 어느 쪽에도
+# 부담이 겹치지 않고, 수집은 대부분 기다리는 시간이라 둘을 나란히 두면 긴 쪽에 맞춰 끝난다.
+# 적재는 다르다. 목록 적재가 수십만 줄을 한 트랜잭션에 넣어 WAL 의 busy_timeout(5초)을
+# 넘길 수 있어서, 두 프로세스가 같이 쓰면 `database is locked` 가 난다.
+#
+# 그래서 잡코리아 수집기는 저장소를 아예 안 건드리고 파일까지만 만든다. 그 파일을
+# 여기서 읽어 사람인 적재가 끝난 뒤에 넣는다.
+JOBKOREA_SOURCE = "JOBKOREA_POC"
+JOBKOREA_LIST_DIR = ARTIFACTS_DIR / "job_raw" / JOBKOREA_SOURCE
+JOBKOREA_DETAIL_FILE = JOBKOREA_LIST_DIR / "details.jsonl"
+# 잡코리아 수집에 주는 시간. 적재할 시간을 남기려고 전체 한도에서 떼어 둔다.
+JOBKOREA_RESERVE_MINUTES = 40.0
+# 사이트가 대분류당 이 수에서 막는다. 거기 닿은 대분류는 끝까지 못 본 것이므로
+# "완전히 훑었다"로 기록하면 안 된다 — 못 본 공고가 사라진 것으로 판정된다.
+JOBKOREA_WALL = 10_000
 
 # 상세 페이지가 이 문구를 담으면 공고가 내려간 것으로 본다.
 #
@@ -294,6 +312,88 @@ def run_sync(detail_file: Path, observed: set[str], store_path: Path, as_of: dat
     return subprocess.run(command, cwd=str(REPO_ROOT)).returncode
 
 
+def start_jobkorea(list_path: Path, log_path: Path, max_minutes: float) -> subprocess.Popen[bytes] | None:
+    """잡코리아 수집기를 따로 띄운다. 저장소는 안 건드리고 파일까지만 만든다."""
+    command = [
+        sys.executable, "-u", "-m", "job_matching_bot.crawling.jobkorea",
+        "--all", "--details", "--limit", "0",
+        "--max-minutes", str(int(max(max_minutes, 1))),
+        "--output", str(list_path),
+    ]
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    print("[잡코리아] 수집 시작 (사람인과 동시) · 로그 " + str(log_path), flush=True)
+    try:
+        handle = log_path.open("wb")
+        return subprocess.Popen(command, cwd=str(REPO_ROOT), stdout=handle, stderr=subprocess.STDOUT)
+    except OSError as error:
+        # 잡코리아가 못 떠도 사람인 배치는 그대로 간다.
+        print(f"[잡코리아] 띄우지 못했습니다: {error}")
+        return None
+
+
+def record_jobkorea_list(store: Any, list_path: Path, at: datetime) -> dict[str, Any]:
+    """잡코리아 목록을 `list_seen`·`list_jobs`에 넣는다.
+
+    사람인은 (공고, 대분류) 쌍마다 한 줄이라 `cat_mcls` 가 하나지만, 잡코리아는 한 공고에
+    `categories` 목록으로 온다. 저장소 함수는 사람인 모양을 받으므로 여기서 펴 준다.
+    """
+    payload = json.loads(list_path.read_text(encoding="utf-8"))
+    rows = payload.get("list") or []
+    if not rows:
+        return {"rows": 0}
+
+    seen: dict[str, set[str]] = defaultdict(set)
+    for row in rows:
+        for cat in row.get("categories") or []:
+            seen[cat].add(row["source_job_id"])
+    capped = sorted(c for c, ids in seen.items() if len(ids) >= JOBKOREA_WALL)
+    complete = {c: len(ids) for c, ids in seen.items() if len(ids) < JOBKOREA_WALL}
+
+    # 상세를 받는 대분류의 공고는 `jobs` 로 들어오므로 목록 표에 담지 않는다. 저장소의
+    # skip 판정은 `cat_mcls` 를 보므로 여기서 미리 거른다.
+    skip = set(jobkorea.DETAIL_CATEGORIES)
+    detailed = {r["source_job_id"] for r in rows if skip.intersection(r.get("categories") or [])}
+    keep = [r for r in rows if r["source_job_id"] not in detailed]
+
+    store.record_list_seen(dict(seen), complete, at, source=JOBKOREA_SOURCE)
+    listed = store.record_list_jobs(keep, at, source=JOBKOREA_SOURCE, skip_categories=())
+    if capped:
+        print(f"  [잡코리아] 1만 벽에 닿은 대분류 {len(capped)}개 {capped} — 완전히 훑은 것으로 세지 않음")
+    print(f"  [잡코리아] 목록 적재 {listed:,}건 (관측 {sum(len(v) for v in seen.values()):,}쌍)")
+    return {"rows": len(rows), "listed": listed, "capped": capped}
+
+
+def finish_jobkorea(
+    proc: subprocess.Popen[bytes], list_path: Path, store_path: Path,
+    as_of: datetime, work_dir: Path,
+) -> dict[str, Any]:
+    """잡코리아 수집이 끝나기를 기다렸다가 적재한다. 사람인 적재가 끝난 뒤에 부른다."""
+    print("[잡코리아] 수집이 끝나기를 기다립니다", flush=True)
+    code = proc.wait()
+    if not list_path.exists():
+        print(f"[잡코리아] 목록 파일이 없습니다(exit {code}). 적재를 건너뜁니다")
+        return {"crawl_exit_code": code, "skipped": "목록 없음"}
+
+    store = open_store(store_path)
+    try:
+        info = record_jobkorea_list(store, list_path, as_of)
+    finally:
+        store.close()
+
+    # 사라짐 판정(`--observed`)은 아직 넘기지 않는다. 사이트가 대분류당 1만에서 막아
+    # "안 보이면 사라진 것"을 아직 믿을 수 없다. 소분류로 쪼개 전량을 받게 된 뒤에 켠다.
+    command = [
+        sys.executable, "-m", "job_matching_bot.sync",
+        "--source", JOBKOREA_SOURCE, "--input", str(JOBKOREA_DETAIL_FILE),
+        "--store", str(store_path), "--as-of", as_of.isoformat(),
+        "--report", str(work_dir / f"{run_stamp(as_of)}_sync_jobkorea.json"),
+    ]
+    print("[잡코리아 적재] " + " ".join(command[2:]), flush=True)
+    info["crawl_exit_code"] = code
+    info["sync_exit_code"] = subprocess.run(command, cwd=str(REPO_ROOT)).returncode
+    return info
+
+
 def share_store_file(store_path: Path) -> dict[str, Any]:
     """팀원이 받아 쓸 슬림 파일을 만들어 올린다.
 
@@ -352,6 +452,7 @@ def main() -> int:
     parser.add_argument("--max-delay", type=float, default=3.5)
     parser.add_argument("--dry-run", action="store_true", help="목록만 훑고 상세·기록·적재는 하지 않는다")
     parser.add_argument("--no-share", action="store_true", help="공유 파일을 만들지 않는다")
+    parser.add_argument("--no-jobkorea", action="store_true", help="잡코리아는 건드리지 않는다")
     args = parser.parse_args()
 
     started = time.monotonic()
@@ -367,6 +468,16 @@ def main() -> int:
 
     def minutes_left() -> float:
         return args.max_minutes - (time.monotonic() - started) / 60
+
+    # 0. 잡코리아 수집을 먼저 띄운다. 사람인 목록을 훑는 동안 나란히 돈다.
+    jobkorea_list = JOBKOREA_LIST_DIR / f"{stamp}.json"
+    jobkorea_proc = None
+    if not (args.dry_run or args.no_jobkorea):
+        jobkorea_proc = start_jobkorea(
+            jobkorea_list,
+            NIGHTLY_DIR / "log" / f"jobkorea_{today.isoformat()}.log",
+            args.max_minutes - JOBKOREA_RESERVE_MINUTES,
+        )
 
     # 1. 목록 sweep
     try:
@@ -471,6 +582,12 @@ def main() -> int:
     detail_file.touch(exist_ok=True)
     code = run_sync(detail_file, observed, args.store, now, NIGHTLY_DIR)
     summary["sync_exit_code"] = code
+
+    # 5b. 잡코리아. 수집은 병렬로 이미 돌았고 적재만 차례로 한다 — 같이 쓰면 잠긴다.
+    if jobkorea_proc is not None:
+        summary["jobkorea"] = finish_jobkorea(
+            jobkorea_proc, jobkorea_list, args.store, now, NIGHTLY_DIR
+        )
 
     # 6. 공유 파일. 여기서 실패해도 수집·적재는 이미 끝났으므로 배치를 실패로 만들지 않는다.
     if not args.no_share:
