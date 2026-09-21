@@ -103,7 +103,8 @@ def sanitize_student_markdown(markdown: str) -> str:
     return cleaned.strip()
 
 
-def _content(response) -> str:
+def response_text(response) -> str:
+    """LLM 응답 본문을 글자로. 조각 목록으로 오는 모델도 있다. 실습 문제 생성(practice/generate.py)도 쓴다."""
     content = response.content
     if isinstance(content, list):
         return "".join(
@@ -112,7 +113,8 @@ def _content(response) -> str:
     return str(content)
 
 
-def _pack_materials(materials: list[Material]) -> str:
+def pack_materials(materials: list[Material]) -> str:
+    """수업 자료를 파일 제목과 함께 한 덩어리로. 전체 글자 수 예산을 넘으면 뒤 파일은 줄이거나 뺀다."""
     budget = MAX_TOTAL_CHARS
     chunks: list[str] = []
     for item in materials:
@@ -149,6 +151,6 @@ def generate_study_note(
     response = (NOTE_PROMPT | _llm()).invoke({
         "scope_label": scope_label,
         "learner_level": LEARNER_LEVEL,
-        "materials": _pack_materials(materials),
+        "materials": pack_materials(materials),
     })
-    return _split_report_and_review(_content(response))
+    return _split_report_and_review(response_text(response))

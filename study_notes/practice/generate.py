@@ -17,7 +17,7 @@ from typing import Any
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
-from study_notes.pipeline import LEARNER_LEVEL, Material, _content, _pack_materials
+from study_notes.pipeline import LEARNER_LEVEL, Material, pack_materials, response_text
 from study_notes.practice.models import PracticeProblem, parse_draft
 
 RULES = (
@@ -55,7 +55,7 @@ KIND_GUIDE = (
 
 SCHEMA = (
     '{{"problems": [{{\n'
-    '  "kind": "concept | code_output | code_fix | code_write",\n'
+    '  "kind": "concept | code_output | code_blank | code_fix | code_write",\n'
     '  "topic": "짧은 주제 (예: 딕셔너리 컴프리헨션)",\n'
     '  "sourceFiles": ["근거가 된 수업 파일 경로"],\n'
     '  "prompt": "학생에게 보일 문제 문장",\n'
@@ -160,10 +160,10 @@ def generate_drafts(*, scope_label: str, materials: list[Material], usage: Usage
     response = (GENERATE_PROMPT | _llm()).invoke({
         "scope_label": scope_label,
         "learner_level": LEARNER_LEVEL,
-        "materials": _pack_materials(materials),
+        "materials": pack_materials(materials),
     })
     usage.add(response)
-    return _parse_batch(_content(response))
+    return _parse_batch(response_text(response))
 
 
 def repair_drafts(failures: list[tuple[PracticeProblem, str]], *, usage: Usage) -> DraftBatch:
@@ -177,4 +177,4 @@ def repair_drafts(failures: list[tuple[PracticeProblem, str]], *, usage: Usage) 
         "failures": json.dumps(listing, ensure_ascii=False, indent=1),
     })
     usage.add(response)
-    return _parse_batch(_content(response))
+    return _parse_batch(response_text(response))

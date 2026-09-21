@@ -24,12 +24,12 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from job_matching_bot.env import ensure_loaded
+from dotenv import load_dotenv
 from study_notes.git_tools import RepoCache, cache_root, is_learning_file, notebook_to_text, parse_repo_url
 from study_notes.pipeline import MAX_CHARS_PER_FILE, Material
 from study_notes.practice.build import BuildResult, build_practice_set
 from study_notes.practice.generate import practice_model_name
-from study_notes.practice.runner import PyodideRunner
+from study_notes.practice.runner import REPO_ROOT, PyodideRunner
 
 MAX_FILES = 8
 
@@ -124,7 +124,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.repo and not (args.date or args.prefix or args.files):
         parser.error("--repo 에는 --date · --prefix · --files 중 하나가 필요합니다")
 
-    ensure_loaded()
+    # 셸에서 넘긴 값이 파일보다 우선이다(override=False)
+    load_dotenv(REPO_ROOT / ".env", override=False)
     label, materials = _from_repo(args) if args.repo else _from_local(args.local)
     print(f"[범위] {label} — 파일 {len(materials)}개: {', '.join(m['path'] for m in materials)}", flush=True)
 
