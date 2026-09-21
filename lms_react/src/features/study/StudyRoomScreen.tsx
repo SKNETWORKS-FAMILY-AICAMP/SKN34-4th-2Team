@@ -24,6 +24,7 @@ import {
   Tabs,
 } from '../../ui/components';
 import { formatDate } from '../../utils/format';
+import { RETRY_SET_ID, retryDates, retryItems, retryTopics } from '../practice/review';
 import { useCurrentUser } from '../auth/session';
 
 const packageTypeLabels: Record<string, string> = {
@@ -138,6 +139,7 @@ const PRACTICE_KIND_LABEL: Record<string, string> = {
 function PracticeSetsSection({ cohortId, uid }: { cohortId: string; uid: string }) {
   const sets = usePracticeSets(cohortId);
   const attempts = useMyPracticeAttempts(uid);
+  const retries = retryItems(sets, attempts);
   if (sets.length === 0) return null;
   return (
     <section className="practice-sets">
@@ -146,6 +148,17 @@ function PracticeSetsSection({ cohortId, uid }: { cohortId: string; uid: string 
       </header>
       <p className="study-section__desc">그날 수업 코드로 만든 복습 문제입니다. 연습장에서 바로 실행하고 채점해요.</p>
       <div className="practice-sets__list">
+        {retries.length > 0 && (
+          <Link className="practice-set practice-set--retry" to={`${RoutePaths.studyRoomPlayground}?set=${RETRY_SET_ID}`}>
+            <span className="practice-set__date">틀린 문제 모음 · {retryDates(retries)} 수업</span>
+            <strong className="practice-set__title">다시 풀 문제 {retries.length}개</strong>
+            <span className="practice-set__kinds">{retryTopics(retries, 3)}</span>
+            <span className="practice-set__foot">
+              다시 풀기
+              <Icon name="arrow_forward" size={16} />
+            </span>
+          </Link>
+        )}
         {sets.map((s) => {
           const mine = attempts.filter((a) => a.setId === s.id);
           const passed = mine.filter((a) => a.passed).length;

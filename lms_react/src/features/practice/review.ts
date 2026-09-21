@@ -96,3 +96,69 @@ export function lessonFileLabel(path: string): string {
 export function shortDate(date: string): string {
   return `${+date.slice(5, 7)}/${+date.slice(8, 10)}`;
 }
+
+// ── 다시 풀 문제 ─────────────────────────────────────────
+
+export interface RetryItem {
+  set: PracticeSet;
+  index: number;
+  tries: number;
+  /** 마지막으로 틀린 날 'YYYY-MM-DD' */
+  lastTried: string;
+}
+
+/** 풀었지만 아직 통과 못 한 문제. 최근 수업 것부터, 같은 날이면 문제 순서대로. */
+export function retryItems(sets: PracticeSet[], attempts: PracticeAttempt[]): RetryItem[] {
+  const byId = new Map(sets.map((s) => [s.id, s]));
+  return attempts
+    .filter((a) => !a.passed && byId.get(a.setId)?.problems[a.index])
+    .map((a) => ({ set: byId.get(a.setId)!, index: a.index, tries: a.tries, lastTried: dateKey(a.answeredAt) }))
+    .sort((x, y) => y.set.lessonDate.localeCompare(x.set.lessonDate) || x.index - y.index);
+}
+
+/**
+ * 오늘 다시 볼 문제 — 틀린 날이 오늘보다 앞선 것만.
+ * 방금 틀린 문제를 바로 다시 풀면 기억으로 맞힌다. 하루 두고 본다.
+ */
+export function dueRetries(items: RetryItem[], today: string): RetryItem[] {
+  return items.filter((i) => i.lastTried < today);
+}
+
+/** 다시 풀 문제를 연습장이 열 수 있는 세트 하나로 묶는다. origins[i] 가 원래 세트·문제 번호다. */
+export const RETRY_SET_ID = 'retry';
+
+export function retrySet(items: RetryItem[], today: string): { set: PracticeSet; origins: { setId: string; index: number }[] } | null {
+  if (items.length === 0) return null;
+  const first = items[0].set;
+  return {
+    set: {
+      id: RETRY_SET_ID,
+      cohortId: first.cohortId,
+      sourceTitle: first.sourceTitle,
+      lessonDate: today,
+      dayLabel: '다시 풀 문제',
+      title: `틀렸던 문제 ${items.length}개`,
+      files: [...new Set(items.flatMap((i) => i.set.problems[i.index].sourceFiles))],
+      model: first.model,
+      problems: items.map((i) => i.set.problems[i.index]),
+    },
+    origins: items.map((i) => ({ setId: i.set.id, index: i.index })),
+  };
+}
+
+function dateKey(d: Date): string {
+  const p = (v: number) => String(v).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** 다시 풀 문제의 주제를 짧게 — 'A, B 외 3개' */
+export function retryTopics(items: RetryItem[], max = 2): string {
+  const topics = [...new Set(items.map((i) => i.set.problems[i.index].topic).filter(Boolean))];
+  const shown = topics.slice(0, max).join(', ');
+  return topics.length > max ? `${shown} 외 ${topics.length - max}개` : shown;
+}
+
+/** 다시 풀 문제의 수업 날짜들 — '9/14, 9/15' */
+export function retryDates(items: RetryItem[]): string {
+  return [...new Set(items.map((i) => shortDate(i.set.lessonDate)))].join(', ');
+}

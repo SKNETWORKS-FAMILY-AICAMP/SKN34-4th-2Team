@@ -44,6 +44,7 @@ export function ProblemCell({
   number,
   code,
   attempt,
+  note,
   onCodeChange,
   onAttempt,
   runInSession,
@@ -56,6 +57,8 @@ export function ProblemCell({
   number: number;
   code: string;
   attempt: PracticeAttempt | undefined;
+  /** 머리에 덧붙일 글 — 다시 풀 문제의 원래 수업 */
+  note?: string;
   onCodeChange: (code: string) => void;
   onAttempt: (passed: boolean) => void;
   runInSession: (code: string) => Promise<RunResult>;
@@ -135,6 +138,7 @@ export function ProblemCell({
         <span className="pb__num">문제 {number}</span>
         <span className="pb__kind">{KIND_LABEL[problem.kind]}</span>
         <span className="pb__topic">{problem.topic}</span>
+        {note && <span className="pb__note">{note}</span>}
         <span className="py-grow" />
         {passed ? (
           <span className="pb__state pb__state--ok">

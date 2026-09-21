@@ -8130,6 +8130,39 @@ a.link {
   color: var(--text-secondary);
 }
 
+.today-review__retry {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-self: flex-start;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--text-primary);
+  font-size: 12.5px;
+}
+
+.today-review__retry .icon {
+  color: var(--warning);
+}
+
+.today-review__retry-date {
+  color: var(--text-secondary);
+}
+
+.today-review__retry-go {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.today-review__retry:hover .today-review__retry-go {
+  text-decoration: underline;
+}
+
 .today-review__side {
   flex: 0 1 260px;
   display: flex;
@@ -8202,6 +8235,16 @@ a.link {
 
 .practice-set:hover {
   border-color: var(--primary);
+}
+
+.practice-set--retry {
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
+  background: color-mix(in srgb, var(--warning) 7%, var(--surface));
+}
+
+.practice-set--retry .practice-set__date {
+  color: var(--warning);
+  font-weight: 600;
 }
 
 .practice-set__date {

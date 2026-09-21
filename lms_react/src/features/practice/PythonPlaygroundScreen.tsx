@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { RoutePaths } from '../../app/routePaths';
-import { recordPracticeAttempt, useMyPracticeAttempts, usePracticeSet } from '../../data/repository';
+import { recordPracticeAttempt, useMyPracticeAttempts, usePracticeSet, usePracticeSets } from '../../data/repository';
+import { todayKey } from '../../data/store';
 import type { PracticeSet } from '../../domain/types';
 import { useCurrentUser } from '../auth/session';
 import { Icon } from '../../ui/Icon';
@@ -11,6 +12,7 @@ import { NotebookMarkdown } from './NotebookMarkdown';
 import { ProblemCell } from './ProblemCell';
 import { PYODIDE_VERSION, type RunResult, type TableData } from './pythonProtocol';
 import { usePythonRunner, type RunnerStatus, type RunOptions } from './pythonRunner';
+import { RETRY_SET_ID, retryItems, retrySet, shortDate } from './review';
 
 /**
  * 셀 내용만 이 브라우저에 임시로 둔다(학생 계정과 무관). 서버 저장은 DB를 붙일 때 이 자리를 바꾼다.
@@ -166,6 +168,17 @@ const CLEAR_OUTPUT = { lines: [], value: null, table: null, images: [], count: n
 
 /** 세트를 처음 열 때의 셀 — 안내 · 문제 셀들 · 자유 셀 */
 function setCells(set: PracticeSet): Cell[] {
+  if (set.id === RETRY_SET_ID) {
+    return [
+      newCell(
+        '지난 복습에서 틀렸던 문제를 모았습니다. 문제 머리에 원래 수업 날짜가 적혀 있어요. ' +
+          '막히면 그날 공부방 노트를 다시 보고 오세요.',
+        'markdown',
+      ),
+      ...set.problems.map((p, i) => newCell(p.starterCode, 'problem', i)),
+      newCell('# 자유롭게 시험해 보는 칸\n'),
+    ];
+  }
   return [
     newCell(
       `${set.lessonDate} 수업 저장소(\`${set.sourceTitle}\`)의 파일 ${set.files.length}개로 만든 문제입니다. ` +
@@ -178,12 +191,20 @@ function setCells(set: PracticeSet): Cell[] {
   ];
 }
 
+/** 다시 풀 문제 셀 머리에 붙일 원래 수업 — '9/14 · BLIP · Stable Diffusion · VQA' */
+function originNote(sets: PracticeSet[], setId: string | undefined): string | undefined {
+  const s = sets.find((x) => x.id === setId);
+  return s ? `${shortDate(s.lessonDate)} · ${s.title}` : undefined;
+}
+
 function storeKey(set: PracticeSet | undefined): string {
   return set ? `${STORE_KEY}:${set.id}` : STORE_KEY;
 }
 
 function loadNotebook(set: PracticeSet | undefined): { cells: Cell[]; stdin: string } {
   try {
+    // 다시 풀 문제는 열 때마다 목록이 달라서 저장본을 쓰지 않는다
+    if (set?.id === RETRY_SET_ID) return { cells: setCells(set), stdin: '' };
     const raw = window.localStorage.getItem(storeKey(set));
     if (raw) {
       const saved = JSON.parse(raw) as {
@@ -263,8 +284,20 @@ export function PythonPlaygroundScreen() {
 function Playground({ setId }: { setId: string | null }) {
   const { runner, status } = usePythonRunner();
   const user = useCurrentUser();
-  const set = usePracticeSet(setId);
-  const attempts = useMyPracticeAttempts(user.uid).filter((a) => a.setId === setId);
+  const storedSet = usePracticeSet(setId === RETRY_SET_ID ? null : setId);
+  const allSets = usePracticeSets(user.cohortId);
+  const myAttempts = useMyPracticeAttempts(user.uid);
+  // 다시 풀 문제는 연 순간의 목록으로 고정한다 — 풀다가 통과해도 그 자리에서 사라지지 않게
+  const [retry] = useState(() =>
+    setId === RETRY_SET_ID ? retrySet(retryItems(allSets, myAttempts), todayKey()) : null,
+  );
+  const set = retry?.set ?? storedSet;
+  /** 문제 셀 i 의 원래 자리 — 다시 풀 문제는 여러 세트에서 모였다 */
+  const originOf = (i: number) => (retry ? retry.origins[i] : set ? { setId: set.id, index: i } : null);
+  const attemptOf = (i: number) => {
+    const o = originOf(i);
+    return o ? myAttempts.find((a) => a.setId === o.setId && a.index === o.index) : undefined;
+  };
   const initial = useRef(loadNotebook(set));
   const [cells, setCells] = useState<Cell[]>(initial.current.cells);
   const [stdin, setStdin] = useState(initial.current.stdin);
@@ -284,7 +317,9 @@ function Playground({ setId }: { setId: string | null }) {
   const counter = useRef(0);
   const lastGeneration = useRef(0);
 
-  useEffect(() => saveNotebook(storeKey(set), cells, stdin), [set, cells, stdin]);
+  useEffect(() => {
+    if (set?.id !== RETRY_SET_ID) saveNotebook(storeKey(set), cells, stdin);
+  }, [set, cells, stdin]);
 
   const patch = (id: string, change: Partial<Cell> | ((c: Cell) => Partial<Cell>)) =>
     setCells((prev) => prev.map((c) => (c.id === id ? { ...c, ...(typeof change === 'function' ? change(c) : change) } : c)));
@@ -327,7 +362,7 @@ function Playground({ setId }: { setId: string | null }) {
   /** 채점은 세션 밖 새 공간에서. 노트북에 남은 변수가 테스트에 섞이지 않는다. */
   const gradeProblem = (steps: string[]) => runQueued(steps, { timeoutMs: 5_000 });
 
-  const passedCount = attempts.filter((a) => a.passed).length;
+  const passedCount = set ? set.problems.filter((_, i) => attemptOf(i)?.passed).length : 0;
 
   /** 셀 하나를 실제로 돌린다. 줄 서 있다가 차례가 오면 불린다. */
   const execute = async (id: string, token: number) => {
@@ -514,9 +549,13 @@ function Playground({ setId }: { setId: string | null }) {
               <span>파이썬 연습장</span>
             )}
           </nav>
-          <h1 className="study-head__title">{set ? `${set.dayLabel} 복습 · ${set.title}` : '파이썬 연습장'}</h1>
+          <h1 className="study-head__title">
+            {retry ? '다시 풀 문제' : set ? `${set.dayLabel} 복습 · ${set.title}` : '파이썬 연습장'}
+          </h1>
           <p className="study-head__desc">
-            {set
+            {retry
+              ? `지난 복습에서 통과하지 못한 문제 ${retry.set.problems.length}개입니다. 통과하면 다음에 열 때 목록에서 빠져요.`
+              : set
               ? `${set.lessonDate} 수업 코드로 만든 문제 ${set.problems.length}개. 문제 사이에 셀을 추가해 자유롭게 시험해 봐도 됩니다.`
               : '노트북처럼 셀을 나눠 실행합니다. 앞 셀에서 만든 변수는 다음 셀에서 그대로 쓸 수 있어요. 코드는 이 브라우저 안에서만 돕니다.'}
           </p>
@@ -524,7 +563,7 @@ function Playground({ setId }: { setId: string | null }) {
             <div className="pb-progress" aria-label={`통과 ${passedCount} / ${set.problems.length}`}>
               <div className="pb-progress__bar">
                 {set.problems.map((_, i) => {
-                  const a = attempts.find((x) => x.index === i);
+                  const a = attemptOf(i);
                   return <i key={i} className={a?.passed ? 'ok' : a ? 'no' : ''} />;
                 })}
               </div>
@@ -621,7 +660,11 @@ function Playground({ setId }: { setId: string | null }) {
       {setId && !set && (
         <div className="py-kernel-note" role="status">
           <Icon name="info" size={18} />
-          <span>찾는 복습 세트가 없어요. 학습실의 「복습 문제」 목록에서 다시 골라 주세요.</span>
+          <span>
+            {setId === RETRY_SET_ID
+              ? '다시 풀 문제가 없어요. 틀린 복습 문제가 생기면 여기에 모여요.'
+              : '찾는 복습 세트가 없어요. 학습실의 「복습 문제」 목록에서 다시 골라 주세요.'}
+          </span>
         </div>
       )}
 
@@ -655,9 +698,13 @@ function Playground({ setId }: { setId: string | null }) {
                     problem={problem}
                     number={number}
                     code={cell.code}
-                    attempt={attempts.find((a) => a.index === cell.problemIndex)}
+                    attempt={attemptOf(cell.problemIndex ?? 0)}
+                    note={retry ? originNote(allSets, retry.origins[cell.problemIndex ?? 0]?.setId) : undefined}
                     onCodeChange={(code) => patch(cell.id, { code })}
-                    onAttempt={(passed) => set && recordPracticeAttempt(user.uid, set.id, cell.problemIndex ?? 0, passed)}
+                    onAttempt={(passed) => {
+                      const o = originOf(cell.problemIndex ?? 0);
+                      if (o) recordPracticeAttempt(user.uid, o.setId, o.index, passed);
+                    }}
                     runInSession={runProblemInSession}
                     grade={gradeProblem}
                     onFocus={() => setActiveId(cell.id)}

@@ -1,5 +1,6 @@
 import type {
   AiEvalResult,
+  PracticeAttempt,
   ResumeContent,
   AiGenerationLog,
   AlertPopup,
@@ -1379,4 +1380,33 @@ export const seedAiEvals: AiEvalResult[] = [
   { id: 'ev2', promptVersion: 'assess_q_v2', suite: 'question_lab', model: 'claude-sonnet-5', passRate: 0.84, caseCount: 25, avgLatencyMs: 1980, ranAt: daysAgo(12) },
   { id: 'ev3', promptVersion: 'resume_review_v1', suite: 'coach_safety', model: 'claude-haiku-4-5-20251001', passRate: 1, caseCount: 18, avgLatencyMs: 860, ranAt: daysAgo(3) },
   { id: 'ev4', promptVersion: 'job_recommend_v1', suite: 'routing_lab', model: 'claude-sonnet-5', passRate: 0.78, caseCount: 40, avgLatencyMs: 1440, ranAt: daysAgo(1) },
+];
+
+/**
+ * 데모 학생의 복습 문제 풀이 기록 — 「다시 풀 문제」와 진행률이 처음부터 보이게.
+ * 9/11 은 모두 통과, 9/14 는 출력 예상(2)·디버깅(4)을 틀린 채 두었다. 9/15 는 아직 안 풂.
+ */
+export const seedPracticeAttempts: PracticeAttempt[] = [
+  ...[0, 1, 2, 3, 4, 5].map((index) => ({
+    id: `pa-seed-11-${index}`,
+    uid: DemoAccounts.studentUid,
+    setId: 'ps-mm-0911',
+    index,
+    passed: true,
+    tries: index === 3 ? 2 : 1,
+    answeredAt: daysAgo(9),
+  })),
+  ...[
+    { index: 0, passed: true, tries: 1 },
+    { index: 1, passed: true, tries: 1 },
+    { index: 2, passed: false, tries: 2 },
+    { index: 3, passed: true, tries: 1 },
+    { index: 4, passed: false, tries: 1 },
+  ].map((a) => ({
+    id: `pa-seed-14-${a.index}`,
+    uid: DemoAccounts.studentUid,
+    setId: 'ps-mm-0914',
+    answeredAt: daysAgo(6),
+    ...a,
+  })),
 ];

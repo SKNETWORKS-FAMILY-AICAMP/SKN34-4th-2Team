@@ -3,11 +3,20 @@ import { Link } from 'react-router-dom';
 import { RoutePaths } from '../../app/routePaths';
 import { useMyPracticeAttempts, usePracticeSets } from '../../data/repository';
 import { todayKey } from '../../data/store';
-import type { PracticeKind } from '../../domain/types';
+import type { PracticeKind, PracticeProblem } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { useCurrentUser } from '../auth/session';
 import { KIND_LABEL } from './ProblemCell';
-import { lessonFileLabel, pickTodayReview, shortDate } from './review';
+import {
+  dueRetries,
+  lessonFileLabel,
+  pickTodayReview,
+  RETRY_SET_ID,
+  retryDates,
+  retryItems,
+  retryTopics,
+  shortDate,
+} from './review';
 
 /**
  * 대시보드 「오늘 복습」 — 가장 최근 수업의 복습 문제로 들어가는 문.
@@ -19,8 +28,11 @@ export function TodayReviewCard() {
   const user = useCurrentUser();
   const sets = usePracticeSets(user.cohortId);
   const attempts = useMyPracticeAttempts(user.uid);
-  const review = pickTodayReview(sets, attempts, todayKey());
+  const today = todayKey();
+  const review = pickTodayReview(sets, attempts, today);
   if (!review) return null;
+  // 오늘 틀린 문제는 빼고, 하루 이상 지난 것만 다시 보여 준다
+  const retries = dueRetries(retryItems(sets, attempts), today);
 
   const { set, daysAgo, state, passed, total, minutes, continuesFrom } = review;
   const kinds = countKinds(set.problems.map((p) => p.kind));
@@ -44,8 +56,19 @@ export function TodayReviewCard() {
         {continuesFrom && (
           <p className="today-review__continue">
             <Icon name="subdirectory_arrow_right" size={15} />
-            {shortDate(continuesFrom.date)} 수업에서 이어짐 · {continuesFrom.files.map(lessonFileLabel).join(', ')}
+            {shortDate(continuesFrom.date)} 수업에서 이어짐 · {continuedTopic(set.problems, continuesFrom.files)}
           </p>
+        )}
+        {retries.length > 0 && (
+          <Link className="today-review__retry" to={`${RoutePaths.studyRoomPlayground}?set=${RETRY_SET_ID}`}>
+            <Icon name="history" size={16} />
+            지난번에 틀린 문제 {retries.length}개 · {retryTopics(retries)}
+            <span className="today-review__retry-date">({retryDates(retries)})</span>
+            <span className="today-review__retry-go">
+              다시 풀기
+              <Icon name="chevron_right" size={16} />
+            </span>
+          </Link>
         )}
       </div>
       <div className="today-review__side">
@@ -68,6 +91,12 @@ export function TodayReviewCard() {
       </div>
     </section>
   );
+}
+
+/** 이어진 파일을 근거로 한 문제의 주제. 그런 문제가 없으면 파일 이름으로. */
+function continuedTopic(problems: PracticeProblem[], files: string[]): string {
+  const topics = [...new Set(problems.filter((p) => p.sourceFiles.some((f) => files.includes(f))).map((p) => p.topic))];
+  return topics.length ? topics.slice(0, 2).join(', ') : files.map(lessonFileLabel).join(', ');
 }
 
 /** ['concept','concept','code_blank'] → '개념 2 · 빈칸 채우기 1' (문제 순서대로) */
