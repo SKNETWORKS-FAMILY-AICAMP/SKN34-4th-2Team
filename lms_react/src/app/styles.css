@@ -1817,7 +1817,8 @@ a.link {
   vertical-align: middle;
 }
 
-/* ── 관리자 좌석 배치 ─────────────────────────────────── */
+/* ── 관리자 좌석 배치 ───────────────────────────────────
+   탭 셋: 좌석 틀 설정 · 프로젝트 팀 · 배치 편집 */
 .seat-admin {
   display: flex;
   flex-direction: column;
@@ -1850,15 +1851,34 @@ a.link {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 24px 20px;
-  overflow-x: auto;
+  padding: 16px 20px 28px;
+  min-width: 0;
+}
+
+.seat-admin__flash {
+  max-width: 1080px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.seat-admin__col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto;
 }
 
 .seat-admin__note {
-  margin: 0 auto;
-  max-width: 860px;
-  width: 100%;
+  margin: 0;
   font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.seat-admin__center {
+  margin: 48px 0;
+  text-align: center;
   color: var(--text-secondary);
 }
 
@@ -1866,38 +1886,661 @@ a.link {
   display: flex;
   align-items: center;
   gap: 10px;
-  max-width: 860px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 14px 16px;
+  padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface-variant);
   color: var(--text-secondary);
   font-size: 13px;
 }
 
-.seat-admin__actions {
+.seat-admin__toolbar {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.seat-admin__toolbar .field {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 입력칸 높이에 맞춰 단추를 내린다(라벨 한 줄만큼). */
+.seat-admin__toolbar > .btn,
+.seat-admin__toolbar > .icon-btn {
+  margin-top: 22px;
+}
+
+.seat-admin__delete {
+  color: var(--error);
+}
+
+.seat-admin__status {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.seat-admin__status--dirty {
+  color: var(--warning);
+}
+
+/* 좌석 틀 편집 */
+.lay-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.lay-palette {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  font-size: 13px;
+}
+
+.lay-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-primary);
+  cursor: grab;
+  user-select: none;
+}
+
+.lay-chip .icon:first-child {
+  color: var(--text-secondary);
+}
+
+.lay-chip__grip {
+  color: var(--text-hint);
+}
+
+.lay-chip--dragging {
+  opacity: 0.4;
+}
+
+.lay-trash {
   display: flex;
   align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 48px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--error) 4%, var(--surface));
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 13px;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.lay-trash--hover {
+  border: 2px solid var(--error);
+  background: color-mix(in srgb, var(--error) 12%, var(--surface));
+  color: var(--error);
+}
+
+.lay-map {
+  overflow-x: auto;
+  max-width: 100%;
+  padding-bottom: 4px;
+}
+
+.lay-empty {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-variant) 50%, var(--surface));
+}
+
+.lay-seat,
+.lay-fixture {
+  position: relative;
+  cursor: grab;
+  user-select: none;
+}
+
+.lay-seat__grip {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  color: var(--text-secondary);
+}
+
+.lay-cell--hover {
+  border: 2px solid var(--primary) !important;
+  border-radius: 8px !important;
+  background: var(--primary-light);
+}
+
+.lay-cell--lifted {
+  opacity: 0.3;
+}
+
+/* 배치 편집 */
+.seat-assign {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 1080px;
+  width: 100%;
+  min-width: 0;
+  margin: 0 auto;
+}
+
+.seat-assign__room {
+  width: 280px;
+  max-width: 100%;
+}
+
+.seat-assign__actions {
+  display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
-  max-width: 860px;
+}
+
+.seat-status {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.seat-status--published {
+  background: color-mix(in srgb, var(--success) 16%, var(--surface));
+  color: var(--success);
+}
+
+.seat-status--draft {
+  background: color-mix(in srgb, var(--warning) 16%, var(--surface));
+  color: var(--warning);
+}
+
+.seat-assign__warn {
+  margin: 0;
+  font-size: 12px;
+  color: var(--warning);
+}
+
+.seat-assign__body {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .seat-assign__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .seat-pool {
+    max-height: 220px;
+  }
+}
+
+.seat-assign__map {
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.seat-pool {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 640px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.seat-pool--hover {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+.seat-pool__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.seat-pool .hint {
+  margin: 0;
+  font-size: 11px;
+}
+
+.seat-pool__drop {
+  margin: 4px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.seat-pool__empty {
+  margin: 24px 0;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.seat-pool__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.seat-pool__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-variant);
+  cursor: grab;
+  user-select: none;
+}
+
+.seat-pool__name {
+  flex: 1;
+  font-weight: 500;
+}
+
+.seat-pool__grip {
+  color: var(--text-hint);
+}
+
+.seat-pool__item.is-dragging,
+.seat.is-dragging,
+.teams-pool__item.is-dragging {
+  opacity: 0.35;
+}
+
+.teams-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--primary-light);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.seat--editable {
+  cursor: grab;
+}
+
+.seat--drop {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+/* 프로젝트 팀 */
+.teams {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1080px;
   width: 100%;
   margin: 0 auto;
 }
 
-.seat-admin__map {
-  --seat-w: 76px;
-  --seat-h: 62px;
+.teams-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, var(--rail-dark-bg, #0f172a), var(--primary));
+  box-shadow: 0 8px 18px var(--shadow);
+  color: #ffffff;
 }
 
-.seat-admin__map .seat {
+.teams-hero h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.teams-hero p {
+  margin: 6px 0 14px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: rgb(255 255 255 / 0.85);
+}
+
+.teams-hero__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.teams-hero__stats span {
+  padding: 5px 10px;
+  border: 1px solid rgb(255 255 255 / 0.2);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.14);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.teams-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.teams-hero__ghost,
+.teams-hero__solid {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font: inherit;
+  font-weight: 600;
   cursor: pointer;
 }
 
-.seat-admin__map .seat:hover {
-  border-color: var(--primary);
+.teams-hero__ghost {
+  border: 1px solid rgb(255 255 255 / 0.7);
+  background: transparent;
+  color: #ffffff;
+}
+
+.teams-hero__solid {
+  border: 0;
+  background: var(--surface);
+  color: var(--primary-dark, var(--primary));
+}
+
+.teams__body {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1180px) {
+  .teams__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.teams-pool {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 4px 12px var(--shadow);
+}
+
+.teams-pool__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 14px 10px;
+}
+
+.teams-pool__head .icon {
+  color: var(--primary);
+}
+
+.teams-pool__search {
+  position: relative;
+  padding: 0 14px 10px;
+  border-bottom: 1px solid var(--divider, var(--border));
+}
+
+.teams-pool__search .icon {
+  position: absolute;
+  top: 9px;
+  left: 24px;
+  color: var(--text-hint);
+}
+
+.teams-pool__search .input {
+  width: 100%;
+  padding-left: 34px;
+  border-color: transparent;
+  background: var(--surface-variant);
+}
+
+.teams-pool__empty {
+  margin: 28px 0;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.teams-pool__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 10px;
+  list-style: none;
+}
+
+.teams-pool__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px 6px 12px;
+  border-radius: 10px;
+  background: var(--surface-variant);
+  cursor: grab;
+  user-select: none;
+}
+
+.teams-pool__name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.teams-pool__item .icon-btn {
+  color: var(--primary);
+}
+
+.teams-board {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.teams-board__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 48px 0;
+  color: var(--text-hint);
+}
+
+.teams-board__empty strong {
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.teams-board__empty p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.team-card {
+  --team-soft: color-mix(in srgb, var(--team) 12%, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 4px 12px var(--shadow);
+  overflow: hidden;
+  transition: border-color 0.18s;
+}
+
+.team-card--hover {
+  border: 2px solid var(--team);
+}
+
+.team-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 8px 12px 14px;
+  background: var(--team-soft);
+}
+
+.team-card__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--team);
+}
+
+.team-card__title {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.team-card__title strong {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--team);
+}
+
+.team-card__title span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.team-card__title span.is-complete {
+  color: var(--success);
+}
+
+.team-card__delete {
+  color: var(--error);
+}
+
+.team-card__body {
+  padding: 10px 12px 12px;
+}
+
+.team-card__drop {
+  margin: 0;
+  padding: 22px 0;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--surface-variant);
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-hint);
+}
+
+.team-card--hover .team-card__drop {
+  border-color: var(--team);
+  color: var(--team);
+}
+
+.team-card__members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.team-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 3px;
+  border: 1px solid color-mix(in srgb, var(--team) 25%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--team) 8%, var(--surface));
+  font-size: 13px;
+}
+
+.team-chip .teams-avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+  background: var(--team-soft);
+  color: var(--team);
+}
+
+.team-chip button {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.team-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-variant);
+  color: var(--text-hint);
+}
+
+.team-pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.team-pick:hover {
+  background: var(--surface-variant);
+}
+
+.teams-avatar--team {
+  width: 36px;
+  height: 36px;
+  font-size: 14px;
+  background: color-mix(in srgb, var(--team) 14%, var(--surface));
+  color: var(--team);
+}
+
+.team-pick__text {
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── 관리자 학습실 ────────────────────────────────────── */
@@ -3627,6 +4270,9 @@ a.link {
 .seatmap {
   --seat-w: 76px;
   --seat-h: 68px;
+  /* 책상과 책상 사이 여백의 반. 같은 책상끼리는 여백을 지워 붙인다. */
+  --seat-pad: 4px;
+  --seat-track: calc(var(--seat-w) + 2 * var(--seat-pad));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3638,6 +4284,7 @@ a.link {
 .seatmap--compact {
   --seat-w: 34px;
   --seat-h: 30px;
+  --seat-pad: 2px;
   gap: 4px;
 }
 
@@ -3652,6 +4299,11 @@ a.link {
   display: grid;
   grid-auto-rows: var(--seat-h);
   gap: 8px 0;
+}
+
+.seatmap__grid > * {
+  margin: 0 var(--seat-pad);
+  min-width: 0;
 }
 
 .seatmap--compact .seatmap__grid {
@@ -3708,9 +4360,86 @@ a.link {
   font-weight: 800;
 }
 
+.seat {
+  position: relative;
+}
+
 .seat__mark {
   font-size: 10px;
   font-weight: 700;
+}
+
+.seat__mark--ok {
+  color: #15803d;
+}
+
+.seat__mark--hold {
+  color: #c2410c;
+}
+
+/* 미니 배치표에서만 쓰는 「나」 딱지 */
+.seat__me {
+  display: none;
+}
+
+.seatmap--compact .seat__me {
+  display: block;
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  padding: 1px 3px;
+  border-radius: 4px;
+  background: var(--primary-dark, var(--primary));
+  color: #ffffff;
+  font-size: 6px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* 퇴소한 학생의 좌석 */
+.seat--inactive {
+  border-color: #ef4444;
+  background: color-mix(in srgb, #fee2e2 80%, var(--surface));
+}
+
+/* 팀 색 — 강조색을 표면색에 옅게 섞는다. 다크 모드에서도 같은 식이 통한다. */
+.seat--tinted {
+  border-color: color-mix(in srgb, var(--seat-tint) 55%, var(--surface));
+  background: color-mix(in srgb, var(--seat-tint) 22%, var(--surface));
+}
+
+/* 대시보드 미니 배치표 */
+.seat-mini {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 0 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.seat-mini__hint {
+  font-size: 10px;
+  color: var(--text-hint);
+}
+
+.fit-width {
+  align-self: stretch;
+  /* 플렉스 자식은 내용보다 좁아지지 않는다. 0으로 풀어야 줄일 폭이 생긴다. */
+  min-width: 0;
+  overflow: hidden;
+}
+
+.fit-width__inner {
+  width: max-content;
+  margin: 0 auto;
+  transform-origin: top left;
 }
 
 /* 자리 확인 — 확인은 초록, 보류는 주황 */
@@ -3725,9 +4454,39 @@ a.link {
 }
 
 /* 자리 확인 화면의 좌석 카드 */
+/* 자리 확인 화면의 배치도 — 3단 레이아웃의 좁은 패널(약 520px)에 10칸이 그대로
+   들어가도록 칸을 좁힌다. 통째로 줄이면 이름이 읽히지 않을 만큼 작아진다. */
 .seat-panel .seatmap {
-  --seat-w: 62px;
-  --seat-h: 54px;
+  --seat-w: 46px;
+  --seat-h: 58px;
+  --seat-pad: 2px;
+}
+
+.seat-panel .seat {
+  padding: 3px 2px;
+}
+
+.seat-panel .seat__no {
+  font-size: 11px;
+}
+
+.seat-panel .seat__name {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  /* 네 글자가 넘는 이름은 칸에 다 안 들어간다. 잘린 걸 알 수 있게 말줄임표를 단다. */
+  text-overflow: ellipsis;
+}
+
+.seat-panel .seat__mark {
+  font-size: 10px;
+}
+
+/* 배치도가 패널보다 넓으면 줄여 맞춘다(FitWidth). 패널이 내용 따라 늘지 않게 푼다. */
+.seat-panel {
+  min-width: 0;
 }
 
 .roll-table__row--on {
@@ -3761,12 +4520,24 @@ a.link {
   background: color-mix(in srgb, #fef3c7 70%, var(--surface));
 }
 
+/* 강사석·출입문은 두 칸짜리다. 글씨는 왼쪽 칸에 두되 두 칸 폭을 덮어 가운데에
+   세운다. 오른쪽 칸이 나중에 그려져 배경으로 글씨를 덮지 않게 위로 올린다. */
+.seat-fixture {
+  position: relative;
+}
+
 .seat-fixture__mark {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 200%;
+  z-index: 1;
+  /* 글씨가 오른쪽 칸을 덮어도 끌기·놓기는 그 칸이 받는다. */
+  pointer-events: none;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 2px;
-  padding-left: 50%;
   font-size: 11px;
   color: var(--text-hint);
   white-space: nowrap;

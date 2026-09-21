@@ -25,12 +25,13 @@ import { buildMissionGuidance, missionProgressOf } from '../../domain/missions';
 import type { MissionGuidanceItem } from '../../domain/missions';
 import { useCurrentUser } from '../auth/session';
 import { NoticeDetailDialog } from '../board/NoticeDetailDialog';
+import { MySeatingDashboardSection } from '../seating/SeatingScreen';
 
 /**
  * 대시보드 — features/dashboard/presentation/dashboard_screen.dart
  *
  * 왼쪽에 프로필·마일리지 카드와 공지·학습 추천·설문, 오른쪽에 출석 캘린더와
- * 미션·커리큘럼·자격 시험·승인 현황을 둔다.
+ * 미션·(확정 직후) 내 자리·커리큘럼·자격 시험·승인 현황을 둔다.
  */
 export function DashboardScreen() {
   const notices = useNotices();
@@ -78,6 +79,7 @@ export function DashboardScreen() {
       <aside className="dash__side">
         <AttendanceCalendarCard />
         <MissionProgressCard />
+        <MySeatingDashboardSection />
         <CurriculumCard />
         <QualExamCard />
         <ApprovalCard />

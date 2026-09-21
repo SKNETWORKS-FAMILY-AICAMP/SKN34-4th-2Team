@@ -24,7 +24,10 @@ import {
   seedResumeFeedbacks,
   seedResumes,
   seedScheduledNotices,
-  seedSeatingLayout,
+  seedProjectTeams,
+  seedSeatingAssignments,
+  seedSeatingMeta,
+  seedSeatingRooms,
   seedStudyNotes,
   seedStudySources,
   seedSubmissions,
@@ -56,8 +59,10 @@ import type {
   Resume,
   ResumeFeedback,
   ScheduledNotice,
+  ProjectTeam,
   SeatPresence,
-  SeatingLayout,
+  SeatingAssignment,
+  SeatingRoom,
   StudyNote,
   StudySource,
   Submission,
@@ -100,7 +105,12 @@ export interface Database {
   mileageTransactions: MileageTransaction[];
   purchaseRequests: PurchaseRequest[];
   mileageSettings: MileageSettings;
-  seating: SeatingLayout;
+  seatingRooms: SeatingRoom[];
+  /** 강의실마다 하나 — roomId로 찾는다. */
+  seatingAssignments: SeatingAssignment[];
+  /** cohortId → 학생에게 보이는 강의실 */
+  seatingMeta: Record<string, { publishedRoomId?: string }>;
+  projectTeams: ProjectTeam[];
   seatPresence: SeatPresence[];
   qualExams: QualExamSchedule[];
   aiLogs: AiGenerationLog[];
@@ -137,7 +147,10 @@ function initial(): Database {
     mileageTransactions: seedMileageTransactions,
     purchaseRequests: seedPurchaseRequests,
     mileageSettings: seedMileageSettings,
-    seating: seedSeatingLayout,
+    seatingRooms: seedSeatingRooms,
+    seatingAssignments: seedSeatingAssignments,
+    seatingMeta: seedSeatingMeta,
+    projectTeams: seedProjectTeams,
     seatPresence: [],
     qualExams: seedQualExams,
     aiLogs: seedAiLogs,

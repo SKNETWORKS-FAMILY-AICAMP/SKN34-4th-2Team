@@ -23,8 +23,9 @@ import type {
   Resume,
   ResumeFeedback,
   ScheduledNotice,
-  SeatingCell,
-  SeatingLayout,
+  ProjectTeam,
+  SeatingAssignment,
+  SeatingRoom,
   StudyNote,
   StudySource,
   Submission,
@@ -33,6 +34,7 @@ import type {
   YoutubeRecommendation,
 } from '../domain/types';
 import { MileageDefaultLimits } from '../domain/constants';
+import { emptyGrid, placeFixture, placeTable } from '../domain/seatingLayout';
 
 /**
  * 시연용 데이터 — Flutter `lib/shared/demo/`를 옮겼다.
@@ -1233,58 +1235,57 @@ export const seedMileageSettings: MileageSettings = {
  *
  * 맨 위 가운데에 강사석, 맨 아래 가운데에 출입문. 그 사이로 세 자리짜리 책상이
  * 가운데 통로를 두고 좌우로 다섯 줄 선다. 번호는 줄마다 왼쪽 책상부터 이어진다.
+ * 틀 편집 화면과 같은 연산으로 쌓아 올려, 손으로 만든 칸과 어긋날 일이 없다.
  */
 const SEAT_ROWS = 5;
-const SEAT_CLUSTER_COLS = [1, 2, 3, 5, 6, 7];
 
-function buildSeatingCells(): SeatingCell[] {
-  const cells: SeatingCell[] = [];
-  // 강사석과 출입문은 두 칸을 차지한다.
-  for (const col of [4, 5]) {
-    cells.push({ seatId: '__instructor__', row: 0, col, label: '강사', type: 'instructor', groupId: 'fx-teacher' });
-    cells.push({ seatId: '__door__', row: SEAT_ROWS + 1, col, label: '출입문', type: 'door', groupId: 'fx-door' });
+function buildSeedRoom(): SeatingRoom {
+  let grid = emptyGrid(SEAT_ROWS + 2, 10);
+  grid = placeFixture(grid, 'instructor', 0, 4);
+  grid = placeFixture(grid, 'door', SEAT_ROWS + 1, 4);
+  let desk = 1;
+  for (let r = 1; r <= SEAT_ROWS; r += 1) {
+    for (const col of [1, 5]) {
+      grid = placeTable(grid, r, col, 3, `desk-${desk}`);
+      desk += 1;
+    }
   }
-  for (let r = 0; r < SEAT_ROWS; r += 1) {
-    SEAT_CLUSTER_COLS.forEach((col, i) => {
-      const seatNumber = r * SEAT_CLUSTER_COLS.length + i + 1;
-      cells.push({
-        seatId: String(seatNumber),
-        row: r + 1,
-        col,
-        label: String(seatNumber),
-        type: 'seat',
-        groupId: `t${r}-${i < 3 ? 'L' : 'R'}`,
-      });
-    });
-  }
-  return cells;
+  return {
+    ...grid,
+    id: 'room-302',
+    cohortId: DemoConfig.cohortId,
+    roomNumber: '302호',
+    createdAt: daysAgo(30),
+    updatedAt: daysAgo(7),
+  };
 }
 
-const seatingCells = buildSeatingCells();
+export const seedSeatingRooms: SeatingRoom[] = [buildSeedRoom()];
 
-export const seedSeatingLayout: SeatingLayout = {
-  id: 'seat1',
-  cohortId: DemoConfig.cohortId,
-  rows: SEAT_ROWS + 2,
-  cols: 10,
-  roomNumber: '302호',
-  published: true,
-  updatedAt: daysAgo(7),
-  cells: seatingCells,
-  seats: seatingCells
-    .filter((c) => c.type === 'seat')
-    .map((c) => {
-      const seatNumber = Number(c.label);
-      const owner = seedUsers.find((u) => u.role === 'student' && u.seatNumber === seatNumber);
-      return {
-        seatNumber,
-        row: c.row,
-        col: c.col,
-        userId: owner?.uid,
-        userDisplayName: owner?.displayName,
-      };
-    }),
+// 퇴소한 학생은 앉히지 않는다. 앉혀 두면 배정 인원이 재원 수를 넘어 저장이 막힌다.
+const seededSeatOwners = seedUsers.filter(
+  (u) => u.role === 'student' && u.isActive && u.seatNumber !== undefined,
+);
+
+/** 302호 배치 — 확정한 지 하루라 대시보드에도 미니 배치표가 뜬다(확정 후 3일간). */
+export const seedSeatingAssignments: SeatingAssignment[] = [
+  {
+    roomId: 'room-302',
+    cohortId: DemoConfig.cohortId,
+    status: 'published',
+    assignments: Object.fromEntries(seededSeatOwners.map((u) => [String(u.seatNumber), u.uid])),
+    seatNames: Object.fromEntries(seededSeatOwners.map((u) => [String(u.seatNumber), u.displayName])),
+    publishedAt: daysAgo(1),
+    updatedAt: daysAgo(1),
+  },
+];
+
+/** 기수별로 학생에게 보이는 강의실 — seatingMeta/default */
+export const seedSeatingMeta: Record<string, { publishedRoomId?: string }> = {
+  [DemoConfig.cohortId]: { publishedRoomId: 'room-302' },
 };
+
+export const seedProjectTeams: ProjectTeam[] = [];
 
 // ── 자격 시험 일정 ─────────────────────────────────────
 

@@ -569,14 +569,6 @@ export interface MileageSettings {
 
 // ── 좌석 ──────────────────────────────────────────────
 
-export interface Seat {
-  seatNumber: number;
-  row: number;
-  col: number;
-  userId?: string;
-  userDisplayName?: string;
-}
-
 /** 칸의 성격 — seating_cell_type.dart */
 export type SeatingCellType = 'empty' | 'seat' | 'instructor' | 'door';
 
@@ -594,17 +586,67 @@ export interface SeatingCell {
   groupId?: string;
 }
 
-export interface SeatingLayout {
-  id: string;
-  cohortId: string;
+/** 칸 격자만 — 틀 편집과 배치도 그리기가 함께 쓴다. */
+export interface SeatingGrid {
   rows: number;
   cols: number;
-  /** 강의실 호수 — 제목에 「자리 배치 · 기수 · 302호」로 붙는다. */
-  roomNumber?: string;
   cells: SeatingCell[];
-  seats: Seat[];
-  published: boolean;
+}
+
+/**
+ * 강의실 하나 — seating_room_model.dart (`cohorts/{id}/seatingRooms/{roomId}`)
+ *
+ * 기수마다 강의실을 여럿 만들어 둘 수 있고, 그중 하나만 학생에게 「확정」된다.
+ * `cells`는 rows×cols 전부를 담는다. 빈 칸도 `empty`로 들어 있다.
+ */
+export interface SeatingRoom extends SeatingGrid {
+  id: string;
+  cohortId: string;
+  /** 표시 이름 — 제목에 「자리 배치 · 기수 · 302호」로 붙는다. */
+  roomNumber?: string;
+  createdAt?: Date;
   updatedAt?: Date;
+}
+
+export type SeatingAssignmentStatus = 'draft' | 'published';
+
+/**
+ * 강의실별 배치 — seating_assignment_model.dart (`seatingAssignments/{roomId}`)
+ *
+ * `seatNames`는 확정할 때 찍어 두는 이름 사본이다. 학생 화면은 다른 학생의
+ * 계정을 읽지 않고 이것만 본다.
+ */
+export interface SeatingAssignment {
+  roomId: string;
+  cohortId: string;
+  status: SeatingAssignmentStatus;
+  /** seatId → userId */
+  assignments: Record<string, string>;
+  /** seatId → 표시 이름 */
+  seatNames: Record<string, string>;
+  publishedAt?: Date;
+  updatedAt?: Date;
+}
+
+/** 프로젝트 팀 — project_team_model.dart. 권장 인원 4~5명. */
+export interface ProjectTeam {
+  id: string;
+  cohortId: string;
+  name: string;
+  memberIds: string[];
+  sortOrder: number;
+  colorIndex: number;
+  updatedAt?: Date;
+}
+
+/**
+ * 학생·강사가 보는 확정 배치 — 확정된 강의실과 그 배치를 한데 묶은 것.
+ * 확정된 강의실이 없으면 `room`이 비고, 배치가 확정 전이면 `published`가 거짓이다.
+ */
+export interface PublishedSeating {
+  room?: SeatingRoom;
+  assignment?: SeatingAssignment;
+  published: boolean;
 }
 
 /** 자리 확인(강사·관리자) — 좌석별 확인/보류 */

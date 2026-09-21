@@ -3,8 +3,8 @@ import { useState } from 'react';
 import {
   setSeatPresence,
   useAttendanceByDate,
+  usePublishedSeating,
   useSeatPresence,
-  useSeating,
   useStudents,
 } from '../../data/repository';
 import { dateKeyOf } from '../../data/seed';
@@ -14,7 +14,7 @@ import { InstructorTargets } from '../../tour/targets';
 import { useTourTarget } from '../../tour/useTourTarget';
 import { Icon } from '../../ui/Icon';
 import { Badge } from '../../ui/components';
-import { SeatGrid } from '../seating/SeatingScreen';
+import { FitWidth, SeatGrid } from '../seating/SeatingScreen';
 import { useCurrentUser } from '../auth/session';
 
 /**
@@ -26,7 +26,7 @@ import { useCurrentUser } from '../auth/session';
 export function InstructorAttendanceScreen() {
   const user = useCurrentUser();
   const students = useStudents(user.cohortId).filter((s) => s.isActive);
-  const seating = useSeating();
+  const seating = usePublishedSeating(user.cohortId);
   const summaryRef = useTourTarget(InstructorTargets.attendanceSummary);
   const confirmRef = useTourTarget(InstructorTargets.attendanceConfirm);
 
@@ -54,13 +54,11 @@ export function InstructorAttendanceScreen() {
     setIndex((i) => Math.min(i + 1, roll.length - 1));
   };
 
-  // 좌석은 3개씩 묶어 통로를 만든다. 실제 강의장 배치가 그렇다.
-  // 강사석·출입문 줄에는 좌석이 없으니 빈 줄은 건너뛴다.
-  const rows: (typeof seating.seats)[] = [];
-  for (let r = 0; r < seating.rows; r++) {
-    const inRow = seating.seats.filter((s) => s.row === r);
-    if (inRow.length > 0) rows.push(inRow);
-  }
+  // 좌석 번호는 확정된 배치에서 읽는다. 자리를 옮기면 여기도 따라 바뀐다.
+  const seatLabelOf = (uid: string | undefined) => {
+    const entry = Object.entries(seating.assignment?.assignments ?? {}).find(([, u]) => u === uid);
+    return entry === undefined ? '좌석 없음' : `${entry[0]}번`;
+  };
 
   return (
     <div className="screen__inner">
@@ -123,19 +121,30 @@ export function InstructorAttendanceScreen() {
             </button>
           </header>
 
-          <SeatGrid
-            layout={seating}
-            highlightUserId={current?.uid}
-            highlightCaption="지금"
-            rotated={rotated}
-            presenceOf={(uid) => stateOf(uid)}
-          />
+          {seating.room === undefined || !seating.published || seating.assignment === undefined ? (
+            <p className="hint" style={{ textAlign: 'center', padding: '24px 0' }}>
+              확정된 좌석 배치가 없습니다.
+            </p>
+          ) : (
+            // 원본처럼 패널 폭에 맞춰 통째로 줄인다(FittedBox).
+            <FitWidth>
+              <SeatGrid
+                grid={seating.room}
+                seatUserIds={seating.assignment.assignments}
+                seatNames={seating.assignment.seatNames}
+                highlightUserId={current?.uid}
+                highlightCaption="지금"
+                rotated={rotated}
+                presenceOf={(uid) => stateOf(uid)}
+              />
+            </FitWidth>
+          )}
         </section>
 
         <section className="panel panel--flush roll-panel">
           <header className="roll-panel__head">
             <strong>
-              {current?.displayName ?? '—'} · {current?.seatNumber ?? '-'}번
+              {current?.displayName ?? '—'} · {seatLabelOf(current?.uid)}
             </strong>
           </header>
           <div className="roll-panel__actions">
@@ -183,7 +192,7 @@ export function InstructorAttendanceScreen() {
                   <span className="roll-list__no">{i + 1}</span>
                   <span className="roll-list__body">
                     <strong>{student.displayName}</strong>
-                    <span className="hint">{student.seatNumber}번</span>
+                    <span className="hint">{seatLabelOf(student.uid)}</span>
                   </span>
                   {state === 'confirmed' && <Icon name="check_circle" size={16} className="roll-list__ok" />}
                   {state === 'held' && <Icon name="pause_circle" size={16} className="roll-list__hold" />}
@@ -208,7 +217,7 @@ export function InstructorAttendanceScreen() {
                 <li key={s.uid} className="list__item">
                   <strong>{s.displayName}</strong>
                   <span className="spacer" />
-                  <span className="hint">{s.seatNumber}번</span>
+                  <span className="hint">{seatLabelOf(s.uid)}</span>
                   <button
                     type="button"
                     className="btn btn--text btn--sm"

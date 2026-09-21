@@ -12,7 +12,7 @@ import {
   studentRoutes,
 } from '../app/routes';
 import { getDb, resetDb } from '../data/store';
-import { DemoAccounts } from '../data/seed';
+import { DemoAccounts, DemoConfig } from '../data/seed';
 import { debugReset as resetDismiss } from '../tour/dismissStore';
 import { debugReset as resetTargets } from '../tour/targetRegistry';
 
@@ -63,6 +63,38 @@ function click(label: string, scope: HTMLElement = container): void {
   act(() => {
     el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   });
+}
+
+/** 아이콘이 붙은 단추 — 아이콘 글자(리거처)를 빼고 이름을 견준다. */
+function press(label: string, scope: HTMLElement = container): void {
+  const el = Array.from(scope.querySelectorAll('button')).find((b) => {
+    const copy = b.cloneNode(true) as HTMLElement;
+    copy.querySelectorAll('.icon').forEach((i) => i.remove());
+    return copy.textContent?.trim() === label;
+  });
+  if (el === undefined) throw new Error(`"${label}" 단추가 없다`);
+  act(() => {
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+}
+
+/** jsdom에는 DragEvent가 없다. 이벤트에 빈 dataTransfer를 붙여 끌어다 놓기를 흉내 낸다. */
+async function drag(from: HTMLElement, to: HTMLElement): Promise<void> {
+  const fire = (el: HTMLElement, type: string) => {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(e, 'dataTransfer', {
+      value: { setData: () => {}, effectAllowed: 'move', dropEffect: 'move' },
+    });
+    act(() => {
+      el.dispatchEvent(e);
+    });
+  };
+  fire(from, 'dragstart');
+  await flush(2);
+  fire(to, 'dragover');
+  fire(to, 'drop');
+  fire(from, 'dragend');
+  await flush(2);
 }
 
 /** 투어 오버레이가 화면을 덮고 있으면 먼저 닫는다. */
@@ -350,6 +382,68 @@ describe('데이터가 실제로 흐른다', () => {
     const after = getDb().users.find((u) => u.uid === request!.userId)!.mileageBalance;
     expect(after).toBe(before - request!.totalAmount);
     expect(getDb().mileageTransactions[0].amount).toBe(-request!.totalAmount);
+  });
+
+  it('배치 편집에서 학생을 끌어 앉히고 바꿔 앉혀 확정한다', async () => {
+    await render('/admin/seating');
+    await loginAs('관리자');
+    await render('/admin/seating');
+    click('배치 편집');
+    await flush();
+
+    const seatOf = (no: string) =>
+      Array.from(container.querySelectorAll('.seat-assign__map .seat')).find(
+        (el) => el.querySelector('.seat__no')?.textContent === `${no}번`,
+      ) as HTMLElement;
+    const pool = () => container.querySelector('.seat-pool') as HTMLElement;
+    const seeded = getDb().seatingAssignments.find((a) => a.roomId === 'room-302')!;
+    const at3 = seeded.assignments['3'];
+    const at7 = seeded.assignments['7'];
+
+    // 좌석 → 미배정 목록: 배정이 풀린다.
+    expect(container.querySelector('.seat-pool__item')).toBeNull();
+    await drag(seatOf('3'), pool());
+    const student = container.querySelector('.seat-pool__item') as HTMLElement;
+    expect(student.textContent).toContain(seeded.seatNames['3']);
+
+    // 미배정 → 빈 좌석, 그리고 좌석끼리 끌면 서로 바뀐다.
+    await drag(student, seatOf('30'));
+    await drag(seatOf('30'), seatOf('7'));
+
+    // 시드는 이미 확정돼 있어 단추가 「재확정」이다.
+    press('재확정');
+    await flush();
+    const saved = getDb().seatingAssignments.find((a) => a.roomId === 'room-302')!;
+    expect(saved.status).toBe('published');
+    expect(saved.assignments['3']).toBeUndefined();
+    expect(saved.assignments['7']).toBe(at3);
+    expect(saved.assignments['30']).toBe(at7);
+    expect(saved.seatNames['7']).toBe(seeded.seatNames['3']);
+    expect(getDb().seatingMeta[DemoConfig.cohortId].publishedRoomId).toBe('room-302');
+    expect(container.textContent).toContain('좌석 배치가 확정되었습니다.');
+  });
+
+  it('틀 설정에서 테이블을 끌어 놓고 저장하면 좌석이 는다', async () => {
+    await render('/admin/seating');
+    await loginAs('관리자');
+    await render('/admin/seating');
+    const seatsOf = () => getDb().seatingRooms[0].cells.filter((c) => c.type === 'seat').length;
+    const before = seatsOf();
+
+    const chip = Array.from(container.querySelectorAll('.lay-chip')).find((el) =>
+      el.textContent?.includes('2인 테이블'),
+    ) as HTMLElement;
+    // 7×10 격자의 맨 아래 왼쪽 구석은 비어 있다.
+    const target = Array.from(container.querySelectorAll<HTMLElement>('.lay-map .lay-empty')).find(
+      (el) => el.style.gridRow === '7' && el.style.gridColumn === '1',
+    )!;
+    await drag(chip, target);
+    expect(container.textContent).toContain('저장되지 않은 변경');
+    expect(seatsOf()).toBe(before);
+
+    press('틀 저장');
+    await flush();
+    expect(seatsOf()).toBe(before + 2);
   });
 
   it('강사가 호명 패널에서 확인을 누르면 저장된다', async () => {

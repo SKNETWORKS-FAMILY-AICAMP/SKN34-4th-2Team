@@ -18,8 +18,13 @@ import type {
   QualExamSchedule,
   Resume,
   ResumeFeedback,
+  ProjectTeam,
+  PublishedSeating,
   ScheduledNotice,
   SeatPresenceState,
+  SeatingAssignment,
+  SeatingGrid,
+  SeatingRoom,
   Submission,
   SubmissionStatus,
   Todo,
@@ -27,6 +32,7 @@ import type {
 } from '../domain/types';
 import { getDb, mutate, nextId, subscribe, type Database } from './store';
 import { dateKeyOf } from './seed';
+import { remapAssignments } from '../domain/seatingLayout';
 
 /**
  * 조회 훅 — Flutter의 `watch*` 스트림 자리.
@@ -417,10 +423,6 @@ export function fillCheckOut(userId: string, dateKey: string): void {
 
 // ── 자리 확인 ──────────────────────────────────────────
 
-export function useSeating() {
-  return useDb((db) => db.seating);
-}
-
 export function useSeatPresence(dateKey: string, period: number) {
   return useDb((db) =>
     db.seatPresence.filter((p) => p.dateKey === dateKey && p.period === period),
@@ -441,17 +443,185 @@ export function setSeatPresence(
   });
 }
 
-export function publishSeating(seats: { seatNumber: number; userId?: string; userDisplayName?: string }[]): void {
+// ── 좌석 배치 ──────────────────────────────────────────
+// seating_repository.dart — 강의실(틀) · 강의실별 배치 · 확정 표시 · 프로젝트 팀
+
+export function useSeatingRooms(cohortId: string): SeatingRoom[] {
+  return useDb((db) =>
+    db.seatingRooms
+      .filter((r) => r.cohortId === cohortId)
+      .sort((a, b) => (b.updatedAt?.getTime() ?? 0) - (a.updatedAt?.getTime() ?? 0)),
+  );
+}
+
+export function useSeatingRoom(roomId: string | undefined): SeatingRoom | undefined {
+  return useDb((db) => db.seatingRooms.find((r) => r.id === roomId));
+}
+
+export function useSeatingAssignment(roomId: string | undefined): SeatingAssignment | undefined {
+  return useDb((db) => db.seatingAssignments.find((a) => a.roomId === roomId));
+}
+
+/** 학생·강사가 보는 확정 배치 */
+export function usePublishedSeating(cohortId: string): PublishedSeating {
+  return useDb((db) => {
+    const roomId = db.seatingMeta[cohortId]?.publishedRoomId;
+    const room = db.seatingRooms.find((r) => r.id === roomId);
+    const assignment = db.seatingAssignments.find((a) => a.roomId === roomId);
+    return { room, assignment, published: room !== undefined && assignment?.status === 'published' };
+  });
+}
+
+export function createSeatingRoom(cohortId: string, grid: SeatingGrid, roomNumber?: string): string {
+  const id = nextId('room');
+  const now = new Date();
   mutate((db) => ({
-    seating: {
-      ...db.seating,
-      updatedAt: new Date(),
-      seats: db.seating.seats.map((s) => {
-        const next = seats.find((n) => n.seatNumber === s.seatNumber);
-        return next === undefined ? s : { ...s, userId: next.userId, userDisplayName: next.userDisplayName };
-      }),
-    },
+    seatingRooms: [...db.seatingRooms, { ...grid, id, cohortId, roomNumber, createdAt: now, updatedAt: now }],
   }));
+  return id;
+}
+
+/**
+ * 틀을 저장한다. 좌석 번호가 바뀌었을 수 있으니, 이미 있던 배치는 자리(행·열)를
+ * 따라 옮겨 싣는다. 확정 여부는 건드리지 않는다.
+ */
+export function saveSeatingRoom(roomId: string, grid: SeatingGrid, roomNumber?: string): void {
+  mutate((db) => {
+    const old = db.seatingRooms.find((r) => r.id === roomId);
+    if (old === undefined) return {};
+    const next: SeatingRoom = { ...old, ...grid, roomNumber, updatedAt: new Date() };
+    return {
+      seatingRooms: db.seatingRooms.map((r) => (r.id === roomId ? next : r)),
+      seatingAssignments: db.seatingAssignments.map((a) => {
+        if (a.roomId !== roomId) return a;
+        const assignments = remapAssignments(old, next, a.assignments);
+        const seatNames = Object.fromEntries(
+          Object.keys(assignments).flatMap((seatId) => {
+            // 이름 사본은 옛 번호로 적혀 있다. 같은 학생의 옛 좌석을 찾아 옮긴다.
+            const oldSeat = Object.keys(a.assignments).find((k) => a.assignments[k] === assignments[seatId]);
+            const name = oldSeat === undefined ? undefined : a.seatNames[oldSeat];
+            return name === undefined ? [] : [[seatId, name]];
+          }),
+        );
+        return { ...a, assignments, seatNames };
+      }),
+    };
+  });
+}
+
+/** 강의실과 그 배치를 지운다. 학생에게 보이던 강의실이면 확정 표시도 걷는다. */
+export function deleteSeatingRoom(roomId: string): void {
+  mutate((db) => ({
+    seatingRooms: db.seatingRooms.filter((r) => r.id !== roomId),
+    seatingAssignments: db.seatingAssignments.filter((a) => a.roomId !== roomId),
+    seatingMeta: Object.fromEntries(
+      Object.entries(db.seatingMeta).map(([cohortId, meta]) => [
+        cohortId,
+        meta.publishedRoomId === roomId ? {} : meta,
+      ]),
+    ),
+  }));
+}
+
+function writeAssignment(
+  db: Database,
+  roomId: string,
+  patch: Pick<SeatingAssignment, 'status' | 'assignments' | 'seatNames'> & { publishedAt?: Date },
+): SeatingAssignment[] {
+  const cohortId = db.seatingRooms.find((r) => r.id === roomId)?.cohortId ?? '';
+  const prev = db.seatingAssignments.find((a) => a.roomId === roomId);
+  // 통째로 갈아 끼운다. 합치면 비운·옮긴 좌석 키가 남아 이름이 겹친다.
+  const next: SeatingAssignment = {
+    roomId,
+    cohortId,
+    ...patch,
+    publishedAt: patch.publishedAt ?? prev?.publishedAt,
+    updatedAt: new Date(),
+  };
+  return prev === undefined
+    ? [...db.seatingAssignments, next]
+    : db.seatingAssignments.map((a) => (a.roomId === roomId ? next : a));
+}
+
+/** 임시 저장 — 원본처럼 상태는 「작성 중」으로 돌아간다. 학생 화면에서는 내려간다. */
+export function saveSeatingDraft(
+  roomId: string,
+  assignments: Record<string, string>,
+  seatNames: Record<string, string>,
+): void {
+  mutate((db) => ({
+    seatingAssignments: writeAssignment(db, roomId, { status: 'draft', assignments, seatNames }),
+  }));
+}
+
+/** 확정 — 이 강의실만 학생에게 보인다. 같은 기수의 다른 확정은 작성 중으로 내린다. */
+export function publishSeatingAssignment(
+  roomId: string,
+  assignments: Record<string, string>,
+  seatNames: Record<string, string>,
+): void {
+  mutate((db) => {
+    const cohortId = db.seatingRooms.find((r) => r.id === roomId)?.cohortId ?? '';
+    const lowered = db.seatingAssignments.map((a) =>
+      a.cohortId === cohortId && a.roomId !== roomId && a.status === 'published'
+        ? { ...a, status: 'draft' as const }
+        : a,
+    );
+    return {
+      seatingAssignments: writeAssignment({ ...db, seatingAssignments: lowered }, roomId, {
+        status: 'published',
+        assignments,
+        seatNames,
+        publishedAt: new Date(),
+      }),
+      seatingMeta: { ...db.seatingMeta, [cohortId]: { publishedRoomId: roomId } },
+    };
+  });
+}
+
+export function useProjectTeams(cohortId: string): ProjectTeam[] {
+  return useDb((db) =>
+    db.projectTeams
+      .filter((t) => t.cohortId === cohortId)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'ko')),
+  );
+}
+
+export function createProjectTeam(cohortId: string, name: string, sortOrder: number, colorIndex: number): string {
+  const id = nextId('team');
+  mutate((db) => ({
+    projectTeams: [
+      ...db.projectTeams,
+      { id, cohortId, name, memberIds: [], sortOrder, colorIndex, updatedAt: new Date() },
+    ],
+  }));
+  return id;
+}
+
+export function updateProjectTeam(team: ProjectTeam): void {
+  mutate((db) => ({
+    projectTeams: db.projectTeams.map((t) => (t.id === team.id ? { ...team, updatedAt: new Date() } : t)),
+  }));
+}
+
+export function deleteProjectTeam(teamId: string): void {
+  mutate((db) => ({ projectTeams: db.projectTeams.filter((t) => t.id !== teamId) }));
+}
+
+/** 팀 구성을 한 번에 갈아 끼운다. `id`가 빈 팀은 새로 만든다. */
+export function replaceProjectTeams(cohortId: string, upserts: ProjectTeam[], deleteIds: string[]): void {
+  mutate((db) => {
+    const now = new Date();
+    const kept = db.projectTeams.filter((t) => !deleteIds.includes(t.id));
+    const updated = kept.map((t) => {
+      const u = upserts.find((x) => x.id === t.id);
+      return u === undefined ? t : { ...u, updatedAt: now };
+    });
+    const created = upserts
+      .filter((u) => u.id === '')
+      .map((u) => ({ ...u, id: nextId('team'), cohortId, updatedAt: now }));
+    return { projectTeams: [...updated, ...created] };
+  });
 }
 
 // ── 이력서 ─────────────────────────────────────────────
