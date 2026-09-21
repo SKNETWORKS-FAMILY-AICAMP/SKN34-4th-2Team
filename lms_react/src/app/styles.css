@@ -777,11 +777,77 @@ a.link {
   gap: 16px;
 }
 
+.dash__side-group {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
 .dash__top {
   display: flex;
   gap: 16px;
   align-items: stretch;
   flex-wrap: wrap;
+}
+
+/*
+ * 1080px 이하 — 두 칸을 풀고 한 줄로 쌓는다.
+ * 본문·오른쪽 칸 상자를 없애(display: contents) 안의 조각들이 .dash 격자에 바로 놓이게 하고,
+ * order 로 순서를 다시 잡는다. 카드 묶음은 자리가 되면 두 개씩 나란히 선다.
+ */
+@media (max-width: 1080px) {
+  .dash {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 880px;
+  }
+
+  .dash__main,
+  .dash__side {
+    display: contents;
+  }
+
+  .dash__top {
+    order: 0;
+  }
+
+  .dash__side-group--primary {
+    order: 1;
+  }
+
+  .dash__main > :not(.dash__top) {
+    order: 2;
+  }
+
+  .dash__side-group--more {
+    order: 3;
+  }
+
+  .dash__side-group {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+    align-items: start;
+  }
+}
+
+/* 휴대폰 — 프로필 아래에 마일리지 카드를 가운데로 */
+@media (max-width: 560px) {
+  .dash__top {
+    flex-direction: column;
+  }
+
+  /* 세로로 쌓이면 flex-basis 가 높이가 된다. 내용 높이로 되돌린다. */
+  .dash__top .profile-card {
+    flex: none;
+  }
+
+  .mileage-card-slot {
+    align-self: center;
+  }
+
+  .dash__side-group {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* 흰 판 — Flutter의 Card. 그림자는 거의 없고 테두리로 구분한다. */
@@ -815,8 +881,8 @@ a.link {
 }
 
 .profile-card {
-  flex: 1 1 380px;
-  min-width: 320px;
+  flex: 1 1 320px;
+  min-width: 0;
   justify-content: center;
   gap: 12px;
 }
@@ -872,6 +938,7 @@ a.link {
 
 /* 마일리지 카드 — 신용카드 모양 */
 .mileage-card-slot {
+  flex: none;
   perspective: 830px;
   cursor: pointer;
 }
@@ -5330,7 +5397,6 @@ a.link {
 
 /* ── 좁은 화면 ─────────────────────────────────────────── */
 @media (max-width: 1080px) {
-  .dashboard,
   .split {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -7989,4 +8055,123 @@ a.link {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ── 좁은 화면 보정 (학생·강사·관리자 공통) ──────────────────
+ * 2026-09 너비별 전 화면 점검(1180 / 860 / 560 / 390px)에서 나온 것을 한데 모았다.
+ */
+
+/* 좌석 편집 지도 — 뒤쪽 .seatmap 의 min-width: max-content 가 가로 스크롤을 막았다 */
+.seatmap.lay-map {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  /* 꽉 찬 화면들 — 여기서는 .screen 여백이 16px 이라 -24px 이면 8px 이 넘친다 */
+  .list-page,
+  .seat-admin,
+  .seat-page {
+    margin: -16px;
+  }
+
+  .board-tabs--inline {
+    margin: 0 -16px;
+    padding: 0 16px;
+  }
+
+  /* 표 — 칸을 억지로 좁혀 글자가 세로로 깨지게 두지 않고, 표 안에서 가로로 민다 */
+  .table th,
+  .table td {
+    white-space: nowrap;
+  }
+
+  .panel:has(> .table) {
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  /* 상단 줄 — 기수 이름은 한 줄로 줄이고, 프로필은 이름만 */
+  .appbar {
+    padding: 10px 16px;
+    gap: 8px;
+  }
+
+  .cohort-select {
+    min-width: 0;
+    max-width: 52vw;
+    padding: 8px 10px;
+  }
+
+  .cohort-select > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .profile {
+    padding: 6px 12px 6px 8px;
+  }
+
+  .profile__text span {
+    display: none;
+  }
+
+  .profile__text strong {
+    white-space: nowrap;
+  }
+
+  /* 목록 위 필터 줄 — 버튼·검색은 다음 줄로 */
+  .pill-head {
+    flex-wrap: wrap;
+  }
+
+  .pill-head__pills {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .pill-head__trailing {
+    margin-left: 0;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .pill-head__trailing .search-bar--sm {
+    flex: 1 1 180px;
+    width: auto;
+  }
+
+  /* 섹션 머리 — 설명이 버튼에 눌리지 않게 */
+  .sec-head {
+    flex-wrap: wrap;
+  }
+
+  /* 연습장 단축키 안내 — 떠 있는 상자 대신 한 줄을 다 쓰며 제자리에 펼친다 */
+  .py-keys {
+    width: 100%;
+  }
+
+  .py-keys dl {
+    position: static;
+    margin-top: 6px;
+    grid-template-columns: max-content minmax(0, 1fr);
+    white-space: normal;
+  }
+
+  /* 학습실 머리 — 이름표는 다음 줄로, 기수 이름은 한 줄 */
+  .study-head {
+    flex-wrap: wrap;
+  }
+
+  .who-chip {
+    margin-left: 0;
+    max-width: 100%;
+  }
+
+  .who-chip__text span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }

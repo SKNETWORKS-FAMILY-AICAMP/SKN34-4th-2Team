@@ -32,6 +32,9 @@ import { MySeatingDashboardSection } from '../seating/SeatingScreen';
  *
  * 왼쪽에 프로필·마일리지 카드와 공지·학습 추천·설문, 오른쪽에 출석 캘린더와
  * 미션·(확정 직후) 내 자리·커리큘럼·자격 시험·승인 현황을 둔다.
+ *
+ * 1080px 이하에서는 한 줄로 쌓는다. 순서는 CSS(order)가 정한다:
+ * 프로필·마일리지 → 출석·미션 → 공지·추천·설문 → 나머지 카드.
  */
 export function DashboardScreen() {
   const notices = useNotices();
@@ -76,13 +79,18 @@ export function DashboardScreen() {
         <FormTasksSection />
       </div>
 
+      {/* 좁은 화면에서는 두 묶음이 따로 움직인다 — 출석·미션은 프로필 바로 아래, 나머지는 맨 아래 */}
       <aside className="dash__side">
-        <AttendanceCalendarCard />
-        <MissionProgressCard />
-        <MySeatingDashboardSection />
-        <CurriculumCard />
-        <QualExamCard />
-        <ApprovalCard />
+        <div className="dash__side-group dash__side-group--primary">
+          <AttendanceCalendarCard />
+          <MissionProgressCard />
+        </div>
+        <div className="dash__side-group dash__side-group--more">
+          <MySeatingDashboardSection />
+          <CurriculumCard />
+          <QualExamCard />
+          <ApprovalCard />
+        </div>
       </aside>
 
       {openNotice !== null && (

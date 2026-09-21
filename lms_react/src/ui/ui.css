@@ -670,6 +670,36 @@ button.chip {
   top: 76px;
 }
 
+/* 900px 이하 — 머리글 → 승인 현황 → 메뉴 순으로 한 줄. (이 파일이 styles.css 뒤에 불려서 여기 둔다) */
+@media (max-width: 900px) {
+  .admin-dash {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .admin-dash__main {
+    display: contents;
+  }
+
+  .admin-dash__main > .page-head {
+    order: 0;
+  }
+
+  .admin-dash__side {
+    position: static;
+    order: 1;
+    margin-bottom: 10px;
+  }
+
+  .admin-dash__main > :not(.page-head) {
+    order: 2;
+  }
+
+  .admin-dash__pair {
+    grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  }
+}
+
 .approval-panel__title {
   margin: 0 0 8px;
   font-size: 14px;
