@@ -11,9 +11,10 @@ from functools import lru_cache
 from typing import Any, Iterator
 
 import firebase_admin
+import psycopg
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
-from firebase_admin import auth, credentials, firestore, storage
+from firebase_admin import auth, credentials
 from pydantic import BaseModel, Field
 
 from chatbot.firebase_student_context import (
@@ -40,6 +41,33 @@ class ChatRequest(InitRequest):
     question: str = Field(min_length=1, max_length=2000)
 
 
+class ProxyChatRequest(BaseModel):
+    """Django LMS API 프록시용. Firebase 토큰 대신 uid 로 학생을 확인한다."""
+
+    message: str = Field(default="", max_length=2000)
+    question: str = Field(default="", max_length=2000)
+    uid: str = Field(min_length=1, max_length=128)
+    thread_id: str = Field(default="web", min_length=1, max_length=80, pattern=THREAD_RE.pattern)
+
+
+def _session_from_uid(uid: str) -> dict[str, Any]:
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        row = conn.execute(
+            """SELECT u.role, u.is_active, c.code
+               FROM users u LEFT JOIN cohorts c ON c.id = u.cohort_id
+               WHERE u.firebase_uid = %s""",
+            (uid,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=403, detail="학생 계정만 챗봇을 사용할 수 있습니다")
+    role, is_active, cohort = row[0], row[1], row[2]
+    if role != "student" or is_active is not True:
+        raise HTTPException(status_code=403, detail="학생 계정만 챗봇을 사용할 수 있습니다")
+    if not cohort:
+        raise HTTPException(status_code=422, detail="학생 기수 정보가 없습니다")
+    return {"uid": uid, "cohort": str(cohort)}
+
+
 _parse_schedule_date = parse_schedule_date
 
 
@@ -49,13 +77,7 @@ def _firebase_app():
         return firebase_admin.get_app()
     except ValueError:
         project_id = os.getenv("FIREBASE_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
-        options = None
-        if project_id:
-            options = {
-                "projectId": project_id,
-                "storageBucket": os.getenv("FIREBASE_STORAGE_BUCKET")
-                or f"{project_id}.firebasestorage.app",
-            }
+        options = {"projectId": project_id} if project_id else None
         return firebase_admin.initialize_app(credentials.ApplicationDefault(), options)
 
 
@@ -67,14 +89,21 @@ def _student_session(authorization: str | None = Header(default=None)) -> dict[s
         uid = auth.verify_id_token(authorization[7:].strip(), app=app).get("uid")
         if not isinstance(uid, str) or not uid:
             raise ValueError("missing uid")
-        db = firestore.client(app=app)
-        profile = db.collection("users").document(uid).get().to_dict() or {}
-        if profile.get("role") != "student" or profile.get("isActive") is not True:
+        with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+            row = conn.execute(
+                """SELECT u.role, u.is_active, c.code
+                   FROM users u LEFT JOIN cohorts c ON c.id = u.cohort_id
+                   WHERE u.firebase_uid = %s""",
+                (uid,),
+            ).fetchone()
+        if not row:
             raise HTTPException(status_code=403, detail="학생 계정만 챗봇을 사용할 수 있습니다")
-        cohort = str(profile.get("cohortId") or "").strip()
+        role, is_active, cohort = row[0], row[1], row[2]
+        if role != "student" or is_active is not True:
+            raise HTTPException(status_code=403, detail="학생 계정만 챗봇을 사용할 수 있습니다")
         if not cohort:
             raise HTTPException(status_code=422, detail="학생 기수 정보가 없습니다")
-        return {"uid": uid, "cohort": cohort, "db": db}
+        return {"uid": uid, "cohort": str(cohort)}
     except HTTPException:
         raise
     except Exception as exc:
@@ -86,23 +115,8 @@ _load_unit_context = load_unit_period_context
 
 @lru_cache
 def get_student_chatbot() -> LmsStudentChatbot:
-    app = _firebase_app()
-    db = firestore.client(app=app)
-    project_id = app.project_id
-    bucket_name = os.getenv("FIREBASE_STORAGE_BUCKET") or (
-        f"{project_id}.firebasestorage.app" if project_id else None
-    )
-    bucket = storage.bucket(bucket_name, app=app)
-
     def loader(uid: str, cohort: str, scopes: list[Any], query: str) -> dict[str, Any]:
-        return load_student_context(
-            db=db,
-            bucket=bucket,
-            uid=uid,
-            cohort=cohort,
-            scopes=scopes,
-            query=query,
-        )
+        return load_student_context(uid=uid, cohort=cohort, scopes=scopes, query=query)
 
     return create_student_chatbot(student_context_loader=loader)
 
@@ -173,7 +187,7 @@ def _ndjson_chat(
     )
     log_id = ""
     try:
-        log_id = write_generation_log(session["db"], payload)
+        log_id = write_generation_log(None, payload)
     except Exception:
         log_id = ""
     yield json.dumps(build_done_event(log_id, payload), ensure_ascii=False) + "\n"
@@ -191,3 +205,48 @@ def stream_chat(
         media_type="application/x-ndjson",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post("/chat")
+def proxy_chat(request: ProxyChatRequest) -> dict[str, Any]:
+    """React → Django → 여기. 스트리밍을 모아 { answer } JSON 으로 돌려준다."""
+    question = (request.question or request.message or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="message required")
+    session = _session_from_uid(request.uid.strip())
+    init = InitRequest(thread_id=request.thread_id)
+    inputs = _chat_inputs(init, session)
+    inputs["question"] = question
+    bot = _ready_chatbot()
+    parts: list[str] = []
+    err: str | None = None
+    started = time.perf_counter()
+    try:
+        for chunk in bot.stream(inputs):
+            if chunk:
+                parts.append(str(chunk))
+    except Exception:
+        err = "답변 생성 중 오류가 발생했습니다"
+    answer = "".join(parts).strip()
+    if not answer:
+        answer = err or "답변을 받지 못했습니다."
+    latency_ms = max(0, round((time.perf_counter() - started) * 1000))
+    snapshot: dict[str, Any] = {}
+    try:
+        snapshot = bot.ops_snapshot(inputs)
+    except Exception:
+        snapshot = {}
+    payload = build_generation_log_payload(
+        cohort_id=str(session.get("cohort") or ""),
+        created_by=str(session.get("uid") or ""),
+        latency_ms=latency_ms,
+        status="error" if err else "success",
+        snapshot=snapshot,
+        error_message=err,
+        thread_id=str(inputs.get("thread_id") or ""),
+    )
+    try:
+        write_generation_log(None, payload)
+    except Exception:
+        pass
+    return {"answer": answer}

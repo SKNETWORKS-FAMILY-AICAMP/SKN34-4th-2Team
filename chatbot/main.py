@@ -9,9 +9,22 @@
     uvicorn chatbot.main:app --reload --port 8001
 
 이 경우 Flutter는 --dart-define=STUDENT_CHATBOT_API_URL=http://127.0.0.1:8001 로 맞춘다.
+React/Django 는 CHATBOT_URL=http://127.0.0.1:8001
 """
 
 import os
+from pathlib import Path
+
+# 레포 루트 .env 로드
+_repo = Path(__file__).resolve().parents[1]
+_env = _repo / ".env"
+if _env.exists():
+    for raw in _env.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip("'\""))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,8 +45,13 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_origin_regex=origin_regex,
-    allow_methods=["POST"],
+    allow_methods=["POST", "GET"],
     allow_headers=["Content-Type", "Authorization"],
 )
 
 app.include_router(router)
+
+
+@app.get("/health")
+def health():
+    return {"ok": True}
