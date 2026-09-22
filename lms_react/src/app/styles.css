@@ -9335,6 +9335,16 @@ a.link {
   animation: none;
 }
 
+.screen-loading__detail {
+  max-width: 560px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface-variant, color-mix(in srgb, var(--text-primary) 6%, var(--surface)));
+  color: var(--text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .screen-loading__bar::after {
     animation: none;

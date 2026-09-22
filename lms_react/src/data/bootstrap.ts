@@ -43,9 +43,32 @@ function hhmm(value: unknown): string | undefined {
   return text.length >= 5 ? text.slice(0, 5) : text;
 }
 
+/**
+ * DB 의 jsonb 칸 — 서버(lms_api)는 이 칸을 객체가 아니라 JSON 글자로 보낸다.
+ * 스키마(scripts/firestore_to_postgres/schema.sql)의 jsonb 칸 이름을 camelCase 로 적었다. 받는 입구에서 한 번 푼다.
+ */
+const JSONB_FIELDS = new Set([
+  'accrualRules', 'before', 'categoryLimits', 'content', 'courses', 'data', 'details', 'files', 'jobPreferences',
+  'payload', 'requirements', 'response', 'scopeValue', 'sections', 'sessions', 'socialLinks', 'telemetry', 'units', 'value',
+]);
+
+export function parseJsonb(row: Record<string, unknown>): Record<string, unknown> {
+  let out: Record<string, unknown> | null = null;
+  for (const key of Object.keys(row)) {
+    const v = row[key];
+    if (!JSONB_FIELDS.has(key) || typeof v !== 'string') continue;
+    try {
+      (out ??= { ...row })[key] = JSON.parse(v);
+    } catch {
+      // JSON 이 아니면 글자 그대로 둔다
+    }
+  }
+  return out ?? row;
+}
+
 function rowsOf(payload: Record<string, unknown>, key: string): Record<string, unknown>[] {
   const value = payload[key];
-  return Array.isArray(value) ? (value as Record<string, unknown>[]) : [];
+  return Array.isArray(value) ? (value as Record<string, unknown>[]).map(parseJsonb) : [];
 }
 
 export function mapUser(row: Record<string, unknown>): User {
@@ -186,13 +209,42 @@ function mapResume(row: Record<string, unknown>): Resume {
     title: String(row.title ?? ''),
     status: resumeStatusFromServer(row.status),
     sections: (row.sections as Record<string, boolean>) ?? {},
-    content: (row.content as Resume['content']) ?? ({} as Resume['content']),
+    content: withResumeDefaults(row.content),
     isBaseResume: Boolean(row.isBaseResume ?? row.is_base_resume),
     feedbackCount: Number(row.feedbackCount ?? row.feedback_count ?? 0),
     lastSeenFeedbackCount: Number(row.lastSeenFeedbackCount ?? 0),
     readFeedbackIds: Array.isArray(row.readFeedbackIds) ? (row.readFeedbackIds as string[]) : [],
     revisionCount: Number(row.revisionCount ?? 0),
     updatedAt: asDate(row.updatedAt ?? row.updated_at),
+  };
+}
+
+const EMPTY_INTRO = { subtitle: '', body: '' };
+
+/** 이력서 내용 — 빠진 칸은 빈 값으로 채워 받는다. 화면은 모든 칸이 있다고 보고 그린다 */
+function withResumeDefaults(value: unknown): Resume['content'] {
+  const c = (value && typeof value === 'object' ? value : {}) as Partial<Resume['content']>;
+  const list = <T,>(v: T[] | undefined): T[] => (Array.isArray(v) ? v : []);
+  const intro = (c.selfIntroduction ?? {}) as Partial<Resume['content']['selfIntroduction']>;
+  return {
+    basicInfo: { name: '', phone: '', email: '', birthDate: '', githubUrl: '', blogUrl: '', ...(c.basicInfo ?? {}) },
+    coreCompetencies: { text: '', ...(c.coreCompetencies ?? {}) },
+    experience: list(c.experience),
+    education: list(c.education),
+    techStack: list(c.techStack),
+    certifications: list(c.certifications),
+    awards: list(c.awards),
+    trainingExperience: list(c.trainingExperience),
+    otherActivities: list(c.otherActivities),
+    projects: list(c.projects),
+    selfIntroduction: {
+      intro: { ...EMPTY_INTRO, ...intro.intro },
+      motivation: { ...EMPTY_INTRO, ...intro.motivation },
+      challenge: { ...EMPTY_INTRO, ...intro.challenge },
+      growth: { ...EMPTY_INTRO, ...intro.growth },
+      strengthsWeaknesses: { ...EMPTY_INTRO, ...intro.strengthsWeaknesses },
+      aspiration: { ...EMPTY_INTRO, ...intro.aspiration },
+    },
   };
 }
 
@@ -473,7 +525,7 @@ function mapQualExams(payload: Record<string, unknown>): QualExamSchedule[] {
 }
 
 export function mapBootstrap(payload: Record<string, unknown>): Database {
-  const me = (payload.me ?? {}) as Record<string, unknown>;
+  const me = parseJsonb((payload.me ?? {}) as Record<string, unknown>);
   const users = rowsOf(payload, 'users').map(mapUser);
   const cohorts = rowsOf(payload, 'cohorts').map(mapCohort);
   const sessionUid = String(me.uid ?? me.firebase_uid ?? '');

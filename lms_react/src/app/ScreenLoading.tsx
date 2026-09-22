@@ -16,21 +16,37 @@ export function ScreenLoading() {
 
 
 /**
- * 화면 청크를 받지 못했을 때 — 네트워크가 끊겼거나, 새로 배포되어 옛 청크 이름이 사라졌을 때.
- * 앱 전체를 멈추지 않고 본문 자리에 「다시 시도」를 띄운다. 새로 고침하면 새 청크 이름을 받는다.
+ * 화면 경계 — 화면 하나가 멈춰도 앱 전체(레일 · 상단 바)는 살린다.
+ *
+ * - 화면 청크를 못 받았을 때(네트워크가 끊겼거나, 새로 배포되어 옛 청크 이름이 사라졌을 때): 새로 고침하면 된다.
+ * - 화면이 그리다 멈췄을 때(데이터 모양이 예상과 다를 때 등): 네트워크 탓이 아니므로 그렇게 말하지 않는다.
+ *   원인은 개발자 도구 콘솔에 남긴다.
  */
-export class ScreenErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
+const CHUNK_ERROR = /dynamically imported module|Importing a module script failed|Loading chunk|Failed to fetch/i;
 
-  static getDerivedStateFromError() {
-    return { failed: true };
+export class ScreenErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('[화면 오류]', error);
   }
 
   render() {
-    if (!this.state.failed) return this.props.children;
+    const { error } = this.state;
+    if (!error) return this.props.children;
+    const chunk = CHUNK_ERROR.test(error.message);
     return (
       <div className="screen-loading screen-loading--failed" role="alert">
-        <span className="screen-loading__text">화면을 불러오지 못했어요. 네트워크를 확인하고 다시 시도해 주세요.</span>
+        <span className="screen-loading__text">
+          {chunk
+            ? '화면을 불러오지 못했어요. 네트워크를 확인하고 다시 시도해 주세요.'
+            : '화면을 그리다 문제가 생겼어요. 새로 고침해도 같으면 알려 주세요.'}
+        </span>
+        {!chunk && <code className="screen-loading__detail">{error.message}</code>}
         <button type="button" className="btn btn--outline btn--sm" onClick={() => window.location.reload()}>
           다시 시도
         </button>

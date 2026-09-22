@@ -19,6 +19,20 @@ const row = {
 };
 
 describe('bootstrap 의 공부방 노트', () => {
+  it('서버는 jsonb 칸을 JSON 글자로 보낸다 — 풀어서 읽는다', () => {
+    const db = mapBootstrap({
+      studyNotes: [{ ...row, scopeValue: '"2026-09-15"', files: '[{"path":"a.ipynb","commit":"c1"}]' }],
+      resumes: [{ id: 'r1', pk: 1, title: 't', status: 'submitted', isBaseResume: true,
+        content: '{"basicInfo":{"name":"문성호","email":"a@b.c"}}', sections: '{"basicInfo":true,"projects":true}' }],
+    });
+    expect(db.studyNotes[0].scopeValue).toBe('2026-09-15');
+    expect(db.studyNotes[0].files).toEqual([{ path: 'a.ipynb', commit: 'c1' }]);
+    expect(lessonDays([], db.studyNotes)[0].date).toBe('2026-09-15');
+    expect(db.resumes[0].content.basicInfo.name).toBe('문성호');
+    expect(db.resumes[0].sections).toEqual({ basicInfo: true, projects: true });
+    expect(db.resumes[0].status).toBe('feedbackRequested');
+  });
+
   it('scope_type · scope_value 를 받아 날짜 노트로 읽는다', () => {
     const db = mapBootstrap({ studyNotes: [row] });
     expect(db.studyNotes[0]).toMatchObject({ scopeType: 'date', scopeValue: '2026-09-15', scopeKey: '2026-09-15' });
