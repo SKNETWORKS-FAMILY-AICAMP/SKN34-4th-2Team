@@ -27,6 +27,7 @@ import type {
   User,
   YoutubeRecommendation,
 } from '../domain/types';
+import { resumeStatusFromServer } from '../features/resume/resumeGroups';
 import { http } from './http';
 import { emptyDb, type Database } from './store';
 
@@ -183,7 +184,7 @@ function mapResume(row: Record<string, unknown>): Resume {
     userId: String(row.userId ?? row.user_id ?? ''),
     userDisplayName: row.userDisplayName ? String(row.userDisplayName) : undefined,
     title: String(row.title ?? ''),
-    status: (row.status as Resume['status']) || 'draft',
+    status: resumeStatusFromServer(row.status),
     sections: (row.sections as Record<string, boolean>) ?? {},
     content: (row.content as Resume['content']) ?? ({} as Resume['content']),
     isBaseResume: Boolean(row.isBaseResume ?? row.is_base_resume),
@@ -193,6 +194,18 @@ function mapResume(row: Record<string, unknown>): Resume {
     revisionCount: Number(row.revisionCount ?? 0),
     updatedAt: asDate(row.updatedAt ?? row.updated_at),
   };
+}
+
+/** 원본 · 사본 관계는 DB 가 숫자 pk 로 가리킨다. 화면이 쓰는 공개 id 로 바꿔 붙인다 */
+function mapResumes(rows: Record<string, unknown>[]): Resume[] {
+  const idByPk = new Map(rows.map((r) => [String(r.pk ?? r.id), String(r.id ?? r.pk ?? '')]));
+  const ref = (value: unknown) => (value == null || value === '' ? undefined : idByPk.get(String(value)) ?? String(value));
+  return rows.map((row) => ({
+    ...mapResume(row),
+    baseResumeId: ref(row.baseResumeId),
+    sourceTailoredResumeId: ref(row.sourceTailoredResumeId),
+    linkedJobId: row.linkedJobId ? String(row.linkedJobId) : undefined,
+  }));
 }
 
 function mapResumeFeedback(row: Record<string, unknown>): ResumeFeedback {
@@ -492,7 +505,7 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
     todos: rowsOf(payload, 'todos').map(mapTodo),
     submissions: rowsOf(payload, 'submissions').map(mapSubmission),
     attendances: rowsOf(payload, 'attendances').map(mapAttendance),
-    resumes: rowsOf(payload, 'resumes').map(mapResume),
+    resumes: mapResumes(rowsOf(payload, 'resumes')),
     resumeFeedbacks: rowsOf(payload, 'resumeFeedbacks').map(mapResumeFeedback),
     assessments: rowsOf(payload, 'assessments').map(mapAssessment),
     assessmentQuestions: grouped,

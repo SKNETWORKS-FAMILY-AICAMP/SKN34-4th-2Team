@@ -10,12 +10,13 @@ import { MoreMenu } from '../../ui/MoreMenu';
 import { Badge, Button, Card, EmptyState, ErrorState, Skeleton } from '../../ui/components';
 import { formatDate, formatDateTime } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
+import { groupResumes, isTailored, type ResumeRow } from './resumeGroups';
 
 /**
  * 이력서 — features/resume/presentation/resume_screen.dart, resume_edit_screen.dart
  *
  * 섹션은 11개다. 기본 이력서 하나가 AI 첨삭·공고 추천의 바탕이 되고, 나머지는
- * 「다른 이력서」로 표에 모인다.
+ * 「다른 이력서」로 표에 모인다. 공고 맞춤 이력서는 만든 원본 밑에 묶는다(resumeGroups.ts).
  */
 const SECTIONS = ResumeSectionKeys.map((key) => ({ key, label: ResumeSectionLabels[key] }));
 
@@ -69,12 +70,15 @@ export function ResumeScreen() {
   }
 
   const resumes = query.data ?? [];
-  const base = resumes.find((r) => r.isBaseResume) ?? resumes[0];
-  const others = resumes.filter((r) => r.id !== base?.id);
+  const base = resumes.find((r) => r.isBaseResume) ?? resumes.find((r) => !isTailored(r)) ?? resumes[0];
   const count = (status: string) => resumes.filter((r) => r.status === status).length;
 
-  const shown =
-    tab === 'all' ? others : others.filter((r) => r.status === tab);
+  // 「전체」에서는 맞춤 이력서를 원본 밑에 묶는다. 상태 탭은 상태로 고르는 곳이라 한 줄씩 그대로 둔다.
+  const grouped = groupResumes(resumes, base);
+  const shown: ResumeRow[] =
+    tab === 'all'
+      ? grouped.rows
+      : resumes.filter((r) => r.id !== base?.id && r.status === tab).map((r) => ({ resume: r, children: [] }));
 
   const create = () => {
     const id = createResume({
@@ -133,7 +137,7 @@ export function ResumeScreen() {
           <EmptyState message="작성한 이력서가 없습니다" action={<Button onClick={create}>이력서 만들기</Button>} />
         </Card>
       ) : (
-        <BaseResumeCard resume={base} onCreate={create} />
+        <BaseResumeCard resume={base} tailored={tab === 'all' ? grouped.baseTailored : []} onCreate={create} />
       )}
 
       <section className="panel panel--flush">
@@ -155,49 +159,8 @@ export function ResumeScreen() {
               </tr>
             </thead>
             <tbody>
-              {shown.map((resume) => (
-                <tr key={resume.id}>
-                  <td>
-                    <Link className="resume-others__link" to={resumeEditPath(resume.id)}>
-                      {resume.title}
-                    </Link>
-                  </td>
-                  <td>
-                    <Badge tone={resume.status === 'approved' ? 'success' : 'primary'}>
-                      {ResumeStatusLabels[resume.status]}
-                    </Badge>
-                  </td>
-                  <td>
-                    <span className="resume-progress">
-                      <span className="resume-progress__bar">
-                        <i style={{ width: `${(filledCount(resume) / SECTIONS.length) * 100}%` }} />
-                      </span>
-                      <strong>{filledCount(resume)}</strong>
-                      <span className="hint">/{SECTIONS.length}</span>
-                    </span>
-                  </td>
-                  <td className="hint">
-                    {resume.feedbackCount === 0 ? '피드백 없음' : `${resume.feedbackCount}건`}
-                  </td>
-                  <td className="hint">{formatDate(resume.updatedAt)}</td>
-                  <td>
-                    <MoreMenu
-                      items={[
-                        {
-                          key: 'open',
-                          label: '열기',
-                          onSelect: () => navigate(resumeEditPath(resume.id)),
-                        },
-                        {
-                          key: 'delete',
-                          label: '삭제',
-                          danger: true,
-                          onSelect: () => deleteResume(resume.id),
-                        },
-                      ]}
-                    />
-                  </td>
-                </tr>
+              {shown.map((row) => (
+                <ResumeTableRows key={row.resume.id} row={row} />
               ))}
             </tbody>
           </table>
@@ -207,7 +170,7 @@ export function ResumeScreen() {
   );
 }
 
-function BaseResumeCard({ resume, onCreate }: { resume: Resume; onCreate(): void }) {
+function BaseResumeCard({ resume, tailored, onCreate }: { resume: Resume; tailored: Resume[]; onCreate(): void }) {
   const filled = filledCount(resume);
   const missing = SECTIONS.filter((s) => resume.sections[s.key] !== true);
 
@@ -230,9 +193,7 @@ function BaseResumeCard({ resume, onCreate }: { resume: Resume; onCreate(): void
 
       <div className="base-resume__title-row">
         <strong className="base-resume__title">{resume.title}</strong>
-        <Badge tone={resume.status === 'approved' ? 'success' : 'warning'}>
-          {ResumeStatusLabels[resume.status]}
-        </Badge>
+        <StatusBadge resume={resume} />
       </div>
 
       <p className="hint">
@@ -262,8 +223,105 @@ function BaseResumeCard({ resume, onCreate }: { resume: Resume; onCreate(): void
         </div>
       )}
 
-      <p className="base-resume__foot">공고를 선택해 맞춤 첨삭을 시작하면 회사별 이력서가 여기에 저장됩니다.</p>
+      {tailored.length > 0 ? (
+        <TailoredList resumes={tailored} />
+      ) : (
+        <p className="base-resume__foot">공고를 선택해 맞춤 첨삭을 시작하면 회사별 이력서가 여기에 저장됩니다.</p>
+      )}
     </section>
+  );
+}
+
+/** 기본 이력서 카드 밑 — 이 이력서로 만든 공고 맞춤 이력서. 많으면 접어 둔다 */
+function TailoredList({ resumes }: { resumes: Resume[] }) {
+  const [open, setOpen] = useState(resumes.length <= 3);
+  return (
+    <div className="tailored">
+      <button type="button" className="tailored__head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <Icon name="work" size={16} />
+        공고 맞춤 이력서 <strong>{resumes.length}</strong>
+        <span className="spacer" />
+        <Icon name={open ? 'expand_less' : 'expand_more'} size={18} />
+      </button>
+      {open && (
+        <ul className="tailored__list">
+          {resumes.map((r) => (
+            <li key={r.id}>
+              <Link className="tailored__item" to={resumeEditPath(r.id)}>
+                <span className="tailored__title">{r.title}</span>
+                <StatusBadge resume={r} />
+                <span className="hint">{formatDate(r.updatedAt)}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function StatusBadge({ resume }: { resume: Resume }) {
+  const tone = resume.status === 'approved' ? 'success' : resume.status === 'draft' ? 'warning' : 'info';
+  return <Badge tone={tone}>{ResumeStatusLabels[resume.status]}</Badge>;
+}
+
+/** 「다른 이력서」 표의 한 줄 — 맞춤 이력서가 딸려 있으면 눌러서 밑으로 펼친다 */
+function ResumeTableRows({ row }: { row: ResumeRow }) {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const { resume, children } = row;
+  const line = (r: Resume, child: boolean) => (
+    <tr key={r.id} className={child ? 'resume-others__child' : undefined}>
+      <td>
+        <span className="resume-others__name">
+          {child ? (
+            <Icon name="subdirectory_arrow_right" size={16} />
+          ) : children.length > 0 ? (
+            <button
+              type="button"
+              className="icon-btn resume-others__toggle"
+              onClick={() => setOpen((v) => !v)}
+              aria-expanded={open}
+              aria-label={open ? '맞춤 이력서 접기' : '맞춤 이력서 펼치기'}
+            >
+              <Icon name={open ? 'expand_less' : 'expand_more'} size={18} />
+            </button>
+          ) : null}
+          <Link className="resume-others__link" to={resumeEditPath(r.id)}>
+            {r.title}
+          </Link>
+          {!child && children.length > 0 && <span className="hint">맞춤 {children.length}</span>}
+        </span>
+      </td>
+      <td>
+        <StatusBadge resume={r} />
+      </td>
+      <td>
+        <span className="resume-progress">
+          <span className="resume-progress__bar">
+            <i style={{ width: `${(filledCount(r) / SECTIONS.length) * 100}%` }} />
+          </span>
+          <strong>{filledCount(r)}</strong>
+          <span className="hint">/{SECTIONS.length}</span>
+        </span>
+      </td>
+      <td className="hint">{r.feedbackCount === 0 ? '피드백 없음' : `${r.feedbackCount}건`}</td>
+      <td className="hint">{formatDate(r.updatedAt)}</td>
+      <td>
+        <MoreMenu
+          items={[
+            { key: 'open', label: '열기', onSelect: () => navigate(resumeEditPath(r.id)) },
+            { key: 'delete', label: '삭제', danger: true, onSelect: () => deleteResume(r.id) },
+          ]}
+        />
+      </td>
+    </tr>
+  );
+  return (
+    <>
+      {line(resume, false)}
+      {open && children.map((c) => line(c, true))}
+    </>
   );
 }
 

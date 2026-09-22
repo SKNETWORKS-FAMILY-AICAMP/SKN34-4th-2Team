@@ -39,6 +39,7 @@ import type {
 import { getDb, mutate, nextId, subscribe, type Database } from './store';
 import { dateKeyOf } from './seed';
 import { buildScopeKey, scopeLabel } from '../features/study/noteScope';
+import { resumeStatusToServer } from '../features/resume/resumeGroups';
 import { remapAssignments } from '../domain/seatingLayout';
 import { http, readApiError } from './http';
 import { fetchBootstrap, lastBootstrapSession } from './bootstrap';
@@ -808,11 +809,18 @@ export function useResumeFeedbacks(resumeId: string): ResumeFeedback[] {
   return useDb((db) => db.resumeFeedbacks.filter((f) => f.resumeId === resumeId));
 }
 
+/** 서버로 보낼 이력서 값 — 상태는 DB 값(writing · submitted · approved)으로, 관계 칸은 뺀다 */
+function resumeForServer(resume: Partial<Resume>): Record<string, unknown> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { baseResumeId, sourceTailoredResumeId, linkedJobId, ...rest } = resume;
+  return rest.status === undefined ? rest : { ...rest, status: resumeStatusToServer(rest.status) };
+}
+
 export function createResume(resume: Omit<Resume, 'id' | 'updatedAt'>): string {
   const id = nextId('r');
   mutate((db) => ({ resumes: [{ ...resume, id, updatedAt: new Date() }, ...db.resumes] }));
   if (!isTestMode()) {
-    void runCommand('upsert', { table: 'resumes', action: 'insert', ...resume, cohortId: apiCohortId() });
+    void runCommand('upsert', { table: 'resumes', action: 'insert', ...resumeForServer(resume), cohortId: apiCohortId() });
   }
   return id;
 }
@@ -821,7 +829,7 @@ export function updateResume(id: string, patch: Partial<Resume>): void {
   mutate((db) => ({
     resumes: db.resumes.map((r) => (r.id === id ? { ...r, ...patch, updatedAt: new Date() } : r)),
   }));
-  if (!isTestMode()) void runCommand('upsert', { table: 'resumes', id, action: 'update', ...patch });
+  if (!isTestMode()) void runCommand('upsert', { table: 'resumes', id, action: 'update', ...resumeForServer(patch) });
 }
 
 export function deleteResume(id: string): void {

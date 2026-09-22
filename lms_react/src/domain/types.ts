@@ -305,6 +305,12 @@ export interface Resume {
   sections: Record<string, boolean>;
   content: ResumeContent;
   isBaseResume: boolean;
+  /** 공고 맞춤 이력서면 만든 원본 이력서 id (resumes.base_resume_id) */
+  baseResumeId?: string;
+  /** AI 첨삭 작업본을 편집기로 옮긴 사본이면 그 작업본 id (resumes.source_tailored_resume_id) */
+  sourceTailoredResumeId?: string;
+  /** 맞춘 공고 id (resumes.linked_job_id) */
+  linkedJobId?: string;
   feedbackCount: number;
   lastSeenFeedbackCount: number;
   readFeedbackIds: string[];

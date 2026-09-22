@@ -9420,3 +9420,82 @@ a.link {
   background: color-mix(in srgb, var(--primary) 6%, var(--surface));
   font-size: 13px;
 }
+
+/* 이력서 · 공고 맞춤 이력서 묶음 (원본 밑) */
+.tailored {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.tailored__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.tailored__head strong {
+  color: var(--primary);
+}
+
+.tailored__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tailored__list li + li {
+  border-top: 1px solid var(--divider);
+}
+
+.tailored__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px 10px 36px;
+  color: var(--text-primary);
+  font-size: 13.5px;
+  text-decoration: none;
+}
+
+.tailored__item:hover {
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+}
+
+.tailored__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resume-others__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.resume-others__toggle {
+  margin-left: -6px;
+}
+
+.resume-others__child td {
+  background: color-mix(in srgb, var(--primary) 4%, var(--surface));
+}
+
+.resume-others__child .resume-others__name {
+  padding-left: 18px;
+  color: var(--text-secondary);
+}
