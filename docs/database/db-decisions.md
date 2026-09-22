@@ -1,47 +1,48 @@
-# PLAYDATA LMS PostgreSQL Redesign - DB Decision Log
+# DB Decision Log
 
-## DEC-001 ~ DEC-030
-기존 결정 유지.
+> DEC-001 ~ DEC-039: 기존 결정 유지.
 
-## DEC-031 마일리지 원장은 mileage_transactions
-- 적립/차감/구매/환급/소멸은 모두 거래 행으로 남긴다.
-- 기존 거래를 수정하거나 삭제하여 잔액을 맞추지 않는다.
-- 현재 잔액은 거래 합계로 재계산 가능해야 한다.
+## DEC-040 이력서 본문은 JSONB 유지
+- 이력서 각 섹션은 구조가 크고 문서 단위 편집/출력 비중이 높다.
+- `resumes.content JSONB`를 유지한다.
+- Career AI에 필요한 관계형 축(Skill, Project 등)은 별도 관계 테이블/추출 projection으로 보완한다.
 
-## DEC-032 캐시 잔액은 허용하되 원장이 우선
-- users.mileage_balance 같은 캐시 잔액을 사용할 수 있다.
-- 거래 INSERT와 잔액 UPDATE는 동일 DB transaction에서 처리한다.
-- 불일치 시 mileage_transactions 합계를 기준으로 복구할 수 있어야 한다.
+## DEC-041 이력서 revision은 snapshot
+- 저장 시점 이력을 보존해야 하는 경우 `resume_revisions.content JSONB`에 snapshot을 저장한다.
+- 현재 Resume 레코드를 덮어쓰더라도 revision은 변경하지 않는다.
 
-## DEC-033 구매 요청 시점에는 차감하지 않음
-- 학생이 purchase_request를 생성할 때는 마일리지를 예약/차감하지 않는다.
-- 관리자가 요청을 approved로 확정하는 순간 차감 transaction을 생성한다.
-- 승인 처리 시 잔액 부족 여부를 서버에서 다시 검증한다.
+## DEC-042 표시 이름 중복 제거
+- `resumes.user_display_name`, `resume_feedback.author_name` 같은 표시용 값은 TO-BE 원본에서 제거한다.
+- `user_id`, `author_id` FK로 조회한다.
+- ETL 중 legacy snapshot이 꼭 필요한 경우에만 예외를 둔다.
 
-## DEC-034 승인 후 취소는 환급 거래로 처리
-- 이미 승인된 구매 요청의 취소/환불이 필요하면 기존 차감 거래를 변경하지 않는다.
-- 별도 양수 refund transaction을 생성한다.
-- 원거래와 환급거래 연결을 위해 reversed_transaction_id 또는 related_transaction_id를 사용한다.
+## DEC-043 Skill은 정규화
+- `users.skills text[]`를 최종 Skill 원본으로 사용하지 않는다.
+- `skills` + `user_skills`를 Career AI의 관계형 기준으로 사용한다.
+- 프로젝트/채용공고 요구 기술 역시 가능한 경우 같은 `skills.id`를 참조한다.
 
-## DEC-035 상품 가격 방식
-- fixed: 관리자가 정한 고정 가격.
-- variable: 학생이 실제 가격을 입력한다.
-- variable 상품은 구매 링크와 금액을 요청에 snapshot으로 보존한다.
+## DEC-044 Job Preference는 JSONB 허용
+- 사용자당 현재 설정 하나를 둔다.
+- 구조 변경 가능성이 높고 강한 참조 무결성 요구가 낮아 `preferences JSONB`를 사용한다.
 
-## DEC-036 구매 요청 상태
-- pending / approved / modify_requested / rejected / cancelled를 지원한다.
-- modify_requested는 관리자 검토 결과 학생의 링크/가격/기타 정보 수정이 필요할 때 사용한다.
+## DEC-045 Career Graph는 projection
+- Neo4j는 PostgreSQL을 대체하지 않는다.
+- PostgreSQL의 Student/Project/Skill/Job/Company 관계를 Neo4j에 projection한다.
+- graph rebuild가 가능하도록 PostgreSQL ID를 graph node의 stable source ID로 사용한다.
 
-## DEC-037 구매 요청 품목은 snapshot 저장
-- purchase_request_items에 product_id FK를 둘 수 있으나 상품명이 변경/삭제되어도 과거 요청 의미가 유지되어야 한다.
-- product_name, category, pricing_type, unit_price, purchase_link 등 구매 당시 값을 snapshot으로 저장한다.
+## DEC-046 기존 공지/커리큘럼/학습실/AI 로그는 재사용 우선
+- 실제 운영 프로세스가 기존 구조와 충돌하지 않는 영역은 재설계 비용을 줄이기 위해 `feature/test` 구조를 우선 사용한다.
+- 파일 컬럼은 최종적으로 storage key 중심으로 정리한다.
 
-## DEC-038 기수별 마일리지 설정
-- category_limits와 accrual_rules는 기수 단위 설정으로 관리한다.
-- 구조가 자주 변할 수 있어 JSONB 사용을 허용한다.
-- 핵심 거래 데이터는 JSONB로 저장하지 않는다.
+## DEC-047 사용 데이터가 없는 Community/QnA는 우선 제외
+- posts/QnA 운영 데이터가 0건인 현재 상태에서는 초기 PostgreSQL 통합 범위에서 제외한다.
+- 실제 기능 요구가 확정되면 Django migration으로 추가한다.
 
-## DEC-039 종강 2주 후 마일리지 소멸
-- 기수 종료일 + 14일 이후 남은 마일리지는 사용 불가하다.
-- 소멸은 기존 적립 거래를 삭제하지 않고 expiry 음수 transaction으로 남긴다.
-- Celery 예약/배치 작업으로 처리할 수 있다.
+## DEC-048 Django migration이 최종 스키마 소유
+- `schema.sql` + DROP/CREATE 방식은 초기 ETL 도구로만 본다.
+- 통합 이후 스키마 생성/변경의 기준은 Django managed models + migrations다.
+- ETL은 스키마를 생성하지 않고 데이터 변환/적재만 담당한다.
+
+## DEC-049 S3는 key 중심 저장
+- PostgreSQL에는 가능하면 bucket 포함 전체 URL보다 object `storage_key`를 저장한다.
+- 실제 접근 URL은 backend에서 생성한다.
