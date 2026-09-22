@@ -5304,6 +5304,86 @@ a.link {
   padding-top: 12px;
 }
 
+/* 성취도평가 결과 → 복습할 곳 */
+.review-links {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+}
+
+.review-links__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.review-links__head .icon {
+  color: var(--primary);
+}
+
+.review-links__head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.review-links__head span {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.review-links__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.review-links__lesson {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.review-links__lesson strong {
+  font-size: 14.5px;
+}
+
+.review-links__lesson > span {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.review-links__questions {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.review-links__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.review-links__orphan {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-hint);
+}
+
 /* 결과의 내 답 · 정답 */
 .answer-pair {
   display: grid;

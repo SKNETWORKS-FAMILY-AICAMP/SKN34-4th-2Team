@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { RoutePaths } from '../../app/routePaths';
@@ -36,13 +37,26 @@ const STATUS_TEXT: Record<RunnerStatus, string> = {
 export function PythonPlaygroundScreen() {
   const [params] = useSearchParams();
   const setId = params.get('set');
-  return <Playground key={setId ?? 'free'} setId={setId} />;
+  const focus = Number(params.get('focus') ?? 0);
+  return <Playground key={setId ?? 'free'} setId={setId} focusProblem={focus} />;
 }
 
-function Playground({ setId }: { setId: string | null }) {
+function Playground({ setId, focusProblem }: { setId: string | null; focusProblem: number }) {
   const { runner, status } = usePythonRunner();
   const mode = usePracticeSetMode(setId);
   const nb = useNotebook(runner, mode.set);
+
+  // 성취도평가 결과에서 「복습 문제 n개 풀기」로 들어오면 그 문제로 바로 간다
+  useEffect(() => {
+    if (!focusProblem) return;
+    const cell = nb.cells.find((c) => c.type === 'problem' && c.problemIndex === focusProblem - 1);
+    if (cell) {
+      nb.setActiveId(cell.id);
+      requestAnimationFrame(() => document.querySelector(`[data-cell-id="${cell.id}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+    }
+    // 처음 한 번만
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const lastId = nb.cells[nb.cells.length - 1]?.id ?? '';
 
   return (

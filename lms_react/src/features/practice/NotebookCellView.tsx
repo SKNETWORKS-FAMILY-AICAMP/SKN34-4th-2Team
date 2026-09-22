@@ -36,6 +36,7 @@ function ProblemCellRow({ cell, nb, mode }: { cell: Cell; nb: Notebook; mode: Pr
   return (
     <article
       className={`py-nb-cell py-nb-cell--problem${cell.id === nb.activeId ? ' py-nb-cell--active' : ''}`}
+      data-cell-id={cell.id}
       onClick={() => nb.setActiveId(cell.id)}
     >
       <div className="py-nb-cell__prompt" aria-label={`문제 ${number}`}>

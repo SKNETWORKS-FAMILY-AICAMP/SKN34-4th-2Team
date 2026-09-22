@@ -26,6 +26,7 @@ import {
 } from '../../ui/components';
 import { formatDate } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
+import { ReviewLinksPanel } from '../practice/ReviewLinksPanel';
 
 export function windowState(assessment: Assessment): 'before' | 'open' | 'closed' {
   const now = Date.now();
@@ -296,6 +297,7 @@ export function AssessmentResultScreen() {
   }
 
   const correct = questions.filter((q) => submission.answers[q.id]?.isCorrect === true).length;
+  const wrong = questions.filter((q) => submission.answers[q.id]?.isCorrect !== true);
   const maxScore = assessment.maxScore || questions.reduce((sum, q) => sum + q.points, 0);
 
   return (
@@ -315,6 +317,8 @@ export function AssessmentResultScreen() {
         <StatTile label="맞힌 문항" value={`${correct} / ${questions.length}`} sub={correct === questions.length ? '모두 맞혔어요' : `${questions.length - correct}문항 틀림`} tone={correct === questions.length ? 'success' : 'warning'} />
         <StatTile label="정답률" value={`${questions.length ? Math.round((correct / questions.length) * 100) : 0}%`} />
       </div>
+
+      <ReviewLinksPanel wrong={wrong} />
 
       {questions.map((q, i) => {
         const entry = submission.answers[q.id];
@@ -346,6 +350,11 @@ export function AssessmentResultScreen() {
               )}
             </dl>
             {q.explanation !== undefined && <div className="callout">{q.explanation}</div>}
+            {!isCorrect && q.sourceDay !== undefined && (
+              <p className="hint">
+                <Icon name="school" size={14} /> 근거 수업 · {q.sourceDay}일차{q.sourceTopic ? ` · ${q.sourceTopic}` : ''} — 위 「복습할 곳」에서 이어서 복습하세요
+              </p>
+            )}
             {entry?.comment !== undefined && <div className="callout">채점 의견 · {entry.comment}</div>}
           </Card>
         );

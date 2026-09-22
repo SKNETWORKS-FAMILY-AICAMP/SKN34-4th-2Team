@@ -11,7 +11,7 @@ import {
   instructorRoutes,
   studentRoutes,
 } from '../app/routes';
-import { getDb, resetDb } from '../data/store';
+import { getDb, mutate, resetDb } from '../data/store';
 import { DemoAccounts, DemoConfig } from '../data/seed';
 import { debugReset as resetDismiss } from '../tour/dismissStore';
 import { debugReset as resetTargets } from '../tour/targetRegistry';
@@ -341,17 +341,26 @@ describe('데이터가 실제로 흐른다', () => {
   });
 
   it('미응답 문항이 있으면 확인한 뒤에만 평가를 제출한다', async () => {
+    // 데모 학생은 a1 을 이미 제출한 상태로 시작한다(오답 → 복습 연결 시연용). 여기서는 새로 응시한다.
+    mutate((db) => ({
+      assessmentSubmissions: db.assessmentSubmissions.filter(
+        (s) => !(s.assessmentId === 'a1' && s.userId === DemoAccounts.studentUid),
+      ),
+    }));
     await render('/assessments/a1/take');
     await loginAs('학생');
     await render('/assessments/a1/take');
 
-    click('다음');
-    await flush();
+    // 4문항 — 마지막 문항까지 넘어가야 「제출하기」가 보인다
+    for (let i = 0; i < 3; i++) {
+      click('다음');
+      await flush();
+    }
     click('제출하기');
     await flush();
 
     const dialog = container.querySelector('[role="dialog"]') as HTMLElement;
-    expect(dialog.textContent).toContain('2문항이 비어 있습니다. 그대로 제출할까요?');
+    expect(dialog.textContent).toContain('4문항이 비어 있습니다. 그대로 제출할까요?');
     expect(getDb().assessmentSubmissions.some(
       (submission) => submission.assessmentId === 'a1' && submission.userId === DemoAccounts.studentUid,
     )).toBe(false);
