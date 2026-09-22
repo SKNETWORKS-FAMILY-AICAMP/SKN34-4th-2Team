@@ -80,6 +80,7 @@ GENERATE_PROMPT = ChatPromptTemplate.from_messages([
         "학습자 수준: {learner_level}\n\n"
         "수업 자료:\n{materials}\n\n"
         "다음 개수로 출제하세요: concept 2개, code_output 1개, code_blank 1개, code_fix 1개, code_write 1개.\n"
+        "{focus_note}\n"
         "응답 형식:\n" + SCHEMA,
     ),
 ])
@@ -154,13 +155,17 @@ def _parse_batch(text: str) -> DraftBatch:
     return batch
 
 
-def generate_drafts(*, scope_label: str, materials: list[Material], usage: Usage) -> DraftBatch:
+def generate_drafts(
+    *, scope_label: str, materials: list[Material], usage: Usage, focus_note: str = "",
+) -> DraftBatch:
+    """focus_note — 파일 단위 출제(increments.DayPlan.focus_note)의 「새 부분에서만 · 파일별 개수」 지시"""
     if not materials:
         raise ValueError("출제할 수업 자료가 없습니다.")
     response = (GENERATE_PROMPT | _llm()).invoke({
         "scope_label": scope_label,
         "learner_level": LEARNER_LEVEL,
         "materials": pack_materials(materials),
+        "focus_note": focus_note,
     })
     usage.add(response)
     return _parse_batch(response_text(response))

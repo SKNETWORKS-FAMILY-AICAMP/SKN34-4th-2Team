@@ -157,3 +157,34 @@ python -m unittest study_notes.tests.test_practice_verify
 | `practice/runner.py` | `practice_verifier/`를 subprocess로 부른다. Docker로 가면 HTTP로 바꿀 자리 |
 | `practice/build.py` | 생성 → 검증 → 고치기 → 통계 |
 | `practice/trial.py` | 시험 실행 CLI |
+| `practice/increments.py` | 파일 단위 출제 — 새로 생긴 셀 찾기, 하루 배분, 출제 범위 기록 |
+| `practice/daily.py` | 날짜를 차례로 돌며 파일 단위로 출제하는 CLI |
+
+### 파일 단위 출제 (날짜 간 중복 없애기)
+
+수업이 중간에 끝나면 다음 날 같은 노트북에 셀을 이어 붙인다. 34기 multimodal 의
+`02_video_rag_frame_extraction.ipynb` 는 9/14 에 셀 11개, 9/15 에 21개였고 앞 10개가 같았다.
+날짜마다 파일 전체로 출제하면 같은 내용으로 문제가 두 번 나온다.
+
+`practice/increments.py` 가 파일마다 「이미 출제한 셀」의 지문을 기억해 두고 **새로 생긴 셀로만** 출제한다.
+
+| 경우 | 처리 |
+|---|---|
+| 처음 보는 파일 | 전체가 새 셀 |
+| 뒤에 셀이 붙음 | 붙은 셀만. 앞부분은 제목·정의 이름만 요약해 문맥으로 넘긴다 |
+| 오타 수정처럼 90% 넘게 같은 셀 | 본 것으로 친다 |
+| 새 내용이 200자 미만 | 그날 그 파일은 건너뛴다 |
+| 하루 6문제 배분 | 파일마다 1개, 남은 개수는 새 내용이 많은 파일부터(파일당 최대 3) |
+
+「이미 출제한 셀」 기록(`FileCoverage`)은 모듈이 저장하지 않는다. 받고 돌려줄 뿐이라, 지금은 JSON 파일이고
+DB 를 붙이면 그 자리만 바뀐다.
+
+```powershell
+# 계획만 — LLM 을 부르지 않고 어느 파일의 어느 부분으로 몇 문제 낼지
+python -m study_notes.practice.daily --repo https://github.com/ORG/REPO --dates 2026-09-14 2026-09-15 --plan-only
+# 실제 출제 · 검증. 기록은 cov.json 에 남고 다음 실행이 이어 쓴다
+python -m study_notes.practice.daily --repo ... --dates 2026-09-16 --coverage cov.json
+```
+
+9/14 → 9/15 로 돌려 보면 위 노트북은 9/15 에 「새 셀 10개 · 이미 출제한 셀 10개 → 1문제 · 이어짐」이 되고,
+9/14 에는 OpenCV 소개로, 9/15 에는 새로 붙은 프레임 추출(`frame_interval`)로 문제가 나왔다.
