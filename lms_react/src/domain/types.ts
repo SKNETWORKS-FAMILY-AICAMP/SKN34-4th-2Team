@@ -452,10 +452,16 @@ export interface StudySource {
   sortOrder: number;
 }
 
+/** 노트 범위 종류 — study_notes.scope_type. prefix 는 폴더 */
+export type StudyNoteScopeType = 'date' | 'prefix' | 'files';
+
 export interface StudyNote {
   id: string;
   sourceId: string;
   status: string;
+  /** 범위 종류 · 값 · 키 — DB 의 scope_type / scope_value / scope_key 그대로(features/study/noteScope.ts) */
+  scopeType?: StudyNoteScopeType;
+  scopeValue?: string | string[];
   scopeKey?: string;
   reportMarkdown: string;
   reviewMarkdown: string;

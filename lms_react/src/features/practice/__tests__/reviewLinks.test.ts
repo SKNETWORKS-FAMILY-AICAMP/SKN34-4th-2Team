@@ -17,8 +17,8 @@ const set = (id: string, lessonDate: string, title: string, topics: string[]): P
 });
 const sets = [set('s15', '2026-09-15', '영상 RAG', ['프레임 번호 추출', 'OpenCV 색상 순서']), set('s11', '2026-09-11', 'CNN · ViT · CLIP', ['합성곱 출력 크기'])];
 const notes: StudyNote[] = [
-  { id: 'n1', sourceId: 'src', status: 'done', scopeKey: 'date:2026-09-15', reportMarkdown: '', reviewMarkdown: '', files: [] },
-  { id: 'n2', sourceId: 'src', status: 'done', scopeKey: 'python/day01', reportMarkdown: '', reviewMarkdown: '', files: [] },
+  { id: 'n1', sourceId: 'src', status: 'done', scopeType: 'date', scopeValue: '2026-09-15', scopeKey: '2026-09-15', reportMarkdown: '', reviewMarkdown: '', files: [] },
+  { id: 'n2', sourceId: 'src', status: 'done', scopeType: 'prefix', scopeValue: 'python/day01', scopeKey: 'prefix_python_day01', reportMarkdown: '', reviewMarkdown: '', files: [] },
 ];
 
 describe('수업일자 읽기', () => {

@@ -1057,7 +1057,9 @@ export const seedStudyNotes: StudyNote[] = [
     id: 'note1',
     sourceId: 'src1',
     status: 'done',
-    scopeKey: 'python/day01',
+    scopeType: 'prefix',
+    scopeValue: 'python/day01',
+    scopeKey: 'prefix_python_day01',
     reportMarkdown:
       '## 1일차 요약\n\n- 변수와 자료형: 파이썬은 동적 타입이다.\n- 조건문·반복문의 들여쓰기 규칙\n- 리스트 컴프리헨션 기초',
     reviewMarkdown:
@@ -1069,7 +1071,9 @@ export const seedStudyNotes: StudyNote[] = [
     id: 'note-0915',
     sourceId: 'src1',
     status: 'done',
-    scopeKey: 'date:2026-09-15',
+    scopeType: 'date',
+    scopeValue: '2026-09-15',
+    scopeKey: '2026-09-15',
     reportMarkdown: [
       '## 오늘의 핵심 한 문장',
       '',

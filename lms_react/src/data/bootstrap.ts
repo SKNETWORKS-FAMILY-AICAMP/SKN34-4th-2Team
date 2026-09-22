@@ -512,6 +512,14 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
       id: String(row.id ?? row.pk ?? ''),
       sourceId: String(row.sourceId ?? row.source_id ?? ''),
       status: String(row.status ?? 'done'),
+      scopeType: ['date', 'prefix', 'files'].includes(String(row.scopeType))
+        ? (String(row.scopeType) as 'date' | 'prefix' | 'files')
+        : undefined,
+      scopeValue: Array.isArray(row.scopeValue)
+        ? (row.scopeValue as unknown[]).map(String)
+        : row.scopeValue != null
+          ? String(row.scopeValue)
+          : undefined,
       scopeKey: row.scopeKey ? String(row.scopeKey) : undefined,
       reportMarkdown: String(row.reportMarkdown ?? row.report_markdown ?? ''),
       reviewMarkdown: String(row.reviewMarkdown ?? row.review_markdown ?? ''),

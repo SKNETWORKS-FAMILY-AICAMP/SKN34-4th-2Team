@@ -28,7 +28,8 @@ import { retryItems } from '../practice/review';
 import { useIsHidden } from '../practice/useIsHidden';
 import { useCurrentUser } from '../auth/session';
 import { LessonDaysSection, practicePath, setProgress } from './LessonDaysSection';
-import { looseNotes, noteDate, noteLabel } from './lessonDays';
+import { looseNotes } from './lessonDays';
+import { noteDate, noteLabel } from './noteScope';
 
 const packageTypeLabels: Record<string, string> = {
   review: '예복습',
@@ -383,14 +384,13 @@ export function StudyNoteSourceScreen() {
       setError(scopeMode === 'file' ? '파일을 1개 이상 선택하세요.' : '정리할 범위를 선택하세요.');
       return;
     }
-    const scopeKey = scopeMode === 'date'
-      ? `date:${scopeValue}`
-      : scopeMode === 'folder'
-        ? `folder:${scopeValue}`
-        : `files:${checkedFiles.length}개`;
+    // 범위 종류는 백엔드와 같은 이름 — 폴더는 prefix
+    const scopeType = scopeMode === 'date' ? 'date' : scopeMode === 'folder' ? 'prefix' : 'files';
+    const value = scopeMode === 'file' ? [...checkedFiles].sort() : scopeValue;
     const id = createDemoStudyNote(
       sourceId ?? '',
-      scopeKey,
+      scopeType,
+      value,
       selectedFiles.slice(0, 8).map((path) => ({ path, commit: 'demo-local' })),
     );
     setSelectedId(id);

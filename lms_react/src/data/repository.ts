@@ -34,9 +34,11 @@ import type {
   PracticeReportReason,
   PracticeReview,
   PracticeSet,
+  StudyNoteScopeType,
 } from '../domain/types';
 import { getDb, mutate, nextId, subscribe, type Database } from './store';
 import { dateKeyOf } from './seed';
+import { buildScopeKey, scopeLabel } from '../features/study/noteScope';
 import { remapAssignments } from '../domain/seatingLayout';
 import { http, readApiError } from './http';
 import { fetchBootstrap, lastBootstrapSession } from './bootstrap';
@@ -971,11 +973,13 @@ export function useStudyNotes() {
 
 export function createDemoStudyNote(
   sourceId: string,
-  scopeKey: string,
+  scopeType: StudyNoteScopeType,
+  scopeValue: string | string[],
   files: { path: string; commit: string }[],
 ): string {
   const id = nextId('note');
-  const label = scopeKey.replace(/^date:|^folder:|^files:/, '');
+  const scopeKey = buildScopeKey(scopeType, scopeValue);
+  const label = scopeLabel(scopeType, scopeValue);
   mutate((db) => ({
     studyNotes: [
       ...db.studyNotes,
@@ -983,9 +987,11 @@ export function createDemoStudyNote(
         id,
         sourceId,
         status: 'done',
+        scopeType,
+        scopeValue,
         scopeKey,
         reportMarkdown:
-          `## ${label} 수업 요약\n\n- 선택한 범위의 핵심 개념을 정리했습니다.\n- 예제 코드를 다시 실행하며 흐름을 확인해 보세요.\n- 실제 내용 생성은 공부방 API 연결 후 저장소 자료를 기반으로 제공됩니다.`,
+          `## ${label} 요약\n\n- 선택한 범위의 핵심 개념을 정리했습니다.\n- 예제 코드를 다시 실행하며 흐름을 확인해 보세요.\n- 실제 내용 생성은 공부방 API 연결 후 저장소 자료를 기반으로 제공됩니다.`,
         reviewMarkdown:
           `## 복습 문제\n\n1. ${label}에서 가장 중요한 개념을 한 문장으로 설명해 보세요.\n2. 실습 코드를 다른 입력값으로 바꾸면 결과가 어떻게 달라지는지 확인해 보세요.`,
         files,

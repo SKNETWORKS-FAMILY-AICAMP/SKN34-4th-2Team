@@ -1,3 +1,4 @@
+import { noteDate } from '../study/noteScope';
 import type { AssessmentQuestion, CurriculumRow, PracticeSet, StudyNote } from '../../domain/types';
 
 /**
@@ -34,7 +35,7 @@ export interface LessonLink {
   questions: AssessmentQuestion[];
   /** 그 날짜의 복습 세트 (없으면 주제로 찾은 것) */
   set: PracticeSet | null;
-  /** 그날 노트 — scopeKey 가 'date:YYYY-MM-DD' 이거나 files 에 그 날짜가 든 것 */
+  /** 그날 노트 — 날짜 범위 노트(scope_type 'date')이거나 files 에 그 날짜가 든 것 */
   notes: StudyNote[];
 }
 
@@ -84,7 +85,7 @@ function matchesTopic(set: PracticeSet, topic: string): boolean {
 }
 
 function noteIsForDate(note: StudyNote, date: string): boolean {
-  if (note.scopeKey === `date:${date}` || note.scopeKey === date) return true;
+  if (noteDate(note) === date) return true;
   return note.files.some((f) => f.path.includes(date) || f.path.includes(date.replace(/-/g, '')));
 }
 

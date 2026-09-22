@@ -282,7 +282,8 @@ describe('데이터가 실제로 흐른다', () => {
     await flush();
 
     expect(getDb().studyNotes.length).toBe(before + 1);
-    expect(getDb().studyNotes.at(-1)?.scopeKey).toBe('date:2026-09-19');
+    expect(getDb().studyNotes.at(-1)?.scopeType).toBe('date');
+    expect(getDb().studyNotes.at(-1)?.scopeKey).toBe('2026-09-19');
     expect(container.textContent).toContain('2026-09-19 수업 요약');
     expect(container.textContent).toContain('실제 내용 생성은 공부방 API 연결 후');
   });
