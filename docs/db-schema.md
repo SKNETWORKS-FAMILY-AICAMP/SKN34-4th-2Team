@@ -45,3 +45,5 @@ AI: `ai_generation_logs`, `ai_question_feedback`, `ai_eval_runs`
 | `youtube_curriculum_cache` | 결정 5, Redis |
 | `jobs.*` (데이터) | SQLite `job_store.sqlite` 없음. 스키마만 생성 |
 | `jobRequirementProfiles` 등 | `job_requirement_profiles` / `resume_ai_*` 로 증분 ETL 완료 |
+
+표 · 칸 설명: [`docs/db-tables.md`](db-tables.md) — `describe_schema.py` 가 실제 DB 에서 만든다.
