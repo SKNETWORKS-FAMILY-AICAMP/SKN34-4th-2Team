@@ -17,8 +17,6 @@ cohorts
 - updated_at
 ```
 
-상태 후보: `planned / active / closed`
-
 ## users
 ```text
 users
@@ -26,7 +24,7 @@ users
 - cohort_id FK NULL
 - email UNIQUE
 - personal_email
-- password  # Django hashed password field
+- password
 - display_name
 - role
 - phone
@@ -62,10 +60,6 @@ seat_presences
 - checked_by FK
 - checked_at
 - note
-```
-
-제약 후보:
-```text
 UNIQUE(cohort_id, user_id, presence_date, period)
 ```
 
@@ -73,18 +67,24 @@ UNIQUE(cohort_id, user_id, presence_date, period)
 ```text
 submission_tasks
 - id PK
-- cohort_id FK
 - title
 - description
-- task_type
 - submission_method
-- form_url
-- guide_url
+- form_url NULL
+- guide_url NULL
 - due_at
 - published
 - created_by FK
 - created_at
 - updated_at
+```
+
+## submission_task_cohorts
+```text
+submission_task_cohorts
+- task_id FK
+- cohort_id FK
+PRIMARY KEY(task_id, cohort_id)
 ```
 
 ## submission_responses
@@ -93,19 +93,38 @@ submission_responses
 - id PK
 - task_id FK
 - user_id FK
-- status
 - submitted_at
-- external_response_id
-- file_url
-- link_url
+- source
+- external_response_id NULL
+- file_url NULL
+- link_url NULL
+- created_at
+- updated_at
+UNIQUE(task_id, user_id)
+```
+
+상태는 기본적으로 저장하지 않고 계산:
+`pending / overdue / submitted / late`
+
+## attendance_issue_reports
+```text
+attendance_issue_reports
+- id PK
+- user_id FK
+- cohort_id FK
+- attendance_date
+- issue_type
+- reason
+- submitted_at
+- review_status
+- reviewed_by FK NULL
+- reviewed_at NULL
 - created_at
 - updated_at
 ```
 
-제약 후보:
-```text
-UNIQUE(task_id, user_id)
-```
+issue_type 후보:
+`late / early_leave / outing / absent / official_leave`
 
 ## 아직 확정하지 않은 영역
 - attendances 상세 스키마

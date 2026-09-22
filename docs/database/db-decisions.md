@@ -20,67 +20,23 @@
 - 거래 당시 가격 등 역사적 의미가 필요한 값은 snapshot 저장 가능하다.
 
 ## DEC-005 좌석 배치
-- seating_layouts/seating_cells/seats로 과도하게 세분화하지 않는다.
 - 기수별 현재 좌석 배치를 JSONB로 저장한다.
 - 과거 좌석 배치는 기본적으로 보존하지 않는다.
-
-후보:
-```text
-cohort_seating
-- cohort_id PK/FK
-- room_number
-- layout JSONB
-- published
-- updated_at
-```
 
 ## DEC-006 교시별 착석 확인
 - 강사가 교시마다 확인하는 실제 착석 여부는 출결과 별개의 업무 이력이다.
 - 관계형 테이블로 저장한다.
 
-후보:
-```text
-seat_presences
-- id PK
-- cohort_id FK
-- user_id FK
-- presence_date
-- period
-- state
-- checked_by FK
-- checked_at
-- note
-```
-
-후보 제약:
-```text
-UNIQUE(cohort_id, user_id, presence_date, period)
-```
-
 ## DEC-007 기존 Assignment 재검토
-- 기존 코드/Firebase에는 assignments가 존재하지만 관리자 실제 메뉴에는 일반 교육 과제 생성 흐름이 확인되지 않았다.
-- 기존 assignments를 PostgreSQL에 그대로 복제하지 않는다.
+- 기존 코드/Firebase의 assignments를 PostgreSQL에 그대로 복제하지 않는다.
 
 ## DEC-008 설문·제출을 Submission Task로 재정의
-실제 운영 예:
-- 리소스 환급 영수증
-- 설문조사 Google Form
-- 위클리 체크 Google Form
-- 출결 Form
-
-후보:
-```text
-submission_tasks
-submission_responses
-```
+- 실제 운영 예: 리소스 환급 영수증, 설문조사, 위클리 체크, 기타 행정 제출물.
+- 후보 엔터티: submission_tasks, submission_responses.
 
 ## DEC-009 출결 Form과 Attendance 분리
-```text
-Submission Task (출결 Form)
-→ Submission Response / 외부 응답
-→ 출결 판단 입력
-→ Attendance 최종 기록
-```
+- 출결 이슈 제출은 일반 Submission Task에서 분리한다.
+- 출결 이슈 제출 기록은 Attendance의 입력 데이터일 수 있으나 동일한 레코드가 아니다.
 
 ## DEC-010 저장 방식 판단 기준
 1. 왜 저장하는가?
@@ -91,3 +47,19 @@ Submission Task (출결 Form)
 6. JOIN/집계/무결성이 필요한가?
 7. JSONB가 더 자연스러운가?
 8. 삭제 시 다른 업무 기록의 의미가 훼손되는가?
+
+## DEC-011 Submission Task는 복수 기수 배포 가능
+- 한 기수 배포가 주 사용 사례지만 동일 제출 항목을 여러 기수에 배포할 수 있다.
+- submission_tasks.cohort_id 단일 FK 대신 N:M 관계를 사용한다.
+
+## DEC-012 제출 방식은 외부 Form에 고정하지 않음
+- TO-BE에서는 내부 제출도 허용한다.
+- submission_method 후보: external_form, internal_form, file_upload, link.
+
+## DEC-013 제출 상태는 가능한 한 파생값으로 계산
+- due_at과 submitted_at으로 pending/submitted/late/overdue를 계산한다.
+- 중복 상태 저장으로 인한 불일치를 피한다.
+
+## DEC-014 출결 이슈 제출은 별도 엔터티
+- 학생이 특정 날짜의 출결 이슈를 개별 제출한다.
+- attendance_issue_reports 엔터티로 설계한다.
