@@ -96,6 +96,8 @@ scripts/node_modules/
 .env
 .env.*
 !.env.example
+secrets/
+*-firebase-adminsdk-*.json
 functions/.env
 functions/.env.*
 !functions/.env.example
@@ -163,3 +165,9 @@ cover_letter_rag/evaluation/runs/
 # React/Vite (lms_react)
 dist/
 *.tsbuildinfo
+!lms_react/.env.example
+
+# Django Celery beat 로컬 스케줄 파일
+celerybeat-schedule*
+**/celerybeat-schedule*
+lms_api/celerybeat-schedule*
