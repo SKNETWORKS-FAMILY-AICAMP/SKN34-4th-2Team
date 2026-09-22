@@ -25,6 +25,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from job_matching_bot.env import ensure_loaded
 from job_matching_bot.config import ARTIFACTS_DIR
 from job_matching_bot.ingestion.job_store import open_store
 from job_matching_bot.retrieval import grouping
@@ -48,6 +49,9 @@ def main() -> int:
     parser.add_argument("--show", type=int, default=8, help="새로 묶인 짝을 몇 개 보여 줄지")
     parser.add_argument("--force", action="store_true", help="급증해도 멈추지 않는다")
     args = parser.parse_args()
+    # 저장소가 PostgreSQL 이라 DATABASE_URL 이 있어야 연다. 그 값은 저장소 루트 .env 에만 있고,
+    # 예약 작업은 .env 를 모른다. SQLite 시절엔 파일 경로만 알면 돼서 안 읽어도 됐다.
+    ensure_loaded()
 
     store = open_store(args.store)
     try:

@@ -46,6 +46,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from job_matching_bot.env import ensure_loaded
 from job_matching_bot.config import ARTIFACTS_DIR
 
 # 기본 버킷. Firebase 콘솔의 Storage 주소와 같다.
@@ -319,6 +320,9 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=EXPORT_PATH)
     parser.add_argument("--bucket", default=DEFAULT_BUCKET)
     args = parser.parse_args()
+    # 저장소가 PostgreSQL 이라 DATABASE_URL 이 있어야 연다. 그 값은 저장소 루트 .env 에만 있고,
+    # 예약 작업은 .env 를 모른다. SQLite 시절엔 파일 경로만 알면 돼서 안 읽어도 됐다.
+    ensure_loaded()
 
     if args.info:
         return info(args.bucket)

@@ -47,6 +47,7 @@ from typing import Any, Callable
 import requests
 from bs4 import BeautifulSoup
 
+from job_matching_bot.env import ensure_loaded
 from job_matching_bot.config import ARTIFACTS_DIR, RAW_DIR, REPO_ROOT
 from job_matching_bot.crawling.crawl_detail import DETAIL_URL, SOURCE, crawl_details
 from job_matching_bot.crawling.crawl_list import ALL_CATEGORIES, fetch_page, pages_for
@@ -563,6 +564,9 @@ def main() -> int:
     parser.add_argument("--no-share", action="store_true", help="공유 파일을 만들지 않는다")
     parser.add_argument("--no-jobkorea", action="store_true", help="잡코리아는 건드리지 않는다")
     args = parser.parse_args()
+    # 저장소가 PostgreSQL 이라 DATABASE_URL 이 있어야 연다. 그 값은 저장소 루트 .env 에만 있고,
+    # 예약 작업은 .env 를 모른다. SQLite 시절엔 파일 경로만 알면 돼서 안 읽어도 됐다.
+    ensure_loaded()
 
     started = time.monotonic()
     now = datetime.now(KST)
