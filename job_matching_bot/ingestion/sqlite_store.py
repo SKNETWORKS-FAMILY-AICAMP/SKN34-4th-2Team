@@ -1,35 +1,29 @@
-"""SQLite로 동작하는 공고 저장소.
+"""Postgres(jobs 스키마)로 동작하는 공고 저장소.
 
-JSON 파일 저장소(`job_store.JobStore`)는 전량을 메모리에 올렸다 통째로 다시 쓴다.
-11,493건에 68MB일 땐 문제가 없었지만, 전 카테고리 활성 공고 약 176,000건이면
-1GB짜리 JSON을 매번 읽고 쓰게 되어 감당이 안 된다. 여기서는 바뀐 행만 갱신하고
-`job_id` 하나만 꺼내 읽을 수 있다. 첨삭이 공고 원문을 조회할 때도 이 경로를 쓴다.
+클래스 이름 `SqliteJobStore`는 기존 호출·테스트를 깨지 않으려고 둔다.
+같은 RDS의 `jobs` 스키마를 쓰고, 테스트는 경로마다 격리 스키마를 만든다.
+공유 파일(`.sqlite`)이 있으면 그 내용을 읽기 전용으로 들여온다.
 
-판정 규칙은 `job_store.reconcile`과 **같아야 한다.** 이 클래스는 그 규칙을 SQL 위에서
-다시 구현한 것이라, 규칙을 고칠 때는 두 곳을 함께 고친다(`tests/test_sqlite_store.py`가
-두 구현의 결과가 같은지 대조한다).
-
-스키마
-    jobs      공고 한 건 = 한 행. Job 필드 + 생애주기(status, first/last_seen, missing_runs,
-              revisions) + 인덱스 추적(embed_hash, indexed_embed_hash, indexed_at)
-    job_tags  목록형 값(기술 태그·카테고리 등)을 (job_id, kind, value)로 풀어 둔 것. 조회용
-    runs      배치 실행 기록
-    list_seen   목록 sweep에서 (공고, 대분류)를 마지막으로 본 시각. 사라짐 판정의 근거
-    list_sweeps 대분류별로 마지막으로 끝까지 훑은 시각
-
-목록·딕셔너리 필드는 JSON 문자열로 넣는다. SQLite는 타입이 느슨해 읽을 때
-`_JSON_FIELDS` / `_BOOL_FIELDS` / `_INT_FIELDS`로 되돌린다.
+판정 규칙은 `job_store.reconcile`과 **같아야 한다.**
 """
 
 from __future__ import annotations
 
 from dataclasses import replace
 
+import hashlib
 import json
+import os
+import re
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Iterator
+
+import psycopg
+from psycopg.rows import dict_row
+from psycopg.sql import SQL, Identifier
+from psycopg.types.json import Jsonb
 
 from job_matching_bot.config import now
 from job_matching_bot.ingestion.job_store import (
@@ -69,117 +63,16 @@ _COLUMNS: tuple[str, ...] = JOB_FIELDS + LIFECYCLE_FIELDS
 # job_tags로 풀어 두는 목록 필드. kind 이름은 필드명과 같다.
 TAG_FIELDS: tuple[str, ...] = ("tech_stack", "required_skills", "preferred_skills", "keywords")
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS jobs (
-    job_id TEXT PRIMARY KEY,
-    {job_columns},
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    missing_runs INTEGER NOT NULL DEFAULT 0,
-    revisions INTEGER NOT NULL DEFAULT 0,
-    embed_hash TEXT,
-    indexed_embed_hash TEXT,
-    indexed_at TEXT
-);
-CREATE UNIQUE INDEX IF NOT EXISTS jobs_source_key ON jobs(source, source_job_id);
-CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status);
-CREATE INDEX IF NOT EXISTS jobs_deadline ON jobs(deadline);
-CREATE INDEX IF NOT EXISTS jobs_content_hash ON jobs(content_hash);
-CREATE TABLE IF NOT EXISTS job_tags (
-    job_id TEXT NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
-    kind TEXT NOT NULL,
-    value TEXT NOT NULL,
-    PRIMARY KEY (job_id, kind, value)
-);
-CREATE INDEX IF NOT EXISTS job_tags_kind_value ON job_tags(kind, value);
-CREATE TABLE IF NOT EXISTS runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    started_at TEXT NOT NULL,
-    finished_at TEXT,
-    source TEXT,
-    new INTEGER, updated INTEGER, unchanged INTEGER,
-    expired INTEGER, removed INTEGER, observed INTEGER, still_missing INTEGER,
-    vectors INTEGER,
-    error TEXT
-);
-CREATE TABLE IF NOT EXISTS list_seen (
-    source_job_id TEXT NOT NULL,
-    cat_mcls TEXT NOT NULL,
-    seen_at TEXT NOT NULL,
-    first_seen_at TEXT,
-    source TEXT NOT NULL DEFAULT 'SARAMIN_POC',
-    -- 번호는 사이트마다 따로 매긴다. 사람인 rec_idx도 8자리, 잡코리아 공고번호도
-    -- 8자리라 출처를 키에 넣지 않으면 다른 공고가 같은 행을 덮어쓴다.
-    PRIMARY KEY (source, source_job_id, cat_mcls)
-);
-CREATE INDEX IF NOT EXISTS list_seen_at ON list_seen(seen_at);
--- 키 앞자리가 source라 번호만으로 찾는 질의가 인덱스를 잃는다. 따로 둔다.
-CREATE INDEX IF NOT EXISTS list_seen_job ON list_seen(source_job_id);
-CREATE TABLE IF NOT EXISTS link_checks (
-    job_id TEXT PRIMARY KEY,
-    checked_at TEXT NOT NULL,
-    alive INTEGER NOT NULL
-);
--- 목록에서만 본 공고. **챗봇 검색만** 읽는다.
---
--- 상세를 받아야 `jobs`에 들어가므로 IT 밖 10개 대분류가 영영 0건이다. "서울 영업직
--- 있어?"에 없어서가 아니라 안 갖고 있어서 답을 못 한다. 조건은 목록에 이미 있고
--- `listing_conditions.py`가 가른다.
---
--- `jobs`와 따로 둔다. 같은 표에 두면 매주 일요일 목록 4만 건이 멀쩡한 상세 행을
--- 덮으려 들고, `jobs`를 읽는 모든 곳(추천·하드 필터·시장 통계·팀원 공유)이
--- "본문 없는 행"을 알아야 한다. 표를 나누면 그 위험이 아예 없다.
---
--- 열 이름을 `jobs`와 같게 둔다. 검색이 두 표를 같은 규칙으로 읽는다.
-CREATE TABLE IF NOT EXISTS list_jobs (
-    source_job_id TEXT NOT NULL,
-    job_id TEXT NOT NULL,
-    source_url TEXT,
-    company TEXT,
-    title TEXT,
-    keywords TEXT,            -- 목록의 job_sectors. jobs.keywords와 같은 자리
-    region TEXT,
-    career_type TEXT,
-    min_career_years INTEGER,
-    education TEXT,
-    employment_type TEXT,
-    condition_text TEXT,      -- 가르기 전 원문. 규칙을 고칠 때 다시 볼 근거
-    deadline TEXT,            -- 목록의 `~09.30` `오늘마감` 을 읽은 값. 모르면 NULL
-    support_text TEXT,        -- 마감 표기 원문
-    seen_at TEXT NOT NULL,
-    first_seen_at TEXT,
-    source TEXT NOT NULL DEFAULT 'SARAMIN_POC',
-    PRIMARY KEY (source, source_job_id)
-);
-CREATE INDEX IF NOT EXISTS list_jobs_seen ON list_jobs(seen_at);
-CREATE INDEX IF NOT EXISTS list_jobs_job ON list_jobs(source_job_id);
--- 조건 검색이 `jobs`에 쓰는 SQL을 그대로 쓰기 위한 뷰. 목록에는 없는 칸을 상수로
--- 채운다. 실제 값을 저장해 두면 늘 같은 값이 4만 줄 쌓이고, 나중에 "이게 진짜 값인가"
--- 헷갈린다. 뷰로 두면 없다는 것이 드러난다.
-CREATE VIEW IF NOT EXISTS list_jobs_search AS
-SELECT
-    source_job_id, job_id, source_url, company, title, keywords,
-    region, career_type, min_career_years, education, employment_type,
-    'OPEN'  AS status,        -- 목록에 보이면 열려 있는 것으로 본다
-    deadline,                 -- `~09.30` `오늘마감` 을 읽은 값. 못 읽으면 NULL
-    '[]'    AS tech_stack,    -- 기술 태그는 상세에서만 나온다
-    ''      AS description,   -- 본문 없음. 이것이 상세 미수집의 표시다
-    seen_at, first_seen_at, source
-FROM list_jobs;
-CREATE TABLE IF NOT EXISTS list_sweeps (
-    cat_mcls TEXT PRIMARY KEY,
-    swept_at TEXT NOT NULL,
-    total_count INTEGER,
-    seen INTEGER
-);
-"""
+_JOBS_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "scripts" / "firestore_to_postgres" / "jobs_schema.sql"
+_DEFAULT_STORE_NAMES = frozenset({"job_store.sqlite", "job_store.sqlite3", "job_store.db"})
 
 
 def _encode(field: str, value: Any) -> Any:
     if field in _JSON_FIELDS:
-        return json.dumps(value if value is not None else ([] if field != "field_provenance" else {}), ensure_ascii=False)
+        payload = value if value is not None else ({} if field == "field_provenance" else [])
+        return Jsonb(payload)
     if field in _BOOL_FIELDS:
-        return 1 if value else 0
+        return bool(value)
     return value
 
 
@@ -187,19 +80,186 @@ def _decode(field: str, value: Any) -> Any:
     if field in _JSON_FIELDS:
         if value is None:
             return {} if field == "field_provenance" else []
-        return json.loads(value)
+        if isinstance(value, str):
+            return json.loads(value)
+        return value
     if field in _BOOL_FIELDS:
-        # 컬럼은 INTEGER지만, 혹시 문자열 '0'이 오더라도 True로 읽히면 안 된다.
-        return bool(int(value)) if value is not None else False
+        if value is None:
+            return False
+        if isinstance(value, bool):
+            return value
+        return bool(int(value))
     if field in _INT_FIELDS:
         return None if value is None else int(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
     return value
 
 
 def _column_type(field: str) -> str:
-    if field in _BOOL_FIELDS or field in _INT_FIELDS:
-        return "INTEGER"
-    return "TEXT"
+    if field in _JSON_FIELDS:
+        default = "'{}'" if field == "field_provenance" else "'[]'"
+        return f"jsonb NOT NULL DEFAULT {default}::jsonb"
+    if field in _BOOL_FIELDS:
+        return "boolean NOT NULL DEFAULT false"
+    if field in _INT_FIELDS:
+        return "integer"
+    return "varchar"
+
+
+def _cell(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+class _Row:
+    def __init__(self, mapping: dict[str, Any]):
+        self._d = {key: _cell(val) for key, val in mapping.items()}
+        self._keys = list(self._d.keys())
+
+    def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, int):
+            return self._d[self._keys[key]]
+        return self._d[key]
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._d.get(key, default)
+
+    def keys(self):
+        return self._d.keys()
+
+    def __iter__(self):
+        return iter(self._d)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._d
+
+
+class _Result:
+    def __init__(self, rows: list[_Row], rowcount: int = -1):
+        self._rows = rows
+        self.rowcount = rowcount
+        self._i = 0
+
+    def fetchone(self) -> _Row | None:
+        if self._i >= len(self._rows):
+            return None
+        row = self._rows[self._i]
+        self._i += 1
+        return row
+
+    def fetchall(self) -> list[_Row]:
+        rest = self._rows[self._i :]
+        self._i = len(self._rows)
+        return rest
+
+    def __iter__(self):
+        return iter(self._rows)
+
+
+def _adapt_sql(sql: str) -> str:
+    sql = sql.strip()
+    upper = sql.upper()
+    if upper.startswith("INSERT OR IGNORE"):
+        sql = "INSERT" + sql[len("INSERT OR IGNORE") :]
+        if "ON CONFLICT" not in sql.upper():
+            sql = sql.rstrip(";") + " ON CONFLICT DO NOTHING"
+    elif upper.startswith("INSERT OR REPLACE"):
+        sql = "INSERT" + sql[len("INSERT OR REPLACE") :]
+        if "ON CONFLICT" not in sql.upper():
+            sql = sql.rstrip(";") + (
+                " ON CONFLICT (job_id) DO UPDATE SET "
+                "checked_at = EXCLUDED.checked_at, alive = EXCLUDED.alive"
+            )
+    sql = re.sub(r"(?<![:\w]):([A-Za-z_][A-Za-z0-9_]*)", r"%(\1)s", sql)
+    return sql.replace("?", "%s")
+
+
+class _PgConn:
+    """기존 sqlite3 SQL(?, :name, INSERT OR IGNORE)을 psycopg로 돌린다."""
+
+    def __init__(self, conn: psycopg.Connection):
+        self._pg = conn
+        self._tx = None
+
+    def execute(self, sql: str, params: Any = None) -> _Result:
+        adapted = _adapt_sql(sql)
+        if params is None:
+            cur = self._pg.execute(adapted)
+        else:
+            cur = self._pg.execute(adapted, params)
+        rows = []
+        if cur.description:
+            for raw in cur.fetchall():
+                rows.append(_Row(dict(raw)))
+        return _Result(rows, cur.rowcount)
+
+    def executemany(self, sql: str, seq: Iterable[Any]) -> _Result:
+        adapted = _adapt_sql(sql)
+        rows = list(seq)
+        if not rows:
+            return _Result([], 0)
+        with self._pg.cursor() as cur:
+            cur.executemany(adapted, rows)
+            return _Result([], cur.rowcount)
+
+    def executescript(self, script: str) -> None:
+        for stmt in script.split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                self._pg.execute(stmt)
+
+    def commit(self) -> None:
+        self._pg.commit()
+
+    def close(self) -> None:
+        self._pg.close()
+
+    def __enter__(self) -> "_PgConn":
+        self._tx = self._pg.transaction()
+        self._tx.__enter__()
+        return self
+
+    def __exit__(self, *exc) -> Any:
+        assert self._tx is not None
+        result = self._tx.__exit__(*exc)
+        self._tx = None
+        return result
+
+
+def _schema_for_path(path: Path) -> str:
+    resolved = str(path.resolve())
+    if path.name in _DEFAULT_STORE_NAMES:
+        return "jobs"
+    digest = hashlib.sha1(resolved.encode("utf-8")).hexdigest()[:16]
+    return "j" + digest
+
+
+def _sql_statements(script: str) -> list[str]:
+    lines = []
+    for line in script.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("--"):
+            continue
+        lines.append(line)
+    statements = []
+    for stmt in "\n".join(lines).split(";"):
+        stmt = stmt.strip()
+        if stmt:
+            statements.append(stmt)
+    return statements
+
+
+def _looks_like_sqlite(path: Path) -> bool:
+    if not path.exists() or path.stat().st_size < 100:
+        return False
+    with path.open("rb") as handle:
+        return handle.read(16).startswith(b"SQLite format 3")
 
 
 def _chunks(items: list[Any], size: int) -> Iterator[list[Any]]:
@@ -230,55 +290,90 @@ def job_id_prefix(source: str) -> str:
 
 
 class SqliteJobStore:
-    """`JobStore`와 같은 겉모습(`load` / `save` / `upsert` / `active_jobs` / `stats`)을 가진 SQLite 저장소."""
+    """`JobStore`와 같은 겉모습. 실제 저장은 Postgres `jobs` 스키마(또는 테스트 격리 스키마)."""
 
-    # SQLite 변수 한도(999) 안에서 IN 절을 쪼개는 크기.
     _IN_CHUNK = 400
 
     def __init__(self, path: Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(self.path))
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA synchronous=NORMAL")
-        self.conn.execute("PRAGMA foreign_keys=ON")
-        job_columns = ",\n    ".join(f"{name} {_column_type(name)}" for name in JOB_FIELDS if name != "job_id")
-        self.conn.executescript(_SCHEMA.format(job_columns=job_columns))
+        if not self.path.exists():
+            self.path.touch()
+        url = os.environ.get("DATABASE_URL") or os.environ.get("JOBS_DATABASE_URL")
+        if not url:
+            raise RuntimeError("DATABASE_URL 이 필요합니다 (jobs 스키마)")
+        self.schema = _schema_for_path(self.path)
+        raw = psycopg.connect(url, row_factory=dict_row, autocommit=False)
+        raw.execute(SQL("CREATE SCHEMA IF NOT EXISTS {}").format(Identifier(self.schema)))
+        raw.execute(SQL("SET search_path TO {}").format(Identifier(self.schema)))
+        for stmt in _sql_statements(_JOBS_SCHEMA_PATH.read_text(encoding="utf-8")):
+            raw.execute(stmt)
+        raw.commit()
+        self._pg = raw
+        self.conn = _PgConn(raw)
         self._add_missing_columns()
+        if _looks_like_sqlite(self.path):
+            self._import_sqlite_file(self.path)
+
+    def _table_columns(self, table: str) -> set[str]:
+        rows = self.conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = current_schema() AND table_name = ?",
+            (table,),
+        )
+        return {row[0] for row in rows}
 
     def _add_missing_columns(self) -> None:
-        """이미 만들어진 표에 뒤늦게 생긴 컬럼을 붙인다.
-
-        `CREATE TABLE IF NOT EXISTS`는 표가 있으면 아무것도 하지 않아서, 컬럼만
-        늘리면 기존 저장소에는 반영되지 않는다. 값이 없는 옛 행은 NULL로 남는다.
-        """
+        """이미 만들어진 표에 뒤늦게 생긴 컬럼을 붙인다."""
         for table, column, kind in (
-            ("list_seen", "first_seen_at", "TEXT"),
-            ("list_jobs", "deadline", "TEXT"),
-            ("list_jobs", "support_text", "TEXT"),
-            # 같은 공고가 두 사이트에 올라온 것을 한 묶음으로 본다. 대표 하나만
-            # 인덱스에 올리고, 화면에서 형제의 링크를 같이 보여 줄 때 이 값으로 찾는다.
-            ("jobs", "group_key", "TEXT"),
+            ("list_seen", "first_seen_at", "timestamptz"),
+            ("list_jobs", "deadline", "varchar"),
+            ("list_jobs", "support_text", "varchar"),
+            ("jobs", "group_key", "varchar"),
         ):
-            have = {row[1] for row in self.conn.execute(f"PRAGMA table_info({table})")}
-            if column not in have:
+            if column not in self._table_columns(table):
                 with self.conn:
                     self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
 
-        # `Job`에 필드를 더하면 여기서 저절로 따라온다. 옛 행은 NULL로 남고 읽을 때
-        # 빈 값이 된다. 24,762건을 다시 만들지 않아도 새 필드를 쓸 수 있다.
-        have = {row[1] for row in self.conn.execute("PRAGMA table_info(jobs)")}
+        have = self._table_columns("jobs")
         for column in _COLUMNS:
             if column in have:
                 continue
             with self.conn:
-                self.conn.execute(f"ALTER TABLE jobs ADD COLUMN {column} TEXT")
+                self.conn.execute(f"ALTER TABLE jobs ADD COLUMN {column} {_column_type(column)}")
 
-        # `group_key` 는 위에서 붙인 칸이라 인덱스도 여기서 만든다. `_SCHEMA` 에 두면
-        # 새 저장소에서 아직 없는 칸을 가리켜 터진다.
         with self.conn:
-            self.conn.execute("CREATE INDEX IF NOT EXISTS jobs_group ON jobs(group_key)")
+            self.conn.execute("CREATE INDEX IF NOT EXISTS jobs_group ON jobs (group_key)")
+
+    def _import_sqlite_file(self, path: Path) -> None:
+        """공유로 받은 SQLite 파일을 Postgres 스키마로 들인다. 원본 파일은 그대로 둔다."""
+        source = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+        source.row_factory = sqlite3.Row
+        try:
+            tables = {row[0] for row in source.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if "jobs" not in tables:
+                return
+            if self.count() > 0:
+                return
+            self.conn.commit()
+            columns = [row[1] for row in source.execute("PRAGMA table_info(jobs)")]
+            with self.conn:
+                for row in source.execute("SELECT * FROM jobs"):
+                    values = {name: row[name] for name in columns if name in set(_COLUMNS) | {"embed_hash", "indexed_embed_hash", "indexed_at", "group_key"}}
+                    for name in list(values):
+                        if name in _JSON_FIELDS:
+                            values[name] = _encode(name, json.loads(values[name]) if isinstance(values[name], str) else values[name])
+                        elif name in _BOOL_FIELDS:
+                            values[name] = _encode(name, values[name])
+                    names = [name for name in values if values[name] is not None or name in ("missing_runs", "revisions")]
+                    placeholders = ", ".join(f"%({name})s" for name in names)
+                    self._pg.execute(
+                        f"INSERT INTO jobs ({', '.join(names)}) VALUES ({placeholders}) ON CONFLICT (job_id) DO NOTHING",
+                        {name: values[name] for name in names},
+                    )
+        finally:
+            source.close()
+            self.conn.commit()
 
     # ── 옛 호출 방식(load/save) 호환 ─────────────────────────────
     def load(self) -> "SqliteJobStore":
@@ -727,7 +822,7 @@ class SqliteJobStore:
                 str(record.get("source_url") or ""),
                 clean_company_name(str(record.get("company") or "")),
                 clean_listing_text(str(record.get("title") or "")),
-                json.dumps(list(record.get("job_sectors") or []), ensure_ascii=False),
+                Jsonb(list(record.get("job_sectors") or [])),
                 cond["region"],
                 cond["career_type"],
                 cond["min_career_years"],
@@ -850,7 +945,7 @@ class SqliteJobStore:
         with self.conn:
             self.conn.executemany(
                 "INSERT OR REPLACE INTO link_checks (job_id, checked_at, alive) VALUES (?, ?, ?)",
-                [(job_id, stamp, int(alive)) for job_id, alive in results.items()],
+                [(job_id, stamp, bool(alive)) for job_id, alive in results.items()],
             )
             if closed:
                 placeholders = ", ".join("?" for _ in closed)

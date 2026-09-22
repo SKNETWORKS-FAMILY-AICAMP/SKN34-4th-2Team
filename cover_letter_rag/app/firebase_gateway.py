@@ -6,8 +6,7 @@ import hashlib
 import json
 
 import firebase_admin
-from firebase_admin import auth, credentials, firestore
-from google.api_core.exceptions import AlreadyExists
+from firebase_admin import auth, credentials
 from app.review_workflow import ReviewConflict
 
 from app.config import Settings
@@ -40,7 +39,32 @@ class FirebaseGateway:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._app = self._initialize_app(settings)
-        self._db = firestore.client(app=self._app)
+
+    @property
+    def _db(self):
+        from firebase_admin import firestore
+        return firestore.client(app=self._app)
+
+    def _pg(self):
+        import os
+        import psycopg
+        return psycopg.connect(os.environ["DATABASE_URL"])
+
+    def _cohort_user(self, conn, cohort_id: str, uid: str):
+        row = conn.execute(
+            """SELECT u.id, u.is_active, c.code, c.id AS cohort_pk
+               FROM users u LEFT JOIN cohorts c ON c.id = u.cohort_id
+               WHERE u.firebase_uid = %s""",
+            (uid,),
+        ).fetchone()
+        if not row or row[1] is not True or str(row[2]) != str(cohort_id):
+            raise ResumeAccessError("inactive user or cohort mismatch")
+        return {"user_pk": row[0], "cohort_pk": row[3], "code": row[2]}
+
+    def _resume_legacy(self, resume_id: str, tailored_resume_id: str | None = None) -> str:
+        if tailored_resume_id:
+            return f"{resume_id}/tailored/{tailored_resume_id}"
+        return resume_id
 
     @staticmethod
     def _initialize_app(settings: Settings):
@@ -61,17 +85,22 @@ class FirebaseGateway:
         return uid
 
     def get_owned_resume(self, cohort_id: str, resume_id: str, uid: str) -> dict[str, Any]:
-        user = self._db.collection('users').document(uid).get().to_dict() or {}
-        if user.get('isActive') is not True or user.get('cohortId') != cohort_id:
-            raise ResumeAccessError('inactive user or cohort mismatch')
-        snapshot = self._resume_ref(cohort_id, resume_id).get()
-        if not snapshot.exists:
-            raise ResumeNotFoundError("resume not found")
-        data = snapshot.to_dict() or {}
-        if data.get("userId") != uid:
-            # Do not reveal whether another user's document exists.
-            raise ResumeNotFoundError("resume not found")
-        return data
+        with self._pg() as conn:
+            ident = self._cohort_user(conn, cohort_id, uid)
+            row = conn.execute(
+                """SELECT r.legacy_id, r.title, r.status, r.content, r.user_id, u.firebase_uid
+                   FROM resumes r JOIN users u ON u.id = r.user_id
+                   WHERE r.legacy_id = %s AND r.cohort_id = %s""",
+                (resume_id, ident["cohort_pk"]),
+            ).fetchone()
+            if not row or row[5] != uid:
+                raise ResumeNotFoundError("resume not found")
+            return {
+                "title": row[1],
+                "status": row[2],
+                "content": row[3] or {},
+                "userId": row[5],
+            }
 
     def _review_ref(self, cohort_id, resume_id, review_id, tailored_resume_id: str | None = None):
         parent = (
@@ -82,11 +111,9 @@ class FirebaseGateway:
         return parent.collection(self._settings.firestore_ai_reviews_collection).document(review_id)
 
     def create_tailored_resume(self, cohort_id: str, resume_id: str, uid: str, job_source: dict[str, Any]) -> dict[str, Any]:
-        """Clone an owned base resume once per immutable job snapshot.
+        """Clone an owned base resume once per immutable job snapshot."""
+        from psycopg.types.json import Jsonb
 
-        The deterministic id makes a repeated button click idempotent while a changed
-        job snapshot intentionally creates a new draft instead of overwriting history.
-        """
         base = self.get_owned_resume(cohort_id, resume_id, uid)
         source_hash = hashlib.sha256(json.dumps(base.get('content') or {}, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
         snapshot_hash = str(job_source.get('snapshot_hash') or '')
@@ -98,7 +125,16 @@ class FirebaseGateway:
         tailored_id = 'tailored_' + hashlib.sha256(
             f'{resume_id}:{job_id}:{snapshot_hash}'.encode()
         ).hexdigest()[:24]
-        ref = self._tailored_ref(cohort_id, resume_id, tailored_id)
+        legacy = f"{resume_id}/tailored/{tailored_id}"
+        sections = {
+            "_tailored": {
+                "companyName": company_name,
+                "jobTitle": str(job_source.get('title') or ''),
+                "jobSnapshotHash": snapshot_hash,
+                "sourceResumeHash": source_hash,
+                "reviewSession": {},
+            }
+        }
         payload = {
             'userId': uid,
             'baseResumeId': resume_id,
@@ -111,190 +147,322 @@ class FirebaseGateway:
             'title': title,
             'content': deepcopy(base.get('content') or {}),
             'reviewSession': {},
-            'createdAt': firestore.SERVER_TIMESTAMP,
-            'updatedAt': firestore.SERVER_TIMESTAMP,
         }
-        try:
-            ref.create(payload)
-            return {'tailored_resume_id': tailored_id, **payload}
-        except AlreadyExists:
-            existing = ref.get().to_dict() or {}
-            if existing.get('userId') != uid or existing.get('jobSnapshotHash') != snapshot_hash:
-                raise ResumeNotFoundError('tailored resume not found')
-            if title and existing.get('title') != title:
-                ref.update({'title': title, 'updatedAt': firestore.SERVER_TIMESTAMP})
-                existing['title'] = title
-            return {'tailored_resume_id': tailored_id, **existing}
+        with self._pg() as conn:
+            ident = self._cohort_user(conn, cohort_id, uid)
+            parent = conn.execute(
+                "SELECT id FROM resumes WHERE legacy_id = %s AND cohort_id = %s",
+                (resume_id, ident["cohort_pk"]),
+            ).fetchone()
+            if not parent:
+                raise ResumeNotFoundError("resume not found")
+            existing = conn.execute(
+                "SELECT id, title, content, sections, status, linked_job_id FROM resumes WHERE legacy_id = %s",
+                (legacy,),
+            ).fetchone()
+            if existing:
+                meta = (existing[3] or {}).get("_tailored") or {}
+                if meta.get("jobSnapshotHash") != snapshot_hash:
+                    raise ResumeNotFoundError("tailored resume not found")
+                if title and existing[1] != title:
+                    conn.execute("UPDATE resumes SET title=%s, updated_at=now() WHERE id=%s", (title, existing[0]))
+                    conn.commit()
+                return {"tailored_resume_id": tailored_id, **payload, "title": title or existing[1]}
+            conn.execute(
+                """INSERT INTO resumes (legacy_id, cohort_id, user_id, title, status, content, sections, is_base_resume, base_resume_id, linked_job_id, created_at, updated_at)
+                   VALUES (%s,%s,%s,%s,'draft',%s,%s,false,%s,%s, now(), now())""",
+                (legacy, ident["cohort_pk"], ident["user_pk"], title, Jsonb(payload["content"]), Jsonb(sections), parent[0], job_id),
+            )
+            conn.commit()
+        return {"tailored_resume_id": tailored_id, **payload}
+
+    def _tailored_meta(self, sections) -> dict:
+        return dict((sections or {}).get("_tailored") or {})
 
     def list_tailored_resumes(self, cohort_id: str, resume_id: str, uid: str) -> list[dict[str, Any]]:
         base = self.get_owned_resume(cohort_id, resume_id, uid)
         result = []
-        for snapshot in self._resume_ref(cohort_id, resume_id).collection('tailoredResumes').stream():
-            data = snapshot.to_dict() or {}
-            if data.get('userId') == uid:
-                title = tailored_resume_title(base, data.get('companyName', ''))
-                if title and data.get('title') != title:
-                    snapshot.reference.update({
-                        'title': title,
-                        'updatedAt': firestore.SERVER_TIMESTAMP,
-                    })
-                    data['title'] = title
-                result.append({'tailored_resume_id': snapshot.id, **data})
+        with self._pg() as conn:
+            ident = self._cohort_user(conn, cohort_id, uid)
+            parent = conn.execute(
+                "SELECT id FROM resumes WHERE legacy_id = %s AND cohort_id = %s",
+                (resume_id, ident["cohort_pk"]),
+            ).fetchone()
+            if not parent:
+                return []
+            rows = conn.execute(
+                "SELECT legacy_id, title, status, content, sections, linked_job_id FROM resumes WHERE base_resume_id = %s",
+                (parent[0],),
+            ).fetchall()
+        for legacy, title, status, content, sections, job_id in rows:
+            meta = self._tailored_meta(sections)
+            company = meta.get("companyName", "")
+            wanted = tailored_resume_title(base, company)
+            tid = str(legacy).rsplit("/", 1)[-1]
+            result.append({
+                "tailored_resume_id": tid,
+                "title": wanted or title,
+                "status": status,
+                "content": content or {},
+                "userId": uid,
+                "baseResumeId": resume_id,
+                "jobId": job_id or "",
+                **meta,
+            })
         return result
 
-    def get_owned_tailored_resume(
-        self,
-        cohort_id: str,
-        resume_id: str,
-        tailored_resume_id: str,
-        uid: str,
-    ) -> dict[str, Any]:
-        """Read a company-specific draft only after validating its base resume."""
+    def get_owned_tailored_resume(self, cohort_id, resume_id, tailored_resume_id, uid):
         self.get_owned_resume(cohort_id, resume_id, uid)
-        snapshot = self._tailored_ref(cohort_id, resume_id, tailored_resume_id).get()
-        if not snapshot.exists:
-            raise ResumeNotFoundError('tailored resume not found')
-        data = snapshot.to_dict() or {}
-        if data.get('userId') != uid or data.get('baseResumeId') != resume_id:
-            raise ResumeNotFoundError('tailored resume not found')
-        return data
+        legacy = f"{resume_id}/tailored/{tailored_resume_id}"
+        with self._pg() as conn:
+            ident = self._cohort_user(conn, cohort_id, uid)
+            row = conn.execute(
+                """SELECT r.title, r.status, r.content, r.sections, r.linked_job_id, u.firebase_uid, r.base_resume_id
+                   FROM resumes r JOIN users u ON u.id = r.user_id
+                   WHERE r.legacy_id = %s AND r.cohort_id = %s""",
+                (legacy, ident["cohort_pk"]),
+            ).fetchone()
+        if not row or row[5] != uid:
+            raise ResumeNotFoundError("tailored resume not found")
+        meta = self._tailored_meta(row[3])
+        return {
+            "title": row[0],
+            "status": row[1],
+            "content": row[2] or {},
+            "userId": uid,
+            "baseResumeId": resume_id,
+            "jobId": row[4] or meta.get("jobId") or "",
+            **meta,
+        }
 
-    def save_tailored_resume_session(
-        self,
-        cohort_id: str,
-        resume_id: str,
-        tailored_resume_id: str,
-        uid: str,
-        state: dict[str, Any],
-    ) -> None:
-        """Persist resumable UI progress beside the company-specific draft."""
+    def save_tailored_resume_session(self, cohort_id, resume_id, tailored_resume_id, uid, state):
+        from psycopg.types.json import Jsonb
+
         self.get_owned_tailored_resume(cohort_id, resume_id, tailored_resume_id, uid)
-        self._tailored_ref(cohort_id, resume_id, tailored_resume_id).update({
-            'reviewSession': deepcopy(state),
-            'updatedAt': firestore.SERVER_TIMESTAMP,
-        })
+        legacy = f"{resume_id}/tailored/{tailored_resume_id}"
+        with self._pg() as conn:
+            row = conn.execute("SELECT sections FROM resumes WHERE legacy_id = %s", (legacy,)).fetchone()
+            sections = dict(row[0] or {})
+            meta = dict(sections.get("_tailored") or {})
+            meta["reviewSession"] = deepcopy(state)
+            sections["_tailored"] = meta
+            conn.execute("UPDATE resumes SET sections=%s, updated_at=now() WHERE legacy_id=%s", (Jsonb(sections), legacy))
+            conn.commit()
 
-    def delete_tailored_resume(
-        self,
-        cohort_id: str,
-        resume_id: str,
-        tailored_resume_id: str,
-        uid: str,
-    ) -> None:
-        """Delete one owned company-specific draft and its known child records."""
-        tailored = self.get_owned_tailored_resume(
-            cohort_id, resume_id, tailored_resume_id, uid,
-        )
-        ref = self._tailored_ref(cohort_id, resume_id, tailored_resume_id)
-        workspace_id = str(tailored.get('workspaceResumeId') or '')
-        if workspace_id:
-            workspace_ref = self._resume_ref(cohort_id, workspace_id)
-            workspace = workspace_ref.get().to_dict() or {}
-            if (
-                workspace.get('userId') == uid and
-                workspace.get('sourceTailoredResumeId') == tailored_resume_id
-            ):
-                self._db.recursive_delete(workspace_ref)
-        # Firestore 문서 삭제는 하위 컬렉션을 자동 삭제하지 않는다. SDK의
-        # recursive_delete를 사용해야 첨삭/적용/대화 기록까지 남김없이 지워진다.
-        self._db.recursive_delete(ref)
+    def delete_tailored_resume(self, cohort_id, resume_id, tailored_resume_id, uid):
+        tailored = self.get_owned_tailored_resume(cohort_id, resume_id, tailored_resume_id, uid)
+        legacy = f"{resume_id}/tailored/{tailored_resume_id}"
+        with self._pg() as conn:
+            ident = self._cohort_user(conn, cohort_id, uid)
+            workspace_id = str(tailored.get("workspaceResumeId") or "")
+            if workspace_id:
+                conn.execute(
+                    "DELETE FROM resumes WHERE legacy_id = %s AND cohort_id = %s AND user_id = %s",
+                    (workspace_id, ident["cohort_pk"], ident["user_pk"]),
+                )
+            conn.execute("DELETE FROM resumes WHERE legacy_id = %s", (legacy,))
+            conn.commit()
 
-    def promote_tailored_resume(
-        self,
-        cohort_id: str,
-        resume_id: str,
-        tailored_resume_id: str,
-        uid: str,
-    ) -> str:
-        """Expose a completed tailored draft through the normal resume editor."""
-        self.get_owned_tailored_resume(cohort_id, resume_id, tailored_resume_id, uid)
-        ref = self._tailored_ref(cohort_id, resume_id, tailored_resume_id)
-        workspace_id = 'matched_' + hashlib.sha256(
-            f'{resume_id}:{tailored_resume_id}'.encode()
-        ).hexdigest()[:24]
-        workspace_ref = self._resume_ref(cohort_id, workspace_id)
+    def promote_tailored_resume(self, cohort_id, resume_id, tailored_resume_id, uid) -> str:
+        from psycopg.types.json import Jsonb
 
-        @firestore.transactional
-        def promote(transaction):
-            tailored = ref.get(transaction=transaction).to_dict() or {}
-            existing = workspace_ref.get(transaction=transaction).to_dict() or {}
-            if tailored.get('userId') != uid or tailored.get('baseResumeId') != resume_id:
-                raise ResumeNotFoundError('tailored resume not found')
-            if existing and (
-                existing.get('userId') != uid or
-                existing.get('sourceTailoredResumeId') != tailored_resume_id
-            ):
-                raise ResumeNotFoundError('workspace resume not found')
+        tailored = self.get_owned_tailored_resume(cohort_id, resume_id, tailored_resume_id, uid)
+        workspace_id = "matched_" + hashlib.sha256(f"{resume_id}:{tailored_resume_id}".encode()).hexdigest()[:24]
+        tailored_legacy = f"{resume_id}/tailored/{tailored_resume_id}"
+        with self._pg() as conn:
+            ident = self._cohort_user(conn, cohort_id, uid)
+            parent = conn.execute(
+                "SELECT id FROM resumes WHERE legacy_id = %s AND cohort_id = %s",
+                (resume_id, ident["cohort_pk"]),
+            ).fetchone()
+            tailored_row = conn.execute("SELECT id, sections FROM resumes WHERE legacy_id = %s", (tailored_legacy,)).fetchone()
+            existing = conn.execute("SELECT id FROM resumes WHERE legacy_id = %s", (workspace_id,)).fetchone()
             if not existing:
-                transaction.create(workspace_ref, {
-                    'userId': uid,
-                    'title': tailored.get('title') or '맞춤 이력서',
-                    'status': 'writing',
-                    'sections': {},
-                    'content': deepcopy(tailored.get('content') or {}),
-                    'isBaseResume': False,
-                    'baseResumeId': resume_id,
-                    'sourceTailoredResumeId': tailored_resume_id,
-                    'jobId': tailored.get('jobId') or '',
-                    'jobCompany': tailored.get('companyName') or '',
-                    'jobTitle': tailored.get('jobTitle') or '',
-                    'feedbackCount': 0,
-                    'lastSeenFeedbackCount': 0,
-                    'readFeedbackIds': [],
-                    'reviewerReadFeedbackIds': [],
-                    'revisionCount': 0,
-                    'createdAt': firestore.SERVER_TIMESTAMP,
-                    'updatedAt': firestore.SERVER_TIMESTAMP,
-                })
-            elif not existing.get('jobId'):
-                transaction.update(workspace_ref, {
-                    'jobId': tailored.get('jobId') or '',
-                    'jobCompany': tailored.get('companyName') or '',
-                    'jobTitle': tailored.get('jobTitle') or '',
-                    'updatedAt': firestore.SERVER_TIMESTAMP,
-                })
-            transaction.update(ref, {
-                'workspaceResumeId': workspace_id,
-                'status': 'ready',
-                'updatedAt': firestore.SERVER_TIMESTAMP,
-            })
-            return workspace_id
+                conn.execute(
+                    """INSERT INTO resumes (legacy_id, cohort_id, user_id, title, status, content, sections, is_base_resume, base_resume_id, source_tailored_resume_id, linked_job_id, created_at, updated_at)
+                       VALUES (%s,%s,%s,%s,'writing',%s,'{}',false,%s,%s,%s, now(), now())""",
+                    (workspace_id, ident["cohort_pk"], ident["user_pk"], tailored.get("title") or "맞춤 이력서",
+                     Jsonb(deepcopy(tailored.get("content") or {})), parent[0] if parent else None,
+                     tailored_row[0] if tailored_row else None, tailored.get("jobId") or ""),
+                )
+            sections = dict((tailored_row[1] if tailored_row else {}) or {})
+            meta = dict(sections.get("_tailored") or {})
+            meta["workspaceResumeId"] = workspace_id
+            sections["_tailored"] = meta
+            conn.execute(
+                "UPDATE resumes SET status='ready', sections=%s, updated_at=now() WHERE legacy_id=%s",
+                (Jsonb(sections), tailored_legacy),
+            )
+            conn.commit()
+        return workspace_id
 
-        return promote(self._db.transaction())
+    def apply_or_undo(self, uid, request, undo=False):
+        from psycopg.types.json import Jsonb
+        from app.resume_apply import ApplyResponse, build_application, rebase_review_response
+        from app.review_workflow import digest
+
+        legacy_resume = self._resume_legacy(request.resume_id, request.tailored_resume_id)
+        op_legacy = f"{legacy_resume}/{request.request_id}"
+        fingerprint = digest([uid, "undo" if undo else "apply", request.model_dump()])
+        with self._pg() as conn:
+            ident = self._cohort_user(conn, request.cohort_id, uid)
+            resume = conn.execute(
+                "SELECT id, user_id, status, content FROM resumes WHERE legacy_id = %s AND cohort_id = %s FOR UPDATE",
+                (legacy_resume, ident["cohort_pk"]),
+            ).fetchone()
+            if not resume:
+                resume = conn.execute(
+                    "SELECT id, user_id, status, content FROM resumes WHERE legacy_id = %s AND cohort_id = %s FOR UPDATE",
+                    (request.resume_id, ident["cohort_pk"]),
+                ).fetchone()
+            if not resume:
+                raise ResumeNotFoundError()
+            user_uid = conn.execute("SELECT firebase_uid FROM users WHERE id = %s", (resume[1],)).fetchone()
+            if not user_uid or user_uid[0] != uid:
+                raise ResumeNotFoundError()
+            old = conn.execute(
+                "SELECT fingerprint, response FROM resume_ai_applications WHERE legacy_id = %s",
+                (op_legacy,),
+            ).fetchone()
+            if old:
+                if old[0] != fingerprint:
+                    raise ReviewConflict("request_id_reused")
+                return ApplyResponse.model_validate(old[1])
+            if resume[2] in ("approved", "completed"):
+                raise ReviewConflict("approved_resume_read_only")
+            before = resume[3] or {}
+            if undo:
+                source_legacy = f"{legacy_resume}/{request.application_id}"
+                source = conn.execute(
+                    "SELECT kind, undone_by, after_hash, before, response, source_id, user_id FROM resume_ai_applications WHERE legacy_id = %s",
+                    (source_legacy,),
+                ).fetchone()
+                if not source or source[0] != "apply" or source[1]:
+                    raise ReviewConflict("application_not_reversible")
+                if digest(before) != request.expected_input_hash or digest(before) != source[2]:
+                    raise ReviewConflict("resume_changed_after_application")
+                after, changed = source[3], source[4]["changed_fields"]
+                review_id = source[5]
+                review_legacy = f"{legacy_resume}/{review_id}"
+                review_row = conn.execute("SELECT response FROM resume_ai_reviews WHERE legacy_id = %s", (review_legacy,)).fetchone()
+            else:
+                review_legacy = f"{legacy_resume}/{request.review_id}"
+                review_row = conn.execute("SELECT response, user_id FROM resume_ai_reviews WHERE legacy_id = %s", (review_legacy,)).fetchone()
+                if not review_row:
+                    raise ResumeNotFoundError()
+                after, changed = build_application(before, review_row[0] or {}, request)
+            result = ApplyResponse(operation_id=request.request_id, input_hash=digest(after), changed_fields=changed)
+            conn.execute(
+                """INSERT INTO resume_ai_applications (legacy_id, resume_id, user_id, fingerprint, kind, before, after_hash, response, source_id, created_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s, now())""",
+                (op_legacy, resume[0], ident["user_pk"], fingerprint, "undo" if undo else "apply",
+                 Jsonb(before), digest(after), Jsonb(result.model_dump()),
+                 request.application_id if undo else request.review_id),
+            )
+            conn.execute("UPDATE resumes SET content=%s, updated_at=now() WHERE id=%s", (Jsonb(after), resume[0]))
+            if not undo and review_row:
+                conn.execute(
+                    "UPDATE resume_ai_reviews SET response=%s WHERE legacy_id=%s",
+                    (Jsonb(rebase_review_response(review_row[0], after)), review_legacy),
+                )
+            if undo:
+                conn.execute(
+                    "UPDATE resume_ai_applications SET undone_by=%s WHERE legacy_id=%s",
+                    (request.request_id, source_legacy),
+                )
+                if review_row:
+                    conn.execute(
+                        "UPDATE resume_ai_reviews SET response=%s WHERE legacy_id=%s",
+                        (Jsonb(rebase_review_response(review_row[0], after)), review_legacy),
+                    )
+            conn.commit()
+        return result
+
 
     def get_ai_review(self, cohort_id, resume_id, uid, review_id, tailored_resume_id: str | None = None):
-        if tailored_resume_id:
-            self.get_owned_tailored_resume(cohort_id, resume_id, tailored_resume_id, uid)
-        else:
-            self.get_owned_resume(cohort_id, resume_id, uid)
-        data = self._review_ref(cohort_id, resume_id, review_id, tailored_resume_id).get().to_dict() or {}
-        if data.get('userId') != uid or not data.get('response'):
-            raise ResumeNotFoundError('review not found')
-        return data['response']
+        with self._pg() as conn:
+            ident = self._cohort_user(conn, cohort_id, uid)
+            legacy = f"{self._resume_legacy(resume_id, tailored_resume_id)}/{review_id}"
+            row = conn.execute(
+                """SELECT r.response, u.firebase_uid FROM resume_ai_reviews r
+                   JOIN resumes rs ON rs.id = r.resume_id
+                   JOIN users u ON u.id = r.user_id
+                   WHERE r.legacy_id = %s AND rs.cohort_id = %s""",
+                (legacy, ident["cohort_pk"]),
+            ).fetchone()
+            if not row or row[1] != uid or not row[0]:
+                raise ResumeNotFoundError("review not found")
+            return row[0]
 
     def claim_review(self, cohort_id, resume_id, uid, request_id, fingerprint, tailored_resume_id: str | None = None):
-        ref = self._review_ref(cohort_id, resume_id, request_id, tailored_resume_id)
-        try:
-            ref.create({'userId': uid, 'fingerprint': fingerprint, 'status': 'processing', 'createdAt': firestore.SERVER_TIMESTAMP})
-            return {}
-        except AlreadyExists:
-            state = ref.get().to_dict() or {}
-            if state.get('userId') != uid or state.get('fingerprint') != fingerprint:
-                raise ReviewConflict('request_id_reused_with_different_input')
-            if state.get('response'):
-                return state
-            raise ReviewConflict('request_processing_or_failed: inspect before issuing a new request_id')
+        from psycopg.errors import UniqueViolation
+
+        with self._pg() as conn:
+            ident = self._cohort_user(conn, cohort_id, uid)
+            legacy_resume = self._resume_legacy(resume_id, tailored_resume_id)
+            resume = conn.execute(
+                "SELECT id FROM resumes WHERE legacy_id = %s AND cohort_id = %s",
+                (legacy_resume, ident["cohort_pk"]),
+            ).fetchone()
+            if not resume:
+                # tailored 행이 없으면 부모 이력서에 붙인다
+                resume = conn.execute(
+                    "SELECT id FROM resumes WHERE legacy_id = %s AND cohort_id = %s",
+                    (resume_id, ident["cohort_pk"]),
+                ).fetchone()
+            if not resume:
+                raise ResumeNotFoundError("resume not found")
+            legacy = f"{legacy_resume}/{request_id}"
+            try:
+                conn.execute(
+                    """INSERT INTO resume_ai_reviews (legacy_id, resume_id, user_id, fingerprint, status, payload, created_at)
+                       VALUES (%s,%s,%s,%s,'processing','{}', now())""",
+                    (legacy, resume[0], ident["user_pk"], fingerprint),
+                )
+                conn.commit()
+                return {}
+            except UniqueViolation:
+                conn.rollback()
+                state = conn.execute(
+                    "SELECT user_id, fingerprint, response, status FROM resume_ai_reviews WHERE legacy_id = %s",
+                    (legacy,),
+                ).fetchone()
+                if not state:
+                    raise ReviewConflict("request_processing_or_failed: inspect before issuing a new request_id")
+                user = conn.execute("SELECT firebase_uid FROM users WHERE id = %s", (state[0],)).fetchone()
+                if not user or user[0] != uid or state[1] != fingerprint:
+                    raise ReviewConflict("request_id_reused_with_different_input")
+                if state[2]:
+                    return {"response": state[2], "status": state[3]}
+                raise ReviewConflict("request_processing_or_failed: inspect before issuing a new request_id")
 
     def complete_review(self, cohort_id, resume_id, uid, request_id, response, tailored_resume_id: str | None = None):
+        from psycopg.types.json import Jsonb
+
         if tailored_resume_id:
-            self.get_owned_tailored_resume(cohort_id, resume_id, tailored_resume_id, uid)
+            self.get_owned_resume(cohort_id, resume_id, uid)
         else:
             self.get_owned_resume(cohort_id, resume_id, uid)
-        self._review_ref(cohort_id, resume_id, request_id, tailored_resume_id).update({'response': response, 'status': 'complete', 'telemetry': response['telemetry']})
+        legacy = f"{self._resume_legacy(resume_id, tailored_resume_id)}/{request_id}"
+        with self._pg() as conn:
+            conn.execute(
+                """UPDATE resume_ai_reviews
+                   SET response = %s, status = 'complete', telemetry = %s
+                   WHERE legacy_id = %s""",
+                (Jsonb(response), Jsonb(response.get("telemetry")) if isinstance(response, dict) else None, legacy),
+            )
+            conn.commit()
 
     def fail_review(self, cohort_id, resume_id, uid, request_id, telemetry, tailored_resume_id: str | None = None):
-        # Keep any response committed by an ambiguous successful update recoverable.
-        self._review_ref(cohort_id, resume_id, request_id, tailored_resume_id).update({'status': 'failed', 'telemetry': telemetry})
+        from psycopg.types.json import Jsonb
+
+        legacy = f"{self._resume_legacy(resume_id, tailored_resume_id)}/{request_id}"
+        with self._pg() as conn:
+            conn.execute(
+                "UPDATE resume_ai_reviews SET status = 'failed', telemetry = %s WHERE legacy_id = %s",
+                (Jsonb(telemetry), legacy),
+            )
+            conn.commit()
 
     def save_ai_review(
         self,
@@ -303,28 +471,45 @@ class FirebaseGateway:
         uid: str,
         payload: dict[str, Any],
     ) -> str:
-        document = self._resume_ref(cohort_id, resume_id).collection(
-            self._settings.firestore_ai_reviews_collection
-        ).document()
-        document.set(
-            {
-                **payload,
-                "userId": uid,
-                "createdAt": firestore.SERVER_TIMESTAMP,
-            }
-        )
-        return document.id
+        from psycopg.types.json import Jsonb
+        import uuid
+
+        review_id = uuid.uuid4().hex[:20]
+        legacy = f"{resume_id}/{review_id}"
+        with self._pg() as conn:
+            ident = self._cohort_user(conn, cohort_id, uid)
+            resume = conn.execute(
+                "SELECT id FROM resumes WHERE legacy_id = %s AND cohort_id = %s",
+                (resume_id, ident["cohort_pk"]),
+            ).fetchone()
+            if not resume:
+                raise ResumeNotFoundError("resume not found")
+            conn.execute(
+                """INSERT INTO resume_ai_reviews (legacy_id, resume_id, user_id, status, payload, created_at)
+                   VALUES (%s,%s,%s,'complete',%s, now())""",
+                (legacy, resume[0], ident["user_pk"], Jsonb({**payload, "userId": uid})),
+            )
+            conn.commit()
+        return review_id
 
     def get_job_requirements(self, key: str) -> list[dict] | None:
-        """공고별로 한 번 정리해 둔 요건 목록. 공고 원문에서 뽑은 것이라 사용자 데이터가 아니다."""
-        snapshot = self._db.collection(self._settings.firestore_job_requirements_collection).document(key).get()
-        return (snapshot.to_dict() or {}).get('requirements')
+        with self._pg() as conn:
+            row = conn.execute(
+                "SELECT requirements FROM job_requirement_profiles WHERE key = %s", (key,)
+            ).fetchone()
+        return None if not row else list(row[0] or [])
 
     def save_job_requirements(self, key: str, requirements: list[dict]) -> None:
-        self._db.collection(self._settings.firestore_job_requirements_collection).document(key).set({
-            'requirements': requirements,
-            'createdAt': firestore.SERVER_TIMESTAMP,
-        })
+        from psycopg.types.json import Jsonb
+
+        with self._pg() as conn:
+            conn.execute(
+                """INSERT INTO job_requirement_profiles (key, requirements, created_at)
+                   VALUES (%s, %s, now())
+                   ON CONFLICT (key) DO UPDATE SET requirements = EXCLUDED.requirements""",
+                (key, Jsonb(requirements)),
+            )
+            conn.commit()
 
     def _resume_ref(self, cohort_id: str, resume_id: str):
         return (

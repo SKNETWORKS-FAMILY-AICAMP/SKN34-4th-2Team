@@ -74,47 +74,54 @@ REQUIRED_DOWNLOAD_COLUMNS = frozenset({*SHARE_COLUMNS, *EMPTY_COLUMNS})
 
 def export(source: Path, destination: Path) -> Path:
     """저장소에서 나눠 줄 컬럼만 뽑아 새 SQLite로 만든다. 원본은 건드리지 않는다."""
+    from job_matching_bot.ingestion.sqlite_store import SqliteJobStore, _BOOL_FIELDS, _JSON_FIELDS
+
     if destination.exists():
         destination.unlink()
     destination.parent.mkdir(parents=True, exist_ok=True)
 
-    # 원본은 읽기 전용으로 연다. 밤 배치가 도는 중에 실행해도 안전하다.
-    connection = sqlite3.connect(f"{source.resolve().as_uri()}?mode=ro", uri=True)
+    store = SqliteJobStore(source)
     try:
-        available = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
+        available = store._table_columns("jobs")
         columns = [name for name in SHARE_COLUMNS if name in available]
         missing = [name for name in SHARE_COLUMNS if name not in available]
         if missing:
             print(f"  (저장소에 없는 컬럼은 건너뜁니다: {', '.join(missing)})")
-
-        connection.execute("ATTACH DATABASE ? AS share", (str(destination),))
-        types = {row[1]: row[2] for row in connection.execute("PRAGMA table_info(jobs)")}
         all_columns = columns + [name for name in EMPTY_COLUMNS if name in available]
         definition = ", ".join(
-            f"{name} {types.get(name, 'TEXT')}" + (" PRIMARY KEY" if name == "job_id" else "")
+            f"{name} INTEGER" + (" PRIMARY KEY" if name == "job_id" else "")
+            if name in _BOOL_FIELDS or name in {"min_career_years", "missing_runs", "revisions"}
+            else f"{name} TEXT" + (" PRIMARY KEY" if name == "job_id" else "")
             for name in all_columns
         )
-        # 값을 옮기는 컬럼은 그대로, 비우는 컬럼은 상수로 채운다.
-        selected = [*columns, *(EMPTY_COLUMNS[name] for name in EMPTY_COLUMNS if name in available)]
-        with connection:
-            connection.execute(f"CREATE TABLE share.jobs ({definition})")
-            connection.execute(
-                f"INSERT INTO share.jobs ({', '.join(all_columns)}) "
-                f"SELECT {', '.join(selected)} FROM main.jobs"
-            )
-            # 첨삭은 job_id 하나로 찾는다. 상태 조회도 자주 쓴다.
-            connection.execute("CREATE INDEX share.jobs_status ON jobs(status)")
-        rows = connection.execute("SELECT COUNT(*) FROM share.jobs").fetchone()[0]
-        connection.execute("DETACH DATABASE share")
+        dest = sqlite3.connect(str(destination))
+        dest.execute(f"CREATE TABLE jobs ({definition})")
+        dest.execute("CREATE INDEX jobs_status ON jobs(status)")
+        placeholders = ", ".join("?" for _ in all_columns)
+        insert = f"INSERT INTO jobs ({', '.join(all_columns)}) VALUES ({placeholders})"
+        rows = 0
+        for record in store.iter_records():
+            values = []
+            for name in all_columns:
+                if name in EMPTY_COLUMNS:
+                    values.append("{}")
+                    continue
+                if name in ("first_seen_at", "last_seen_at", "missing_runs", "revisions"):
+                    raw = getattr(record, name)
+                else:
+                    raw = getattr(record.job, name)
+                if name in _JSON_FIELDS:
+                    raw = json.dumps(raw if raw is not None else ([] if name != "field_provenance" else {}), ensure_ascii=False)
+                elif name in _BOOL_FIELDS:
+                    raw = 1 if raw else 0
+                values.append(raw)
+            dest.execute(insert, values)
+            rows += 1
+        dest.commit()
+        dest.execute("VACUUM")
+        dest.close()
     finally:
-        connection.close()
-
-    # 빈 공간을 없애 파일을 줄인다.
-    compact = sqlite3.connect(str(destination))
-    try:
-        compact.execute("VACUUM")
-    finally:
-        compact.close()
+        store.close()
 
     print(f"  공고 {rows:,}건 · {_mb(destination):.1f} MB → {destination}")
     return destination
