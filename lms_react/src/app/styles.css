@@ -9483,19 +9483,53 @@ a.link {
 .resume-others__name {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
 
-.resume-others__toggle {
-  margin-left: -6px;
+.resume-others__row {
+  cursor: pointer;
 }
 
-.resume-others__child td {
+.resume-others__row:hover td {
   background: color-mix(in srgb, var(--primary) 4%, var(--surface));
 }
 
+/* 제목 뒤 「맞춤 n ⌄」 — Flutter 의 primaryLight 알약 */
+.resume-copies {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px 3px 2px 7px;
+  border-radius: 99px;
+  background: var(--primary-light, color-mix(in srgb, var(--primary) 14%, transparent));
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.resume-copies .icon {
+  transition: transform 0.16s ease;
+}
+
+.resume-copies .resume-copies__icon--open {
+  transform: rotate(180deg);
+}
+
+/* 펼친 맞춤 이력서 — 위아래를 좁게, 제목 앞 ↳ */
+.resume-others__child td {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
 .resume-others__child .resume-others__name {
-  padding-left: 18px;
-  color: var(--text-secondary);
+  padding-left: 6px;
+  color: var(--text-hint);
+}
+
+.resume-others__child-title {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
 }

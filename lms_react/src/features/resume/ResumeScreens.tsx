@@ -265,34 +265,29 @@ function StatusBadge({ resume }: { resume: Resume }) {
   return <Badge tone={tone}>{ResumeStatusLabels[resume.status]}</Badge>;
 }
 
-/** 「다른 이력서」 표의 한 줄 — 맞춤 이력서가 딸려 있으면 눌러서 밑으로 펼친다 */
+/**
+ * 「다른 이력서」 표의 한 줄 — Flutter _StudentTable 그대로.
+ * 맞춤 이력서가 딸린 줄은 제목 뒤 「맞춤 n ⌄」 알약이 붙고, 줄을 누르면 바로 밑에 좁은 줄로 펼친다(열기는 ⋯ 메뉴).
+ * 딸린 것이 없으면 줄을 누르면 연다. 승인된 이력서 · 기본 이력서는 지우지 않는다.
+ */
 function ResumeTableRows({ row }: { row: ResumeRow }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const { resume, children } = row;
-  const line = (r: Resume, child: boolean) => (
-    <tr key={r.id} className={child ? 'resume-others__child' : undefined}>
-      <td>
-        <span className="resume-others__name">
-          {child ? (
-            <Icon name="subdirectory_arrow_right" size={16} />
-          ) : children.length > 0 ? (
-            <button
-              type="button"
-              className="icon-btn resume-others__toggle"
-              onClick={() => setOpen((v) => !v)}
-              aria-expanded={open}
-              aria-label={open ? '맞춤 이력서 접기' : '맞춤 이력서 펼치기'}
-            >
-              <Icon name={open ? 'expand_less' : 'expand_more'} size={18} />
-            </button>
-          ) : null}
-          <Link className="resume-others__link" to={resumeEditPath(r.id)}>
-            {r.title}
-          </Link>
-          {!child && children.length > 0 && <span className="hint">맞춤 {children.length}</span>}
-        </span>
-      </td>
+  const hasCopies = children.length > 0;
+  const openResume = (r: Resume) => navigate(resumeEditPath(r.id));
+  const menu = (r: Resume) => (
+    <MoreMenu
+      items={[
+        { key: 'open', label: '열기', onSelect: () => openResume(r) },
+        ...(r.status === 'approved' || r.isBaseResume
+          ? []
+          : [{ key: 'delete', label: '삭제', danger: true, onSelect: () => deleteResume(r.id) }]),
+      ]}
+    />
+  );
+  const cells = (r: Resume) => (
+    <>
       <td>
         <StatusBadge resume={r} />
       </td>
@@ -307,20 +302,43 @@ function ResumeTableRows({ row }: { row: ResumeRow }) {
       </td>
       <td className="hint">{r.feedbackCount === 0 ? '피드백 없음' : `${r.feedbackCount}건`}</td>
       <td className="hint">{formatDate(r.updatedAt)}</td>
-      <td>
-        <MoreMenu
-          items={[
-            { key: 'open', label: '열기', onSelect: () => navigate(resumeEditPath(r.id)) },
-            { key: 'delete', label: '삭제', danger: true, onSelect: () => deleteResume(r.id) },
-          ]}
-        />
-      </td>
-    </tr>
+      {/* ⋯ 메뉴를 눌러도 줄이 펼쳐지거나 열리지 않게 */}
+      <td onClick={(e) => e.stopPropagation()}>{menu(r)}</td>
+    </>
   );
+
   return (
     <>
-      {line(resume, false)}
-      {open && children.map((c) => line(c, true))}
+      <tr
+        className="resume-others__row"
+        onClick={() => (hasCopies ? setOpen((v) => !v) : openResume(resume))}
+        aria-expanded={hasCopies ? open : undefined}
+      >
+        <td>
+          <span className="resume-others__name">
+            <span className="resume-others__link">{resume.title}</span>
+            {hasCopies && (
+              <span className="resume-copies">
+                맞춤 {children.length}
+                <Icon name="expand_more" size={16} className={open ? 'resume-copies__icon--open' : undefined} />
+              </span>
+            )}
+          </span>
+        </td>
+        {cells(resume)}
+      </tr>
+      {open &&
+        children.map((c) => (
+          <tr key={c.id} className="resume-others__row resume-others__child" onClick={() => openResume(c)}>
+            <td>
+              <span className="resume-others__name">
+                <Icon name="subdirectory_arrow_right" size={16} />
+                <span className="resume-others__child-title">{c.title}</span>
+              </span>
+            </td>
+            {cells(c)}
+          </tr>
+        ))}
     </>
   );
 }

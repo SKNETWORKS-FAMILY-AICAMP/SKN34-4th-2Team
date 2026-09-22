@@ -688,6 +688,33 @@ export const seedResumes: Resume[] = [
     revisionCount: 3,
     updatedAt: daysAgo(1),
   },
+  // 공고 맞춤 이력서 — 기본 이력서(r-demo-1)에서 둘, 예전 원본(r-demo-2)에서 둘. 화면은 원본 밑에 묶는다
+  ...(
+    [
+      ['r-demo-t1', 'r-demo-1', '(주)데이터웨이브 맞춤 이력서', 'draft', 2],
+      ['r-demo-t2', 'r-demo-1', '(주)클라우드핏 맞춤 이력서', 'feedbackRequested', 3],
+      ['r-demo-t3', 'r-demo-2', '(주)스마트팩토리 맞춤 이력서', 'draft', 6],
+      ['r-demo-t4', 'r-demo-2', '(주)핀테크랩 맞춤 이력서', 'approved', 8],
+    ] as const
+  ).map(
+    ([id, baseResumeId, title, status, days]): Resume => ({
+      id,
+      userId: DemoAccounts.studentUid,
+      userDisplayName: '이수민',
+      title,
+      status,
+      content: demoResumeContent,
+      sections: { basicInfo: true, coreCompetencies: true, techStack: true, projects: true, selfIntroduction: true },
+      isBaseResume: false,
+      baseResumeId,
+      linkedJobId: `demo-job-${id}`,
+      feedbackCount: 0,
+      lastSeenFeedbackCount: 0,
+      readFeedbackIds: [],
+      revisionCount: 1,
+      updatedAt: daysAgo(days),
+    }),
+  ),
   {
     id: 'r-demo-3',
     userId: 'demo-student-002',
