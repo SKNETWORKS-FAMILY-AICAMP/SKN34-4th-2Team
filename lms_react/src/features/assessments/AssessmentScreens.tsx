@@ -24,13 +24,15 @@ import {
   StatTile,
   TextInput,
 } from '../../ui/components';
-import { formatDate } from '../../utils/format';
+import { formatDate, toTime } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
 
 export function windowState(assessment: Assessment): 'before' | 'open' | 'closed' {
   const now = Date.now();
-  if (now < assessment.startAt.getTime()) return 'before';
-  if (now > assessment.endAt.getTime()) return 'closed';
+  const startMs = toTime(assessment.startAt);
+  const endMs = toTime(assessment.endAt);
+  if (now < startMs) return 'before';
+  if (now > endMs) return 'closed';
   return 'open';
 }
 

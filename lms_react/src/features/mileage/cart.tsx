@@ -1,12 +1,8 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
+import { create } from 'zustand';
 
 import type { MileageCartItem } from '../../domain/types';
 
-/**
- * 장바구니 — Flutter `mileageCartProvider` 자리.
- *
- * 화면을 옮겨 다니는 동안만 살아 있으면 된다. 저장소에 넣지 않는다.
- */
 interface Cart {
   items: MileageCartItem[];
   add(item: MileageCartItem): void;
@@ -15,43 +11,26 @@ interface Cart {
   clear(): void;
 }
 
-const CartContext = createContext<Cart | null>(null);
+export const useCart = create<Cart>((set) => ({
+  items: [],
+  add: (item) =>
+    set((current) => {
+      const existing = current.items.find((i) => i.productId === item.productId);
+      if (existing === undefined) return { items: [...current.items, item] };
+      return {
+        items: current.items.map((i) =>
+          i.productId === item.productId ? { ...i, quantity: i.quantity + item.quantity } : i,
+        ),
+      };
+    }),
+  remove: (productId) => set((current) => ({ items: current.items.filter((i) => i.productId !== productId) })),
+  setQuantity: (productId, quantity) =>
+    set((current) => ({
+      items: current.items.map((i) => (i.productId === productId ? { ...i, quantity } : i)),
+    })),
+  clear: () => set({ items: [] }),
+}));
 
 export function CartProvider({ children }: { children: ReactNode }) {
-  const [items, setItems] = useState<MileageCartItem[]>([]);
-
-  const add = useCallback((item: MileageCartItem) => {
-    setItems((current) => {
-      const existing = current.find((i) => i.productId === item.productId);
-      if (existing === undefined) return [...current, item];
-      return current.map((i) =>
-        i.productId === item.productId ? { ...i, quantity: i.quantity + item.quantity } : i,
-      );
-    });
-  }, []);
-
-  const remove = useCallback((productId: string) => {
-    setItems((current) => current.filter((i) => i.productId !== productId));
-  }, []);
-
-  const setQuantity = useCallback((productId: string, quantity: number) => {
-    setItems((current) =>
-      current.map((i) => (i.productId === productId ? { ...i, quantity } : i)),
-    );
-  }, []);
-
-  const clear = useCallback(() => setItems([]), []);
-
-  const value = useMemo<Cart>(
-    () => ({ items, add, remove, setQuantity, clear }),
-    [items, add, remove, setQuantity, clear],
-  );
-
-  return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
-}
-
-export function useCart(): Cart {
-  const cart = useContext(CartContext);
-  if (cart === null) throw new Error('CartProvider 밖에서 useCart를 불렀다');
-  return cart;
+  return <>{children}</>;
 }

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { RoutePaths, homeFor } from '../../app/routePaths';
+import { homeFor, RoutePaths } from '../../app/routePaths';
 import { getDb } from '../../data/store';
 import { DemoAccounts } from '../../data/seed';
+import type { UserRole } from '../../domain/types';
 import { RoleLabels } from '../../domain/constants';
 import { Icon } from '../../ui/Icon';
 import { easeInCubic, easeInOutCubic, interval, lerp } from '../../utils/curves';
@@ -22,7 +23,7 @@ import { useSession } from './session';
  */
 const EXIT_MS = 820;
 export function LoginScreen() {
-  const { signIn } = useSession();
+  const { signIn, user, loading } = useSession();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -42,23 +43,27 @@ export function LoginScreen() {
     [],
   );
 
-  const goHome = (address: string) => {
-    const user = getDb().users.find((u) => u.email.toLowerCase() === address.trim().toLowerCase());
-    navigate(user === undefined ? RoutePaths.dashboard : homeFor(user.role), { replace: true });
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (loading || hydratedRef.current) return;
+    hydratedRef.current = true;
+    if (user !== null) navigate(homeFor(user.role), { replace: true });
+  }, [loading, user, navigate]);
+
+  const goHome = (role: UserRole) => {
+    navigate(homeFor(role), { replace: true });
   };
 
   /** 로그인 성공 연출. 끝나야 화면을 넘긴다. */
-  const enter = (address: string) => {
-    const user = getDb().users.find((u) => u.email.toLowerCase() === address.trim().toLowerCase());
-    // 비밀번호를 바꿔야 하는 사람은 연출 없이 곧장 보낸다 — 원본과 같다.
-    if (user?.mustChangePassword === true) {
-      goHome(address);
+  const enter = (role: UserRole, mustChangePassword: boolean) => {
+    if (mustChangePassword) {
+      navigate(RoutePaths.changePassword, { replace: true });
       return;
     }
 
     // 움직임을 줄여 달라고 한 사람에게는 연출 없이 곧장 넘어간다.
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      goHome(address);
+      goHome(role);
       return;
     }
 
@@ -76,7 +81,7 @@ export function LoginScreen() {
       }
 
       if (t < 1) frameRef.current = window.requestAnimationFrame(step);
-      else goHome(address);
+      else goHome(role);
     };
     frameRef.current = window.requestAnimationFrame(step);
   };
@@ -84,12 +89,14 @@ export function LoginScreen() {
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (exiting) return;
-    const result = signIn(email, password);
-    if (!result.ok) {
-      setError(result.message);
-      return;
-    }
-    enter(email);
+    void (async () => {
+      const result = await signIn(email, password);
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      enter(result.role, result.mustChangePassword);
+    })();
   };
 
   const quickLogin = (address: string) => {
@@ -97,7 +104,14 @@ export function LoginScreen() {
     setEmail(address);
     setPassword(DemoAccounts.password);
     setError(null);
-    if (signIn(address, DemoAccounts.password).ok) enter(address);
+    void (async () => {
+      const result = await signIn(address, DemoAccounts.password);
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      enter(result.role, result.mustChangePassword);
+    })();
   };
 
   return (

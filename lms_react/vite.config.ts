@@ -6,6 +6,11 @@ export default defineConfig({
   // /admin/students 같은 깊은 경로에서 자산을 그 아래에서 찾는다.
   base: '/',
   plugins: [react()],
+  server: {
+    proxy: {
+      '/api': 'http://127.0.0.1:8000',
+    },
+  },
   test: {
     environment: 'jsdom',
     setupFiles: ['src/test/setup.ts'],

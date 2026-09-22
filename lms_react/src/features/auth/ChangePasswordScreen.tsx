@@ -5,13 +5,16 @@ import { homeFor } from '../../app/routePaths';
 import { Button, Card, Field, TextInput } from '../../ui/components';
 import { useSession } from './session';
 
-/** 비밀번호 변경 — features/auth/presentation/change_password_screen.dart */
+/** 첫 로그인 비밀번호 변경 — 지금 바꾸거나 나중에 마이페이지에서 바꾼다. */
 export function ChangePasswordScreen() {
-  const { user, changePassword } = useSession();
+  const { user, changePassword, skipPasswordChange } = useSession();
   const navigate = useNavigate();
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const goHome = () => navigate(user === null ? '/' : homeFor(user.role), { replace: true });
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -23,8 +26,27 @@ export function ChangePasswordScreen() {
       setError('두 번 입력한 비밀번호가 다릅니다.');
       return;
     }
-    changePassword(next);
-    navigate(user === null ? '/' : homeFor(user.role), { replace: true });
+    setSaving(true);
+    void changePassword(next).then((result) => {
+      if (!result.ok) {
+        setError(result.message);
+        setSaving(false);
+        return;
+      }
+      goHome();
+    });
+  };
+
+  const skip = () => {
+    setSaving(true);
+    void skipPasswordChange().then((result) => {
+      if (!result.ok) {
+        setError(result.message);
+        setSaving(false);
+        return;
+      }
+      goHome();
+    });
   };
 
   return (
@@ -38,7 +60,12 @@ export function ChangePasswordScreen() {
           <Field label="새 비밀번호 확인" error={error ?? undefined}>
             <TextInput type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
           </Field>
-          <Button type="submit">변경하고 시작하기</Button>
+          <Button type="submit" disabled={saving}>
+            {saving ? '처리 중' : '변경하고 시작하기'}
+          </Button>
+          <Button type="button" variant="outline" disabled={saving} onClick={skip}>
+            나중에 변경하기
+          </Button>
         </form>
       </Card>
     </div>

@@ -13,6 +13,7 @@ import {
   useYoutubeRecommendations,
 } from '../../data/repository';
 import { dateKeyOf } from '../../data/seed';
+import { toTime } from '../../utils/format';
 import { AttendanceColorVars, RecordTypeLabels, SubmissionStatusLabels } from '../../domain/constants';
 import type { Notice } from '../../domain/types';
 import { StudentTargets } from '../../tour/targets';
@@ -427,7 +428,7 @@ function FormTasksSection() {
   const tasks = useFormTasks().filter((t) => t.published);
   const responses = useFormResponses();
 
-  const open = tasks.filter((t) => t.dueAt.getTime() >= Date.now()).slice(0, 3);
+  const open = tasks.filter((t) => toTime(t.dueAt) >= Date.now()).slice(0, 3);
   const notDone = open.filter((t) => !responses.some((r) => r.taskId === t.id && r.userId === user.uid));
 
   return (

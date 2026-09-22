@@ -458,7 +458,7 @@
   background: rgba(0, 0, 0, 0.45);
   display: grid;
   place-items: center;
-  z-index: 900;
+  z-index: 1100;
   padding: 16px;
 }
 

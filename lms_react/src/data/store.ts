@@ -165,6 +165,43 @@ export function mutate(change: (current: Database) => Partial<Database>): void {
 }
 
 /** 테스트·「데이터 초기화」용 */
+export function emptyDb(): Database {
+  return {
+    users: [],
+    cohorts: [],
+    notices: [],
+    scheduledNotices: [],
+    alertPopups: [],
+    posts: [],
+    postComments: [],
+    todos: [],
+    submissions: [],
+    attendances: [],
+    resumes: [],
+    resumeFeedbacks: [],
+    assessments: [],
+    assessmentQuestions: {},
+    assessmentSubmissions: [],
+    inflearnPackages: [],
+    youtubeRecommendations: [],
+    studySources: [],
+    studyNotes: [],
+    curriculumSheets: [],
+    formTasks: [],
+    formResponses: [],
+    mileageProducts: [],
+    mileageTransactions: [],
+    purchaseRequests: [],
+    mileageSettings: { categoryLimits: {}, accrualRules: {} },
+    seating: { id: '', cohortId: '', rows: 0, cols: 0, cells: [], seats: [], published: false },
+    seatPresence: [],
+    qualExams: [],
+    aiLogs: [],
+    aiEvals: [],
+    alertDismissals: {},
+  };
+}
+
 export function resetDb(): void {
   db = initial();
   listeners.forEach((l) => l());

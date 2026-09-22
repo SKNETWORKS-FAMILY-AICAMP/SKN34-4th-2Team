@@ -8,6 +8,7 @@ import {
   useSubmissions,
 } from '../../data/repository';
 import { RecordTypeLabels } from '../../domain/constants';
+import { toTime } from '../../utils/format';
 import { Icon } from '../../ui/Icon';
 import { useCurrentUser } from '../auth/session';
 
@@ -26,7 +27,7 @@ export function AdminDashboardScreen() {
   const pendingRecords = submissions.filter((s) => s.status === 'pending');
   const pendingResumes = resumes.filter((r) => r.status === 'feedbackRequested');
   const pendingPurchases = requests.filter((r) => r.status === 'pending');
-  const openForms = forms.filter((f) => f.published && f.dueAt.getTime() >= Date.now());
+  const openForms = forms.filter((f) => f.published && toTime(f.dueAt) >= Date.now());
 
   const menus = [
     {

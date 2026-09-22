@@ -4,7 +4,6 @@ import {
   type Density,
   type ThemeMode,
 } from '../../app/appearance';
-import { resetDb } from '../../data/store';
 import { Icon } from '../../ui/Icon';
 
 /**
@@ -99,15 +98,6 @@ export function SettingsScreen() {
         ))}
       </section>
 
-      <section className="panel settings__card">
-        <h2 className="settings__title">프로토타입 데이터</h2>
-        <p className="settings__sub">
-          이 프로토타입의 데이터는 메모리에만 있습니다. 새로고침하면 처음 상태로 돌아갑니다.
-        </p>
-        <button type="button" className="btn btn--danger btn--md settings__reset" onClick={resetDb}>
-          데모 데이터 초기화
-        </button>
-      </section>
     </div>
   );
 }
