@@ -37,16 +37,32 @@ export interface ResumeRow {
  * - 원본이 지워졌거나 안 보이면: 찾을 길이 없어지므로 표에 한 줄로 남긴다.
  */
 export function groupResumes(resumes: Resume[], base: Resume | undefined): { baseTailored: Resume[]; rows: ResumeRow[] } {
+  const byId = new Map(resumes.map((r) => [r.id, r]));
+  /**
+   * 맞춤 이력서의 맨 위 원본 — 「맞춤 이력서 → 그걸로 만든 AI 첨삭 작업본」처럼 사슬로 이어질 수 있어
+   * 원본이 맞춤이 아닐 때까지 따라 올라간다. 원본을 못 찾으면 undefined(표에 한 줄로 남긴다).
+   */
+  const rootOf = (r: Resume): string | undefined => {
+    const seen = new Set<string>([r.id]);
+    let cur = r;
+    while (isTailored(cur)) {
+      const up = byId.get(cur.baseResumeId ?? '');
+      if (up === undefined || seen.has(up.id)) return up === undefined ? undefined : up.id;
+      seen.add(up.id);
+      if (!isTailored(up)) return up.id;
+      cur = up;
+    }
+    return undefined;
+  };
   const others = resumes.filter((r) => r.id !== base?.id);
   const parents = others.filter((r) => !isTailored(r));
   const parentIds = new Set(parents.map((r) => r.id));
-  const baseTailored = others.filter((r) => isTailored(r) && base !== undefined && r.baseResumeId === base.id);
-  const rows: ResumeRow[] = parents.map((p) => ({
-    resume: p,
-    children: others.filter((r) => isTailored(r) && r.baseResumeId === p.id),
-  }));
-  const orphans = others.filter(
-    (r) => isTailored(r) && r.baseResumeId !== base?.id && !parentIds.has(r.baseResumeId ?? ''),
-  );
+  const tailored = others.filter(isTailored);
+  const baseTailored = base === undefined ? [] : tailored.filter((r) => rootOf(r) === base.id);
+  const rows: ResumeRow[] = parents.map((p) => ({ resume: p, children: tailored.filter((r) => rootOf(r) === p.id) }));
+  const orphans = tailored.filter((r) => {
+    const root = rootOf(r);
+    return root === undefined || (root !== base?.id && !parentIds.has(root));
+  });
   return { baseTailored, rows: [...rows, ...orphans.map((r) => ({ resume: r, children: [] }))] };
 }

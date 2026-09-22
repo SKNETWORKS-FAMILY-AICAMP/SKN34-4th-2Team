@@ -891,6 +891,9 @@ class Etl:
     def _resumes(self) -> None:
         fb_n = rev_n = 0
         tailored_n = 0
+        # 원본 · 사본 연결 — 가리키는 이력서가 뒤에 들어올 수 있어 다 넣은 뒤 잇는다
+        links: list[tuple[int, str | None, str | None]] = []  # (resumes.id, baseResumeId, sourceTailoredResumeId)
+        tailored_rid: dict[str, int] = {}  # tailoredResumes 문서 id → resumes.id
         for code, cid, ref in self._each_cohort():
             items = stream(ref.collection("resumes"))
             self.r.fs_add("…/resumes", len(items))
@@ -904,10 +907,13 @@ class Etl:
                     """INSERT INTO resumes (legacy_id, cohort_id, user_id, title, status, content, sections, is_base_resume, linked_job_id, created_at, updated_at)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                     (doc.id, cid, user_id, d.get("title"), d.get("status"), js(dump(d.get("content") or {})),
-                     js(dump(d.get("sections") or {})), bool(d.get("isBaseResume", False)), blank(d.get("linkedJobId")),
+                     js(dump(d.get("sections") or {})), bool(d.get("isBaseResume", False)),
+                     blank(d.get("jobId") or d.get("linkedJobId")),
                      ts(d.get("createdAt")), ts(d.get("updatedAt"))),
                 )
                 self.resumes[doc.id] = rid
+                if rid and (blank(d.get("baseResumeId")) or blank(d.get("sourceTailoredResumeId"))):
+                    links.append((rid, blank(d.get("baseResumeId")), blank(d.get("sourceTailoredResumeId"))))
                 pending_reads.append((rid, d, user_id))
                 for fb in stream(doc.reference.collection("feedback")):
                     fb_n += 1
@@ -939,13 +945,15 @@ class Etl:
                             tuid = self.uid(td.get("userId") or d.get("userId"))
                             if not tuid:
                                 continue
-                            self.insert(
+                            trid = self.insert(
                                 """INSERT INTO resumes (legacy_id, cohort_id, user_id, title, status, content, sections, is_base_resume, base_resume_id, linked_job_id, created_at, updated_at)
                                    VALUES (%s,%s,%s,%s,%s,%s,%s,false,%s,%s,%s,%s) RETURNING id""",
                                 (f"{doc.id}/tailored/{tdoc.id}", cid, tuid, td.get("title"), td.get("status"),
                                  js(dump(td.get("content") or {})), js(dump(td.get("sections") or {})), rid,
-                                 blank(td.get("linkedJobId")), ts(td.get("createdAt")), ts(td.get("updatedAt"))),
+                                 blank(td.get("jobId") or td.get("linkedJobId")), ts(td.get("createdAt")), ts(td.get("updatedAt"))),
                             )
+                            if trid:
+                                tailored_rid[tdoc.id] = trid
             for rid, d, user_id in pending_reads:
                 for fb_id in arr(d.get("readFeedbackIds")):
                     fid = self.feedback.get(str(fb_id))
@@ -956,6 +964,19 @@ class Etl:
                     if fid:
                         # reviewer ids unknown; keep student+reviewer in one table per user if we had reviewer uid. skip unknown.
                         pass
+        linked = 0
+        for rid, base_doc, source_doc in links:
+            base = self.resumes.get(base_doc) if base_doc else None
+            source = (tailored_rid.get(source_doc) or self.resumes.get(source_doc)) if source_doc else None
+            if base is None and source is None:
+                continue
+            self.cur.execute(
+                "UPDATE resumes SET base_resume_id = COALESCE(%s, base_resume_id), source_tailored_resume_id = %s WHERE id = %s",
+                (base, source, rid),
+            )
+            linked += 1
+        if links:
+            self.r.diffs.append(f"resumes 원본 · 사본 연결 {linked}/{len(links)}건 (baseResumeId · sourceTailoredResumeId)")
         self.r.fs_add("…/resumes/{id}/feedback", fb_n)
         self.r.fs_add("…/resumes/{id}/revisions", rev_n)
         if tailored_n:

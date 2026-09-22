@@ -39,4 +39,11 @@ describe('공고 맞춤 이력서 묶음', () => {
       ['lost', []],
     ]);
   });
+
+  it('맞춤 이력서로 만든 AI 첨삭 작업본은 맨 위 원본 밑으로', () => {
+    const chain = [base, r('m1', { baseResumeId: 'base' }), r('w1', { baseResumeId: 'm1' }), r('other'), r('m2', { baseResumeId: 'other' }), r('w2', { baseResumeId: 'm2' })];
+    const g = groupResumes(chain, base);
+    expect(g.baseTailored.map((x) => x.id)).toEqual(['m1', 'w1']);
+    expect(g.rows.map((row) => [row.resume.id, row.children.map((c) => c.id)])).toEqual([['other', ['m2', 'w2']]]);
+  });
 });
