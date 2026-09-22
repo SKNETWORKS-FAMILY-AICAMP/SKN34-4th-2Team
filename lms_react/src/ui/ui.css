@@ -365,6 +365,8 @@
 
 .checkbox,
 .toggle {
+  /* 숨긴 체크박스(position: absolute)의 기준점 — 없으면 표의 가로 스크롤 상자를 벗어나 화면을 밀어낸다 */
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 8px;
