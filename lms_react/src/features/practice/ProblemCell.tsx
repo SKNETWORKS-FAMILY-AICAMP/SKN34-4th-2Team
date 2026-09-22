@@ -4,6 +4,7 @@ import type { PracticeAttempt, PracticeKind, PracticeProblem, PracticeReport, Pr
 import { Icon } from '../../ui/Icon';
 import { CodeEditor } from './CodeEditor';
 import { NotebookMarkdown } from './NotebookMarkdown';
+import { KIND_LABEL } from './practiceLabels';
 import {
   gradeReport,
   outputMatches,
@@ -15,13 +16,7 @@ import {
 import type { RunResult } from './pythonProtocol';
 import { HIDE_AT, REASON_LABEL } from './reports';
 
-export const KIND_LABEL: Record<PracticeKind, string> = {
-  concept: '개념',
-  code_output: '출력 예상',
-  code_blank: '빈칸 채우기',
-  code_fix: '디버깅',
-  code_write: '함수 작성',
-};
+export { KIND_LABEL };
 
 const KIND_HINT: Partial<Record<PracticeKind, string>> = {
   code_blank: '`__1__` 자리를 알맞은 식으로 바꾸고 채점하세요. 같은 결과를 내는 다른 식도 정답입니다.',

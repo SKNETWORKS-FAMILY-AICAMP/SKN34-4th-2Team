@@ -6,7 +6,7 @@ import { todayKey } from '../../data/store';
 import type { PracticeKind, PracticeProblem } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { useCurrentUser } from '../auth/session';
-import { KIND_LABEL } from './ProblemCell';
+import { KIND_LABEL } from './practiceLabels';
 import { useIsHidden } from './useIsHidden';
 import {
   dueRetries,

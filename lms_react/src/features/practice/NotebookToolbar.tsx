@@ -1,12 +1,14 @@
 import { useState } from 'react';
 
+import type { PracticeSet } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
+import { NotebookFileMenu } from './NotebookFileMenu';
 import { MINI_PROBLEMS } from './notebookExamples';
 import { canPromptInput } from './pythonRunner';
 import type { Notebook } from './useNotebook';
 
-/** 노트북 도구 줄 — 모두 실행 · 중단 · 변수 초기화 · 셀 추가 · 입력값 · 단축키 */
-export function NotebookToolbar({ nb }: { nb: Notebook }) {
+/** 노트북 도구 줄 — 모두 실행 · 중단 · 변수 초기화 · 셀 추가 · 입력값 · 파일 · 단축키 */
+export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | undefined }) {
   const [showStdin, setShowStdin] = useState(false);
   return (
     <>
@@ -44,6 +46,7 @@ export function NotebookToolbar({ nb }: { nb: Notebook }) {
           입력값{nb.stdinLines ? ` · ${nb.stdinLines}줄` : ''}
         </button>
         <span className="py-grow" />
+        <NotebookFileMenu nb={nb} set={set} />
         <ShortcutHelp />
       </div>
 

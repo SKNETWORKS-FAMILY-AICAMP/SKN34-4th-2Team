@@ -71,7 +71,7 @@ function Playground({ setId, focusProblem }: { setId: string | null; focusProble
         </span>
       </header>
 
-      <NotebookToolbar nb={nb} />
+      <NotebookToolbar nb={nb} set={mode.set} />
 
       <section className="py-examples" aria-label="예시 셀 추가">
         <span className="py-examples__label">예시 셀 추가</span>

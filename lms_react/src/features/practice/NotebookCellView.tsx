@@ -97,6 +97,7 @@ function CodeOrMarkdownCell({ cell, index, total, nb }: { cell: Cell; index: num
   return (
     <article
       className={`py-nb-cell py-nb-cell--${cell.type} py-nb-cell--${cell.state}${cell.id === nb.activeId ? ' py-nb-cell--active' : ''}`}
+      data-cell-id={cell.id}
       onClick={() => nb.setActiveId(cell.id)}
     >
       <div className="py-nb-cell__prompt" aria-label={isMarkdown ? undefined : '실행 번호'}>

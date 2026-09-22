@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { PracticeSet } from '../../domain/types';
 import type { MiniProblem } from './notebookExamples';
+import type { ImportedCell } from './notebookFile';
 import {
   CLEAR_OUTPUT,
   loadNotebook,
@@ -307,6 +308,31 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
     requestAnimationFrame(() => focusCell(work.id));
   };
 
+  /**
+   * 파일에서 불러온 셀 — 바꾸기면 노트북을 통째로 갈고 변수도 비운다(앞 노트북의 변수가 섞이지 않게).
+   * 붙이기면 「불러온 파일」 제목 셀과 함께 끝에 둔다. 문제 세트에서는 붙이기만 쓴다.
+   */
+  const importCells = (list: ImportedCell[], how: 'replace' | 'append', title: string) => {
+    const made = list.map((c) => newCell(c.source, c.type));
+    if (made.length === 0) return;
+    if (how === 'replace') {
+      if (busy) runner.stop();
+      runner.reset(SESSION);
+      counter.current = 0;
+      setKernelNote('');
+      setCells(made);
+      setActiveId(made[0].id);
+      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+      return;
+    }
+    const head = newCell(`#### 불러온 파일 · ${title}`, 'markdown');
+    setCells((prev) => [...prev, head, ...made]);
+    setActiveId(head.id);
+    requestAnimationFrame(() =>
+      document.querySelector(`[data-cell-id="${head.id}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }),
+    );
+  };
+
   const addExample = (code: string, type: CellType) => {
     const created = insertAfter(cellsRef.current[cellsRef.current.length - 1]?.id ?? '', code, type);
     if (type === 'code') requestAnimationFrame(() => focusCell(created));
@@ -339,6 +365,7 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
     editMarkdown,
     addExample,
     addMiniProblem,
+    importCells,
     runProblemInSession,
     gradeProblem,
     answerInput,

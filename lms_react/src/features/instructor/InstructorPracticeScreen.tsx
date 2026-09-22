@@ -3,7 +3,7 @@ import { Icon } from '../../ui/Icon';
 import { Badge } from '../../ui/components';
 import { formatRelative } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
-import { KIND_LABEL } from '../practice/ProblemCell';
+import { KIND_LABEL } from '../practice/practiceLabels';
 import { NotebookMarkdown } from '../practice/NotebookMarkdown';
 import { flaggedProblems, HIDE_AT, REASON_LABEL, type FlaggedProblem } from '../practice/reports';
 import { shortDate } from '../practice/review';

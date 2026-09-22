@@ -9227,3 +9227,51 @@ a.link {
     min-width: 0;
   }
 }
+
+/* 연습장 · 파일 불러오기 / 내려받기 */
+.py-file {
+  gap: 6px;
+}
+
+.py-file .py-picker__menu {
+  left: auto;
+  right: 0;
+  min-width: 260px;
+}
+
+.py-import {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+  font-size: 13px;
+}
+
+.py-import--error {
+  border-color: color-mix(in srgb, var(--error) 45%, var(--border));
+  background: color-mix(in srgb, var(--error) 6%, var(--surface));
+}
+
+.py-import__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.py-import__text small {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.py-toolbar .py-import {
+  flex-basis: 100%;
+  order: 99;
+  margin: 4px 0 0;
+}
