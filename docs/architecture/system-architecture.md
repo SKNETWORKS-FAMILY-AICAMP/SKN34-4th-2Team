@@ -1,5 +1,6 @@
 # PLAYDATA LMS / LXP - Target Architecture
 
+## 역할
 - React + Vite: 웹 클라이언트
 - Django: LMS 업무 API, 인증/권한, CRUD
 - PostgreSQL: 업무 데이터의 canonical source of truth
@@ -11,7 +12,8 @@
 - LangGraph: 복합 AI workflow
 - Neo4j: Career Knowledge Graph
 
-성취도 평가:
-- 평가/문항/응시/채점 데이터는 PostgreSQL에 저장한다.
-- LLM 문항 생성은 FastAPI AI 계층에서 수행할 수 있다.
-- 생성 결과는 초안이며 Django LMS에서 강사가 검토 후 확정/발행한다.
+## 마일리지 처리
+- mileage_transactions가 마일리지 원장이다.
+- 구매 요청 승인/환급/소멸은 Django DB transaction으로 처리한다.
+- users.mileage_balance를 캐시로 유지할 경우 원장 거래와 동일 transaction에서 갱신한다.
+- 종강 2주 후 소멸은 Celery 예약 작업으로 처리할 수 있다.
