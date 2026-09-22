@@ -64,9 +64,9 @@ try {
   await page.locator('.py-notebook').screenshot({ path: 'tools/shots/report-hidden.png', clip: undefined }).catch(() => {});
   await page.locator('.py-nb-cell--hidden').screenshot({ path: 'tools/shots/report-hidden-cell.png' });
 
-  // 학습실 · 다시 풀 문제에서도 빠지는지
-  await go('/study-room');
-  say('학습실 다시 풀 문제', await page.locator('.practice-sets').innerText().then((t) => (t.match(/다시 풀 문제[^\n]*/) ?? [''])[0]));
+  // 공부방 · 다시 풀 문제에서도 빠지는지
+  await go('/study-room/notes');
+  say('공부방 다시 풀 문제', await page.locator('.practice-sets').innerText().then((t) => (t.match(/다시 풀 문제[^\n]*/) ?? [''])[0]));
 
   await login('강사');
   await go('/instructor/practice');

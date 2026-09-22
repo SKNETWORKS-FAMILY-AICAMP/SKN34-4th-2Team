@@ -420,6 +420,11 @@ a.link {
   top: 76px;
 }
 
+/* 목록이 왼쪽에 먼저 오는 배치 — 공부방 노트 화면 */
+.split--side-first {
+  grid-template-columns: 260px minmax(0, 1fr);
+}
+
 /* ── 로그인 ───────────────────────────────────────────── */
 .login {
   position: relative;
@@ -9334,4 +9339,84 @@ a.link {
   .screen-loading__bar::after {
     animation: none;
   }
+}
+
+/* 공부방 · 수업 날짜 카드 — 노트와 복습 문제를 함께 */
+.lesson-day:hover {
+  border-color: var(--border);
+}
+
+.lesson-day__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 6px;
+}
+
+.lesson-day__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.lesson-day__link:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.lesson-day__link--quiet {
+  border-style: dashed;
+  color: var(--text-secondary);
+}
+
+.lesson-day__link--main {
+  flex: 1;
+  justify-content: space-between;
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+  background: color-mix(in srgb, var(--primary) 7%, var(--surface));
+  color: var(--primary);
+}
+
+/* 학습실 공부방 카드의 요약 한 줄 */
+.study-entry__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.study-entry__pill {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface));
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.study-entry__pill--warn {
+  background: color-mix(in srgb, var(--warning) 14%, var(--surface));
+  color: var(--warning);
+}
+
+/* 노트 화면 위의 「이 날 복습 문제」 */
+.note-practice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+  font-size: 13px;
 }

@@ -88,7 +88,7 @@ function Playground({ setId, focusProblem }: { setId: string | null; focusProble
           <span>
             {setId === RETRY_SET_ID
               ? '다시 풀 문제가 없어요. 틀린 복습 문제가 생기면 여기에 모여요.'
-              : '찾는 복습 세트가 없어요. 학습실의 「복습 문제」 목록에서 다시 골라 주세요.'}
+              : '찾는 복습 세트가 없어요. 공부방의 수업 카드에서 다시 골라 주세요.'}
           </span>
         </div>
       )}
@@ -137,9 +137,9 @@ function PlaygroundTitle({ mode }: { mode: PracticeSetMode }) {
         <Icon name="chevron_right" size={16} />
         {set ? (
           <>
-            <Link to={RoutePaths.studyRoomPlayground}>파이썬 연습장</Link>
+            <Link to={RoutePaths.studyRoomNotes}>공부방</Link>
             <Icon name="chevron_right" size={16} />
-            <span>복습 문제</span>
+            <span>{isRetry ? '다시 풀 문제' : '복습 문제'}</span>
           </>
         ) : (
           <span>파이썬 연습장</span>

@@ -139,10 +139,10 @@ try {
   say('C 다시 푼 결과', await r1.locator('.pb__verdict strong').innerText());
   say('C 목록 고정', await page.locator('.py-nb-cell--problem').count());
 
-  await go('/study-room');
+  await go('/study-room/notes');
   say('D 다시 풀 카드', await page.locator('.practice-set--retry .practice-set__title').innerText());
-  say('D 9/14', await page.locator('.practice-set', { hasText: 'BLIP' }).locator('.practice-set__foot').innerText());
-  say('D 9/15', await page.locator('.practice-set', { hasText: '영상 RAG' }).locator('.practice-set__foot').innerText());
+  say('D 9/14', await page.locator('.practice-set', { hasText: 'BLIP' }).locator('.lesson-day__link--main').innerText());
+  say('D 9/15', await page.locator('.practice-set', { hasText: '영상 RAG' }).locator('.lesson-day__link--main').innerText());
 } catch (e) {
   out.push('실패: ' + e.message.split('\n')[0]);
   await page.screenshot({ path: 'shots/playground-smoke-fail.png', fullPage: true });

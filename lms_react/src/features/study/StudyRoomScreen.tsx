@@ -11,7 +11,7 @@ import {
   useStudySources,
   useYoutubeRecommendations,
 } from '../../data/repository';
-import type { InflearnPackage } from '../../domain/types';
+import type { InflearnPackage, PracticeSet } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import {
   Badge,
@@ -24,9 +24,11 @@ import {
   Tabs,
 } from '../../ui/components';
 import { formatDate } from '../../utils/format';
-import { RETRY_SET_ID, retryDates, retryItems, retryTopics } from '../practice/review';
+import { retryItems } from '../practice/review';
 import { useIsHidden } from '../practice/useIsHidden';
 import { useCurrentUser } from '../auth/session';
+import { LessonDaysSection, practicePath, setProgress } from './LessonDaysSection';
+import { looseNotes, noteDate, noteLabel } from './lessonDays';
 
 const packageTypeLabels: Record<string, string> = {
   review: '예복습',
@@ -69,11 +71,12 @@ export function StudyRoomScreen() {
         </div>
       </header>
 
-      {/* 공부방 — 수업 저장소에서 복습 노트를 만드는 곳으로 들어가는 문 */}
+      {/* 공부방 — 수업 날짜마다 노트와 복습 문제가 있는 곳으로 들어가는 문 */}
       <section className="study-entry">
         <div>
           <strong className="study-entry__title">공부방</strong>
-          <p className="study-entry__desc">수업 저장소에서 날짜·폴더·파일을 골라 복습 노트를 만듭니다.</p>
+          <p className="study-entry__desc">수업 날짜마다 복습 노트와 복습 문제를 모아 둡니다.</p>
+          <StudyRoomSummary cohortId={user.cohortId} uid={user.uid} />
         </div>
         <Link className="btn btn--filled btn--md" to={RoutePaths.studyRoomNotes}>
           공부방 열기
@@ -90,8 +93,6 @@ export function StudyRoomScreen() {
           연습장 열기
         </Link>
       </section>
-
-      <PracticeSetsSection cohortId={user.cohortId} uid={user.uid} />
 
       <YoutubeRecommendations cohortName={user.cohortName} />
 
@@ -121,65 +122,24 @@ export function StudyRoomScreen() {
   );
 }
 
-const PRACTICE_KIND_LABEL: Record<string, string> = {
-  concept: '개념',
-  code_output: '출력 예상',
-  code_blank: '빈칸',
-  code_fix: '디버깅',
-  code_write: '함수 작성',
-};
-
-/** 복습 문제 — 수업일마다 만든 세트. 누르면 연습장에서 문제 셀로 열린다. */
-function PracticeSetsSection({ cohortId, uid }: { cohortId: string; uid: string }) {
+/** 공부방 카드의 요약 — 다시 풀 문제 수와 가장 최근 수업의 복습 진행 */
+function StudyRoomSummary({ cohortId, uid }: { cohortId: string; uid: string }) {
   const sets = usePracticeSets(cohortId);
   const attempts = useMyPracticeAttempts(uid);
   const isHidden = useIsHidden();
   const retries = retryItems(sets, attempts).filter((i) => !isHidden(i.set.id, i.index));
-  if (sets.length === 0) return null;
+  const latest = sets.reduce<PracticeSet | undefined>((a, s) => (!a || s.lessonDate > a.lessonDate ? s : a), undefined);
+  if (!latest && retries.length === 0) return null;
+  const progress = latest ? setProgress(latest, attempts, isHidden) : null;
   return (
-    <section className="practice-sets">
-      <header className="study-section__head">
-        <h2 className="study-section__title">복습 문제</h2>
-      </header>
-      <p className="study-section__desc">그날 수업 코드로 만든 복습 문제입니다. 연습장에서 바로 실행하고 채점해요.</p>
-      <div className="practice-sets__list">
-        {retries.length > 0 && (
-          <Link className="practice-set practice-set--retry" to={`${RoutePaths.studyRoomPlayground}?set=${RETRY_SET_ID}`}>
-            <span className="practice-set__date">틀린 문제 모음 · {retryDates(retries)} 수업</span>
-            <strong className="practice-set__title">다시 풀 문제 {retries.length}개</strong>
-            <span className="practice-set__kinds">{retryTopics(retries, 3)}</span>
-            <span className="practice-set__foot">
-              다시 풀기
-              <Icon name="arrow_forward" size={16} />
-            </span>
-          </Link>
-        )}
-        {sets.map((s) => {
-          const mine = attempts.filter((a) => a.setId === s.id);
-          const passed = mine.filter((a) => a.passed).length;
-          const kinds = [...new Set(s.problems.map((p) => PRACTICE_KIND_LABEL[p.kind] ?? p.kind))];
-          return (
-            <Link key={s.id} className="practice-set" to={`${RoutePaths.studyRoomPlayground}?set=${encodeURIComponent(s.id)}`}>
-              <span className="practice-set__date">
-                {s.lessonDate.slice(5).replace('-', '/')} · {s.dayLabel}
-              </span>
-              <strong className="practice-set__title">{s.title}</strong>
-              <span className="practice-set__kinds">{kinds.join(' · ')}</span>
-              <span className="practice-set__bar" aria-hidden>
-                {s.problems.map((_, i) => {
-                  const a = mine.find((x) => x.index === i);
-                  return <i key={i} className={a?.passed ? 'ok' : a ? 'no' : ''} />;
-                })}
-              </span>
-              <span className="practice-set__foot">
-                {passed === s.problems.length ? '모두 통과' : mine.length ? `통과 ${passed} / ${s.problems.length}` : `문제 ${s.problems.length}개`}
-                <Icon name="arrow_forward" size={16} />
-              </span>
-            </Link>
-          );
-        })}
-      </div>
-    </section>
+    <div className="study-entry__summary">
+      {retries.length > 0 && <span className="study-entry__pill study-entry__pill--warn">다시 풀 문제 {retries.length}개</span>}
+      {latest && progress && (
+        <span className="study-entry__pill">
+          최근 수업 {latest.lessonDate.slice(5).replace('-', '/')} · 복습 {progress.passed} / {progress.total}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -325,38 +285,62 @@ function CourseRow({ title, url }: { title: string; url: string }) {
 
 /** 학습 노트 목록 — study_room_notes_screen.dart */
 export function StudyNotesScreen() {
+  const user = useCurrentUser();
   const sources = useStudySources();
   const notes = useStudyNotes();
+  const loose = looseNotes(notes);
 
   return (
-    <div className="screen__inner">
-      <PageHeader title="학습 노트" description="강의 저장소에서 만들어진 요약·복습 노트입니다." />
-      {sources.map((source) => (
-        <Card key={source.id} title={source.title}>
-          <Row gap={6}>
-            <a className="link" href={source.repoUrl} target="_blank" rel="noreferrer">
-              {source.repoUrl}
-            </a>
-            <Badge tone="neutral">{source.branch}</Badge>
-            <Spacer />
-            <Link className="btn btn--filled btn--sm" to={studyRoomNoteSourcePath(source.id)}>
-              새 수업노트 만들기
-            </Link>
-          </Row>
-          <div className="study-note-chips">
-            {notes.filter((n) => n.sourceId === source.id).map((note) => (
-              <Link
-                key={note.id}
-                className="chip"
-                to={`${studyRoomNoteSourcePath(source.id)}?note=${encodeURIComponent(note.id)}`}
-              >
-                <Icon name="description" size={16} />
-                {note.scopeKey ?? note.id}
-              </Link>
-            ))}
-          </div>
-        </Card>
-      ))}
+    <div className="screen__inner study-room">
+      <header className="study-head">
+        <div>
+          <nav className="py-crumbs" aria-label="위치">
+            <Link to={RoutePaths.studyRoom}>학습실</Link>
+            <Icon name="chevron_right" size={16} />
+            <span>공부방</span>
+          </nav>
+          <h1 className="study-head__title">공부방</h1>
+          <p className="study-head__desc">수업 날짜마다 복습 노트와 복습 문제를 함께 봅니다. 노트로 다시 읽고, 문제로 확인하세요.</p>
+        </div>
+      </header>
+
+      <LessonDaysSection cohortId={user.cohortId} uid={user.uid} />
+
+      <section className="study-list">
+        <h2 className="study-section__title">저장소에서 노트 만들기</h2>
+        <p className="study-section__desc">날짜·폴더·파일 중 필요한 범위만 골라 노트를 만듭니다. 날짜로 만든 노트는 위 수업 카드에 붙어요.</p>
+        {sources.map((source) => {
+          const mine = loose.filter((n) => n.sourceId === source.id);
+          return (
+            <Card key={source.id} title={source.title}>
+              <Row gap={6}>
+                <a className="link" href={source.repoUrl} target="_blank" rel="noreferrer">
+                  {source.repoUrl}
+                </a>
+                <Badge tone="neutral">{source.branch}</Badge>
+                <Spacer />
+                <Link className="btn btn--filled btn--sm" to={studyRoomNoteSourcePath(source.id)}>
+                  새 수업노트 만들기
+                </Link>
+              </Row>
+              {mine.length > 0 && (
+                <div className="study-note-chips">
+                  {mine.map((note) => (
+                    <Link
+                      key={note.id}
+                      className="chip"
+                      to={`${studyRoomNoteSourcePath(source.id)}?note=${encodeURIComponent(note.id)}`}
+                    >
+                      <Icon name="description" size={16} />
+                      {noteLabel(note)}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </section>
     </div>
   );
 }
@@ -367,17 +351,28 @@ export function StudyNoteSourceScreen() {
   const sources = useStudySources();
   const notes = useStudyNotes().filter((n) => n.sourceId === sourceId);
   const source = sources.find((s) => s.id === sourceId);
-  const initialNoteId = new URLSearchParams(window.location.search).get('note');
+  const query = new URLSearchParams(window.location.search);
+  const initialNoteId = query.get('note');
+  // 공부방 수업 카드의 「노트 만들기」로 오면 그 날짜를 미리 고른다
+  const askedDate = query.get('date') ?? '';
+  const initialDate = /^\d{4}-\d{2}-\d{2}$/.test(askedDate) ? askedDate : '';
   const [selectedId, setSelectedId] = useState<string | null>(initialNoteId);
   const [tab, setTab] = useState('report');
   const [scopeMode, setScopeMode] = useState<'date' | 'folder' | 'file'>('date');
-  const [scopeValue, setScopeValue] = useState('');
+  const [scopeValue, setScopeValue] = useState(initialDate);
+  const user = useCurrentUser();
+  const sets = usePracticeSets(user.cohortId);
+  const attempts = useMyPracticeAttempts(user.uid);
+  const isHidden = useIsHidden();
   const [checkedFiles, setCheckedFiles] = useState<string[]>([]);
   const [error, setError] = useState('');
 
   const note = notes.find((item) => item.id === selectedId);
   const files = Array.from(new Set(notes.flatMap((item) => item.files.map((file) => file.path))));
-  const dateChoices = ['2026-09-17', '2026-09-18', '2026-09-19'];
+  const dateChoices = [...new Set([...(initialDate ? [initialDate] : []), '2026-09-17', '2026-09-18', '2026-09-19'])].sort();
+  const noteDay = note ? noteDate(note) : null;
+  const daySet = noteDay ? sets.find((s) => s.lessonDate === noteDay) : undefined;
+  const dayProgress = daySet ? setProgress(daySet, attempts, isHidden) : null;
   const folderChoices = source?.allowedPrefixes ?? [];
 
   const generate = () => {
@@ -408,9 +403,9 @@ export function StudyNoteSourceScreen() {
       <PageHeader
         title={source?.title ?? '학습 노트'}
         description="날짜·폴더·파일 중 필요한 범위만 골라 복습 노트를 만듭니다."
-        actions={<Link className="btn btn--outline btn--sm" to={RoutePaths.studyRoomNotes}>공부방 목록</Link>}
+        actions={<Link className="btn btn--outline btn--sm" to={RoutePaths.studyRoomNotes}>공부방으로</Link>}
       />
-      <div className="split">
+      <div className="split split--side-first">
           <Card padded={false} className="split__side">
             <ul className="list" style={{ padding: '0 12px' }}>
               <li className="list__item">
@@ -429,7 +424,7 @@ export function StudyNoteSourceScreen() {
                     className={`plain-btn${n.id === selectedId ? ' plain-btn--on' : ''}`}
                     onClick={() => setSelectedId(n.id)}
                   >
-                    {n.scopeKey ?? n.id}
+                    {noteLabel(n)}
                   </button>
                 </li>
               ))}
@@ -477,6 +472,18 @@ export function StudyNoteSourceScreen() {
             </Card>
           ) : (
           <Card className="split__main">
+            {daySet && dayProgress && (
+              <div className="note-practice">
+                <Icon name="fitness_center" size={18} />
+                <span>
+                  <strong>이 날 복습 문제 {dayProgress.total}개</strong> · 통과 {dayProgress.passed} / {dayProgress.total}
+                </span>
+                <Spacer />
+                <Link className="btn btn--filled btn--sm" to={practicePath(daySet.id)}>
+                  복습 문제 풀기
+                </Link>
+              </div>
+            )}
             <Tabs
               items={[
                 { id: 'report', label: '요약' },
