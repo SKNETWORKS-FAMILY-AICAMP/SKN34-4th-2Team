@@ -877,7 +877,7 @@ export function createResume(resume: Omit<Resume, 'id' | 'updatedAt'>): string {
   const id = nextId('r');
   mutate((db) => ({ resumes: [{ ...resume, id, updatedAt: new Date() }, ...db.resumes] }));
   if (!isTestMode()) {
-    void runCommand('upsert', { table: 'resumes', action: 'insert', ...resumeForServer(resume), cohortId: apiCohortId() });
+    void runCommand('upsert', { table: 'resumes', action: 'insert', id, ...resumeForServer(resume), cohortId: apiCohortId() });
   }
   return id;
 }
@@ -887,6 +887,30 @@ export function updateResume(id: string, patch: Partial<Resume>): void {
     resumes: db.resumes.map((r) => (r.id === id ? { ...r, ...patch, updatedAt: new Date() } : r)),
   }));
   if (!isTestMode()) void runCommand('upsert', { table: 'resumes', id, action: 'update', ...resumeForServer(patch) });
+}
+
+/**
+ * 기본 이력서 바꾸기 — Flutter setBaseResume. 한 사람에게 기본 이력서는 하나라 고른 것만 true 로 둔다.
+ * 공고 추천 · AI 첨삭이 이 이력서를 바탕으로 쓴다.
+ */
+export function setBaseResume(userId: string, resumeId: string): void {
+  const changed = currentDb().resumes.filter(
+    (r) => r.userId === userId && r.isBaseResume !== (r.id === resumeId),
+  );
+  if (changed.length === 0) return;
+  mutate((db) => ({
+    resumes: db.resumes.map((r) =>
+      r.userId === userId && r.isBaseResume !== (r.id === resumeId) ? { ...r, isBaseResume: r.id === resumeId } : r,
+    ),
+  }));
+  if (isTestMode()) return;
+  // 먼저 옛 기본을 내리고 새 것을 올린다 — 순서가 바뀌면 잠깐 기본이 둘이 된다
+  const order = [...changed].sort((a, b) => Number(a.id === resumeId) - Number(b.id === resumeId));
+  void (async () => {
+    for (const r of order) {
+      await runCommand('upsert', { table: 'resumes', id: r.id, action: 'update', isBaseResume: r.id === resumeId });
+    }
+  })();
 }
 
 export function deleteResume(id: string): void {

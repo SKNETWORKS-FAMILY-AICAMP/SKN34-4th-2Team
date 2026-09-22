@@ -9562,3 +9562,51 @@ a.link {
 .lay-ghost--new .lay-seat {
   border-style: dashed;
 }
+
+/* 기본 이력서 등록 — 후보 목록 */
+.base-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.base-picker__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.base-picker__item:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+.base-picker__item:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.base-picker__title {
+  font-weight: 600;
+}
+
+.base-picker__item--new {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  border-style: dashed;
+  color: var(--primary);
+  font-weight: 600;
+}

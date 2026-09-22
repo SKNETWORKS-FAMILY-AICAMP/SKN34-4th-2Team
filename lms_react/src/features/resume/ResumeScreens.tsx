@@ -2,12 +2,12 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { resumeEditPath } from '../../app/routePaths';
-import { createResume, deleteResume, useMyResumes } from '../../data/repository';
+import { createResume, deleteResume, setBaseResume, useMyResumes } from '../../data/repository';
 import { ResumeSectionKeys, ResumeSectionLabels, ResumeStatusLabels } from '../../domain/constants';
 import type { Resume, ResumeContent } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { MoreMenu } from '../../ui/MoreMenu';
-import { Badge, Button, Card, EmptyState, ErrorState, Skeleton } from '../../ui/components';
+import { Badge, Button, Card, Dialog, EmptyState, ErrorState, Skeleton } from '../../ui/components';
 import { formatDate, formatDateTime } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
 import { groupResumes, isTailored, type ResumeRow } from './resumeGroups';
@@ -51,6 +51,7 @@ export function ResumeScreen() {
   const query = useMyResumes(user.uid);
   const navigate = useNavigate();
   const [tab, setTab] = useState<'all' | 'draft' | 'feedbackRequested' | 'approved'>('all');
+  const [choosingBase, setChoosingBase] = useState(false);
 
   // 훅은 모두 위에서 부른 뒤에 갈라진다 — 렌더마다 호출 순서가 같아야 하므로.
   // 지금은 메모리라 loading이 항상 false지만, 서버를 붙이면 여기가 실제로 걸린다.
@@ -80,23 +81,25 @@ export function ResumeScreen() {
       ? grouped.rows
       : resumes.filter((r) => r.id !== base?.id && r.status === tab).map((r) => ({ resume: r, children: [] }));
 
-  const create = () => {
+  const create = (asBase = false) => {
     const id = createResume({
       userId: user.uid,
       userDisplayName: user.displayName,
-      title: '새 이력서',
+      title: asBase ? '기본 이력서' : '새 이력서',
       status: 'draft',
       sections: {},
       content: {
         ...emptyContent,
         basicInfo: { ...emptyContent.basicInfo, name: user.displayName, email: user.email },
       },
-      isBaseResume: resumes.length === 0,
+      isBaseResume: asBase || resumes.length === 0,
       feedbackCount: 0,
       lastSeenFeedbackCount: 0,
       readFeedbackIds: [],
       revisionCount: 0,
     });
+    // 새 기본 이력서면 옛 기본은 내린다(한 사람에 하나)
+    if (asBase) setBaseResume(user.uid, id);
     navigate(resumeEditPath(id));
   };
 
@@ -134,10 +137,10 @@ export function ResumeScreen() {
 
       {base === undefined ? (
         <Card>
-          <EmptyState message="작성한 이력서가 없습니다" action={<Button onClick={create}>이력서 만들기</Button>} />
+          <EmptyState message="작성한 이력서가 없습니다" action={<Button onClick={() => create()}>이력서 만들기</Button>} />
         </Card>
       ) : (
-        <BaseResumeCard resume={base} tailored={tab === 'all' ? grouped.baseTailored : []} onCreate={create} />
+        <BaseResumeCard resume={base} tailored={tab === 'all' ? grouped.baseTailored : []} onChangeBase={() => setChoosingBase(true)} />
       )}
 
       <section className="panel panel--flush">
@@ -166,11 +169,70 @@ export function ResumeScreen() {
           </table>
         )}
       </section>
+
+      {choosingBase && (
+        <BaseResumePicker
+          resumes={resumes}
+          currentId={base?.id}
+          onClose={() => setChoosingBase(false)}
+          onPick={(id) => {
+            setChoosingBase(false);
+            setBaseResume(user.uid, id);
+          }}
+          onCreate={() => {
+            setChoosingBase(false);
+            create(true);
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function BaseResumeCard({ resume, tailored, onCreate }: { resume: Resume; tailored: Resume[]; onCreate(): void }) {
+/**
+ * 기본 이력서 바꾸기 — Flutter _registerBaseResume.
+ * 공고별 첨삭은 기본 이력서를 복사해 진행하므로, 공고 맞춤 이력서는 기본이 될 수 없다(후보에서 뺀다).
+ */
+function BaseResumePicker({
+  resumes,
+  currentId,
+  onClose,
+  onPick,
+  onCreate,
+}: {
+  resumes: Resume[];
+  currentId: string | undefined;
+  onClose(): void;
+  onPick(id: string): void;
+  onCreate(): void;
+}) {
+  const candidates = resumes.filter((r) => !isTailored(r) && !r.sourceTailoredResumeId);
+  return (
+    <Dialog title="기본 이력서 등록" onClose={onClose}>
+      <p className="hint">공고별 첨삭은 여기서 고른 기본 이력서를 복사해 진행합니다.</p>
+      <ul className="base-picker">
+        {candidates.map((r) => (
+          <li key={r.id}>
+            <button type="button" className="base-picker__item" disabled={r.id === currentId} onClick={() => onPick(r.id)}>
+              <span className="base-picker__title">{r.title}</span>
+              <span className="hint">
+                {filledCount(r)}/{SECTIONS.length} 항목 작성{r.id === currentId ? ' · 지금 기본 이력서' : ''}
+              </span>
+            </button>
+          </li>
+        ))}
+        <li>
+          <button type="button" className="base-picker__item base-picker__item--new" onClick={onCreate}>
+            <Icon name="add" size={18} />
+            새 기본 이력서 작성
+          </button>
+        </li>
+      </ul>
+    </Dialog>
+  );
+}
+
+function BaseResumeCard({ resume, tailored, onChangeBase }: { resume: Resume; tailored: Resume[]; onChangeBase(): void }) {
   const filled = filledCount(resume);
   const missing = SECTIONS.filter((s) => resume.sections[s.key] !== true);
 
@@ -187,7 +249,7 @@ function BaseResumeCard({ resume, tailored, onCreate }: { resume: Resume; tailor
           이어서 작성
         </Link>
         <MoreMenu
-          items={[{ key: 'change', label: '기본 이력서 변경', onSelect: onCreate }]}
+          items={[{ key: 'change', label: '기본 이력서 변경', onSelect: onChangeBase }]}
         />
       </div>
 

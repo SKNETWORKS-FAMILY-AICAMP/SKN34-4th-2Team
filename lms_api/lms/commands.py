@@ -319,6 +319,10 @@ def op_upsert_sql(cur, user, p):
         data.pop("created_at", None)
     if "updated_at" in columns:
         data.pop("updated_at", None)
+    # 화면이 새 행에 붙여 둔 id(예: r-ab12cd)를 legacy_id 로 보관한다. bootstrap 이 legacy_id 를 공개 id 로
+    # 보내므로, 저장 뒤 다시 받아도 화면이 쥔 id 가 그대로 이어진다(새 이력서를 만들자마자 「찾을 수 없음」이던 문제).
+    if row_id and "legacy_id" in columns and "legacy_id" not in data:
+        data["legacy_id"] = str(row_id)
     cols = list(data.keys())
     extras = []
     extra_vals = []
@@ -338,9 +342,10 @@ def op_upsert_sql(cur, user, p):
     if not fetched:
         return {"ok": True}
     pk = fetched[0]
-    if "legacy_id" in columns:
+    if "legacy_id" in columns and not data.get("legacy_id"):
+        # 화면이 id 를 주지 않았을 때만 번호를 legacy_id 로 — 준 id 는 위에서 넣었다
         cur.execute(f"UPDATE {table} SET legacy_id = %s WHERE id = %s", [str(pk), pk])
-    return {"id": str(pk)}
+    return {"id": data.get("legacy_id") or str(pk)}
 
 
 def op_create_user(cur, user, p):
