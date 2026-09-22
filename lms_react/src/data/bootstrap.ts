@@ -19,6 +19,7 @@ import type {
   ResumeFeedback,
   ScheduleRepeatType,
   ScheduledNotice,
+  ProjectTeam,
   SeatingAssignment,
   SeatingCellType,
   SeatingRoom,
@@ -458,22 +459,33 @@ function mapSeating(
   const seatingRooms: SeatingRoom[] = rooms.map((r) => {
     const id = String(r.id ?? r.pk ?? '');
     const pk = String(r.pk ?? r.id);
+    const rowCount = Number(r.rows ?? 0);
+    const colCount = Number(r.cols ?? 0);
+    const stored = cells
+      .filter((c) => String(c.roomId) === pk)
+      .map((c) => ({
+        seatId: String(c.seatId ?? ''),
+        row: Number(c.row ?? 0),
+        col: Number(c.col ?? 0),
+        label: String(c.label ?? ''),
+        type: (String(c.type ?? 'seat') as SeatingCellType) || 'seat',
+        groupId: c.groupId ? String(c.groupId) : undefined,
+      }));
+    // DB 는 빈 칸을 두지 않는다. 화면(격자 편집 · 놓을 자리)은 rows×cols 전부를 기대하므로 빈 칸을 채운다
+    const at = new Map(stored.map((c) => [`${c.row},${c.col}`, c]));
+    const full: SeatingRoom['cells'] = [];
+    for (let row = 0; row < rowCount; row++) {
+      for (let col = 0; col < colCount; col++) {
+        full.push(at.get(`${row},${col}`) ?? { seatId: '', row, col, label: '', type: 'empty' });
+      }
+    }
     return {
       id,
       cohortId: String(r.cohortId ?? fallbackCohort),
-      rows: Number(r.rows ?? 0),
-      cols: Number(r.cols ?? 0),
+      rows: rowCount,
+      cols: colCount,
       roomNumber: r.roomNumber ? String(r.roomNumber) : undefined,
-      cells: cells
-        .filter((c) => String(c.roomId) === pk)
-        .map((c) => ({
-          seatId: String(c.seatId ?? ''),
-          row: Number(c.row ?? 0),
-          col: Number(c.col ?? 0),
-          label: String(c.label ?? ''),
-          type: (String(c.type ?? 'seat') as SeatingCellType) || 'seat',
-          groupId: c.groupId ? String(c.groupId) : undefined,
-        })),
+      cells: full,
       createdAt: asDate(r.createdAt),
       updatedAt: asDate(r.updatedAt),
     };
@@ -506,6 +518,23 @@ function mapSeating(
   const publishedRoomId = publishedPk == null ? undefined : roomIdByPk.get(String(publishedPk)) ?? String(publishedPk);
   const seatingMeta: Database['seatingMeta'] = publishedRoomId ? { [fallbackCohort]: { publishedRoomId } } : {};
   return { seatingRooms, seatingAssignments, seatingMeta };
+}
+
+/** 프로젝트 팀 — 팀원은 project_team_members 로 따로 온다(팀을 숫자 pk 로 가리킨다) */
+function mapTeams(payload: Record<string, unknown>, fallbackCohort: string): ProjectTeam[] {
+  const members = rowsOf(payload, 'projectTeamMembers');
+  return rowsOf(payload, 'projectTeams').map((t) => {
+    const pk = String(t.pk ?? t.id);
+    return {
+      id: String(t.id ?? t.pk ?? ''),
+      cohortId: String(t.cohortId ?? fallbackCohort),
+      name: String(t.name ?? ''),
+      memberIds: members.filter((m) => String(m.teamId) === pk).map((m) => String(m.userId ?? '')).filter(Boolean),
+      sortOrder: Number(t.sortOrder ?? 0),
+      colorIndex: Number(t.colorIndex ?? 0),
+      updatedAt: asDate(t.updatedAt),
+    };
+  });
 }
 
 function mapQualExams(payload: Record<string, unknown>): QualExamSchedule[] {
@@ -599,6 +628,7 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
     purchaseRequests: rowsOf(payload, 'purchaseRequests').map(mapPurchase),
     mileageSettings: mapMileageSettings(settingsRow),
     ...mapSeating(payload, users, sessionCohort),
+    projectTeams: mapTeams(payload, sessionCohort),
     qualExams: mapQualExams(payload),
     aiLogs: rowsOf(payload, 'aiGenerationLogs').map((row) => ({
       id: String(row.id ?? row.pk ?? ''),

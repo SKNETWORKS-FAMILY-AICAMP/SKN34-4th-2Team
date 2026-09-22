@@ -112,6 +112,8 @@ def build_bootstrap(user: dict) -> dict:
         assignments = q("SELECT * FROM seating_assignments WHERE room_id = ANY(%s)", [room_ids])
         seats = q("SELECT * FROM seat_assignments WHERE room_id = ANY(%s)", [room_ids])
         teams = q("SELECT * FROM project_teams WHERE cohort_id = ANY(%s)", [cohort_ids])
+        team_ids = [t["id"] for t in teams] or [-1]
+        members = q("SELECT * FROM project_team_members WHERE team_id = ANY(%s)", [team_ids])
         pdfs = q("SELECT * FROM curriculum_pdfs WHERE cohort_id = ANY(%s)", [cohort_ids])
         intakes = q(
             """SELECT si.* FROM student_intakes si
@@ -201,6 +203,7 @@ def build_bootstrap(user: dict) -> dict:
         "seatingAssignments": pub(assignments),
         "seatAssignments": pub(seats),
         "projectTeams": pub(teams),
+        "projectTeamMembers": pub(members),
         "studentIntakes": pub(intakes),
         "materials": pub(materials),
         "assignments": pub(assignments_t),

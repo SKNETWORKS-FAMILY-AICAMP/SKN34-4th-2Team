@@ -634,3 +634,8 @@ OPS = {
     "upsertAlertPopup": op_upsert_alert,
     "dismissAlertPopup": op_dismiss_alert,
 }
+
+# 좌석 배치 쓰기(강의실 틀 · 배치 · 프로젝트 팀)는 따로 둔다 — 위 도우미를 쓰므로 맨 끝에서 불러온다.
+from lms.seating_commands import SEATING_OPS  # noqa: E402
+
+OPS.update(SEATING_OPS)

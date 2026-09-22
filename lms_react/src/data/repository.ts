@@ -36,7 +36,7 @@ import type {
   PracticeSet,
   StudyNoteScopeType,
 } from '../domain/types';
-import { getDb, mutate, nextId, subscribe, type Database } from './store';
+import { getDb, mutate as mutateStore, nextId, subscribe, type Database } from './store';
 import { dateKeyOf } from './seed';
 import { buildScopeKey, scopeLabel } from '../features/study/noteScope';
 import { resumeStatusToServer } from '../features/resume/resumeGroups';
@@ -48,6 +48,23 @@ import { queryClient, queryKeys } from './queryClient';
 
 function isTestMode(): boolean {
   return typeof import.meta !== 'undefined' && import.meta.env?.MODE === 'test';
+}
+
+/**
+ * 쓰기 — 테스트(데모)는 메모리 저장소에, 실제 앱은 화면이 읽는 서버 스냅샷(bootstrap 캐시)에도 바로 반영한다.
+ * 서버 저장(runCommand)이 끝나면 스냅샷을 다시 받아 서버 값으로 맞춘다. 그 사이에 화면이 옛 값으로
+ * 되돌아가 보이지 않게 하려는 것이다(새 강의실이 만들자마자 사라져 보이던 문제).
+ */
+function mutate(change: (current: Database) => Partial<Database>): void {
+  mutateStore(change);
+  if (!isTestMode()) {
+    queryClient.setQueryData<Database>(queryKeys.bootstrap, (prev) => (prev ? { ...prev, ...change(prev) } : prev));
+  }
+}
+
+/** 지금 화면이 보는 데이터 — 쓰기 직후 서버로 보낼 값을 꺼낼 때 */
+function currentDb(): Database {
+  return isTestMode() ? getDb() : getBootstrapDb();
 }
 
 function isApiId(id: string | undefined): id is string {
@@ -639,7 +656,21 @@ export function createSeatingRoom(cohortId: string, grid: SeatingGrid, roomNumbe
   mutate((db) => ({
     seatingRooms: [...db.seatingRooms, { ...grid, id, cohortId, roomNumber, createdAt: now, updatedAt: now }],
   }));
+  if (!isTestMode()) {
+    void runCommand('saveSeatingRoom', { roomId: id, cohortId, roomNumber, ...gridForServer(grid) });
+  }
   return id;
+}
+
+/** 서버로 보낼 격자 — 빈 칸은 빼고, 강사석 · 출입문은 좌석 id 자리에 '행_열'(DB · Flutter 규칙) */
+function gridForServer(grid: SeatingGrid) {
+  return {
+    rows: grid.rows,
+    cols: grid.cols,
+    cells: grid.cells
+      .filter((c) => c.type !== 'empty')
+      .map((c) => ({ ...c, seatId: c.seatId || `${c.row}_${c.col}` })),
+  };
 }
 
 /**
@@ -668,6 +699,18 @@ export function saveSeatingRoom(roomId: string, grid: SeatingGrid, roomNumber?: 
       }),
     };
   });
+  if (!isTestMode()) {
+    // 좌석 번호가 바뀌었을 수 있으니 자리를 따라 옮긴 배치를 함께 보낸다
+    const assignment = currentDb().seatingAssignments.find((a) => a.roomId === roomId);
+    const room = currentDb().seatingRooms.find((r) => r.id === roomId);
+    void runCommand('saveSeatingRoom', {
+      roomId,
+      cohortId: room?.cohortId ?? apiCohortId(),
+      roomNumber,
+      ...gridForServer(grid),
+      assignments: assignment?.assignments ?? {},
+    });
+  }
 }
 
 /** 강의실과 그 배치를 지운다. 학생에게 보이던 강의실이면 확정 표시도 걷는다. */
@@ -682,6 +725,7 @@ export function deleteSeatingRoom(roomId: string): void {
       ]),
     ),
   }));
+  if (!isTestMode()) void runCommand('deleteSeatingRoom', { roomId });
 }
 
 function writeAssignment(
@@ -713,6 +757,7 @@ export function saveSeatingDraft(
   mutate((db) => ({
     seatingAssignments: writeAssignment(db, roomId, { status: 'draft', assignments, seatNames }),
   }));
+  if (!isTestMode()) void runCommand('saveSeatingAssignments', { roomId, assignments, status: 'draft' });
 }
 
 /** 확정 — 이 강의실만 학생에게 보인다. 같은 기수의 다른 확정은 작성 중으로 내린다. */
@@ -738,10 +783,8 @@ export function publishSeatingAssignment(
       seatingMeta: { ...db.seatingMeta, [cohortId]: { publishedRoomId: roomId } },
     };
   });
-  // 서버의 publishSeating 도 같은 기수의 다른 확정을 작성 중으로 내리고 이 강의실을 확정한다
-  if (!isTestMode() && roomId) {
-    void runCommand('publishSeating', { roomId, cohortId: apiCohortId() });
-  }
+  // 서버도 좌석 배정을 저장하고, 같은 기수의 다른 확정은 작성 중으로 내린 뒤 이 강의실을 확정한다
+  if (!isTestMode()) void runCommand('saveSeatingAssignments', { roomId, assignments, status: 'published' });
 }
 
 export function useProjectTeams(cohortId: string): ProjectTeam[] {
@@ -760,33 +803,47 @@ export function createProjectTeam(cohortId: string, name: string, sortOrder: num
       { id, cohortId, name, memberIds: [], sortOrder, colorIndex, updatedAt: new Date() },
     ],
   }));
+  saveTeams(cohortId, [id], []);
   return id;
+}
+
+/** 서버에 팀을 저장한다 — 바뀐 팀(ids)의 지금 값과 지운 팀(deleteIds) */
+function saveTeams(cohortId: string, ids: string[], deleteIds: string[]): void {
+  if (isTestMode()) return;
+  const teams = currentDb().projectTeams.filter((t) => ids.includes(t.id));
+  void runCommand('replaceProjectTeams', { cohortId, teams, deleteIds });
 }
 
 export function updateProjectTeam(team: ProjectTeam): void {
   mutate((db) => ({
     projectTeams: db.projectTeams.map((t) => (t.id === team.id ? { ...team, updatedAt: new Date() } : t)),
   }));
+  saveTeams(team.cohortId, [team.id], []);
 }
 
 export function deleteProjectTeam(teamId: string): void {
+  const cohortId = currentDb().projectTeams.find((t) => t.id === teamId)?.cohortId ?? apiCohortId();
   mutate((db) => ({ projectTeams: db.projectTeams.filter((t) => t.id !== teamId) }));
+  saveTeams(cohortId, [], [teamId]);
 }
 
 /** 팀 구성을 한 번에 갈아 끼운다. `id`가 빈 팀은 새로 만든다. */
 export function replaceProjectTeams(cohortId: string, upserts: ProjectTeam[], deleteIds: string[]): void {
+  // 새 팀 id 는 여기서 한 번 정한다 — 화면 스냅샷과 서버(legacy_id)가 같은 id 를 쓰게
+  const withIds = upserts.map((u) => (u.id === '' ? { ...u, id: nextId('team'), cohortId } : u));
   mutate((db) => {
     const now = new Date();
     const kept = db.projectTeams.filter((t) => !deleteIds.includes(t.id));
     const updated = kept.map((t) => {
-      const u = upserts.find((x) => x.id === t.id);
+      const u = withIds.find((x) => x.id === t.id);
       return u === undefined ? t : { ...u, updatedAt: now };
     });
-    const created = upserts
-      .filter((u) => u.id === '')
-      .map((u) => ({ ...u, id: nextId('team'), cohortId, updatedAt: now }));
+    const created = withIds
+      .filter((u) => !kept.some((t) => t.id === u.id))
+      .map((u) => ({ ...u, updatedAt: now }));
     return { projectTeams: [...updated, ...created] };
   });
+  saveTeams(cohortId, withIds.map((u) => u.id), deleteIds);
 }
 
 // ── 이력서 ─────────────────────────────────────────────
