@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -326,9 +327,14 @@ def start_jobkorea(list_path: Path, log_path: Path, max_minutes: float) -> subpr
     ]
     log_path.parent.mkdir(parents=True, exist_ok=True)
     print("[잡코리아] 수집 시작 (사람인과 동시) · 로그 " + str(log_path), flush=True)
+    # 자식의 표준출력은 콘솔이 아니라 파일이라, 윈도우에서는 그대로 두면 cp949 로 쓴다.
+    # 2026-09-21 첫 밤 로그가 그렇게 깨졌다. 사람인 로그와 같이 UTF-8 로 맞춘다.
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     try:
         handle = log_path.open("wb")
-        return subprocess.Popen(command, cwd=str(REPO_ROOT), stdout=handle, stderr=subprocess.STDOUT)
+        return subprocess.Popen(
+            command, cwd=str(REPO_ROOT), stdout=handle, stderr=subprocess.STDOUT, env=env
+        )
     except OSError as error:
         # 잡코리아가 못 떠도 사람인 배치는 그대로 간다.
         print(f"[잡코리아] 띄우지 못했습니다: {error}")
