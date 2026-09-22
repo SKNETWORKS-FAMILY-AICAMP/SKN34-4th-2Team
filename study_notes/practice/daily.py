@@ -26,27 +26,32 @@ from dotenv import load_dotenv
 from study_notes.git_tools import RepoCache, cache_root, parse_repo_url
 from study_notes.practice.build import build_practice_set
 from study_notes.practice.generate import practice_model_name
-from study_notes.practice.increments import DayPlan, FileCoverage, plan_day
+from study_notes.practice.increments import DAY_QUOTA, DayPlan, FileCoverage, plan_day
 from study_notes.practice.runner import REPO_ROOT, PyodideRunner
 
 
-def load_coverage(path: Path) -> dict[str, FileCoverage]:
+def load_coverage(path: Path) -> tuple[dict[str, FileCoverage], dict[str, int]]:
+    """(파일별 출제 범위, 날짜별 이미 낸 문제 수)"""
     if not path.exists():
-        return {}
+        return {}, {}
     data = json.loads(path.read_text(encoding="utf-8"))
-    return {item["path"]: FileCoverage.from_json(item) for item in data.get("files", [])}
+    files = {item["path"]: FileCoverage.from_json(item) for item in data.get("files", [])}
+    return files, {k: int(v) for k, v in data.get("days", {}).items()}
 
 
-def save_coverage(path: Path, coverage: dict[str, FileCoverage]) -> None:
+def save_coverage(path: Path, coverage: dict[str, FileCoverage], days: dict[str, int]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps({"files": [c.to_json() for c in coverage.values()]}, ensure_ascii=False, indent=1),
+        json.dumps({"files": [c.to_json() for c in coverage.values()], "days": days}, ensure_ascii=False, indent=1),
         encoding="utf-8",
     )
 
 
-def describe(plan: DayPlan) -> str:
-    rows = [f"[{plan.date}] 바뀐 파일 {len(plan.files)}개 · 출제 {len(plan.targets)}개 파일"]
+def describe(plan: DayPlan, already: int) -> str:
+    head = f"[{plan.date}] 바뀐 파일 {len(plan.files)}개 · 출제 {len(plan.targets)}개 파일 · {plan.total}문제"
+    if already:
+        head += f" (이날 이미 {already}문제, 하루 {DAY_QUOTA}문제까지)"
+    rows = [head, f"  구성: {plan.kind_counts() or '없음'}"]
     for f in plan.files:
         state = f"건너뜀 — {f.skipped}" if f.skipped else f"{f.quota}문제"
         cont = " · 이어짐" if f.continues and not f.skipped else ""
@@ -68,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
 
     load_dotenv(REPO_ROOT / ".env", override=False)
     cov_path = Path(args.coverage) if args.coverage else None
-    coverage = load_coverage(cov_path) if cov_path else {}
+    coverage, days = load_coverage(cov_path) if cov_path else ({}, {})
     out_dir = Path(args.out) if args.out else cache_root() / "practice_daily"
     cache = RepoCache("trial", "practice", parse_repo_url(args.repo), args.branch)
     cache.sync()
@@ -77,10 +82,12 @@ def main(argv: list[str] | None = None) -> int:
     for date in sorted(args.dates):
         _shas, changed = cache.changed_files_on(date, [])
         files = [(f.path, f.commit, cache.read_file(f.commit, f.path)) for f in changed]
-        plan = plan_day(date, files, coverage)
-        print(describe(plan), flush=True)
+        # 같은 날 늦은 커밋으로 다시 돌면 남은 개수만 — 하루 총량을 넘기지 않는다
+        already = days.get(date, 0)
+        plan = plan_day(date, files, coverage, quota=max(0, DAY_QUOTA - already))
+        print(describe(plan, already), flush=True)
         if not plan.targets:
-            print("  → 출제할 새 내용 없음\n")
+            print("  → 출제할 새 내용 없음" + (" (하루 몫을 다 냄)" if already >= DAY_QUOTA else "") + "\n")
             continue
         if runner is not None:
             started = time.monotonic()
@@ -89,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
                 materials=plan.materials(),
                 runner=runner,
                 focus_note=plan.focus_note(),
+                kind_counts=plan.kind_counts(),
             )
             by_file: dict[str, int] = {}
             for p in result.problems:
@@ -107,12 +115,15 @@ def main(argv: list[str] | None = None) -> int:
                 ], **result.to_json()}, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
+            days[date] = already + len(result.problems)
+        else:
+            days[date] = already + plan.total
         # 계획만 볼 때도 기록은 이어 간다 — 다음 날 계획이 앞날을 반영하도록
         coverage = plan.coverage_after(coverage)
         print()
 
     if cov_path:
-        save_coverage(cov_path, coverage)
+        save_coverage(cov_path, coverage, days)
         print(f"[출제 범위 기록] {cov_path}")
     if runner is not None:
         print(f"[결과] {out_dir}")

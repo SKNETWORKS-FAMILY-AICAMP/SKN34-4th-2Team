@@ -18,6 +18,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
 from study_notes.pipeline import LEARNER_LEVEL, Material, pack_materials, response_text
+from study_notes.practice.increments import KIND_MIX, kind_counts_text
 from study_notes.practice.models import PracticeProblem, parse_draft
 
 RULES = (
@@ -79,7 +80,7 @@ GENERATE_PROMPT = ChatPromptTemplate.from_messages([
         "수업 범위: {scope_label}\n"
         "학습자 수준: {learner_level}\n\n"
         "수업 자료:\n{materials}\n\n"
-        "다음 개수로 출제하세요: concept 2개, code_output 1개, code_blank 1개, code_fix 1개, code_write 1개.\n"
+        "다음 개수로 출제하세요: {kind_counts}.\n"
         "{focus_note}\n"
         "응답 형식:\n" + SCHEMA,
     ),
@@ -156,9 +157,15 @@ def _parse_batch(text: str) -> DraftBatch:
 
 
 def generate_drafts(
-    *, scope_label: str, materials: list[Material], usage: Usage, focus_note: str = "",
+    *,
+    scope_label: str,
+    materials: list[Material],
+    usage: Usage,
+    focus_note: str = "",
+    kind_counts: str = "",
 ) -> DraftBatch:
-    """focus_note — 파일 단위 출제(increments.DayPlan.focus_note)의 「새 부분에서만 · 파일별 개수」 지시"""
+    """focus_note — 파일 단위 출제(increments.DayPlan.focus_note)의 「새 부분에서만 · 파일별 개수」 지시
+    kind_counts — 종류별 개수 글. 비우면 하루 구성(KIND_MIX: 개념 2 + 코드 6)"""
     if not materials:
         raise ValueError("출제할 수업 자료가 없습니다.")
     response = (GENERATE_PROMPT | _llm()).invoke({
@@ -166,6 +173,7 @@ def generate_drafts(
         "learner_level": LEARNER_LEVEL,
         "materials": pack_materials(materials),
         "focus_note": focus_note,
+        "kind_counts": kind_counts or kind_counts_text(KIND_MIX),
     })
     usage.add(response)
     return _parse_batch(response_text(response))

@@ -25,10 +25,30 @@ from study_notes.pipeline import MAX_CHARS_PER_FILE, Material
 
 SIMILAR_RATIO = 0.9
 MIN_NEW_CHARS = 200
-DAY_QUOTA = 6
 MIN_PER_FILE = 1
-MAX_PER_FILE = 3
+MAX_PER_FILE = 4
 SUMMARY_CHARS = 600
+
+# 하루 문제 구성 — 연습장에서 돌려 보는 코드 문제를 중심으로(개념 확인은 성취도평가도 한다)
+KIND_MIX: dict[str, int] = {"concept": 2, "code_output": 2, "code_blank": 2, "code_fix": 1, "code_write": 1}
+DAY_QUOTA = sum(KIND_MIX.values())  # 8
+# 남은 개수가 8보다 적을 때(같은 날 늦은 커밋 추가분) 이 순서로 채운다 — 가벼운 코드 문제부터
+_FILL_ORDER = ["code_output", "code_blank", "concept", "code_fix", "code_write", "code_output", "code_blank", "concept"]
+
+
+def kind_mix(total: int) -> dict[str, int]:
+    """문제 total 개의 종류별 개수. total 이 하루 구성(8)이면 KIND_MIX 그대로."""
+    if total >= DAY_QUOTA:
+        return dict(KIND_MIX)
+    mix: dict[str, int] = {}
+    for kind in _FILL_ORDER[:max(0, total)]:
+        mix[kind] = mix.get(kind, 0) + 1
+    return mix
+
+
+def kind_counts_text(mix: dict[str, int]) -> str:
+    """'concept 2개, code_output 2개, …' — 출제 지시에 넣는 글"""
+    return ", ".join(f"{k} {n}개" for k, n in mix.items() if n)
 
 
 @dataclass(frozen=True)
@@ -95,6 +115,15 @@ class DayPlan:
     @property
     def targets(self) -> list[FileIncrement]:
         return [f for f in self.files if not f.skipped]
+
+    @property
+    def total(self) -> int:
+        """이번에 낼 문제 수. 파일이 적어 파일당 상한에 걸리면 하루 몫보다 적을 수 있다."""
+        return sum(f.quota for f in self.targets)
+
+    def kind_counts(self) -> str:
+        """종류별 개수 — 'concept 2개, code_output 2개, …'"""
+        return kind_counts_text(kind_mix(self.total))
 
     def materials(self) -> list[Material]:
         """LLM 에 넘길 자료 — 파일마다 「앞부분 요약 + 새 부분」"""
@@ -203,13 +232,14 @@ def plan_day(
     coverage: dict[str, FileCoverage],
     quota: int = DAY_QUOTA,
 ) -> DayPlan:
-    """files: [(경로, 커밋, 원문)]. 새 내용이 많은 파일에 문제를 더 나눈다."""
+    """files: [(경로, 커밋, 원문)]. 새 내용이 많은 파일에 문제를 더 나눈다.
+    quota — 이번에 낼 수 있는 문제 수. 같은 날 늦은 커밋으로 다시 돌 때는 하루 몫에서 이미 낸 만큼 뺀다."""
     increments = [diff_file(p, c, raw, coverage.get(p)) for p, c, raw in files]
     targets = [f for f in increments if not f.skipped]
     # 파일이 너무 많으면 새 내용이 많은 순으로 quota 개까지만
     targets.sort(key=lambda f: -f.new_chars)
-    for f in targets[quota:]:
-        f.skipped = "그날 출제 파일 수를 넘음"
+    for f in targets[max(0, quota):]:
+        f.skipped = "하루 몫을 다 냄" if quota <= 0 else "그날 출제 파일 수를 넘음"
     targets = targets[:quota]
     _distribute(targets, quota)
     return DayPlan(date=date, files=increments)

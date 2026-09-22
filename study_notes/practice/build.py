@@ -58,10 +58,10 @@ def _count_guess(result: BuildResult, verdict: Verdict) -> None:
 
 
 def build_practice_set(
-    *, scope_label: str, materials: list[Material], runner: Runner, repair: bool = True, focus_note: str = "",
+    *, scope_label: str, materials: list[Material], runner: Runner, repair: bool = True, focus_note: str = "", kind_counts: str = "",
 ) -> BuildResult:
     usage = Usage()
-    drafts = generate_drafts(scope_label=scope_label, materials=materials, usage=usage, focus_note=focus_note)
+    drafts = generate_drafts(scope_label=scope_label, materials=materials, usage=usage, focus_note=focus_note, kind_counts=kind_counts)
     result = BuildResult(problems=[], stats={k: KindStats() for k in KINDS}, usage=usage)
     result.malformed.extend(drafts.rejected)
 
