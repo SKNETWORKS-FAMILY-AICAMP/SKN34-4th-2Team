@@ -317,6 +317,72 @@ def run_sync(detail_file: Path, observed: set[str], store_path: Path, as_of: dat
     return subprocess.run(command, cwd=str(REPO_ROOT)).returncode
 
 
+# 저장소를 못 열어 수집만 하고 끝난 밤의 종료 코드. 0 이 아니어서 예약 작업 기록에 드러난다.
+FILES_ONLY_EXIT = 3
+
+
+def known_from_files(store_path: Path) -> tuple[set[str], dict[str, str]]:
+    """저장소를 못 열었을 때 "이미 상세를 받은 공고"를 파일에서 모은다.
+
+    2026-09-22 밤에 저장소가 PostgreSQL 로 바뀌었는데 배치 환경에 드라이버가 없어 DB 를
+    열다 죽었다. 목록은 다 훑었는데 상세 수집까지 같이 멈췄다. 수집은 DB 가 없어도 되는
+    일이라, 무엇을 받았는지만 파일에서 알아내면 끝까지 갈 수 있다.
+
+    - 옛 SQLite 저장소 파일(있으면 읽기 전용으로) — 마지막으로 적재된 상세
+    - raw/details/*.jsonl — 그 뒤에 받아 파일로만 남은 상세
+
+    판정(적재 때 중복 제거·재등록·묶기, 목록 기록으로 하는 사라짐)은 DB 가 있어야 한다.
+    그건 빠지는 게 아니라 밀린다 — 파일이 남으므로 저장소가 열리는 날 적재하면 된다.
+    """
+    import sqlite3
+
+    known: set[str] = set()
+    waiting: dict[str, str] = {}
+    if store_path.exists() and store_path.stat().st_size > 0:
+        try:
+            conn = sqlite3.connect(f"file:{store_path.as_posix()}?mode=ro", uri=True)
+            try:
+                known = {r[0] for r in conn.execute(
+                    "SELECT source_job_id FROM jobs WHERE source = ?", (SOURCE,))}
+                waiting = {r[0]: r[1] for r in conn.execute(
+                    "SELECT source_job_id, MIN(first_seen_at) FROM list_seen "
+                    "WHERE source = ? AND first_seen_at IS NOT NULL GROUP BY source_job_id", (SOURCE,))}
+            finally:
+                conn.close()
+        except sqlite3.Error as error:
+            print(f"  옛 SQLite 저장소를 읽지 못했습니다: {error}")
+    for path in sorted(DETAIL_DIR.glob("*.jsonl")):
+        for record in read_records(path):
+            job_id = str(record.get("source_job_id") or (record.get("list_item") or {}).get("source_job_id") or "")
+            if job_id:
+                known.add(job_id)
+    return known, waiting
+
+
+def record_observations(store: Any, result: "SweepResult", now: datetime, authoritative: bool,
+                        summary: dict[str, Any]) -> tuple[set[str], list[str]]:
+    """목록에서 본 것을 저장소에 적고, 살아 있는 공고와 삭제 후보를 돌려준다."""
+    store.record_list_seen(
+        result.seen, {c: result.totals[c] for c in result.complete}, now, source=SOURCE
+    )
+    # 목록에서 본 공고를 챗봇 검색용 표에 담는다. **상세를 안 받는 대분류만** 담는다 —
+    # 상세를 받는 쪽은 며칠 안에 `jobs`에 들어오므로 목록에 담아 봐야 중복이다.
+    # 이것 덕에 "서울 영업직 있어?"에 답할 수 있다. `jobs`는 건드리지 않는다.
+    listed = store.record_list_jobs(
+        result.records, now, source=SOURCE, skip_categories=DETAIL_CATEGORIES
+    )
+    summary["list_jobs"] = listed
+    print(f"[목록 적재] 챗봇 검색용 {listed:,}건")
+    observed = store.list_observed(
+        SOURCE, seen_today=result.seen_today, as_of=now, within_days=OBSERVED_WINDOW_DAYS, authoritative=authoritative
+    )
+    candidates = store.removal_candidates(SOURCE, observed)
+    store.close()
+    summary["observed"] = {"count": len(observed), "removal_candidates": len(candidates)}
+    print(f"[관측] 살아 있는 것으로 볼 공고 {len(observed):,}건 · 삭제 후보 {len(candidates):,}건")
+    return observed, candidates
+
+
 def start_jobkorea(list_path: Path, log_path: Path, max_minutes: float) -> subprocess.Popen[bytes] | None:
     """잡코리아 수집기를 따로 띄운다. 저장소는 안 건드리고 파일까지만 만든다."""
     command = [
@@ -545,11 +611,23 @@ def main() -> int:
     prune(SWEEP_DIR, SWEEP_KEEP_DAYS, today)
 
     # 2. 관측 기록 · 신규 선별
-    store = open_store(args.store)
-    if not hasattr(store, "list_observed"):
+    # 저장소를 못 열어도 수집은 끝까지 간다. 적재할 곳이 없을 뿐, 받는 일은 파일이면 된다.
+    store = None
+    files_only = None
+    try:
+        store = open_store(args.store)
+    except Exception as error:  # 드라이버 없음 · DB 꺼짐 · 주소 없음
+        files_only = f"{type(error).__name__}: {error}"
+        summary["files_only"] = files_only
+        print(f"[저장소] 열지 못했습니다 — {files_only}")
+        print("  수집은 끝까지 하고 파일로만 남깁니다. 적재·묶기·인덱스·공유는 건너뜁니다.")
+    if store is not None and not hasattr(store, "list_observed"):
         print(f"SQLite 저장소만 지원합니다: {args.store}")
         return 1
-    known_ids = store.source_job_ids(SOURCE)
+    if store is not None:
+        known_ids, waiting = store.source_job_ids(SOURCE), store.waiting_since()
+    else:
+        known_ids, waiting = known_from_files(Path(args.store))
     detail_file = DETAIL_DIR / f"{today.isoformat()}.jsonl"
     already_today = set(latest_by_id(read_records(detail_file)))
     # 목록에서 처음 본 시각을 함께 넘긴다. 인기순 줄에 오래 기다린 공고를
@@ -559,7 +637,7 @@ def main() -> int:
     # 목록은 전부 훑으므로 사라짐 판정은 그대로다. 상세를 넓히려면 DAILY_CATEGORIES에
     # 대분류를 하나 추가한다 — 연구·R&D 8,707건이면 이틀치다.
     queue, queue_stats = build_queue(
-        result.records, known_ids | already_today, now, store.waiting_since(),
+        result.records, known_ids | already_today, now, waiting,
         detail_categories=DETAIL_CATEGORIES,
     )
     queue = prioritize(queue)
@@ -567,28 +645,15 @@ def main() -> int:
     print(f"[신규] 저장소에 없는 공고 {len(queue):,}건 (제외 직종 {queue_stats.get('제외 직종(배달·배송·운전)', 0):,})")
 
     if args.dry_run:
-        store.close()
+        if store is not None:
+            store.close()
         print("(--dry-run: 기록·상세·적재를 하지 않았습니다)")
         return 0
 
-    store.record_list_seen(
-        result.seen, {c: result.totals[c] for c in result.complete}, now, source=SOURCE
-    )
-    # 목록에서 본 공고를 챗봇 검색용 표에 담는다. **상세를 안 받는 대분류만** 담는다 —
-    # 상세를 받는 쪽은 며칠 안에 `jobs`에 들어오므로 목록에 담아 봐야 중복이다.
-    # 이것 덕에 "서울 영업직 있어?"에 답할 수 있다. `jobs`는 건드리지 않는다.
-    listed = store.record_list_jobs(
-        result.records, now, source=SOURCE, skip_categories=DETAIL_CATEGORIES
-    )
-    summary["list_jobs"] = listed
-    print(f"[목록 적재] 챗봇 검색용 {listed:,}건")
-    observed = store.list_observed(
-        SOURCE, seen_today=result.seen_today, as_of=now, within_days=OBSERVED_WINDOW_DAYS, authoritative=authoritative
-    )
-    candidates = store.removal_candidates(SOURCE, observed)
-    store.close()
-    summary["observed"] = {"count": len(observed), "removal_candidates": len(candidates)}
-    print(f"[관측] 살아 있는 것으로 볼 공고 {len(observed):,}건 · 삭제 후보 {len(candidates):,}건")
+    observed: set[str] = set()
+    candidates: list[str] = []
+    if store is not None:
+        observed, candidates = record_observations(store, result, now, authoritative, summary)
 
     # 3. 신규 상세 (차단됐으면 더 요청하지 않는다)
     crawl_counts: dict[str, int] = {}
@@ -619,26 +684,37 @@ def main() -> int:
         observed |= set(candidates)  # 확인 못 했으니 지우지 않는다
         summary["link_check"] = {"skipped": len(candidates)}
 
-    # 5. 적재
     NIGHTLY_DIR.mkdir(parents=True, exist_ok=True)
     detail_file.parent.mkdir(parents=True, exist_ok=True)
     detail_file.touch(exist_ok=True)
-    code = run_sync(detail_file, observed, args.store, now, NIGHTLY_DIR)
-    summary["sync_exit_code"] = code
 
-    # 5b. 잡코리아. 수집은 병렬로 이미 돌았고 적재만 차례로 한다 — 같이 쓰면 잠긴다.
-    if jobkorea_proc is not None:
-        summary["jobkorea"] = finish_jobkorea(
-            jobkorea_proc, jobkorea_list, args.store, now, NIGHTLY_DIR
-        )
+    if files_only:
+        # 잡코리아도 파일은 끝까지 받게 기다린다. 적재만 안 한다.
+        if jobkorea_proc is not None:
+            print("[잡코리아] 수집이 끝나기를 기다립니다 (적재는 건너뜀)", flush=True)
+            summary["jobkorea"] = {"crawl_exit_code": jobkorea_proc.wait(), "skipped": "저장소 없음"}
+        print("[적재] 건너뜀 — 저장소를 열 수 있게 되면 아래로 넣는다")
+        print(f"  python -m job_matching_bot.sync --input {detail_file}")
+        print(f"  python -m job_matching_bot.sync --source {JOBKOREA_SOURCE}")
+        code = FILES_ONLY_EXIT
+    else:
+        # 5. 적재
+        code = run_sync(detail_file, observed, args.store, now, NIGHTLY_DIR)
+        summary["sync_exit_code"] = code
 
-    # 5c. 같은 공고 묶기 → 대표만 인덱스. 두 출처가 다 들어온 뒤라야 짝을 찾는다.
-    summary["regroup"] = run_regroup(args.store, NIGHTLY_DIR, now)
-    summary["index_exit_code"] = run_index(args.store, now, NIGHTLY_DIR)
+        # 5b. 잡코리아. 수집은 병렬로 이미 돌았고 적재만 차례로 한다 — 같이 쓰면 잠긴다.
+        if jobkorea_proc is not None:
+            summary["jobkorea"] = finish_jobkorea(
+                jobkorea_proc, jobkorea_list, args.store, now, NIGHTLY_DIR
+            )
 
-    # 6. 공유 파일. 여기서 실패해도 수집·적재는 이미 끝났으므로 배치를 실패로 만들지 않는다.
-    if not args.no_share:
-        summary["share"] = share_store_file(args.store)
+        # 5c. 같은 공고 묶기 → 대표만 인덱스. 두 출처가 다 들어온 뒤라야 짝을 찾는다.
+        summary["regroup"] = run_regroup(args.store, NIGHTLY_DIR, now)
+        summary["index_exit_code"] = run_index(args.store, now, NIGHTLY_DIR)
+
+        # 6. 공유 파일. 여기서 실패해도 수집·적재는 이미 끝났으므로 배치를 실패로 만들지 않는다.
+        if not args.no_share:
+            summary["share"] = share_store_file(args.store)
 
     summary["elapsed_minutes"] = round((time.monotonic() - started) / 60, 1)
     (NIGHTLY_DIR / f"{stamp}.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
