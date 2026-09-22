@@ -1,110 +1,28 @@
 # PLAYDATA LMS PostgreSQL Redesign - Schema Draft
 
-> 확정 전 논리 스키마 초안.
-
-## cohorts
+## attendances
 ```text
-cohorts
+attendances
 - id PK
-- cohort_number UNIQUE
-- name
-- description
-- start_date
-- end_date
-- status
-- classroom_name
-- created_at
-- updated_at
-```
-
-## users
-```text
-users
-- id PK
-- cohort_id FK NULL
-- email UNIQUE
-- personal_email
-- password
-- display_name
-- role
-- phone
-- birth_date
-- photo_url
-- motto
-- is_active
-- must_change_password
-- last_login_at
-- created_at
-- updated_at
-```
-
-## cohort_seating
-```text
-cohort_seating
-- cohort_id PK/FK
-- room_number
-- layout JSONB
-- published
-- updated_at
-```
-
-## seat_presences
-```text
-seat_presences
-- id PK
-- cohort_id FK
 - user_id FK
-- presence_date
-- period
-- state
-- checked_by FK
-- checked_at
-- note
-UNIQUE(cohort_id, user_id, presence_date, period)
-```
-
-## submission_tasks
-```text
-submission_tasks
-- id PK
-- title
-- description
-- submission_method
-- form_url NULL
-- guide_url NULL
-- due_at
-- published
-- created_by FK
-- created_at
-- updated_at
-```
-
-## submission_task_cohorts
-```text
-submission_task_cohorts
-- task_id FK
 - cohort_id FK
-PRIMARY KEY(task_id, cohort_id)
-```
-
-## submission_responses
-```text
-submission_responses
-- id PK
-- task_id FK
-- user_id FK
-- submitted_at
-- source
-- external_response_id NULL
-- file_url NULL
-- link_url NULL
+- attendance_date
+- check_in_at NULL
+- check_out_at NULL
+- status NULL
+- data_source
+- finalized_by FK NULL
+- finalized_at NULL
 - created_at
 - updated_at
-UNIQUE(task_id, user_id)
+UNIQUE(user_id, attendance_date)
 ```
 
-상태는 기본적으로 저장하지 않고 계산:
-`pending / overdue / submitted / late`
+status 후보:
+`present / late / early_leave / absent / official_leave`
+
+data_source 후보:
+`mock / manual / employment24_import`
 
 ## attendance_issue_reports
 ```text
@@ -114,9 +32,12 @@ attendance_issue_reports
 - cohort_id FK
 - attendance_date
 - issue_type
+- leave_type NULL
 - reason
 - submitted_at
-- review_status
+- source
+- external_response_id NULL
+- review_status NULL
 - reviewed_by FK NULL
 - reviewed_at NULL
 - created_at
@@ -124,15 +45,24 @@ attendance_issue_reports
 ```
 
 issue_type 후보:
-`late / early_leave / outing / absent / official_leave`
+`late / early_leave / outing / absent / leave`
 
-## 아직 확정하지 않은 영역
-- attendances 상세 스키마
-- record submissions
-- assessments
-- resumes/career
-- skills/job preferences
-- mileage
-- learning/curriculum
-- community
-- AI/LLMOps
+leave_type 후보:
+`sick_leave / vacation / official / other`
+
+source 후보:
+`google_form / internal_form / manual`
+
+## 향후 검토 후보
+```text
+attendance_events
+- id PK
+- user_id FK
+- cohort_id FK
+- occurred_at
+- event_type
+- source
+- external_id
+```
+
+현재는 고용24 연동 요구가 확정되지 않았으므로 생성하지 않는다.
