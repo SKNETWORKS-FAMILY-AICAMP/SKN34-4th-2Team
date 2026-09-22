@@ -457,6 +457,8 @@
   inset: 0;
   background: rgba(0, 0, 0, 0.45);
   display: grid;
+  /* 칸 폭을 화면에 맞춘다 — 기본(auto)이면 칸이 창의 width(480px 등)로 잡혀 좁은 화면에서 창이 오른쪽으로 밀렸다 */
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
   z-index: 1100;
   padding: 16px;

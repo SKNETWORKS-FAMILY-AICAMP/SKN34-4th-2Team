@@ -6292,6 +6292,7 @@ a.link {
 
 .base-resume__head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
@@ -6300,6 +6301,7 @@ a.link {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  white-space: nowrap;
   color: var(--primary);
   font-size: 13px;
   font-weight: 700;

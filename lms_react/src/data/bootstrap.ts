@@ -72,6 +72,12 @@ function rowsOf(payload: Record<string, unknown>, key: string): Record<string, u
   return Array.isArray(value) ? (value as Record<string, unknown>[]).map(parseJsonb) : [];
 }
 
+function withJobDefaults(value: unknown): User['jobPreferences'] {
+  const v = (value && typeof value === 'object' ? value : {}) as Partial<User['jobPreferences']>;
+  const list = (x: unknown) => (Array.isArray(x) ? (x as string[]) : []);
+  return { ...v, targetRoles: list(v.targetRoles), regions: list(v.regions), employmentTypes: list(v.employmentTypes) };
+}
+
 export function mapUser(row: Record<string, unknown>): User {
   return {
     uid: String(row.firebase_uid ?? row.uid ?? ''),
@@ -86,13 +92,9 @@ export function mapUser(row: Record<string, unknown>): User {
     mustChangePassword: Boolean(row.mustChangePassword ?? row.must_change_password),
     motto: row.motto ? String(row.motto) : undefined,
     skills: Array.isArray(row.skills) ? (row.skills as string[]) : [],
-    socialLinks: (row.socialLinks as Record<string, string>) ?? (row.social_links as Record<string, string>) ?? {},
-    jobPreferences: (row.jobPreferences as User['jobPreferences']) ??
-      (row.job_preferences as User['jobPreferences']) ?? {
-        targetRoles: [],
-        regions: [],
-        employmentTypes: [],
-      },
+    socialLinks: ((row.socialLinks ?? row.social_links) as Record<string, string> | null) ?? {},
+    // 강사 · 관리자는 DB 에 {} 로 들어 있다 — 빠진 목록은 빈 목록으로(화면이 .length 에서 멈췄다)
+    jobPreferences: withJobDefaults(row.jobPreferences ?? row.job_preferences),
     photoUrl: row.photoUrl || row.photo_url ? String(row.photoUrl ?? row.photo_url) : undefined,
     mileageBalance: Number(row.mileageBalance ?? row.mileage_balance ?? 0),
     createdAt: asDate(row.createdAt ?? row.created_at),
