@@ -22,6 +22,11 @@ pydantic>=2.9
 requests>=2.32
 beautifulsoup4>=4.12
 
+# 공고 저장소 (job_matching_bot/ingestion/sqlite_store.py) — PostgreSQL `jobs` 스키마.
+# lms_api/requirements.txt 에만 있고 여기엔 빠져 있어서, 이 가상환경으로 도는 야간 배치가
+# 2026-09-22 밤 저장소를 열다 죽었다. 배치와 추천 API 가 쓰는 곳은 이 파일이다.
+psycopg[binary]>=3.1
+
 # 추천·챗봇 API 서버 (job_matching_bot/api/)
 fastapi>=0.116,<2
 uvicorn[standard]>=0.34,<1
