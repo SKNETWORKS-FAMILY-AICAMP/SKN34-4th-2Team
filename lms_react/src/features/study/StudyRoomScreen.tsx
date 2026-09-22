@@ -67,13 +67,6 @@ export function StudyRoomScreen() {
             배정된 인프런 강의와 이번 주 커리큘럼 YouTube 추천을 확인하세요.
           </p>
         </div>
-        <span className="who-chip">
-          <span className="who-chip__avatar">{user.displayName.slice(0, 1)}</span>
-          <span className="who-chip__text">
-            <strong>{user.displayName}</strong>
-            <span>{user.cohortName}</span>
-          </span>
-        </span>
       </header>
 
       {/* 공부방 — 수업 저장소에서 복습 노트를 만드는 곳으로 들어가는 문 */}

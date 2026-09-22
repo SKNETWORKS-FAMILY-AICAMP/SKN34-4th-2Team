@@ -87,13 +87,6 @@ export function RecordsBoard({ reviewer }: { reviewer: boolean }) {
           <h1 className="study-head__title">기록실</h1>
           <p className="study-head__desc">블로그, 스터디, 자격증 기록을 제출하고 관리하세요.</p>
         </div>
-        <span className="who-chip">
-          <span className="who-chip__avatar">{user.displayName.slice(0, 1)}</span>
-          <span className="who-chip__text">
-            <strong>{user.displayName}</strong>
-            <span>{user.cohortName}</span>
-          </span>
-        </span>
       </header>
 
       <label className="study-search">
