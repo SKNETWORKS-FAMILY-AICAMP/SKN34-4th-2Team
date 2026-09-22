@@ -629,6 +629,20 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
     mileageSettings: mapMileageSettings(settingsRow),
     ...mapSeating(payload, users, sessionCohort),
     projectTeams: mapTeams(payload, sessionCohort),
+    // 복습 문제 — 서버(practice_service.py)가 화면 모양 그대로 보낸다. 날짜만 Date 로
+    practiceSets: rowsOf(payload, 'practiceSets') as unknown as Database['practiceSets'],
+    practiceAttempts: rowsOf(payload, 'practiceAttempts').map((a) => ({
+      ...(a as unknown as Database['practiceAttempts'][number]),
+      answeredAt: asDate(a.answeredAt) ?? new Date(0),
+    })),
+    practiceReports: rowsOf(payload, 'practiceReports').map((r) => ({
+      ...(r as unknown as Database['practiceReports'][number]),
+      createdAt: asDate(r.createdAt) ?? new Date(0),
+    })),
+    practiceReviews: rowsOf(payload, 'practiceReviews').map((v) => ({
+      ...(v as unknown as Database['practiceReviews'][number]),
+      decidedAt: asDate(v.decidedAt) ?? new Date(0),
+    })),
     qualExams: mapQualExams(payload),
     aiLogs: rowsOf(payload, 'aiGenerationLogs').map((row) => ({
       id: String(row.id ?? row.pk ?? ''),

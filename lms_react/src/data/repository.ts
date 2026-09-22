@@ -1304,6 +1304,7 @@ export function recordPracticeAttempt(uid: string, setId: string, index: number,
       ),
     };
   });
+  if (!isTestMode()) void runCommand('recordPracticeAttempt', { setId, index, passed });
 }
 
 // ── 복습 문제 신고 ────────────────────────────────────────
@@ -1327,6 +1328,7 @@ export function reportPracticeProblem(uid: string, setId: string, index: number,
       practiceReports: [...db.practiceReports, { id: nextId('pr'), uid, setId, index, reason, note, createdAt: new Date() }],
     };
   });
+  if (!isTestMode()) void runCommand('reportPracticeProblem', { setId, index, reason, note });
 }
 
 /** 강사 결정 — 숨김 유지 또는 다시 보이기 */
@@ -1337,4 +1339,5 @@ export function reviewPracticeProblem(decidedBy: string, setId: string, index: n
       { setId, index, decision, decidedBy, decidedAt: new Date() },
     ],
   }));
+  if (!isTestMode()) void runCommand('reviewPracticeProblem', { setId, index, decision });
 }

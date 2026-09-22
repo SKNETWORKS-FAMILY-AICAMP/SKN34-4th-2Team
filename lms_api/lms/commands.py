@@ -639,3 +639,8 @@ OPS = {
 from lms.seating_commands import SEATING_OPS  # noqa: E402
 
 OPS.update(SEATING_OPS)
+
+# 복습 문제 쓰기(풀이 기록 · 신고 · 강사 결정) — practice 스키마
+from lms.practice_service import PRACTICE_OPS  # noqa: E402
+
+OPS.update(PRACTICE_OPS)

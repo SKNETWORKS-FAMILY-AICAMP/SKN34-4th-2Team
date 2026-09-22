@@ -5,6 +5,7 @@ from __future__ import annotations
 from django.db import connection
 
 from lms.jsonutil import public_row
+from lms.practice_service import practice_snapshot
 
 
 def _dicts(cur):
@@ -114,6 +115,7 @@ def build_bootstrap(user: dict) -> dict:
         teams = q("SELECT * FROM project_teams WHERE cohort_id = ANY(%s)", [cohort_ids])
         team_ids = [t["id"] for t in teams] or [-1]
         members = q("SELECT * FROM project_team_members WHERE team_id = ANY(%s)", [team_ids])
+        practice = practice_snapshot(cur, user, [c["code"] for c in cohorts if c.get("code")])
         pdfs = q("SELECT * FROM curriculum_pdfs WHERE cohort_id = ANY(%s)", [cohort_ids])
         intakes = q(
             """SELECT si.* FROM student_intakes si
@@ -204,6 +206,8 @@ def build_bootstrap(user: dict) -> dict:
         "seatAssignments": pub(seats),
         "projectTeams": pub(teams),
         "projectTeamMembers": pub(members),
+        # 복습 문제(practice 스키마) — 화면 모양 그대로
+        **practice,
         "studentIntakes": pub(intakes),
         "materials": pub(materials),
         "assignments": pub(assignments_t),
