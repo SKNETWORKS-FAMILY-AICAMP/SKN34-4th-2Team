@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+const API_PROXY = { '/api': 'http://127.0.0.1:8000' };
+
 const COOP_COEP = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Embedder-Policy': 'require-corp',
@@ -14,7 +16,11 @@ export default defineConfig({
   // 연습장의 즉석 input() — 워커가 SharedArrayBuffer 로 잠들었다 깨어나려면 페이지가 cross-origin
   // isolated 여야 한다. 배포(Django · nginx)에서도 이 두 헤더를 그대로 보낸다. 없어도 연습장은
   // 「입력값」 칸 방식으로 돈다.
-  server: { headers: COOP_COEP },
+  server: {
+    headers: COOP_COEP,
+    // lms_api(Django) — 개발 중에는 같은 출처로 보이게 넘긴다
+    proxy: API_PROXY,
+  },
   build: {
     rollupOptions: {
       output: {
@@ -24,12 +30,13 @@ export default defineConfig({
           if (!id.includes('node_modules')) return undefined;
           if (/node_modules\/(@codemirror|@lezer|style-mod|w3c-keyname|crelt|@marijn)\//.test(id)) return 'codemirror';
           if (/node_modules\/(react|react-dom|scheduler|react-router|react-router-dom|@remix-run)\//.test(id)) return 'react';
+          if (/node_modules\/(@tanstack|axios|zustand|use-sync-external-store)\//.test(id)) return 'vendor';
           return undefined;
         },
       },
     },
   },
-  preview: { headers: COOP_COEP },
+  preview: { headers: COOP_COEP, proxy: API_PROXY },
   test: {
     environment: 'jsdom',
     setupFiles: ['src/test/setup.ts'],

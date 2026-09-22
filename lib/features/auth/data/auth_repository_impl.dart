@@ -1,23 +1,22 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../../../shared/data/lms_api_client.dart';
 import '../../../shared/demo/demo_accounts.dart';
 import '../../../shared/demo/demo_session.dart';
-import '../../../core/constants/firestore_paths.dart';
 import '../../../core/errors/app_exception.dart';
 import '../../../shared/models/user_model.dart';
 import 'auth_repository.dart';
 
-/// Firebase Auth + Firestore 연동 Repository 구현체
+/// Firebase Auth + Django 프로필
 class AuthRepositoryImpl implements AuthRepository {
   AuthRepositoryImpl({
     required FirebaseAuth auth,
-    required FirebaseFirestore firestore,
-  }) : _auth = auth,
-       _firestore = firestore;
+    required LmsApiClient api,
+  })  : _auth = auth,
+        _api = api;
 
   final FirebaseAuth _auth;
-  final FirebaseFirestore _firestore;
+  final LmsApiClient _api;
 
   @override
   Stream<User?> get authStateChanges => _auth.authStateChanges();
@@ -30,7 +29,6 @@ class AuthRepositoryImpl implements AuthRepository {
     required String email,
     required String password,
   }) async {
-    // 데모 모드: Firebase 없이 테스트 계정 로그인
     if (DemoConfig.enabled) {
       final demoUser = DemoAccounts.tryLogin(email, password);
       if (demoUser != null) {
@@ -48,10 +46,10 @@ class AuthRepositoryImpl implements AuthRepository {
         email: email.trim(),
         password: password,
       );
-
       final uid = credential.user!.uid;
+      _api.firebaseUid = uid;
+      await _api.bootstrap();
       final profile = await getUserProfile(uid);
-
       if (profile == null) {
         await _auth.signOut();
         throw const AuthException(
@@ -59,7 +57,6 @@ class AuthRepositoryImpl implements AuthRepository {
           code: 'profile-not-found',
         );
       }
-
       if (!profile.isActive) {
         await _auth.signOut();
         throw const AuthException(
@@ -67,11 +64,7 @@ class AuthRepositoryImpl implements AuthRepository {
           code: 'account-disabled',
         );
       }
-
-      await _firestore.collection(FirestorePaths.users).doc(uid).update({
-        'lastLoginAt': FieldValue.serverTimestamp(),
-      });
-
+      await _api.command('touchLastLogin', {});
       return profile;
     } on FirebaseAuthException catch (e) {
       throw AuthException(_mapAuthError(e.code), code: e.code);
@@ -84,29 +77,39 @@ class AuthRepositoryImpl implements AuthRepository {
       DemoSession.instance.logout();
       return;
     }
+    _api.firebaseUid = '';
     await _auth.signOut();
   }
 
   @override
-  Stream<UserModel?> watchUserProfile(String uid) {
+  Stream<UserModel?> watchUserProfile(String uid) async* {
     if (DemoConfig.enabled && DemoAccounts.isDemoUid(uid)) {
-      return Stream.value(DemoSession.instance.currentUser);
+      yield DemoSession.instance.currentUser;
+      return;
     }
-    return _firestore
-        .collection(FirestorePaths.users)
-        .doc(uid)
-        .snapshots()
-        .map((doc) => doc.exists ? UserModel.fromFirestore(doc) : null);
+    _api.firebaseUid = uid;
+    yield await getUserProfile(uid);
+    await for (final _ in _api.changes) {
+      yield await getUserProfile(uid);
+    }
   }
 
   @override
   Future<UserModel?> getUserProfile(String uid) async {
-    final doc = await _firestore
-        .collection(FirestorePaths.users)
-        .doc(uid)
-        .get();
-    if (!doc.exists) return null;
-    return UserModel.fromFirestore(doc);
+    if (_api.snapshot.isEmpty) {
+      try {
+        await _api.bootstrap();
+      } catch (_) {
+        return null;
+      }
+    }
+    final me = _api.snapshot['me'];
+    if (me is Map && '${me['uid'] ?? me['firebaseUid']}' == uid) {
+      return UserModel.fromMap(uid, Map<String, dynamic>.from(me));
+    }
+    final row = _api.list('users').where((item) => '${item['uid']}' == uid).firstOrNull;
+    if (row == null) return null;
+    return UserModel.fromMap(uid, row);
   }
 
   @override
@@ -119,21 +122,12 @@ class AuthRepositoryImpl implements AuthRepository {
       if (user == null) {
         throw const AuthException('로그인 상태가 아닙니다.');
       }
-
       await user.updatePassword(newPassword);
-
-      await _firestore.collection(FirestorePaths.users).doc(uid).update({
+      await _api.command('updateProfile', {
+        'uid': uid,
         'mustChangePassword': false,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'password': newPassword,
       });
-
-      // 상담 등록 학생 — 비밀번호 변경 기록 (관리자 화면 표시용)
-      final intakeRef =
-          _firestore.collection(FirestorePaths.studentIntakes).doc(uid);
-      final intakeDoc = await intakeRef.get();
-      if (intakeDoc.exists) {
-        await intakeRef.update({'passwordChanged': true});
-      }
     } on FirebaseAuthException catch (e) {
       throw AuthException(_mapAuthError(e.code), code: e.code);
     }
@@ -151,25 +145,17 @@ class AuthRepositoryImpl implements AuthRepository {
       if (user == null) {
         throw const AuthException('로그인 상태가 아닙니다.');
       }
-
       final credential = EmailAuthProvider.credential(
         email: email,
         password: currentPassword,
       );
       await user.reauthenticateWithCredential(credential);
       await user.updatePassword(newPassword);
-
-      await _firestore.collection(FirestorePaths.users).doc(uid).update({
+      await _api.command('updateProfile', {
+        'uid': uid,
         'mustChangePassword': false,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'password': newPassword,
       });
-
-      final intakeRef =
-          _firestore.collection(FirestorePaths.studentIntakes).doc(uid);
-      final intakeDoc = await intakeRef.get();
-      if (intakeDoc.exists) {
-        await intakeRef.update({'passwordChanged': true});
-      }
     } on FirebaseAuthException catch (e) {
       throw AuthException(_mapAuthError(e.code), code: e.code);
     }
@@ -186,14 +172,12 @@ class AuthRepositoryImpl implements AuthRepository {
       }
       return;
     }
-
-    await _firestore.collection(FirestorePaths.users).doc(uid).update({
+    await _api.command('updateProfile', {
+      'uid': uid,
       'mustChangePassword': false,
-      'updatedAt': FieldValue.serverTimestamp(),
     });
   }
 
-  /// Firebase Auth 에러 코드 → 한국어 메시지
   String _mapAuthError(String code) {
     return switch (code) {
       'user-not-found' || 'wrong-password' || 'invalid-credential' =>

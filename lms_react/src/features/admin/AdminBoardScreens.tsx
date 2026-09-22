@@ -11,6 +11,7 @@ import {
   deleteAlertPopup,
   deleteNotice,
   deleteScheduledNotice,
+  publishScheduledNotice,
   upsertAlertPopup,
   upsertScheduledNotice,
   useAlertPopups,
@@ -162,21 +163,24 @@ export function AdminBoardScreen() {
                 header: '동작',
                 width: '90px',
                 render: (s) => (
-                  <Toggle checked={s.isActive} onChange={(v) => upsertScheduledNotice({ ...s, isActive: v })} />
+                  <Toggle checked={s.isActive} onChange={(v) => void upsertScheduledNotice({ ...s, isActive: v })} />
                 ),
               },
               {
                 key: 'actions',
                 header: '',
-                width: '140px',
+                width: '240px',
                 align: 'right',
                 render: (s) => (
                   <Row gap={4} wrap={false}>
                     <Spacer />
+                    <Button size="sm" variant="outline" onClick={() => void publishScheduledNotice(s.id)}>
+                      지금 게시
+                    </Button>
                     <Button size="sm" variant="outline" onClick={() => navigate(adminBoardScheduledEditPath(s.id))}>
                       수정
                     </Button>
-                    <Button size="sm" variant="danger" onClick={() => deleteScheduledNotice(s.id)}>
+                    <Button size="sm" variant="danger" onClick={() => void deleteScheduledNotice(s.id)}>
                       삭제
                     </Button>
                   </Row>
@@ -208,7 +212,9 @@ export function AdminBoardScreen() {
                 key: 'active',
                 header: '노출',
                 width: '90px',
-                render: (p) => <Toggle checked={p.isActive} onChange={(v) => upsertAlertPopup({ ...p, isActive: v })} />,
+                render: (p) => (
+                  <Toggle checked={p.isActive} onChange={(v) => void upsertAlertPopup({ ...p, isActive: v })} />
+                ),
               },
               {
                 key: 'actions',
@@ -221,7 +227,7 @@ export function AdminBoardScreen() {
                     <Button size="sm" variant="outline" onClick={() => navigate(adminBoardAlertPopupEditPath(p.id))}>
                       수정
                     </Button>
-                    <Button size="sm" variant="danger" onClick={() => deleteAlertPopup(p.id)}>
+                    <Button size="sm" variant="danger" onClick={() => void deleteAlertPopup(p.id)}>
                       삭제
                     </Button>
                   </Row>
@@ -251,6 +257,7 @@ export function AdminScheduledNoticeFormScreen() {
   const [isFavorite, setFavorite] = useState(existing?.isFavorite ?? false);
   const [isActive, setActive] = useState(existing?.isActive ?? true);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const save = () => {
     if (title.trim() === '') {
@@ -270,8 +277,13 @@ export function AdminScheduledNoticeFormScreen() {
       lastPublishedAt: existing?.lastPublishedAt,
       createdAt: existing?.createdAt ?? new Date(),
     };
-    upsertScheduledNotice(notice);
-    navigate(RoutePaths.adminBoard);
+    setSaving(true);
+    void upsertScheduledNotice(notice)
+      .then(() => navigate(RoutePaths.adminBoard))
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : '저장에 실패했습니다.');
+        setSaving(false);
+      });
   };
 
   return (
@@ -316,7 +328,9 @@ export function AdminScheduledNoticeFormScreen() {
           <Button variant="outline" onClick={() => navigate(RoutePaths.adminBoard)}>
             취소
           </Button>
-          <Button onClick={save}>저장</Button>
+          <Button onClick={save} disabled={saving}>
+            {saving ? '저장 중' : '저장'}
+          </Button>
         </Row>
       </Card>
     </div>
@@ -338,6 +352,7 @@ export function AdminAlertPopupFormScreen() {
   const [endTime, setEndTime] = useState(existing?.endTime ?? '');
   const [isActive, setActive] = useState(existing?.isActive ?? true);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const save = () => {
     if (title.trim() === '') {
@@ -356,8 +371,13 @@ export function AdminAlertPopupFormScreen() {
       endTime: endTime === '' ? undefined : endTime,
       createdAt: existing?.createdAt ?? new Date(),
     };
-    upsertAlertPopup(popup);
-    navigate(RoutePaths.adminBoard);
+    setSaving(true);
+    void upsertAlertPopup(popup)
+      .then(() => navigate(RoutePaths.adminBoard))
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : '저장에 실패했습니다.');
+        setSaving(false);
+      });
   };
 
   return (
@@ -387,7 +407,9 @@ export function AdminAlertPopupFormScreen() {
           <Button variant="outline" onClick={() => navigate(RoutePaths.adminBoard)}>
             취소
           </Button>
-          <Button onClick={save}>저장</Button>
+          <Button onClick={save} disabled={saving}>
+            {saving ? '저장 중' : '저장'}
+          </Button>
         </Row>
       </Card>
     </div>

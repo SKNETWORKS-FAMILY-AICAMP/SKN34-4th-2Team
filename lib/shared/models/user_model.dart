@@ -59,16 +59,15 @@ class UserModel {
   bool get isInstructor => role.isInstructor;
   bool get isStudent => role.isStudent;
 
-  /// Firestore Document → UserModel
-  factory UserModel.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data()!;
+  /// JSON/Firestore 문서 → UserModel
+  factory UserModel.fromMap(String id, Map<String, dynamic> data) {
     return UserModel(
-      uid: doc.id,
+      uid: id,
       email: data['email'] as String? ?? '',
       personalEmail: data['personalEmail'] as String?,
       displayName: data['displayName'] as String? ?? '',
       role: UserRole.fromString(data['role'] as String? ?? 'student'),
-      cohortId: data['cohortId'] as String? ?? '',
+      cohortId: data['cohortId'] as String? ?? data['cohortCode'] as String? ?? '',
       cohortName: data['cohortName'] as String? ?? '',
       seatNumber: data['seatNumber'] as int?,
       isActive: data['isActive'] as bool? ?? true,
@@ -85,8 +84,12 @@ class UserModel {
       mileageBalance: data['mileageBalance'] as int? ?? 0,
       createdAt: AppDateUtils.timestampToDateTime(data['createdAt']),
       updatedAt: AppDateUtils.timestampToDateTime(data['updatedAt']),
-      lastLoginAt: AppDateUtils.timestampToDateTime(data['lastLoginAt']),
+      lastLoginAt: AppDateUtils.timestampToDateTime(data['lastLoginAt'] ?? data['lastLogin']),
     );
+  }
+
+  factory UserModel.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    return UserModel.fromMap(doc.id, doc.data()!);
   }
 
   /// UserModel → Firestore Map

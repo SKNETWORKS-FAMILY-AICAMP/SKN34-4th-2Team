@@ -1,9 +1,12 @@
+import { QueryClientProvider } from '@tanstack/react-query';
 import { Suspense, useEffect } from 'react';
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 
 import { AppearanceProvider } from './appearance';
 import { RoutePaths, homeFor } from './routePaths';
 import { Shell } from './Shell';
+import { BootstrapQuery } from '../data/BootstrapQuery';
+import { queryClient } from '../data/queryClient';
 import { CartProvider } from '../features/mileage/cart';
 import { SessionProvider, useSession } from '../features/auth/session';
 import { LoginScreen } from '../features/auth/LoginScreen';
@@ -20,7 +23,13 @@ function Protected() {
   const { user, loading } = useSession();
   const location = useLocation();
 
-  if (loading) return null;
+  if (loading && user === null) {
+    return (
+      <div className="centered-screen" role="status" aria-live="polite">
+        <p className="muted">세션 확인 중…</p>
+      </div>
+    );
+  }
   if (user === null) return <Navigate to={RoutePaths.login} replace />;
   if (user.mustChangePassword && location.pathname !== RoutePaths.changePassword) {
     return <Navigate to={RoutePaths.changePassword} replace />;
@@ -31,7 +40,13 @@ function Protected() {
 /** 역할이 맞지 않는 셸에 들어오면 제 홈으로 돌려보낸다. */
 function RoleGuard({ allow, children }: { allow: string[]; children: React.ReactNode }) {
   const { user } = useSession();
-  if (user === null) return null;
+  if (user === null) {
+    return (
+      <div className="centered-screen" role="status">
+        <p className="muted">화면 준비 중…</p>
+      </div>
+    );
+  }
   if (!allow.includes(user.role)) return <Navigate to={homeFor(user.role)} replace />;
   return <>{children}</>;
 }
@@ -45,7 +60,13 @@ function ShellWithTour() {
   // 로그인한 역할의 화면 청크를 한가할 때 미리 받아 둔다
   useEffect(() => (role ? prefetchWhenIdle(prefetchByRole[role] ?? []) : undefined), [role]);
 
-  if (user === null) return null;
+  if (user === null) {
+    return (
+      <div className="centered-screen" role="status">
+        <p className="muted">화면 준비 중…</p>
+      </div>
+    );
+  }
 
   return (
     <TourHost
@@ -62,6 +83,8 @@ function ShellWithTour() {
 
 export function App() {
   return (
+    <QueryClientProvider client={queryClient}>
+    <BootstrapQuery />
     <AppearanceProvider>
       <SessionProvider>
         <TourProvider>
@@ -113,5 +136,6 @@ export function App() {
         </TourProvider>
       </SessionProvider>
     </AppearanceProvider>
+    </QueryClientProvider>
   );
 }

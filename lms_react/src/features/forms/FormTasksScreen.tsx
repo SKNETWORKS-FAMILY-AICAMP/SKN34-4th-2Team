@@ -1,4 +1,5 @@
 import { markFormResponded, useFormResponses, useFormTasks } from '../../data/repository';
+import { toTime } from '../../utils/format';
 import type { FormTask } from '../../domain/types';
 import { StudentTargets } from '../../tour/targets';
 import { useTourTarget } from '../../tour/useTourTarget';
@@ -56,8 +57,9 @@ export function FormTasksScreen() {
 
 /** widgets/form_task_card.dart */
 function FormTaskCard({ task, done }: { task: FormTask; done: boolean }) {
-  const overdue = !done && task.dueAt.getTime() < Date.now();
-  const remaining = Math.max(0, Math.ceil((task.dueAt.getTime() - Date.now()) / DAY));
+  const dueMs = toTime(task.dueAt);
+  const overdue = !done && dueMs < Date.now();
+  const remaining = Math.max(0, Math.ceil((dueMs - Date.now()) / DAY));
   const tone = done ? 'ok' : overdue ? 'bad' : 'wait';
   const label = done ? '제출 완료' : overdue ? '마감' : '미제출';
   const user = useCurrentUser();

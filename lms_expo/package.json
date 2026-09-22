@@ -1,0 +1,19 @@
+{
+  "name": "lms-expo",
+  "private": true,
+  "version": "0.1.0",
+  "main": "src/main.tsx",
+  "scripts": {
+    "start": "expo start"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.2",
+    "axios": "^1.12.2",
+    "expo": "^54.0.0",
+    "expo-secure-store": "^15.0.0",
+    "expo-status-bar": "^3.0.8",
+    "react": "19.1.0",
+    "react-native": "0.81.4",
+    "zustand": "^5.0.8"
+  }
+}

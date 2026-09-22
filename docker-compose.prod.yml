@@ -1,0 +1,46 @@
+services:
+  redis:
+    image: redis:7
+    restart: unless-stopped
+
+  api:
+    image: ${ECR_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DJANGO_DEBUG: "0"
+    depends_on:
+      - redis
+    command: gunicorn lms_server.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60
+
+  worker:
+    image: ${ECR_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    command: celery -A lms_server worker -l info
+
+  beat:
+    image: ${ECR_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    command: celery -A lms_server beat -l info
+
+  nginx:
+    image: nginx:1.27
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/certbot/www:/var/www/certbot:ro
+      - ./deploy/certbot/conf:/etc/letsencrypt:ro
+    depends_on:
+      - api

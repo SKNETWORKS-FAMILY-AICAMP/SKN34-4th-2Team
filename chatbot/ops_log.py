@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from typing import Any
 
@@ -139,11 +140,42 @@ def build_done_event(log_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def write_generation_log(db: Any, payload: dict[str, Any]) -> str:
-    from firebase_admin import firestore
+    """Postgres `ai_generation_logs`에 메타만 남긴다."""
+    import psycopg
 
+    del db
     clean = strip_forbidden(payload)
     assert_no_plaintext(clean)
-    ref = db.collection("aiGenerationLogs").document()
-    clean["createdAt"] = firestore.SERVER_TIMESTAMP
-    ref.set(clean)
-    return ref.id
+    cohort_code = str(clean.get("cohortId") or "")
+    created_by = str(clean.get("createdBy") or "")
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        cohort_id = conn.execute(
+            "SELECT id FROM cohorts WHERE code = %s OR CAST(id AS text) = %s",
+            (cohort_code, cohort_code),
+        ).fetchone()
+        user_id = conn.execute(
+            "SELECT id FROM users WHERE firebase_uid = %s", (created_by,)
+        ).fetchone()
+        row = conn.execute(
+            """INSERT INTO ai_generation_logs
+               (type, cohort_id, created_by, prompt_version, model, status, error_message, latency_ms, token_in, token_out, details)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+               RETURNING id""",
+            (
+                clean.get("type") or "student_chatbot",
+                cohort_id[0] if cohort_id else None,
+                user_id[0] if user_id else None,
+                clean.get("promptVersion"),
+                clean.get("model"),
+                clean.get("status"),
+                clean.get("errorMessage"),
+                clean.get("latencyMs"),
+                clean.get("tokenIn"),
+                clean.get("tokenOut"),
+                json.dumps({k: v for k, v in clean.items() if k not in {
+                    "type", "promptVersion", "model", "status", "errorMessage", "latencyMs", "tokenIn", "tokenOut",
+                }}, ensure_ascii=False),
+            ),
+        ).fetchone()
+        conn.commit()
+        return str(row[0])

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { RobotHead } from '../../ui/RobotHead';
 import { Button, Row, Spacer } from '../../ui/components';
+import { http } from '../../data/http';
 import { useSession } from '../auth/session';
 import { answerFor, chatbotGreeting, quickTopics } from './chatbotAnswers';
 
@@ -50,6 +51,7 @@ export function ChatbotHost() {
   /** 답을 몇 글자씩 흘려보낸다. */
   const stream = (text: string) => {
     const id = `bot-${Date.now()}`;
+    // API 대기 중에도 thinking 이 true 일 수 있다. 타이핑 직전에 잠깐 더 보여 준다.
     setThinking(true);
     const start = window.setTimeout(() => {
       setThinking(false);
@@ -72,7 +74,20 @@ export function ChatbotHost() {
 
   const ask = (question: string) => {
     setMessages((m) => [...m, { id: `user-${Date.now()}`, role: 'user', text: question }]);
-    stream(answerFor(question));
+    if (import.meta.env.MODE === 'test') {
+      stream(answerFor(question));
+      return;
+    }
+    // 서버(LLM) 응답을 기다리는 동안 로딩을 보여 준다.
+    setThinking(true);
+    void (async () => {
+      try {
+        const { data } = await http.post<{ answer?: string }>('/chat', { message: question });
+        stream(data.answer || '답변을 받지 못했습니다.');
+      } catch {
+        stream('학습 도우미에 잠시 연결하지 못했습니다. 잠시 후 다시 시도하세요.');
+      }
+    })();
   };
 
   const submit = (e: FormEvent) => {
@@ -180,11 +195,11 @@ export function ChatbotHost() {
         ))}
 
         {thinking && (
-          <div className="bubble bubble--bot bubble--loading">
+          <div className="bubble bubble--bot bubble--loading" role="status" aria-live="polite">
             <span className="dot" />
             <span className="dot" />
             <span className="dot" />
-            <span className="hint">자료를 찾는 중이에요</span>
+            <span className="hint">답변을 생성하고 있어요</span>
           </div>
         )}
 

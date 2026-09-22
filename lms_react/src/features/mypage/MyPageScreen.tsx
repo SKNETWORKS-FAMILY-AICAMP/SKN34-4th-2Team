@@ -8,7 +8,7 @@ import { tourFor } from '../../tour/tours';
 import { useTour } from '../../tour/useTour';
 import { Icon } from '../../ui/Icon';
 import { formatDateTime } from '../../utils/format';
-import { useCurrentUser } from '../auth/session';
+import { useCurrentUser, useSession } from '../auth/session';
 
 /**
  * 마이페이지 — features/my_page/presentation/my_page_screen.dart
@@ -315,7 +315,39 @@ function JobPreferencesCard({ user }: { user: User }) {
 }
 
 function PasswordCard(): ReactNode {
+  const { changePassword } = useSession();
   const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const submit = () => {
+    setDone(false);
+    if (next.length < 8) {
+      setError('비밀번호는 8자 이상이어야 합니다.');
+      return;
+    }
+    if (next !== confirm) {
+      setError('두 번 입력한 비밀번호가 다릅니다.');
+      return;
+    }
+    setSaving(true);
+    void changePassword(next, current).then((result) => {
+      setSaving(false);
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      setError(null);
+      setCurrent('');
+      setNext('');
+      setConfirm('');
+      setDone(true);
+    });
+  };
 
   return (
     <section className="panel mycard">
@@ -327,20 +359,51 @@ function PasswordCard(): ReactNode {
 
       {open && (
         <>
-          <p className="mycard__sub">
-            프로토타입에서는 비밀번호가 바뀌지 않습니다. 화면만 확인할 수 있습니다.
-          </p>
+          <p className="mycard__sub">현재 비밀번호를 확인한 뒤 새 비밀번호로 바꿉니다.</p>
           <label className="mycard__field">
             <span className="mycard__field-label">현재 비밀번호</span>
-            <input className="input" type="password" />
+            <input
+              className="input"
+              type="password"
+              value={current}
+              onChange={(e) => {
+                setCurrent(e.target.value);
+                setError(null);
+                setDone(false);
+              }}
+            />
           </label>
           <label className="mycard__field">
             <span className="mycard__field-label">새 비밀번호</span>
-            <input className="input" type="password" />
+            <input
+              className="input"
+              type="password"
+              value={next}
+              onChange={(e) => {
+                setNext(e.target.value);
+                setError(null);
+                setDone(false);
+              }}
+            />
           </label>
+          <label className="mycard__field">
+            <span className="mycard__field-label">새 비밀번호 확인</span>
+            <input
+              className="input"
+              type="password"
+              value={confirm}
+              onChange={(e) => {
+                setConfirm(e.target.value);
+                setError(null);
+                setDone(false);
+              }}
+            />
+          </label>
+          {error !== null && <p className="mycard__sub">{error}</p>}
+          {done && <p className="mycard__sub">비밀번호를 바꿨습니다. 다음 로그인부터 새 비밀번호를 쓰세요.</p>}
           <div className="mycard__actions">
-            <button type="button" className="btn btn--outline btn--md">
-              변경
+            <button type="button" className="btn btn--outline btn--md" onClick={submit} disabled={saving}>
+              {saving ? '변경 중' : '변경'}
             </button>
           </div>
         </>

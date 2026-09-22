@@ -38,6 +38,42 @@ import type {
 import { getDb, mutate, nextId, subscribe, type Database } from './store';
 import { dateKeyOf } from './seed';
 import { remapAssignments } from '../domain/seatingLayout';
+import { http, readApiError } from './http';
+import { fetchBootstrap, lastBootstrapSession } from './bootstrap';
+import { getBootstrapDb, subscribeBootstrap } from './bootstrapStore';
+import { queryClient, queryKeys } from './queryClient';
+
+function isTestMode(): boolean {
+  return typeof import.meta !== 'undefined' && import.meta.env?.MODE === 'test';
+}
+
+function isApiId(id: string | undefined): id is string {
+  return id !== undefined && /^\d+$/.test(id);
+}
+
+export function apiCohortId(): string {
+  return lastBootstrapSession().cohortId;
+}
+
+async function invalidateBootstrap(): Promise<void> {
+  await queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
+}
+
+async function runCommand(op: string, payload: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+  const { data } = await http.post<Record<string, unknown>>('/command', { op, payload });
+  await invalidateBootstrap();
+  return data;
+}
+
+export async function applyBootstrap(): Promise<boolean> {
+  try {
+    const db = await fetchBootstrap();
+    queryClient.setQueryData(queryKeys.bootstrap, db);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * 조회 훅 — Flutter의 `watch*` 스트림 자리.
@@ -61,26 +97,20 @@ export interface Query<T> {
   error: Error | null;
 }
 
-/** 메모리 조회를 Query 모양으로 감싼다. 훗날 여기가 fetch 자리가 된다. */
-function ready<T>(data: T): Query<T> {
-  return { data, loading: false, error: null };
-}
-
 export function useDb<T>(select: (db: Database) => T): T {
-  // 매 렌더마다 새 배열을 돌려주면 useSyncExternalStore가 값이 바뀐 줄 알고
-  // 다시 그리고, 그 렌더가 또 새 배열을 만든다. 얕은 비교로 같으면 지난 값을
-  // 그대로 돌려줘 그 고리를 끊는다.
   const cache = useRef<T | null>(null);
 
   const getSnapshot = useCallback(() => {
-    const next = select(getDb());
+    const source = isTestMode() ? getDb() : getBootstrapDb();
+    const next = select(source);
     const prev = cache.current;
     if (prev !== null && shallowEqual(prev, next)) return prev;
     cache.current = next;
     return next;
   }, [select]);
 
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const subscribeStore = isTestMode() ? subscribe : subscribeBootstrap;
+  return useSyncExternalStore(subscribeStore, getSnapshot, getSnapshot);
 }
 
 /** 배열·객체를 한 겹만 견준다. 저장소가 불변이라 이 정도면 충분하다. */
@@ -129,20 +159,24 @@ export function updateUser(uid: string, patch: Partial<User>): void {
   mutate((db) => ({
     users: db.users.map((u) => (u.uid === uid ? { ...u, ...patch } : u)),
   }));
+  if (!isTestMode()) void runCommand('updateProfile', { uid, ...patch });
 }
 
 export function createUser(user: User): void {
   mutate((db) => ({ users: [...db.users, user] }));
+  if (!isTestMode()) void runCommand('createUser', { ...user });
 }
 
 export function createCohort(cohort: Cohort): void {
   mutate((db) => ({ cohorts: [...db.cohorts, cohort] }));
+  if (!isTestMode()) void runCommand('createCohort', { ...cohort });
 }
 
 export function updateCohort(cohortId: string, patch: Partial<Cohort>): void {
   mutate((db) => ({
     cohorts: db.cohorts.map((c) => (c.cohortId === cohortId ? { ...c, ...patch } : c)),
   }));
+  if (!isTestMode()) void runCommand('updateCohort', { cohortId, ...patch });
 }
 
 // ── 공지 · 게시판 ──────────────────────────────────────
@@ -160,6 +194,9 @@ export function createNotice(notice: Omit<Notice, 'id' | 'createdAt'>): string {
   mutate((db) => ({
     notices: [{ ...notice, id, createdAt: new Date() }, ...db.notices],
   }));
+  if (!isTestMode()) {
+    void http.post('/notices', { ...notice, cohortId: apiCohortId() }).then(() => invalidateBootstrap());
+  }
   return id;
 }
 
@@ -167,59 +204,158 @@ export function updateNotice(id: string, patch: Partial<Notice>): void {
   mutate((db) => ({
     notices: db.notices.map((n) => (n.id === id ? { ...n, ...patch } : n)),
   }));
+  if (!isTestMode() && isApiId(id)) {
+    void http.patch(`/notices/${id}`, patch).then(() => invalidateBootstrap());
+  }
 }
 
 export function deleteNotice(id: string): void {
   mutate((db) => ({ notices: db.notices.filter((n) => n.id !== id) }));
+  if (!isTestMode() && isApiId(id)) {
+    void http.delete(`/notices/${id}`).then(() => invalidateBootstrap());
+  }
 }
 
 export function useScheduledNotices(): ScheduledNotice[] {
   return useDb((db) => db.scheduledNotices);
 }
 
-export function upsertScheduledNotice(notice: ScheduledNotice): void {
+function patchScheduledLocal(notice: ScheduledNotice): ScheduledNotice {
+  const saved = { ...notice, id: notice.id || nextId('sn') };
   mutate((db) => {
-    const exists = db.scheduledNotices.some((n) => n.id === notice.id);
+    const exists = db.scheduledNotices.some((n) => n.id === saved.id);
     return {
       scheduledNotices: exists
-        ? db.scheduledNotices.map((n) => (n.id === notice.id ? notice : n))
-        : [...db.scheduledNotices, { ...notice, id: notice.id || nextId('sn') }],
+        ? db.scheduledNotices.map((n) => (n.id === saved.id ? saved : n))
+        : [...db.scheduledNotices, saved],
     };
   });
+  return saved;
 }
 
-export function deleteScheduledNotice(id: string): void {
+export async function upsertScheduledNotice(notice: ScheduledNotice): Promise<ScheduledNotice> {
+  if (isTestMode()) return patchScheduledLocal(notice);
+  const existing = isApiId(notice.id);
+  try {
+    const { data } = existing
+      ? await http.patch<{ id?: string }>(`/scheduled-notices/${notice.id}`, {
+          title: notice.title,
+          content: notice.content,
+          isFavorite: notice.isFavorite,
+          repeatType: notice.repeatType,
+          publishTime: notice.publishTime,
+          publishAt: notice.publishAt?.toISOString(),
+          weekday: notice.weekday,
+          isActive: notice.isActive,
+          cohortId: apiCohortId(),
+        })
+      : await http.post<{ id?: string }>('/scheduled-notices', {
+          title: notice.title,
+          content: notice.content,
+          isFavorite: notice.isFavorite,
+          repeatType: notice.repeatType,
+          publishTime: notice.publishTime,
+          publishAt: notice.publishAt?.toISOString(),
+          weekday: notice.weekday,
+          isActive: notice.isActive,
+          cohortId: apiCohortId(),
+        });
+    await invalidateBootstrap();
+    return { ...notice, id: String(data.id ?? notice.id) };
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
+}
+
+export async function deleteScheduledNotice(id: string): Promise<void> {
   mutate((db) => ({
     scheduledNotices: db.scheduledNotices.filter((n) => n.id !== id),
   }));
+  if (!isTestMode() && isApiId(id)) {
+    try {
+      await http.delete(`/scheduled-notices/${id}`);
+      await invalidateBootstrap();
+    } catch (error) {
+      throw new Error(await readApiError(error));
+    }
+  }
+}
+
+export async function publishScheduledNotice(id: string): Promise<number> {
+  if (isTestMode()) return 0;
+  try {
+    const { data } = await http.post<{ published?: number }>('/scheduled-notices/publish', { ids: [id] });
+    await invalidateBootstrap();
+    return Number(data.published ?? 0);
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
 }
 
 export function useAlertPopups(): AlertPopup[] {
   return useDb((db) => db.alertPopups);
 }
 
-export function upsertAlertPopup(popup: AlertPopup): void {
+function patchAlertLocal(popup: AlertPopup): AlertPopup {
+  const saved = { ...popup, id: popup.id || nextId('ap') };
   mutate((db) => {
-    const exists = db.alertPopups.some((p) => p.id === popup.id);
+    const exists = db.alertPopups.some((p) => p.id === saved.id);
     return {
       alertPopups: exists
-        ? db.alertPopups.map((p) => (p.id === popup.id ? popup : p))
-        : [...db.alertPopups, { ...popup, id: popup.id || nextId('ap') }],
+        ? db.alertPopups.map((p) => (p.id === saved.id ? saved : p))
+        : [...db.alertPopups, saved],
     };
   });
+  return saved;
 }
 
-export function deleteAlertPopup(id: string): void {
+export async function upsertAlertPopup(popup: AlertPopup): Promise<AlertPopup> {
+  if (isTestMode()) return patchAlertLocal(popup);
+  const existing = isApiId(popup.id);
+  try {
+    const body = {
+      title: popup.title,
+      content: popup.content,
+      isActive: popup.isActive,
+      sortOrder: popup.sortOrder,
+      linkUrl: popup.linkUrl,
+      startTime: popup.startTime,
+      endTime: popup.endTime,
+      cohortId: apiCohortId(),
+    };
+    const { data } = existing
+      ? await http.patch<{ id?: string }>(`/alert-popups/${popup.id}`, body)
+      : await http.post<{ id?: string }>('/alert-popups', body);
+    await invalidateBootstrap();
+    return { ...popup, id: String(data.id ?? popup.id) };
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
+}
+
+export async function deleteAlertPopup(id: string): Promise<void> {
   mutate((db) => ({ alertPopups: db.alertPopups.filter((p) => p.id !== id) }));
+  if (!isTestMode() && isApiId(id)) {
+    try {
+      await http.delete(`/alert-popups/${id}`);
+      await invalidateBootstrap();
+    } catch (error) {
+      throw new Error(await readApiError(error));
+    }
+  }
 }
 
 export function dismissAlertToday(uid: string, popupId: string): void {
+  const dateKey = dateKeyOf(new Date());
   mutate((db) => ({
     alertDismissals: {
       ...db.alertDismissals,
-      [uid]: { ...(db.alertDismissals[uid] ?? {}), [popupId]: dateKeyOf(new Date()) },
+      [uid]: { ...(db.alertDismissals[uid] ?? {}), [popupId]: dateKey },
     },
   }));
+  if (!isTestMode() && isApiId(popupId)) {
+    void http.post(`/alert-popups/${popupId}/dismiss`, { dateKey }).then(() => invalidateBootstrap());
+  }
 }
 
 export function usePosts(): Post[] {
@@ -290,16 +426,19 @@ export function addTodo(title: string): void {
   mutate((db) => ({
     todos: [{ id: nextId('t'), title, isCompleted: false, createdAt: new Date() }, ...db.todos],
   }));
+  if (!isTestMode()) void runCommand('addTodo', { title });
 }
 
 export function toggleTodo(id: string): void {
   mutate((db) => ({
     todos: db.todos.map((t) => (t.id === id ? { ...t, isCompleted: !t.isCompleted } : t)),
   }));
+  if (!isTestMode()) void runCommand('toggleTodo', { todoId: id });
 }
 
 export function deleteTodo(id: string): void {
   mutate((db) => ({ todos: db.todos.filter((t) => t.id !== id) }));
+  if (!isTestMode()) void runCommand('deleteTodo', { todoId: id });
 }
 
 // ── 기록실 ────────────────────────────────────────────
@@ -317,6 +456,9 @@ export function createSubmission(submission: Omit<Submission, 'id' | 'submittedA
   mutate((db) => ({
     submissions: [{ ...submission, id, submittedAt: new Date() }, ...db.submissions],
   }));
+  if (!isTestMode()) {
+    void runCommand('upsert', { table: 'record_submissions', action: 'insert', ...submission, cohortId: apiCohortId() });
+  }
   return id;
 }
 
@@ -376,6 +518,17 @@ export function setAttendanceStatus(
       ],
     };
   });
+  if (!isTestMode()) {
+    void runCommand('upsert', {
+      table: 'attendances',
+      action: 'insert',
+      userId,
+      dateKey,
+      status,
+      statusSource: 'manual',
+      cohortId: apiCohortId(),
+    });
+  }
 }
 
 /**
@@ -582,6 +735,10 @@ export function publishSeatingAssignment(
       seatingMeta: { ...db.seatingMeta, [cohortId]: { publishedRoomId: roomId } },
     };
   });
+  // 서버의 publishSeating 도 같은 기수의 다른 확정을 작성 중으로 내리고 이 강의실을 확정한다
+  if (!isTestMode() && roomId) {
+    void runCommand('publishSeating', { roomId, cohortId: apiCohortId() });
+  }
 }
 
 export function useProjectTeams(cohortId: string): ProjectTeam[] {
@@ -637,7 +794,8 @@ export function useResumes(): Resume[] {
 
 /** ⬇︎ Query 로 바꾼 것 — 나머지 훅은 아직 예전 모양이다 (시범) */
 export function useMyResumes(uid: string): Query<Resume[]> {
-  return ready(useDb((db) => db.resumes.filter((r) => r.userId === uid)));
+  const data = useDb((db) => db.resumes.filter((r) => r.userId === uid));
+  return { data, loading: false, error: null };
 }
 
 export function useResume(id: string | undefined): Resume | undefined {
@@ -651,6 +809,9 @@ export function useResumeFeedbacks(resumeId: string): ResumeFeedback[] {
 export function createResume(resume: Omit<Resume, 'id' | 'updatedAt'>): string {
   const id = nextId('r');
   mutate((db) => ({ resumes: [{ ...resume, id, updatedAt: new Date() }, ...db.resumes] }));
+  if (!isTestMode()) {
+    void runCommand('upsert', { table: 'resumes', action: 'insert', ...resume, cohortId: apiCohortId() });
+  }
   return id;
 }
 
@@ -658,10 +819,12 @@ export function updateResume(id: string, patch: Partial<Resume>): void {
   mutate((db) => ({
     resumes: db.resumes.map((r) => (r.id === id ? { ...r, ...patch, updatedAt: new Date() } : r)),
   }));
+  if (!isTestMode()) void runCommand('upsert', { table: 'resumes', id, action: 'update', ...patch });
 }
 
 export function deleteResume(id: string): void {
   mutate((db) => ({ resumes: db.resumes.filter((r) => r.id !== id) }));
+  if (!isTestMode()) void runCommand('upsert', { table: 'resumes', id, action: 'delete' });
 }
 
 export function addResumeFeedback(
@@ -1015,6 +1178,9 @@ export function adjustMileage(
       ],
     };
   });
+  if (!isTestMode()) {
+    void http.post('/mileage/adjust', { uid: userId, amount, reason }).then(() => invalidateBootstrap());
+  }
 }
 
 export function updateMileageSettings(patch: Partial<import('../domain/types').MileageSettings>): void {
@@ -1027,7 +1193,7 @@ export function updateMileageSettings(patch: Partial<import('../domain/types').M
 
 /** ⬇︎ Query 로 바꾼 것 (시범) */
 export function useQualExams(): Query<QualExamSchedule[]> {
-  return ready(useDb((db) => db.qualExams));
+  return { data: useDb((db) => db.qualExams), loading: false, error: null };
 }
 
 // ── 실습 문제 ──────────────────────────────────────────

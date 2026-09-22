@@ -1,0 +1,67 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: lms
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - lms_pg:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: .
+      dockerfile: lms_api/Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/lms
+      REDIS_URL: redis://redis:6379/0
+      DJANGO_DEBUG: "1"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+    command: python manage.py runserver 0.0.0.0:8000
+    working_dir: /app
+
+  worker:
+    build:
+      context: .
+      dockerfile: lms_api/Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/lms
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+      - db
+    command: celery -A lms_server worker -l info
+    working_dir: /app
+
+  beat:
+    build:
+      context: .
+      dockerfile: lms_api/Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/lms
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+      - db
+    command: celery -A lms_server beat -l info
+    working_dir: /app
+
+volumes:
+  lms_pg:

@@ -2,6 +2,18 @@
 
 const pad = (v: number) => String(v).padStart(2, '0');
 
+/** API·캐시에서 Date 또는 ISO 문자열이 올 수 있을 때 안전하게 ms 로 바꾼다. */
+export function toDate(value?: Date | string | null): Date {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (value == null || value === '') return new Date(0);
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? new Date(0) : parsed;
+}
+
+export function toTime(value?: Date | string | null): number {
+  return toDate(value).getTime();
+}
+
 export function formatDate(date?: Date | null): string {
   if (date === undefined || date === null) return '-';
   return `${date.getFullYear()}.${pad(date.getMonth() + 1)}.${pad(date.getDate())}`;

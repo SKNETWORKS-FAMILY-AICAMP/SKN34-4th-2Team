@@ -5,7 +5,7 @@ import '../demo/demo_accounts.dart';
 import '../demo/demo_ai_ops.dart';
 import '../models/ai_ops_models.dart';
 import '../providers/cohort_providers.dart';
-import '../providers/firebase_providers.dart';
+import '../providers/lms_providers.dart';
 
 /// Admin LLMOps type 필터. null = 전체
 final aiQualityTypeFilterProvider =
@@ -79,16 +79,7 @@ final aiGenerationLogsProvider =
       if (DemoConfig.enabled) return Stream.value(DemoAiOps.logs());
       final cohortId = ref.watch(effectiveCohortIdProvider);
       if (cohortId == null) return Stream.value(const []);
-      return ref
-          .watch(firestoreProvider)
-          .collection('aiGenerationLogs')
-          .where('cohortId', isEqualTo: cohortId)
-          .orderBy('createdAt', descending: true)
-          .limit(100)
-          .snapshots()
-          .map(
-            (s) => s.docs.map(AiGenerationLogModel.fromFirestore).toList(),
-          );
+      return ref.watch(lmsRepositoryProvider).watchAiGenerationLogs(cohortId);
     });
 
 final aiQuestionFeedbackProvider =
@@ -96,31 +87,13 @@ final aiQuestionFeedbackProvider =
       if (DemoConfig.enabled) return Stream.value(DemoAiOps.feedback());
       final cohortId = ref.watch(effectiveCohortIdProvider);
       if (cohortId == null) return Stream.value(const []);
-      return ref
-          .watch(firestoreProvider)
-          .collection('aiQuestionFeedback')
-          .where('cohortId', isEqualTo: cohortId)
-          .limit(500)
-          .snapshots()
-          .map(
-            (s) => s.docs.map(AiQuestionFeedbackModel.fromFirestore).toList(),
-          );
+      return Stream.value(const <AiQuestionFeedbackModel>[]);
     });
 
 final latestAiEvalRunProvider =
     StreamProvider.autoDispose<AiEvalRunModel?>((ref) {
       if (DemoConfig.enabled) return Stream.value(DemoAiOps.evalRun());
-      return ref
-          .watch(firestoreProvider)
-          .collection('aiEvalRuns')
-          .orderBy('createdAt', descending: true)
-          .limit(1)
-          .snapshots()
-          .map(
-            (s) => s.docs.isEmpty
-                ? null
-                : AiEvalRunModel.fromFirestore(s.docs.first),
-          );
+      return Stream.value(null);
     });
 
 List<AiGenerationLogModel> filterLogsByType(

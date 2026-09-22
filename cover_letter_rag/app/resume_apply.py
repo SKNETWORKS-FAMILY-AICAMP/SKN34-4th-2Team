@@ -134,7 +134,12 @@ def rebase_review_response(response, content):
 
 
 def mutate(gateway, uid, request, undo=False):
-    # 공고 맞춤 첨삭은 기본 이력서 하위의 공고별 사본만 변경한다.
+    if getattr(gateway, "store", None) is not None:
+        return _mutate_in_memory(gateway, uid, request, undo)
+    return gateway.apply_or_undo(uid, request, undo)
+
+
+def _mutate_in_memory(gateway, uid, request, undo=False):
     resume_ref = (
         gateway._tailored_ref(request.cohort_id, request.resume_id, request.tailored_resume_id)
         if request.tailored_resume_id

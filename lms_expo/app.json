@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "PLAYDATA LXP",
+    "slug": "lms-expo",
+    "scheme": "lms",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "platforms": ["ios", "android"],
+    "extra": {
+      "apiBase": "http://127.0.0.1:8000/api"
+    }
+  }
+}
