@@ -1,3 +1,4 @@
+import { Suspense, useEffect } from 'react';
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 
 import { AppearanceProvider } from './appearance';
@@ -10,7 +11,9 @@ import { ChangePasswordScreen } from '../features/auth/ChangePasswordScreen';
 import { TourHost } from '../tour/TourHost';
 import { TourProvider } from '../tour/useTour';
 import { tourFor } from '../tour/tours';
-import { appRoutes, fullScreenRoutes } from './routes';
+import { prefetchWhenIdle } from './lazyNamed';
+import { appRoutes, fullScreenRoutes, prefetchByRole } from './routes';
+import { ScreenErrorBoundary, ScreenLoading } from './ScreenLoading';
 
 /** 로그인·비밀번호 변경 가드 — Flutter GoRouter의 redirect 자리 */
 function Protected() {
@@ -37,6 +40,10 @@ function ShellWithTour() {
   const { user } = useSession();
   const location = useLocation().pathname;
   const navigate = useNavigate();
+  const role = user?.role;
+
+  // 로그인한 역할의 화면 청크를 한가할 때 미리 받아 둔다
+  useEffect(() => (role ? prefetchWhenIdle(prefetchByRole[role] ?? []) : undefined), [role]);
 
   if (user === null) return null;
 
@@ -68,11 +75,15 @@ export function App() {
                     key={route.path}
                     path={route.path}
                     element={
-                      route.roles === undefined ? (
-                        route.element
-                      ) : (
-                        <RoleGuard allow={route.roles}>{route.element}</RoleGuard>
-                      )
+                      <ScreenErrorBoundary>
+                        <Suspense fallback={<ScreenLoading />}>
+                          {route.roles === undefined ? (
+                            route.element
+                          ) : (
+                            <RoleGuard allow={route.roles}>{route.element}</RoleGuard>
+                          )}
+                        </Suspense>
+                      </ScreenErrorBoundary>
                     }
                   />
                 ))}
@@ -82,11 +93,15 @@ export function App() {
                       key={route.path}
                       path={route.path}
                       element={
-                        route.roles === undefined ? (
-                          route.element
-                        ) : (
-                          <RoleGuard allow={route.roles}>{route.element}</RoleGuard>
-                        )
+                        <ScreenErrorBoundary>
+                          <Suspense fallback={<ScreenLoading />}>
+                            {route.roles === undefined ? (
+                              route.element
+                            ) : (
+                              <RoleGuard allow={route.roles}>{route.element}</RoleGuard>
+                            )}
+                          </Suspense>
+                        </ScreenErrorBoundary>
                       }
                     />
                   ))}

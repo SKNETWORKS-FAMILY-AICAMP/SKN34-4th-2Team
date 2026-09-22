@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
+import { isScreenLoading } from '../app/lazyNamed';
 import {
   HOLE_PADDING,
   HOLE_RADIUS,
@@ -88,6 +89,11 @@ export function TourOverlay({
       }
     }
 
+    // 화면 청크를 아직 받는 중이면 재시도 횟수를 쓰지 않고 기다린다 — 지연 로드한 화면의 타깃은 조금 늦게 붙는다
+    if (isScreenLoading() || document.querySelector('[data-screen-loading]') !== null) {
+      schedule();
+      return;
+    }
     retriesRef.current += 1;
     if (retriesRef.current >= MAX_RETRIES) {
       if (step.skippableIfMissing === true) {

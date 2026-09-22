@@ -1,5 +1,7 @@
 import type { ReactElement } from 'react';
 
+import { lazyNamed, tracked } from './lazyNamed';
+
 import { RoutePaths } from './routePaths';
 import { DashboardScreen } from '../features/dashboard/DashboardScreen';
 import { BoardScreen } from '../features/board/BoardScreen';
@@ -12,7 +14,6 @@ import {
   StudyNotesScreen,
   StudyRoomScreen,
 } from '../features/study/StudyRoomScreen';
-import { PythonPlaygroundScreen } from '../features/practice/PythonPlaygroundScreen';
 import {
   MileageCartScreen,
   MileageScreen,
@@ -27,54 +28,93 @@ import { ResumeScreen } from '../features/resume/ResumeScreens';
 import { ResumeEditScreen } from '../features/resume/ResumeEditScreen';
 import { MyPageScreen } from '../features/mypage/MyPageScreen';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
-import { InstructorAttendanceScreen } from '../features/instructor/InstructorAttendanceScreen';
-import { InstructorBoardScreen } from '../features/instructor/InstructorBoardScreen';
-import {
-  InstructorAssessmentDetailScreen,
-  InstructorAssessmentFormScreen,
-  InstructorAssessmentSubmissionScreen,
-  InstructorAssessmentsScreen,
-} from '../features/instructor/InstructorAssessmentScreens';
-import { InstructorCurriculumScreen } from '../features/instructor/InstructorCurriculumScreen';
-import { InstructorPracticeScreen } from '../features/instructor/InstructorPracticeScreen';
-import { ReviewerResumesScreen } from '../features/resume/ReviewerResumesScreen';
-import { NoticeFormScreen } from '../features/notices/NoticeFormScreen';
-import { AdminDashboardScreen } from '../features/admin/AdminDashboardScreen';
-import {
-  AdminCohortFormScreen,
-  AdminCohortsScreen,
-  AdminInstructorCreateScreen,
-  AdminInstructorsScreen,
-  AdminStudentDetailScreen,
-  AdminStudentFormScreen,
-  AdminStudentsScreen,
-} from '../features/admin/AdminPeopleScreens';
-import {
-  AdminAttendanceScreen,
-  AdminSeatPresenceScreen,
-  AdminSeatingScreen,
-} from '../features/admin/AdminAttendanceScreens';
-import { AdminRecordsScreen } from '../features/admin/AdminRecordsScreen';
-import {
-  AdminAlertPopupFormScreen,
-  AdminBoardScreen,
-  AdminScheduledNoticeFormScreen,
-} from '../features/admin/AdminBoardScreens';
-import {
-  AdminFormTaskFormScreen,
-  AdminFormTasksScreen,
-  AdminInflearnPackageFormScreen,
-  AdminStudyRoomScreen,
-} from '../features/admin/AdminLearningScreens';
-import {
-  AdminMileageAdjustScreen,
-  AdminMileageHubScreen,
-  AdminMileageProductFormScreen,
-  AdminMileageProductsScreen,
-  AdminMileageSettingsScreen,
-  AdminPurchaseRequestsScreen,
-} from '../features/admin/AdminMileageScreens';
-import { AdminAiQualityScreen } from '../features/admin/AdminAiQualityScreen';
+
+/*
+ * 강사 · 관리자 화면과 파이썬 연습장은 필요할 때 받는다(화면 파일마다 청크 하나).
+ * 학생은 강사·관리자 코드를 받지 않고, CodeMirror(원본 1MB 남짓)는 연습장을 열 때만 온다.
+ * 받는 동안은 App 의 Suspense 가 자리 표시를 띄운다.
+ */
+const loadPythonPlaygroundScreen = tracked(() => import('../features/practice/PythonPlaygroundScreen'));
+const PythonPlaygroundScreen = lazyNamed(loadPythonPlaygroundScreen, 'PythonPlaygroundScreen');
+const loadInstructorAttendanceScreen = tracked(() => import('../features/instructor/InstructorAttendanceScreen'));
+const InstructorAttendanceScreen = lazyNamed(loadInstructorAttendanceScreen, 'InstructorAttendanceScreen');
+const loadInstructorBoardScreen = tracked(() => import('../features/instructor/InstructorBoardScreen'));
+const InstructorBoardScreen = lazyNamed(loadInstructorBoardScreen, 'InstructorBoardScreen');
+const loadInstructorAssessmentScreens = tracked(() => import('../features/instructor/InstructorAssessmentScreens'));
+const InstructorAssessmentDetailScreen = lazyNamed(loadInstructorAssessmentScreens, 'InstructorAssessmentDetailScreen');
+const InstructorAssessmentFormScreen = lazyNamed(loadInstructorAssessmentScreens, 'InstructorAssessmentFormScreen');
+const InstructorAssessmentSubmissionScreen = lazyNamed(loadInstructorAssessmentScreens, 'InstructorAssessmentSubmissionScreen');
+const InstructorAssessmentsScreen = lazyNamed(loadInstructorAssessmentScreens, 'InstructorAssessmentsScreen');
+const loadInstructorCurriculumScreen = tracked(() => import('../features/instructor/InstructorCurriculumScreen'));
+const InstructorCurriculumScreen = lazyNamed(loadInstructorCurriculumScreen, 'InstructorCurriculumScreen');
+const loadInstructorPracticeScreen = tracked(() => import('../features/instructor/InstructorPracticeScreen'));
+const InstructorPracticeScreen = lazyNamed(loadInstructorPracticeScreen, 'InstructorPracticeScreen');
+const loadReviewerResumesScreen = tracked(() => import('../features/resume/ReviewerResumesScreen'));
+const ReviewerResumesScreen = lazyNamed(loadReviewerResumesScreen, 'ReviewerResumesScreen');
+const loadNoticeFormScreen = tracked(() => import('../features/notices/NoticeFormScreen'));
+const NoticeFormScreen = lazyNamed(loadNoticeFormScreen, 'NoticeFormScreen');
+const loadAdminDashboardScreen = tracked(() => import('../features/admin/AdminDashboardScreen'));
+const AdminDashboardScreen = lazyNamed(loadAdminDashboardScreen, 'AdminDashboardScreen');
+const loadAdminPeopleScreens = tracked(() => import('../features/admin/AdminPeopleScreens'));
+const AdminCohortFormScreen = lazyNamed(loadAdminPeopleScreens, 'AdminCohortFormScreen');
+const AdminCohortsScreen = lazyNamed(loadAdminPeopleScreens, 'AdminCohortsScreen');
+const AdminInstructorCreateScreen = lazyNamed(loadAdminPeopleScreens, 'AdminInstructorCreateScreen');
+const AdminInstructorsScreen = lazyNamed(loadAdminPeopleScreens, 'AdminInstructorsScreen');
+const AdminStudentDetailScreen = lazyNamed(loadAdminPeopleScreens, 'AdminStudentDetailScreen');
+const AdminStudentFormScreen = lazyNamed(loadAdminPeopleScreens, 'AdminStudentFormScreen');
+const AdminStudentsScreen = lazyNamed(loadAdminPeopleScreens, 'AdminStudentsScreen');
+const loadAdminAttendanceScreens = tracked(() => import('../features/admin/AdminAttendanceScreens'));
+const AdminAttendanceScreen = lazyNamed(loadAdminAttendanceScreens, 'AdminAttendanceScreen');
+const AdminSeatPresenceScreen = lazyNamed(loadAdminAttendanceScreens, 'AdminSeatPresenceScreen');
+const AdminSeatingScreen = lazyNamed(loadAdminAttendanceScreens, 'AdminSeatingScreen');
+const loadAdminRecordsScreen = tracked(() => import('../features/admin/AdminRecordsScreen'));
+const AdminRecordsScreen = lazyNamed(loadAdminRecordsScreen, 'AdminRecordsScreen');
+const loadAdminBoardScreens = tracked(() => import('../features/admin/AdminBoardScreens'));
+const AdminAlertPopupFormScreen = lazyNamed(loadAdminBoardScreens, 'AdminAlertPopupFormScreen');
+const AdminBoardScreen = lazyNamed(loadAdminBoardScreens, 'AdminBoardScreen');
+const AdminScheduledNoticeFormScreen = lazyNamed(loadAdminBoardScreens, 'AdminScheduledNoticeFormScreen');
+const loadAdminLearningScreens = tracked(() => import('../features/admin/AdminLearningScreens'));
+const AdminFormTaskFormScreen = lazyNamed(loadAdminLearningScreens, 'AdminFormTaskFormScreen');
+const AdminFormTasksScreen = lazyNamed(loadAdminLearningScreens, 'AdminFormTasksScreen');
+const AdminInflearnPackageFormScreen = lazyNamed(loadAdminLearningScreens, 'AdminInflearnPackageFormScreen');
+const AdminStudyRoomScreen = lazyNamed(loadAdminLearningScreens, 'AdminStudyRoomScreen');
+const loadAdminMileageScreens = tracked(() => import('../features/admin/AdminMileageScreens'));
+const AdminMileageAdjustScreen = lazyNamed(loadAdminMileageScreens, 'AdminMileageAdjustScreen');
+const AdminMileageHubScreen = lazyNamed(loadAdminMileageScreens, 'AdminMileageHubScreen');
+const AdminMileageProductFormScreen = lazyNamed(loadAdminMileageScreens, 'AdminMileageProductFormScreen');
+const AdminMileageProductsScreen = lazyNamed(loadAdminMileageScreens, 'AdminMileageProductsScreen');
+const AdminMileageSettingsScreen = lazyNamed(loadAdminMileageScreens, 'AdminMileageSettingsScreen');
+const AdminPurchaseRequestsScreen = lazyNamed(loadAdminMileageScreens, 'AdminPurchaseRequestsScreen');
+const loadAdminAiQualityScreen = tracked(() => import('../features/admin/AdminAiQualityScreen'));
+const AdminAiQualityScreen = lazyNamed(loadAdminAiQualityScreen, 'AdminAiQualityScreen');
+
+/** 로그인한 역할이 곧 쓸 화면 청크 — 셸이 한가할 때 미리 받는다. 연습장(CodeMirror)은 크니 열 때 받는다 */
+export const prefetchByRole: Record<string, (() => Promise<unknown>)[]> = {
+  student: [],
+  instructor: [
+    loadInstructorAttendanceScreen,
+    loadInstructorBoardScreen,
+    loadInstructorAssessmentScreens,
+    loadInstructorCurriculumScreen,
+    loadInstructorPracticeScreen,
+    loadReviewerResumesScreen,
+    loadNoticeFormScreen,
+  ],
+  admin: [
+    loadInstructorAttendanceScreen,
+    loadInstructorAssessmentScreens,
+    loadReviewerResumesScreen,
+    loadNoticeFormScreen,
+    loadAdminDashboardScreen,
+    loadAdminPeopleScreens,
+    loadAdminAttendanceScreens,
+    loadAdminRecordsScreen,
+    loadAdminBoardScreens,
+    loadAdminLearningScreens,
+    loadAdminMileageScreens,
+    loadAdminAiQualityScreen,
+  ],
+};
 
 export interface AppRoute {
   path: string;
