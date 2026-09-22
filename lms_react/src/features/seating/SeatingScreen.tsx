@@ -170,7 +170,7 @@ export function SeatGrid({
   seatAttrs,
 }: SeatGridProps) {
   return (
-    <div className={`seatmap${compact ? ' seatmap--compact' : ''}`}>
+    <div className={`seatmap${compact ? ' seatmap--compact' : ''}`} style={{ '--cols': grid.cols } as CSSProperties}>
       <p className="seatmap__hint">{rotated ? '▼ 강사석 방향' : '▲ 강사석 방향'}</p>
       <div
         className="seatmap__grid"

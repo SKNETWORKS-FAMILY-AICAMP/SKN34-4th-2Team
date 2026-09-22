@@ -2167,6 +2167,12 @@ a.link {
   min-width: 0;
   overflow-x: auto;
   padding-bottom: 4px;
+  container-type: inline-size;
+}
+
+/* 남은 폭에 맞춰 좌석을 줄인다(최소 44px). 그보다 좁으면 가로로 스크롤한다 */
+.seat-assign__map .seatmap {
+  --seat-w: clamp(44px, calc(100cqi / var(--cols, 10) - 2 * var(--seat-pad)), 76px);
 }
 
 .seat-pool {
@@ -9542,4 +9548,17 @@ a.link {
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 500;
+}
+
+/* 좌석 틀 편집 — 끄는 동안 따라다니는 테이블 · 비품 그림 */
+.lay-ghost {
+  position: relative;
+  display: block;
+  min-width: 0;
+  margin: 0;
+  opacity: 0.92;
+}
+
+.lay-ghost--new .lay-seat {
+  border-style: dashed;
 }

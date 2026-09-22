@@ -18,14 +18,18 @@ export function useDragDrop<P>() {
     setOver(null);
   }, []);
 
-  /** 끌 수 있는 것에 붙인다. */
-  const source = (payload: P) => ({
+  /**
+   * 끌 수 있는 것에 붙인다. `dragImage` 로 끄는 동안 따라다니는 그림을 바꿀 수 있다 —
+   * 브라우저는 잡은 요소 하나만 그림으로 쓰므로, 여러 칸짜리 테이블은 합친 그림을 따로 만들어야 한다.
+   */
+  const source = (payload: P, dragImage?: (e: DragEvent) => void) => ({
     draggable: true,
     onDragStart: (e: DragEvent) => {
       e.stopPropagation();
       e.dataTransfer.effectAllowed = 'move';
       // 파이어폭스는 무언가 실어야 드래그를 시작한다.
       e.dataTransfer.setData('text/plain', '');
+      dragImage?.(e);
       payloadRef.current = payload;
       // 드래그가 시작된 뒤에 다시 그린다. 시작하는 순간 모양을 바꾸면 크롬이 드래그를 취소한다.
       window.setTimeout(() => setDragging(payload), 0);
