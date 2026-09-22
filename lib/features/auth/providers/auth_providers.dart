@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/demo/demo_accounts.dart';
 import '../../../shared/demo/demo_session.dart';
+import '../../../shared/data/lms_api_client.dart';
 import '../../../shared/models/user_model.dart';
 import '../../../shared/providers/firebase_providers.dart';
 import '../data/auth_repository.dart';
@@ -12,7 +13,7 @@ import '../data/auth_repository_impl.dart';
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   return AuthRepositoryImpl(
     auth: ref.watch(firebaseAuthProvider),
-    firestore: ref.watch(firestoreProvider),
+    api: lmsApiClient,
   );
 });
 

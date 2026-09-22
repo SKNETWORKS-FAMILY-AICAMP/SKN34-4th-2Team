@@ -1,13 +1,10 @@
 import 'dart:typed_data';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/constants/firestore_paths.dart';
 import '../demo/demo_accounts.dart';
 import '../demo/demo_session.dart';
-import '../providers/firebase_providers.dart';
 import '../providers/lms_providers.dart';
 import 'profile_photo_loader.dart';
 import 'storage_service.dart';
@@ -28,11 +25,10 @@ class ProfilePhotoUploadResult {
 
 /// 프로필 사진 선택 · Storage 업로드 · Firestore URL 저장
 class ProfilePhotoService {
-  ProfilePhotoService(this._storage, this._lmsRepo, this._firestore);
+  ProfilePhotoService(this._storage, this._lmsRepo);
 
   final StorageService _storage;
   final dynamic _lmsRepo;
-  final FirebaseFirestore _firestore;
 
   /// 파일 선택만 (미리보기용 bytes 반환)
   Future<({Uint8List bytes, String extension})?> pickProfilePhotoBytes() async {
@@ -80,8 +76,6 @@ class ProfilePhotoService {
       photoStoragePath: storagePath,
     );
 
-    await _verifyFirestoreSaved(uid: uid, url: url, storagePath: storagePath);
-
     if (DemoConfig.enabled) {
       final sessionUser = DemoSession.instance.currentUser;
       if (sessionUser != null && sessionUser.uid == uid) {
@@ -99,27 +93,6 @@ class ProfilePhotoService {
       storagePath: storagePath,
       bytes: bytes,
     );
-  }
-
-  Future<void> _verifyFirestoreSaved({
-    required String uid,
-    required String url,
-    required String storagePath,
-  }) async {
-    final snap =
-        await _firestore.collection(FirestorePaths.users).doc(uid).get();
-    final data = snap.data();
-    if (data == null) {
-      throw StateError('사용자 프로필을 찾을 수 없습니다.');
-    }
-    final savedUrl = data['photoUrl'] as String?;
-    final savedPath = data['photoStoragePath'] as String?;
-    if (savedUrl != url || savedPath != storagePath) {
-      throw StateError(
-        '프로필 사진 정보가 Firestore에 저장되지 않았습니다. '
-        '권한 설정을 확인해 주세요.',
-      );
-    }
   }
 
   static String _normalizeExtension(String? ext) {
@@ -144,6 +117,5 @@ final profilePhotoServiceProvider = Provider<ProfilePhotoService>((ref) {
   return ProfilePhotoService(
     ref.watch(storageServiceProvider),
     ref.watch(lmsRepositoryProvider),
-    ref.watch(firestoreProvider),
   );
 });

@@ -12,8 +12,8 @@ import '../../../../shared/demo/demo_accounts.dart';
 import '../../../chatbot/presentation/robot_head_icon.dart';
 import '../../../../shared/models/job_preferences.dart';
 import '../../../../shared/models/resume_content.dart';
-import '../../../../shared/providers/firebase_providers.dart';
 import '../../../../shared/providers/cohort_providers.dart';
+import '../../../../shared/providers/lms_providers.dart';
 import '../../../../shared/services/ai_ops_service.dart';
 import '../../../../shared/constants/ai_ops_types.dart';
 import '../data/demo_ai_coach_clients.dart';
@@ -125,17 +125,12 @@ class _AiJobCoachPanelState extends ConsumerState<AiJobCoachPanel> {
     final cohort = ref.read(effectiveCohortIdProvider);
     if (cohort == null) return;
     try {
-      final snapshot = await ref
-          .read(firestoreProvider)
-          .collection('cohorts')
-          .doc(cohort)
-          .collection('resumes')
-          .doc(widget.baseResumeId)
-          .collection('tailoredResumes')
-          .doc(widget.sourceTailoredResumeId)
-          .get();
-      final jobId = snapshot.data()?['jobId'] as String? ?? '';
-      if (mounted && jobId.isNotEmpty) {
+      final jobId = await ref.read(lmsRepositoryProvider).getTailoredLinkedJobId(
+            cohortId: cohort,
+            baseResumeId: widget.baseResumeId,
+            tailoredResumeId: widget.sourceTailoredResumeId,
+          );
+      if (mounted && jobId != null && jobId.isNotEmpty) {
         setState(() => _resolvedLinkedJobId = jobId);
       }
     } catch (_) {

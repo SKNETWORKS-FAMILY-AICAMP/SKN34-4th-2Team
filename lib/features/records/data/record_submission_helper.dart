@@ -5,7 +5,6 @@ import '../../../features/auth/providers/auth_providers.dart';
 import '../../../shared/demo/demo_accounts.dart';
 import '../../../shared/models/submission_model.dart';
 import '../../../shared/providers/cohort_providers.dart';
-import '../../../shared/providers/firebase_providers.dart';
 import '../../../shared/providers/lms_providers.dart';
 import '../../../shared/services/storage_service.dart';
 
@@ -14,7 +13,7 @@ String newSubmissionId(WidgetRef ref) {
   if (DemoConfig.enabled && uid != null && DemoAccounts.isDemoUid(uid)) {
     return 'sub${DateTime.now().millisecondsSinceEpoch}';
   }
-  return ref.read(firestoreProvider).collection('_ids').doc().id;
+  return 'sub${DateTime.now().microsecondsSinceEpoch}';
 }
 
 Future<List<String>> uploadRecordFiles({

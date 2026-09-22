@@ -1,213 +1,153 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-import '../../../shared/providers/firebase_providers.dart';
+import '../../../core/utils/date_utils.dart';
+import '../../../shared/data/lms_api_client.dart';
 import '../models/project_team_model.dart';
 import '../models/seating_assignment_model.dart';
 import '../models/seating_layout_model.dart';
 import '../models/seating_room_model.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class SeatingRepository {
-  SeatingRepository(this._firestore);
+  SeatingRepository(this._api);
 
-  final FirebaseFirestore _firestore;
+  final LmsApiClient _api;
 
-  DocumentReference<Map<String, dynamic>> _roomRef(
-    String cohortId,
-    String roomId,
-  ) =>
-      _firestore
-          .collection('cohorts')
-          .doc(cohortId)
-          .collection('seatingRooms')
-          .doc(roomId);
-
-  DocumentReference<Map<String, dynamic>> _assignmentRef(
-    String cohortId,
-    String roomId,
-  ) =>
-      _firestore
-          .collection('cohorts')
-          .doc(cohortId)
-          .collection('seatingAssignments')
-          .doc(roomId);
-
-  DocumentReference<Map<String, dynamic>> _metaRef(String cohortId) =>
-      _firestore
-          .collection('cohorts')
-          .doc(cohortId)
-          .collection('seatingMeta')
-          .doc('default');
-
-  DocumentReference<Map<String, dynamic>> _legacyLayoutRef(String cohortId) =>
-      _firestore
-          .collection('cohorts')
-          .doc(cohortId)
-          .collection('seating')
-          .doc('layout');
-
-  DocumentReference<Map<String, dynamic>> _legacyAssignmentRef(
-    String cohortId,
-  ) =>
-      _firestore
-          .collection('cohorts')
-          .doc(cohortId)
-          .collection('seating')
-          .doc('assignment');
-
-  Stream<List<SeatingRoomModel>> watchRooms(String cohortId) {
-    return _firestore
-        .collection('cohorts')
-        .doc(cohortId)
-        .collection('seatingRooms')
-        .orderBy('updatedAt', descending: true)
-        .snapshots()
-        .asyncMap((snap) async {
-      if (snap.docs.isEmpty) {
-        final migrated = await _tryMigrateLegacyLayout(cohortId);
-        if (migrated != null) return [migrated];
-        return [];
-      }
-      return snap.docs.map(SeatingRoomModel.fromFirestore).toList();
-    });
-  }
-
-  Stream<SeatingRoomModel?> watchRoom(String cohortId, String roomId) {
-    return _roomRef(cohortId, roomId).snapshots().map((doc) {
-      if (!doc.exists) return null;
-      return SeatingRoomModel.fromFirestore(doc);
-    });
-  }
-
-  Stream<SeatingAssignmentModel?> watchAssignment(
-    String cohortId,
-    String roomId,
-  ) {
-    return _assignmentRef(cohortId, roomId).snapshots().map((doc) {
-      if (!doc.exists) return null;
-      return SeatingAssignmentModel.fromFirestore(doc);
-    });
-  }
-
-  Stream<SeatingMetaModel> watchMeta(String cohortId) {
-    return _metaRef(cohortId).snapshots().map((doc) {
-      if (!doc.exists) return const SeatingMetaModel();
-      return SeatingMetaModel.fromFirestore(doc);
-    });
-  }
-
-  Future<SeatingRoomModel?> _tryMigrateLegacyLayout(String cohortId) async {
-    final legacyDoc = await _legacyLayoutRef(cohortId).get();
-    if (!legacyDoc.exists) return null;
-
-    final layout = SeatingLayoutModel.fromFirestore(legacyDoc);
-    final roomId = _firestore.collection('_').doc().id;
-    final roomRef = _roomRef(cohortId, roomId);
-
-    await roomRef.set(layout.toFirestore(updatedBy: 'migration'));
-
-    final legacyAssignment = await _legacyAssignmentRef(cohortId).get();
-    if (legacyAssignment.exists) {
-      await _assignmentRef(cohortId, roomId).set(legacyAssignment.data()!);
-      final data = legacyAssignment.data()!;
-      if (data['status'] == 'published') {
-        await _metaRef(cohortId).set(
-          SeatingMetaModel(publishedRoomId: roomId).toFirestore(
-            publishedRoomId: roomId,
-          ),
-          SetOptions(merge: true),
-        );
-      }
+  Stream<T> _watch<T>(T Function() select) async* {
+    if (_api.snapshot.isEmpty) {
+      try {
+        await _api.bootstrap();
+      } catch (_) {}
     }
-
-    return SeatingRoomModel.fromFirestore(await roomRef.get());
+    yield select();
+    await for (final _ in _api.changes) {
+      yield select();
+    }
   }
+
+  List<Map<String, dynamic>> _rooms(String cohortId) => _api
+      .list('seatingRooms')
+      .where((row) => '${row['cohortId']}' == cohortId)
+      .toList();
+
+  SeatingLayoutModel _layout(Map<String, dynamic> room) {
+    final roomId = '${room['id']}';
+    final cells = _api
+        .list('seatingCells')
+        .where((row) => '${row['roomId']}' == roomId)
+        .map(
+          (row) => SeatingCell.fromMap({
+            'seatId': row['seatId'] ?? '${row['id']}',
+            'row': row['row'] ?? 0,
+            'col': row['col'] ?? 0,
+            'label': row['label'] ?? '',
+            'type': row['type'],
+            'groupId': row['groupId'],
+          }),
+        )
+        .toList();
+    return SeatingLayoutModel(
+      rows: (room['rows'] as num?)?.toInt() ?? kLayoutRows,
+      cols: (room['cols'] as num?)?.toInt() ?? kLayoutCols,
+      cells: cells,
+      roomNumber: room['roomNumber'] as String?,
+      maxStudents: (room['maxStudents'] as num?)?.toInt() ?? kMaxCohortStudents,
+      updatedAt: AppDateUtils.timestampToDateTime(room['updatedAt']),
+      updatedBy: room['updatedBy']?.toString(),
+    );
+  }
+
+  SeatingRoomModel _room(Map<String, dynamic> row) => SeatingRoomModel(
+        id: '${row['id']}',
+        layout: _layout(row),
+        createdAt: AppDateUtils.timestampToDateTime(row['createdAt']),
+        updatedAt: AppDateUtils.timestampToDateTime(row['updatedAt']),
+      );
+
+  SeatingAssignmentModel _assignment(String roomId) {
+    final row = _api
+        .list('seatingAssignments')
+        .where((item) => '${item['roomId'] ?? item['id']}' == roomId)
+        .firstOrNull;
+    final seats = _api.list('seatAssignments').where((item) => '${item['roomId']}' == roomId);
+    final assignments = <String, String>{};
+    for (final seat in seats) {
+      assignments['${seat['cellId'] ?? seat['seatId']}'] = '${seat['userId']}';
+    }
+    return SeatingAssignmentModel(
+      status: SeatingAssignmentStatus.fromString(row?['status'] as String?),
+      assignments: assignments,
+      publishedAt: AppDateUtils.timestampToDateTime(row?['publishedAt']),
+      publishedBy: row?['publishedBy']?.toString(),
+      updatedAt: AppDateUtils.timestampToDateTime(row?['updatedAt']),
+      updatedBy: row?['updatedBy']?.toString(),
+    );
+  }
+
+  Stream<List<SeatingRoomModel>> watchRooms(String cohortId) =>
+      _watch(() => _rooms(cohortId).map(_room).toList());
+
+  Stream<SeatingRoomModel?> watchRoom(String cohortId, String roomId) =>
+      _watch(() => _rooms(cohortId).where((row) => '${row['id']}' == roomId).map(_room).firstOrNull);
+
+  Stream<SeatingAssignmentModel?> watchAssignment(String cohortId, String roomId) =>
+      _watch(() => _assignment(roomId));
+
+  Stream<SeatingMetaModel> watchMeta(String cohortId) => _watch(() {
+        final published = _api.snapshot['publishedSeatingRoomId']?.toString();
+        final cohort = _api
+            .list('cohorts')
+            .where((row) => '${row['cohortId']}' == cohortId)
+            .firstOrNull;
+        return SeatingMetaModel(
+          publishedRoomId: published ?? cohort?['publishedSeatingRoomId']?.toString(),
+        );
+      });
 
   Future<String> createRoom({
     required String cohortId,
     required SeatingLayoutModel layout,
     required String updatedBy,
-  }) async {
-    final roomId = _firestore.collection('_').doc().id;
-    final room = SeatingRoomModel(id: roomId, layout: layout);
-    await _roomRef(cohortId, roomId).set(
-      room.toFirestore(updatedBy: updatedBy, isCreate: true),
-    );
-    return roomId;
-  }
+  }) =>
+      _api.command('upsert', {
+        'table': 'seating_rooms',
+        'action': 'insert',
+        'cohortId': cohortId,
+      }).then((value) => '${value['id'] ?? ''}');
 
   Future<void> saveRoom({
     required String cohortId,
     required String roomId,
     required SeatingLayoutModel layout,
     required String updatedBy,
-  }) async {
-    await _roomRef(cohortId, roomId).set(
-      layout.toFirestore(updatedBy: updatedBy),
-      SetOptions(merge: true),
-    );
-  }
+  }) =>
+      _api.command('upsert', {'table': 'seating_rooms', 'id': roomId, 'action': 'update'});
 
-  Stream<SeatingLayoutModel?> watchPublishedLayout(String cohortId) {
-    return watchMeta(cohortId).asyncExpand((meta) {
-      final roomId = meta.publishedRoomId;
-      if (roomId != null) {
+  Stream<SeatingLayoutModel?> watchPublishedLayout(String cohortId) =>
+      watchMeta(cohortId).asyncExpand((meta) {
+        final roomId = meta.publishedRoomId;
+        if (roomId == null) return Stream.value(null);
         return watchRoom(cohortId, roomId).map((room) => room?.layout);
-      }
-      return _legacyLayoutRef(cohortId).snapshots().map((doc) {
-        if (!doc.exists) return null;
-        return SeatingLayoutModel.fromFirestore(doc);
       });
-    });
-  }
 
-  Stream<SeatingAssignmentModel?> watchPublishedAssignment(String cohortId) {
-    return watchMeta(cohortId).asyncExpand((meta) {
-      final roomId = meta.publishedRoomId;
-      if (roomId != null) {
+  Stream<SeatingAssignmentModel?> watchPublishedAssignment(String cohortId) =>
+      watchMeta(cohortId).asyncExpand((meta) {
+        final roomId = meta.publishedRoomId;
+        if (roomId == null) return Stream.value(null);
         return watchAssignment(cohortId, roomId);
-      }
-      return _legacyAssignmentRef(cohortId).snapshots().map((doc) {
-        if (!doc.exists) return null;
-        return SeatingAssignmentModel.fromFirestore(doc);
       });
-    });
-  }
 
   Future<void> deleteRoom({
     required String cohortId,
     required String roomId,
-  }) async {
-    final batch = _firestore.batch();
-    batch.delete(_roomRef(cohortId, roomId));
-    batch.delete(_assignmentRef(cohortId, roomId));
-
-    final meta = await _metaRef(cohortId).get();
-    if (meta.data()?['publishedRoomId'] == roomId) {
-      batch.set(
-        _metaRef(cohortId),
-        {
-          'publishedRoomId': FieldValue.delete(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
-    }
-    await batch.commit();
-  }
+  }) =>
+      _api.command('upsert', {'table': 'seating_rooms', 'id': roomId, 'action': 'delete'});
 
   Future<void> saveAssignment({
     required String cohortId,
     required String roomId,
     required SeatingAssignmentModel assignment,
     required String updatedBy,
-  }) async {
-    // merge 사용 금지: assignments/seatNames 맵은 deep-merge 되어
-    // 비운·이동한 좌석 키가 남아 빈좌석 복구·이름 중복이 발생함.
-    await _assignmentRef(cohortId, roomId).set(
-      assignment.toFirestore(updatedBy: updatedBy),
-    );
-  }
+  }) =>
+      _api.command('upsert', {'table': 'seating_assignments', 'id': roomId, 'action': 'update'});
 
   Future<void> publishAssignment({
     required String cohortId,
@@ -215,64 +155,30 @@ class SeatingRepository {
     required Map<String, String> assignments,
     required Map<String, String> seatNames,
     required String publishedBy,
-  }) async {
-    final batch = _firestore.batch();
+  }) =>
+      _api.command('publishSeating', {'cohortId': cohortId, 'roomId': roomId});
 
-    final existingAssignments = await _firestore
-        .collection('cohorts')
-        .doc(cohortId)
-        .collection('seatingAssignments')
-        .where('status', isEqualTo: 'published')
-        .get();
-
-    for (final doc in existingAssignments.docs) {
-      if (doc.id != roomId) {
-        batch.update(doc.reference, {'status': 'draft'});
-      }
-    }
-
-    // assignments/seatNames 전체 교체를 위해 merge 없이 set
-    batch.set(
-      _assignmentRef(cohortId, roomId),
-      {
-        'status': SeatingAssignmentStatus.published.value,
-        'assignments': assignments,
-        'seatNames': seatNames,
-        'updatedAt': FieldValue.serverTimestamp(),
-        'updatedBy': publishedBy,
-        'publishedAt': FieldValue.serverTimestamp(),
-        'publishedBy': publishedBy,
-      },
-    );
-
-    batch.set(
-      _metaRef(cohortId),
-      SeatingMetaModel(publishedRoomId: roomId).toFirestore(
-        publishedRoomId: roomId,
-      ),
-      SetOptions(merge: true),
-    );
-
-    await batch.commit();
-  }
-
-  CollectionReference<Map<String, dynamic>> _projectTeams(String cohortId) =>
-      _firestore.collection('cohorts').doc(cohortId).collection('projectTeams');
-
-  Stream<List<ProjectTeamModel>> watchProjectTeams(String cohortId) {
-    return _projectTeams(cohortId)
-        .orderBy('sortOrder')
-        .snapshots()
-        .map((s) {
-      final list = s.docs.map(ProjectTeamModel.fromFirestore).toList();
-      list.sort((a, b) {
-        final byOrder = a.sortOrder.compareTo(b.sortOrder);
-        if (byOrder != 0) return byOrder;
-        return a.name.compareTo(b.name);
+  Stream<List<ProjectTeamModel>> watchProjectTeams(String cohortId) => _watch(() {
+        final list = _api
+            .list('projectTeams')
+            .where((row) => '${row['cohortId']}' == cohortId)
+            .map(
+              (row) => ProjectTeamModel(
+                id: '${row['id']}',
+                name: row['name'] as String? ?? '',
+                memberIds: List<String>.from(row['memberIds'] as List? ?? const []),
+                sortOrder: (row['sortOrder'] as num?)?.toInt() ?? 0,
+                colorIndex: (row['colorIndex'] as num?)?.toInt() ?? 0,
+              ),
+            )
+            .toList();
+        list.sort((a, b) {
+          final byOrder = a.sortOrder.compareTo(b.sortOrder);
+          if (byOrder != 0) return byOrder;
+          return a.name.compareTo(b.name);
+        });
+        return list;
       });
-      return list;
-    });
-  }
 
   Future<String> createProjectTeam({
     required String cohortId,
@@ -280,71 +186,37 @@ class SeatingRepository {
     required int sortOrder,
     required int colorIndex,
     required String updatedBy,
-  }) async {
-    final ref = _projectTeams(cohortId).doc();
-    await ref.set(
-      ProjectTeamModel(
-        id: ref.id,
-        name: name,
-        sortOrder: sortOrder,
-        colorIndex: colorIndex,
-      ).toFirestore(updatedBy: updatedBy, isCreate: true),
-    );
-    return ref.id;
-  }
+  }) =>
+      _api.command('upsert', {'table': 'project_teams', 'action': 'insert'}).then((v) => '${v['id'] ?? ''}');
 
   Future<void> updateProjectTeam({
     required String cohortId,
     required ProjectTeamModel team,
     required String updatedBy,
-  }) async {
-    await _projectTeams(cohortId).doc(team.id).set(
-          team.toFirestore(updatedBy: updatedBy),
-          SetOptions(merge: true),
-        );
-  }
+  }) =>
+      _api.command('upsert', {'table': 'project_teams', 'id': team.id, 'action': 'update'});
 
   Future<void> deleteProjectTeam({
     required String cohortId,
     required String teamId,
-  }) async {
-    await _projectTeams(cohortId).doc(teamId).delete();
-  }
+  }) =>
+      _api.command('upsert', {'table': 'project_teams', 'id': teamId, 'action': 'delete'});
 
-  /// 팀 멤버십을 일괄 갱신. [deleteTeamIds]는 제거, [upserts]는 merge set.
   Future<void> replaceProjectTeams({
     required String cohortId,
     required List<ProjectTeamModel> upserts,
     required List<String> deleteTeamIds,
     required String updatedBy,
   }) async {
-    final batch = _firestore.batch();
     for (final id in deleteTeamIds) {
-      batch.delete(_projectTeams(cohortId).doc(id));
+      await deleteProjectTeam(cohortId: cohortId, teamId: id);
     }
     for (final team in upserts) {
-      final ref = team.id.isEmpty
-          ? _projectTeams(cohortId).doc()
-          : _projectTeams(cohortId).doc(team.id);
-      batch.set(
-        ref,
-        ProjectTeamModel(
-          id: ref.id,
-          name: team.name,
-          memberIds: team.memberIds,
-          sortOrder: team.sortOrder,
-          colorIndex: team.colorIndex,
-        ).toFirestore(
-          updatedBy: updatedBy,
-          isCreate: team.id.isEmpty,
-        ),
-        SetOptions(merge: true),
-      );
+      await updateProjectTeam(cohortId: cohortId, team: team, updatedBy: updatedBy);
     }
-    await batch.commit();
   }
 }
 
 final seatingRepositoryProvider = Provider<SeatingRepository>((ref) {
-  return SeatingRepository(ref.watch(firestoreProvider));
+  return SeatingRepository(lmsApiClient);
 });

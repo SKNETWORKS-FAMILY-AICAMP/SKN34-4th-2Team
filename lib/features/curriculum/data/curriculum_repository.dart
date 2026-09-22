@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../shared/providers/firebase_providers.dart';
+import '../../../core/utils/date_utils.dart';
+import '../../../shared/data/lms_api_client.dart';
 import '../../../shared/services/storage_service.dart'
     show StorageService, storageServiceProvider;
 import '../models/curriculum_meta_model.dart';
@@ -11,23 +11,36 @@ import '../models/curriculum_meta_model.dart';
 const int kCurriculumPdfMaxBytes = 20 * 1024 * 1024;
 
 class CurriculumRepository {
-  CurriculumRepository(this._firestore, this._storage);
+  CurriculumRepository(this._api, this._storage);
 
-  final FirebaseFirestore _firestore;
+  final LmsApiClient _api;
   final StorageService _storage;
 
-  DocumentReference<Map<String, dynamic>> _metaRef(String cohortId) =>
-      _firestore
-          .collection('cohorts')
-          .doc(cohortId)
-          .collection('curriculum')
-          .doc('meta');
+  Stream<CurriculumMetaModel?> watchMeta(String cohortId) async* {
+    if (_api.snapshot.isEmpty) {
+      try {
+        await _api.bootstrap();
+      } catch (_) {}
+    }
+    CurriculumMetaModel? pick() {
+      final row = _api
+          .list('curriculumPdfs')
+          .where((item) => '${item['cohortId']}' == cohortId)
+          .firstOrNull;
+      if (row == null) return null;
+      return CurriculumMetaModel(
+        published: row['published'] == true,
+        fullPdfUrl: row['fullPdfUrl'] as String?,
+        fullPdfFileName: row['fullPdfFileName'] as String?,
+        updatedAt: AppDateUtils.timestampToDateTime(row['updatedAt']),
+        updatedBy: row['updatedBy']?.toString(),
+      );
+    }
 
-  Stream<CurriculumMetaModel?> watchMeta(String cohortId) {
-    return _metaRef(cohortId).snapshots().map((doc) {
-      if (!doc.exists) return null;
-      return CurriculumMetaModel.fromFirestore(doc);
-    });
+    yield pick();
+    await for (final _ in _api.changes) {
+      yield pick();
+    }
   }
 
   Future<String> uploadPdf({
@@ -52,39 +65,23 @@ class CurriculumRepository {
     required String pdfUrl,
     required String fileName,
     required String updatedBy,
-  }) async {
-    await _metaRef(cohortId).set(
-      {
-        'fullPdfUrl': pdfUrl,
-        'fullPdfFileName': fileName,
-        'published': true,
-        'updatedAt': FieldValue.serverTimestamp(),
-        'updatedBy': updatedBy,
-      },
-      SetOptions(merge: true),
-    );
-  }
+  }) =>
+      _api.command('saveCurriculumPdf', {
+        'cohortId': cohortId,
+        'pdfUrl': pdfUrl,
+        'fileName': fileName,
+      });
 
   Future<void> clearFullPdf({
     required String cohortId,
     required String updatedBy,
-  }) async {
-    await _metaRef(cohortId).set(
-      {
-        'fullPdfUrl': FieldValue.delete(),
-        'fullPdfFileName': FieldValue.delete(),
-        'published': false,
-        'updatedAt': FieldValue.serverTimestamp(),
-        'updatedBy': updatedBy,
-      },
-      SetOptions(merge: true),
-    );
-  }
+  }) =>
+      _api.command('clearCurriculumPdf', {'cohortId': cohortId});
 }
 
 final curriculumRepositoryProvider = Provider<CurriculumRepository>((ref) {
   return CurriculumRepository(
-    ref.watch(firestoreProvider),
+    lmsApiClient,
     ref.watch(storageServiceProvider),
   );
 });

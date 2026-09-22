@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/auth/providers/auth_providers.dart';
 import '../../features/mileage/data/mileage_functions_service.dart';
+import '../data/lms_api_client.dart';
 import '../data/mileage_repository.dart';
 import '../demo/demo_accounts.dart';
 import '../demo/demo_mileage_repository.dart';
@@ -9,7 +10,7 @@ import '../models/domain_models.dart';
 import '../models/mileage_models.dart';
 import '../models/cohort_model.dart';
 import '../providers/cohort_providers.dart';
-import '../providers/firebase_providers.dart';
+import '../providers/lms_providers.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
 final mileageRepositoryProvider = Provider<dynamic>((ref) {
@@ -17,7 +18,7 @@ final mileageRepositoryProvider = Provider<dynamic>((ref) {
   if (DemoConfig.enabled && uid != null && DemoAccounts.isDemoUid(uid)) {
     return demoMileageRepository;
   }
-  return MileageRepository(ref.watch(firestoreProvider));
+  return MileageRepository(lmsApiClient);
 });
 
 final mileageFunctionsServiceProvider = Provider<MileageFunctionsService>((ref) {
@@ -139,10 +140,7 @@ final effectiveCohortDocProvider =
     StreamProvider.autoDispose<CohortModel?>((ref) {
   final cohortId = ref.watch(effectiveCohortIdProvider);
   if (cohortId == null) return Stream.value(null);
-  return ref
-      .watch(firestoreProvider)
-      .collection('cohorts')
-      .doc(cohortId)
-      .snapshots()
-      .map((doc) => doc.exists ? CohortModel.fromFirestore(doc) : null);
+  return ref.watch(lmsRepositoryProvider).watchCohorts().map(
+        (list) => list.where((c) => c.cohortId == cohortId).firstOrNull,
+      );
 });

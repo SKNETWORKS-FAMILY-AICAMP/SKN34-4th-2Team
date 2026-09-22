@@ -21,7 +21,7 @@ import '../demo/demo_accounts.dart';
 import '../demo/demo_lms_repository.dart';
 import '../providers/cohort_providers.dart';
 import '../../features/auth/providers/auth_providers.dart';
-import '../providers/firebase_providers.dart';
+import '../data/lms_api_client.dart';
 import '../data/lms_repository.dart';
 import '../../features/admin/data/scheduled_notice_admin_service.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -38,7 +38,7 @@ final lmsRepositoryProvider = Provider<dynamic>((ref) {
   if (DemoConfig.enabled && uid != null && DemoAccounts.isDemoUid(uid)) {
     return demoLmsRepository;
   }
-  return LmsRepository(ref.watch(firestoreProvider));
+  return LmsRepository(lmsApiClient);
 });
 
 final todosStreamProvider = StreamProvider.autoDispose<List<TodoModel>>((ref) {
