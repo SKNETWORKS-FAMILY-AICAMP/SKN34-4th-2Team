@@ -18,6 +18,11 @@ export interface RunOptions {
   session?: string;
   /** input() 이 한 줄씩 읽을 값 */
   stdin?: string;
+  /**
+   * 즉석 입력. input() 이 불리면 안내문을 받아 값을 돌려준다(null 이면 EOF).
+   * 페이지가 SharedArrayBuffer 를 쓸 수 있을 때만 동작한다(canPromptInput). 기다리는 동안 시간 제한은 멈춘다.
+   */
+  onInput?: (prompt: string) => Promise<string | null>;
   /** 마지막 줄이 식이면 그 값을 result.value 로 */
   displayLast?: boolean;
   onStdout?: (text: string) => void;
@@ -28,11 +33,19 @@ interface Pending {
   id: string;
   stdout: string;
   timer: number | null;
+  /** 시간 제한이 시작된 시각과 남은 시간 — 입력을 기다리는 동안 멈춘다 */
+  deadlineLeft: number;
+  timerStarted: number;
+  inputBuffer: SharedArrayBuffer | null;
   options: RunOptions;
   resolve: (result: RunResult) => void;
 }
 
 let seq = 0;
+
+/** 즉석 input() 을 쓸 수 있는 페이지인지 — COOP/COEP 헤더가 있어야 SharedArrayBuffer 가 켜진다 */
+export const canPromptInput = typeof SharedArrayBuffer !== 'undefined' && (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
+const INPUT_BUFFER_BYTES = 8 + 64 * 1024;
 
 export class PythonRunner {
   private worker: Worker | null = null;
@@ -89,10 +102,10 @@ export class PythonRunner {
       case 'exec':
         this.setStatus('running');
         p.options.onPhase?.('exec');
-        p.timer = window.setTimeout(() => {
-          this.finish({ ok: false, stdout: p.stdout, error: null, value: null, table: null, images: [], timedOut: true, stopped: false, ms: p.options.timeoutMs ?? 0 });
-          this.kill('idle');
-        }, p.options.timeoutMs ?? 5000);
+        this.armTimer(p, p.options.timeoutMs ?? 5000);
+        return;
+      case 'input':
+        this.promptInput(p, event.prompt);
         return;
       case 'stdout':
       case 'stderr':
@@ -103,6 +116,44 @@ export class PythonRunner {
         this.finish({ ok: event.ok, stdout: p.stdout, error: event.error, value: event.value, table: event.table, images: event.images, timedOut: false, stopped: false, ms: event.ms });
         this.setStatus('ready');
     }
+  }
+
+  private armTimer(p: Pending, ms: number) {
+    p.deadlineLeft = ms;
+    p.timerStarted = performance.now();
+    p.timer = window.setTimeout(() => {
+      this.finish({ ok: false, stdout: p.stdout, error: null, value: null, table: null, images: [], timedOut: true, stopped: false, ms: p.options.timeoutMs ?? 0 });
+      this.kill('idle');
+    }, ms);
+  }
+
+  /** 워커가 input() 에서 잠들어 있다. 화면에 물어보고 공유 메모리에 써서 깨운다. 그동안 시간 제한은 멈춘다. */
+  private async promptInput(p: Pending, prompt: string) {
+    if (p.timer !== null) {
+      window.clearTimeout(p.timer);
+      p.timer = null;
+      p.deadlineLeft = Math.max(1000, p.deadlineLeft - (performance.now() - p.timerStarted));
+    }
+    const buffer = p.inputBuffer;
+    if (!buffer) return;
+    const state = new Int32Array(buffer, 0, 2);
+    const answer = p.options.onInput ? await p.options.onInput(prompt) : null;
+    if (this.pending !== p) return; // 기다리는 사이 중단됐다
+    if (answer === null) {
+      Atomics.store(state, 0, 2);
+    } else {
+      const bytes = new TextEncoder().encode(answer).slice(0, INPUT_BUFFER_BYTES - 8);
+      new Uint8Array(buffer, 8, bytes.length).set(bytes);
+      Atomics.store(state, 1, bytes.length);
+      Atomics.store(state, 0, 1);
+    }
+    Atomics.notify(state, 0);
+    // 입력값도 출력처럼 화면에 남긴다 — 터미널에서 친 것처럼
+    if (answer !== null) {
+      p.stdout += `${answer}\n`;
+      p.options.onStdout?.(`${answer}\n`);
+    }
+    this.armTimer(p, p.deadlineLeft);
   }
 
   private finish(result: RunResult) {
@@ -124,14 +175,16 @@ export class PythonRunner {
     if (this.pending) this.stop();
     const worker = this.worker ?? this.spawn();
     const id = `run-${++seq}`;
+    const inputBuffer = options.onInput && canPromptInput ? new SharedArrayBuffer(INPUT_BUFFER_BYTES) : null;
     return new Promise((resolve) => {
-      this.pending = { id, stdout: '', timer: null, options, resolve };
+      this.pending = { id, stdout: '', timer: null, deadlineLeft: 0, timerStarted: 0, inputBuffer, options, resolve };
       worker.postMessage({
         type: 'run',
         id,
         steps,
         session: options.session,
         stdin: options.stdin,
+        inputBuffer: inputBuffer ?? undefined,
         displayLast: options.displayLast,
       } satisfies WorkerRequest);
     });

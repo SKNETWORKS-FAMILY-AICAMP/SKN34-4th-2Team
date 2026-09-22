@@ -15,8 +15,14 @@ export interface RunRequest {
   steps: string[];
   /** 노트북 세션 이름. 같은 이름이면 앞 셀에서 만든 변수가 남아 있다. */
   session?: string;
-  /** input() 이 위에서부터 한 줄씩 읽을 값. 없으면 input() 은 EOFError. */
+  /** input() 이 위에서부터 한 줄씩 읽을 값. 다 쓰면 inputBuffer 로, 그것도 없으면 EOFError. */
   stdin?: string;
+  /**
+   * 즉석 입력용 공유 메모리(SharedArrayBuffer). 있으면 input() 때 워커가 'input' 을 보내고 잠들어
+   * 화면이 값을 써 줄 때까지 기다린다. 페이지가 COOP/COEP 헤더를 보낼 때만 만들 수 있다.
+   * 배치: Int32 [0]=상태(0 대기 · 1 값 있음 · 2 EOF), [1]=글자 수(바이트), 그 뒤가 UTF-8 글자.
+   */
+  inputBuffer?: SharedArrayBuffer;
   /** 마지막 줄이 식이면 그 값의 repr 을 돌려준다 (노트북의 Out). */
   displayLast?: boolean;
 }
@@ -53,6 +59,8 @@ export type RunnerEvent =
   | { type: 'loading-packages'; id: string }
   | { type: 'exec'; id: string }
   | { type: 'stdout'; id: string; text: string }
+  /** input() 이 값을 기다린다. prompt 는 input('…') 의 안내문 */
+  | { type: 'input'; id: string; prompt: string }
   | { type: 'stderr'; id: string; text: string }
   | {
       type: 'done';

@@ -1,11 +1,21 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+const COOP_COEP = {
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Embedder-Policy': 'require-corp',
+};
+
 export default defineConfig({
   // BrowserRouter를 쓰므로 자산 경로는 절대경로여야 한다. './'로 두면
   // /admin/students 같은 깊은 경로에서 자산을 그 아래에서 찾는다.
   base: '/',
   plugins: [react()],
+  // 연습장의 즉석 input() — 워커가 SharedArrayBuffer 로 잠들었다 깨어나려면 페이지가 cross-origin
+  // isolated 여야 한다. 배포(Django · nginx)에서도 이 두 헤더를 그대로 보낸다. 없어도 연습장은
+  // 「입력값」 칸 방식으로 돈다.
+  server: { headers: COOP_COEP },
+  preview: { headers: COOP_COEP },
   test: {
     environment: 'jsdom',
     setupFiles: ['src/test/setup.ts'],

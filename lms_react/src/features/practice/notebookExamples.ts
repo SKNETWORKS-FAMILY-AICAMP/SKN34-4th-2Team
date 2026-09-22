@@ -62,10 +62,10 @@ plt.show()`,
   {
     id: 'input',
     label: 'input() 써 보기',
-    source: '위 「입력값」 칸에 한 줄씩 적는다',
+    source: '실행하면 셀 아래에 입력칸이 뜬다',
     type: 'code',
-    code: `name = input()
-count = int(input())
+    code: `name = input('이름: ')
+count = int(input('몇 장? '))
 for i in range(count):
     print(f'{name} {i + 1}번째 프레임')`,
   },

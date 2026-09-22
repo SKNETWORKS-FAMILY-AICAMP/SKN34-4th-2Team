@@ -13,7 +13,7 @@ import {
   type Line,
 } from './notebookModel';
 import type { RunResult } from './pythonProtocol';
-import type { PythonRunner, RunOptions } from './pythonRunner';
+import { canPromptInput, type PythonRunner, type RunOptions } from './pythonRunner';
 import { RETRY_SET_ID } from './review';
 
 const SESSION = 'playground';
@@ -23,7 +23,11 @@ const GRADE_TIMEOUT_MS = 5_000;
 function errorText(result: RunResult): string {
   const e = result.error;
   if (!e) return '';
-  if (e.type === 'EOFError') return 'input()이 읽을 값이 없어요. 위 「입력값」 칸에 한 줄에 하나씩 적어 주세요.';
+  if (e.type === 'EOFError') {
+    return canPromptInput
+      ? '입력을 끝냈어요(Esc). 값을 넣으려면 다시 실행하세요.'
+      : 'input()이 읽을 값이 없어요. 위 「입력값」 칸에 한 줄에 하나씩 적어 주세요.';
+  }
   const where = e.line ? `${e.line}번째 줄 · ` : '';
   return `${where}${e.type}: ${e.message}`;
 }
@@ -54,6 +58,8 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
   const cancel = useRef(0);
   const counter = useRef(0);
   const lastGeneration = useRef(0);
+  /** 셀 id → input() 에 답을 넘기는 함수. 값을 치면 워커가 깨어난다 */
+  const inputResolvers = useRef(new Map<string, (answer: string | null) => void>());
 
   useEffect(() => {
     if (set?.id !== RETRY_SET_ID) saveNotebook(storeKey(set), cells, stdin);
@@ -127,6 +133,12 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
       stdin: stdinRef.current,
       displayLast: true,
       timeoutMs: TIMEOUT_MS,
+      // 즉석 input(): 셀 아래 입력칸을 열고 학생이 Enter 를 칠 때까지 기다린다
+      onInput: (prompt) =>
+        new Promise((resolve) => {
+          inputResolvers.current.set(id, resolve);
+          patch(id, { awaitingInput: { prompt } });
+        }),
       onPhase: (phase) => {
         if (phase === 'loading-packages' && heavy) {
           patch(id, { lines: [{ kind: 'sys', text: '패키지를 불러오는 중… (matplotlib·pandas 는 처음 한 번 몇 초 걸립니다)' }] });
@@ -141,6 +153,8 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
         }),
     });
 
+    inputResolvers.current.delete(id);
+    patch(id, { awaitingInput: null });
     noteGeneration(id);
 
     const tail: Line[] = [];
@@ -225,7 +239,21 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
 
   const runAll = () => cellsRef.current.forEach((c) => enqueue(c.id));
 
-  const stop = () => runner.stop();
+  const stop = () => {
+    // 입력을 기다리던 셀이 있으면 그 약속도 끝낸다
+    inputResolvers.current.forEach((resolve) => resolve(null));
+    inputResolvers.current.clear();
+    runner.stop();
+  };
+
+  /** 셀 아래 입력칸에 친 값을 input() 에 넘긴다. null 이면 EOF(입력 끝) */
+  const answerInput = (id: string, answer: string | null) => {
+    const resolve = inputResolvers.current.get(id);
+    if (!resolve) return;
+    inputResolvers.current.delete(id);
+    patch(id, { awaitingInput: null });
+    resolve(answer);
+  };
 
   const resetKernel = () => {
     if (busy) runner.stop();
@@ -313,6 +341,7 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
     addMiniProblem,
     runProblemInSession,
     gradeProblem,
+    answerInput,
   };
 }
 

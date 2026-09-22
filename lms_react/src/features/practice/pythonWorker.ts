@@ -8,8 +8,11 @@
  * 무한 루프는 파이썬 안에서 끊을 수 없다. 화면 쪽(pythonRunner.ts)이 이 워커를 terminate 한다.
  * 그러면 노트북 세션의 변수도 함께 사라진다.
  *
- * input() 은 실행 중에 화면에 물어볼 수 없다. 워커는 답을 기다리며 멈출 수 없기 때문이다.
- * 대신 실행 전에 받은 stdin 문자열을 한 줄씩 넘긴다(온라인 저지의 입력 칸과 같은 방식).
+ * input() 은 두 갈래다.
+ * - 즉석: 페이지가 COOP/COEP 헤더를 보내 SharedArrayBuffer 를 쓸 수 있으면, 'input' 을 보내고
+ *   Atomics.wait 로 잠들어 화면이 값을 써 줄 때까지 기다린다(Jupyter 처럼 셀 아래 칸에 친다).
+ * - 미리 적기: 그게 안 되는 환경에서는 실행 전에 받은 stdin 문자열을 한 줄씩 넘긴다.
+ * 둘이 함께 오면 미리 적은 줄을 먼저 다 쓰고 즉석으로 넘어간다.
  */
 import {
   PYODIDE_VERSION,
@@ -148,6 +151,9 @@ function describe(err: unknown): Omit<RunError, 'step'> {
 let stdoutChars = 0;
 let currentId = '';
 let stdinLines: string[] = [];
+let inputBuffer: SharedArrayBuffer | null = null;
+/** 마지막 줄바꿈 뒤에 stdout 으로 나간 글자 — input('이름: ') 의 안내문이 여기 남는다 */
+let promptTail = '';
 const sessions = new Map<string, PyDict>();
 
 const ready: Promise<{ py: Pyodide; runCell: RunCell; takeImages: TakeImages }> = (async () => {
@@ -161,13 +167,15 @@ const ready: Promise<{ py: Pyodide; runCell: RunCell; takeImages: TakeImages }> 
   const runCell = helperNs.get('run_cell') as RunCell;
   const takeImages = helperNs.get('take_images') as TakeImages;
   await py.runPythonAsync(LOCKDOWN);
-  py.setStdin({ stdin: () => stdinLines.shift() });
+  py.setStdin({ stdin: readInput });
   const decoder = new TextDecoder();
   py.setStdout({
     write(buf: Uint8Array) {
       if (stdoutChars < MAX_STDOUT_CHARS) {
         const text = decoder.decode(buf, { stream: true });
         stdoutChars += text.length;
+        const nl = text.lastIndexOf('\n');
+        promptTail = nl >= 0 ? text.slice(nl + 1) : promptTail + text;
         post({ type: 'stdout', id: currentId, text });
       }
       return buf.length;
@@ -180,6 +188,21 @@ const ready: Promise<{ py: Pyodide; runCell: RunCell; takeImages: TakeImages }> 
   post({ type: 'boot-error', message: String(err) });
   throw err;
 });
+
+/** input() 이 부른다. 미리 적은 줄 → 즉석 입력 → 없으면 undefined(EOFError). */
+function readInput(): string | undefined {
+  if (stdinLines.length) return stdinLines.shift();
+  if (!inputBuffer) return undefined;
+  const state = new Int32Array(inputBuffer, 0, 2);
+  Atomics.store(state, 0, 0);
+  post({ type: 'input', id: currentId, prompt: promptTail });
+  promptTail = '';
+  Atomics.wait(state, 0, 0); // 화면이 값을 쓰고 깨울 때까지 잠든다
+  if (Atomics.load(state, 0) === 2) return undefined;
+  const length = Atomics.load(state, 1);
+  const bytes = new Uint8Array(inputBuffer, 8, length).slice();
+  return new TextDecoder().decode(bytes);
+}
 
 function namespace(py: Pyodide, session: string | undefined): PyDict {
   if (session && sessions.has(session)) return sessions.get(session)!;
@@ -194,6 +217,8 @@ async function run(req: RunRequest) {
   const { id, steps, session, stdin, displayLast } = req;
   currentId = id;
   stdoutChars = 0;
+  promptTail = '';
+  inputBuffer = req.inputBuffer ?? null;
   stdinLines = stdin ? stdin.replace(/\r\n/g, '\n').split('\n') : [];
   if (stdinLines.length && stdinLines[stdinLines.length - 1] === '') stdinLines.pop();
   const ns = namespace(py, session);

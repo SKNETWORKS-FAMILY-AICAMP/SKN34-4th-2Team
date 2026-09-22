@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import { Icon } from '../../ui/Icon';
 import { CodeEditor } from './CodeEditor';
 import type { Cell, CellType } from './notebookModel';
@@ -148,8 +150,44 @@ function CodeOrMarkdownCell({ cell, index, total, nb }: { cell: Cell; index: num
         )}
 
         {!isMarkdown && <CellOutput cell={cell} />}
+        {cell.awaitingInput && <InputPrompt prompt={cell.awaitingInput.prompt} onAnswer={(v) => nb.answerInput(cell.id, v)} />}
       </div>
     </article>
+  );
+}
+
+/** input() 이 기다리는 동안 셀 아래에 뜨는 입력칸 — Jupyter 와 같다. Enter 로 넘기고, Esc 는 입력 끝(EOF) */
+function InputPrompt({ prompt, onAnswer }: { prompt: string; onAnswer: (value: string | null) => void }) {
+  const [value, setValue] = useState('');
+  return (
+    <form
+      className="py-input"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onAnswer(value);
+      }}
+    >
+      <label className="py-input__prompt" htmlFor="py-input-field">
+        <Icon name="keyboard" size={16} />
+        {prompt || '입력'}
+      </label>
+      <input
+        id="py-input-field"
+        className="py-input__field"
+        autoFocus
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onAnswer(null);
+        }}
+        placeholder="값을 입력하고 Enter"
+        autoComplete="off"
+        spellCheck={false}
+      />
+      <button type="submit" className="btn btn--filled btn--sm">
+        입력
+      </button>
+    </form>
   );
 }
 

@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import { Icon } from '../../ui/Icon';
 import { MINI_PROBLEMS } from './notebookExamples';
+import { canPromptInput } from './pythonRunner';
 import type { Notebook } from './useNotebook';
 
 /** 노트북 도구 줄 — 모두 실행 · 중단 · 변수 초기화 · 셀 추가 · 입력값 · 단축키 */
@@ -49,7 +50,15 @@ export function NotebookToolbar({ nb }: { nb: Notebook }) {
       {showStdin && (
         <section className="py-stdin">
           <label htmlFor="py-stdin">
-            입력값 — <code>input()</code>이 위에서부터 한 줄씩 읽어요. 셀을 실행할 때마다 첫 줄부터 다시 읽습니다.
+            {canPromptInput ? (
+              <>
+                미리 적어 두는 입력값 — 비워 두면 <code>input()</code>이 셀 아래에 입력칸을 띄워 물어봐요. 적어 두면 그 줄부터 먼저 써요.
+              </>
+            ) : (
+              <>
+                입력값 — <code>input()</code>이 위에서부터 한 줄씩 읽어요. 셀을 실행할 때마다 첫 줄부터 다시 읽습니다.
+              </>
+            )}
           </label>
           <textarea id="py-stdin" value={nb.stdin} onChange={(e) => nb.setStdin(e.target.value)} rows={3} spellCheck={false} />
         </section>

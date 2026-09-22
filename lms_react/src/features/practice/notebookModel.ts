@@ -1,6 +1,7 @@
 import type { PracticeSet } from '../../domain/types';
 import type { TableData } from './pythonProtocol';
 import { FIRST_CELLS } from './notebookExamples';
+import { canPromptInput } from './pythonRunner';
 import { RETRY_SET_ID } from './review';
 
 /**
@@ -38,6 +39,8 @@ export interface Cell {
   ms: number | null;
   /** 문제 셀이면 세트 안 몇 번째 문제인지 */
   problemIndex: number | null;
+  /** input() 이 값을 기다리는 중 — 셀 아래에 입력칸이 뜬다 */
+  awaitingInput: { prompt: string } | null;
 }
 
 let cellSeq = 0;
@@ -56,6 +59,7 @@ export function newCell(code = '', type: CellType = 'code', problemIndex: number
     count: null,
     state: 'idle',
     ms: null,
+    awaitingInput: null,
   };
 }
 
@@ -124,7 +128,8 @@ export function loadNotebook(set: PracticeSet | undefined): { cells: Cell[]; std
   } catch {
     // 저장본이 깨졌거나 저장소가 막혀 있으면 처음 셀로 연다.
   }
-  return { cells: FIRST_CELLS.map((c) => newCell(c.source, c.type)), stdin: '민지\n3' };
+  // 즉석 입력이 되는 환경이면 미리 적어 두지 않는다 — 실행할 때 물어보는 게 자연스럽다
+  return { cells: FIRST_CELLS.map((c) => newCell(c.source, c.type)), stdin: canPromptInput ? '' : '민지\n3' };
 }
 
 export function saveNotebook(key: string, cells: Cell[], stdin: string) {

@@ -4387,6 +4387,47 @@ a.link {
   flex: 1;
 }
 
+/* 즉석 input() 입력칸 */
+.py-input {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px 10px;
+  border-top: 1px solid var(--divider);
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+}
+
+.py-input__prompt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.py-input__prompt .icon {
+  color: var(--primary);
+}
+
+.py-input__field {
+  flex: 1 1 160px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  font-size: 13px;
+}
+
+.py-input__field:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
 /* 출력 — 셀 바로 아래. 테마를 따른다 */
 .py-nb-out {
   padding: 10px 16px 12px;
