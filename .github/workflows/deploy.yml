@@ -1,0 +1,41 @@
+name: deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lms_react
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm test
+      - name: Build web
+        env:
+          # GitHub → Settings → Variables → VITE_API_BASE (없으면 /api)
+          VITE_API_BASE: ${{ vars.VITE_API_BASE != '' && vars.VITE_API_BASE || '/api' }}
+        run: npm run build
+      - name: Upload web dist
+        if: ${{ secrets.AWS_ROLE_ARN != '' }}
+        run: echo "Configure AWS_ROLE_ARN, WEB_S3_BUCKET, CLOUDFRONT_ID to enable s3 sync"
+
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -f lms_api/Dockerfile -t lms-api .
+      - name: Push ECR
+        if: ${{ secrets.AWS_ROLE_ARN != '' }}
+        run: echo "Configure AWS_ROLE_ARN and ECR_REPOSITORY to enable push"
+      - name: Deploy EC2
+        if: ${{ secrets.EC2_HOST != '' }}
+        run: echo "Configure EC2_HOST to docker compose -f docker-compose.prod.yml pull && up -d"
