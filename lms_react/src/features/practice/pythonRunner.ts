@@ -5,7 +5,8 @@ import type { RunnerEvent, RunResult, WorkerRequest } from './pythonProtocol';
 /**
  * 파이썬 워커 하나를 붙잡고 실행을 맡는다.
  *
- * - 첫 실행 때 워커를 띄운다(런타임 내려받기는 그때 한 번).
+ * - 화면이 열리면 곧바로 워커를 띄워 런타임을 미리 불러 둔다(warm). 첫 실행을 누를 때 기다리지 않게.
+ *   런타임 파일은 public/pyodide-sw.js 가 캐시에 둔다.
  * - 시간을 넘기거나 「중단」을 누르면 워커를 terminate 한다. 파이썬 안에서는 무한 루프를 끊을 수 없다.
  *   다음 실행 때 새 워커를 띄우므로 다시 불러오는 시간이 든다(브라우저 캐시 덕에 첫 번보다 빠르다).
  * - 시간 제한은 코드가 실제로 돌기 시작한 순간부터 잰다. 런타임·패키지 내려받기는 넣지 않는다.
@@ -170,6 +171,12 @@ export class PythonRunner {
     this.setStatus(next);
   }
 
+  /** 워커가 없으면 미리 띄운다 — 런타임이 뒤에서 불러와진다 */
+  warm() {
+    if (typeof Worker === 'undefined') return;
+    if (!this.worker && this.status !== 'error') this.spawn();
+  }
+
   /** steps 를 같은 변수 공간에서 차례로 돌린다. 이미 도는 것이 있으면 먼저 끊는다. */
   run(steps: string[], options: RunOptions = {}): Promise<RunResult> {
     if (this.pending) this.stop();
@@ -219,7 +226,10 @@ export function usePythonRunner() {
 
   useEffect(() => {
     const off = runner.subscribe(setStatus);
+    // 화면이 그려진 뒤 잠깐 두고 띄운다 — 첫 화면 그리기와 겹치지 않게
+    const warm = window.setTimeout(() => runner.warm(), 300);
     return () => {
+      window.clearTimeout(warm);
       off();
       runner.dispose();
     };

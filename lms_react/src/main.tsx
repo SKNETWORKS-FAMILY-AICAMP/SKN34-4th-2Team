@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
 import { App } from './app/App';
+import { registerRuntimeCache } from './features/practice/runtimeCache';
 import 'material-symbols/rounded.css';
 import './app/theme.css';
 import './app/styles.css';
@@ -18,3 +19,5 @@ createRoot(host).render(
     </BrowserRouter>
   </StrictMode>,
 );
+
+registerRuntimeCache();

@@ -51,6 +51,9 @@ try {
   await page.getByRole('button', { name: '학생', exact: true }).click();
   const tour = page.locator('.tour-card').getByRole('button', { name: '다시 보지 않기' });
   await tour.waitFor({ timeout: 4000 }).then(() => tour.click()).catch(() => {});
+  // 로그인 뒤 알림 팝업이 뜨면 화면을 덮는다
+  const dlg = page.locator('.dialog').getByRole('button', { name: '확인' });
+  await dlg.waitFor({ timeout: 1500 }).then(() => dlg.click()).catch(() => {});
   await page.waitForTimeout(400);
 
   // ── 자유 연습장 ──
@@ -75,6 +78,15 @@ try {
   await page.getByRole('button', { name: 'input() 써 보기' }).click();
   await page.waitForTimeout(300);
   await page.keyboard.press('Control+Enter');
+  // COOP/COEP 가 켜진 미리보기에서는 input() 이 셀 아래 입력칸으로 묻는다. 없으면 입력값 칸(민지 · 3)을 읽는다
+  const field = page.locator('.py-input__field');
+  for (const answer of ['민지', '3']) {
+    const asked = await field.waitFor({ timeout: 30000 }).then(() => true).catch(() => false);
+    if (!asked) break;
+    await field.fill(answer);
+    await field.press('Enter');
+    await page.waitForTimeout(300);
+  }
   await page.getByText('민지 3번째 프레임').waitFor({ timeout: 30000 });
   say('A input', 'ok');
 
