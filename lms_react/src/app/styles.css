@@ -4102,6 +4102,52 @@ a.link {
   gap: 6px;
 }
 
+.py-picker {
+  position: relative;
+  display: inline-flex;
+}
+
+.py-picker__main {
+  border-radius: 8px 0 0 8px;
+}
+
+.py-picker__more {
+  border-radius: 0 8px 8px 0;
+  padding: 0 6px;
+  border-left: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.py-picker__menu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  min-width: 200px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px var(--shadow);
+}
+
+.py-picker__menu button {
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.py-picker__menu button:hover {
+  background: var(--surface-variant);
+}
+
 .py-toolbar__on {
   border-color: var(--primary);
   color: var(--primary);
@@ -5215,6 +5261,32 @@ a.link {
   margin: 0 auto;
   width: 100%;
   padding-top: 12px;
+}
+
+/* 결과의 내 답 · 정답 */
+.answer-pair {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  margin: 4px 0 0;
+  font-size: 14px;
+}
+
+.answer-pair dt {
+  color: var(--text-secondary);
+}
+
+.answer-pair dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.answer-pair__ok {
+  color: var(--success);
+}
+
+.answer-pair__no {
+  color: var(--error);
 }
 
 /* 강사·관리자 평가 목록 — 줄 전체가 아니라 안쪽 단추가 연다. */

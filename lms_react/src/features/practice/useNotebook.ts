@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type { PracticeSet } from '../../domain/types';
+import type { MiniProblem } from './notebookExamples';
 import {
   CLEAR_OUTPUT,
   loadNotebook,
@@ -269,6 +270,15 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
     requestAnimationFrame(() => focusCell(id));
   };
 
+  /** 연습 문제 — 설명 · 풀 자리 · 확인 코드 세 셀을 끝에 붙이고 풀 자리로 간다 */
+  const addMiniProblem = (p: MiniProblem) => {
+    const prompt = newCell(`### 연습 · ${p.title}\n${p.prompt}\n\n아래 셀에 작성하고 **Shift+Enter**, 그다음 확인 셀을 실행하세요.`, 'markdown');
+    const work = newCell(p.starter);
+    const check = newCell(p.check);
+    setCells((prev) => [...prev, prompt, work, check]);
+    requestAnimationFrame(() => focusCell(work.id));
+  };
+
   const addExample = (code: string, type: CellType) => {
     const created = insertAfter(cellsRef.current[cellsRef.current.length - 1]?.id ?? '', code, type);
     if (type === 'code') requestAnimationFrame(() => focusCell(created));
@@ -300,6 +310,7 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
     changeType,
     editMarkdown,
     addExample,
+    addMiniProblem,
     runProblemInSession,
     gradeProblem,
   };

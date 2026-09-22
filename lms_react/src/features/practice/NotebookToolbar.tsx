@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { Icon } from '../../ui/Icon';
+import { MINI_PROBLEMS } from './notebookExamples';
 import type { Notebook } from './useNotebook';
 
 /** 노트북 도구 줄 — 모두 실행 · 중단 · 변수 초기화 · 셀 추가 · 입력값 · 단축키 */
@@ -31,6 +32,7 @@ export function NotebookToolbar({ nb }: { nb: Notebook }) {
           <Icon name="notes" size={18} />
           마크다운
         </button>
+        <ProblemPicker nb={nb} />
         <button
           type="button"
           className={`btn btn--outline btn--sm${showStdin ? ' py-toolbar__on' : ''}`}
@@ -53,6 +55,38 @@ export function NotebookToolbar({ nb }: { nb: Notebook }) {
         </section>
       )}
     </>
+  );
+}
+
+/** 연습 문제 넣기 — 목록에서 고르거나 아무거나 하나 */
+function ProblemPicker({ nb }: { nb: Notebook }) {
+  const [open, setOpen] = useState(false);
+  const pick = (id?: string) => {
+    const p = id ? MINI_PROBLEMS.find((m) => m.id === id) : MINI_PROBLEMS[Math.floor(Math.random() * MINI_PROBLEMS.length)];
+    if (p) nb.addMiniProblem(p);
+    setOpen(false);
+  };
+  return (
+    <span className="py-picker">
+      <button type="button" className="btn btn--filled btn--sm py-picker__main" onClick={() => pick()} title="연습 문제 하나를 아래에 넣습니다">
+        <Icon name="fitness_center" size={18} />
+        연습 문제 풀기
+      </button>
+      <button type="button" className="btn btn--filled btn--sm py-picker__more" onClick={() => setOpen((v) => !v)} aria-label="문제 고르기" aria-expanded={open}>
+        <Icon name="expand_more" size={18} />
+      </button>
+      {open && (
+        <ul className="py-picker__menu" role="menu">
+          {MINI_PROBLEMS.map((m) => (
+            <li key={m.id}>
+              <button type="button" role="menuitem" onClick={() => pick(m.id)}>
+                {m.title}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </span>
   );
 }
 

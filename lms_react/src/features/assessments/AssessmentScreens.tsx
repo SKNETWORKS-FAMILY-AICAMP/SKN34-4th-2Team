@@ -296,11 +296,13 @@ export function AssessmentResultScreen() {
   }
 
   const correct = questions.filter((q) => submission.answers[q.id]?.isCorrect === true).length;
+  const maxScore = assessment.maxScore || questions.reduce((sum, q) => sum + q.points, 0);
 
   return (
-    <div className="screen__inner">
+    <div className="screen__inner assess-page">
       <PageHeader
         title={`${assessment.title} 결과`}
+        description={`${questions.length}문항 · ${formatDate(submission.submittedAt)} 제출`}
         actions={
           <Link className="btn btn--outline btn--md" to={RoutePaths.assessments}>
             목록으로
@@ -309,9 +311,9 @@ export function AssessmentResultScreen() {
       />
 
       <div className="grid grid--3">
-        <StatTile label="총점" value={`${submission.totalScore} / ${assessment.maxScore}`} tone="primary" />
-        <StatTile label="정답" value={`${correct} / ${questions.length}`} tone="success" />
-        <StatTile label="제출" value={formatDate(submission.submittedAt)} />
+        <StatTile label="점수" value={`${submission.totalScore}점`} sub={`${maxScore}점 만점`} tone="primary" />
+        <StatTile label="맞힌 문항" value={`${correct} / ${questions.length}`} sub={correct === questions.length ? '모두 맞혔어요' : `${questions.length - correct}문항 틀림`} tone={correct === questions.length ? 'success' : 'warning'} />
+        <StatTile label="정답률" value={`${questions.length ? Math.round((correct / questions.length) * 100) : 0}%`} />
       </div>
 
       {questions.map((q, i) => {
@@ -333,8 +335,16 @@ export function AssessmentResultScreen() {
                 {entry?.finalScore ?? 0} / {q.points}점
               </span>
             </Row>
-            <p className="muted">내 답 · {given}</p>
-            {!isCorrect && <p className="muted">정답 · {answer}</p>}
+            <dl className="answer-pair">
+              <dt>내 답</dt>
+              <dd className={isCorrect ? 'answer-pair__ok' : 'answer-pair__no'}>{given}</dd>
+              {!isCorrect && (
+                <>
+                  <dt>정답</dt>
+                  <dd className="answer-pair__ok">{answer}</dd>
+                </>
+              )}
+            </dl>
             {q.explanation !== undefined && <div className="callout">{q.explanation}</div>}
             {entry?.comment !== undefined && <div className="callout">채점 의견 · {entry.comment}</div>}
           </Card>

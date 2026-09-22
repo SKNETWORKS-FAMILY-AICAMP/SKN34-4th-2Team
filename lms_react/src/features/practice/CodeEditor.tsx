@@ -131,6 +131,8 @@ export function CodeEditor({
     if (!editor) return;
     editor.focus();
     editor.dispatch({ selection: { anchor: editor.state.doc.length } });
+    // 새 셀이 화면 밖(도구 줄은 맨 위, 셀은 아래)에 생기면 커서만 옮겨지고 보이지 않는다. 셀을 화면 안으로.
+    host.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [focusSignal]);
 
   // 예시 불러오기처럼 바깥에서 값을 바꾼 경우에만 문서를 갈아 끼운다.

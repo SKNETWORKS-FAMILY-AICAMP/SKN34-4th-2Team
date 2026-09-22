@@ -95,3 +95,97 @@ frames = ['skiing_frame00030.jpg', 'skiing_frame00060.jpg', 'skiing_frame00090.j
 [extract_frame_no(f) for f in frames]`,
   },
 ];
+
+/**
+ * 연습 문제 — 세트 없이 연습장에서 바로 풀어 보는 짧은 파이썬 문제.
+ * 설명(마크다운) · 풀 자리(코드) · 확인(assert 를 실행해 보는 코드) 세 셀로 들어간다.
+ * 채점 기록은 남기지 않는다 — 복습 문제(세트)와 달리 그냥 손 푸는 용도다.
+ */
+export interface MiniProblem {
+  id: string;
+  title: string;
+  prompt: string;
+  starter: string;
+  check: string;
+}
+
+export const MINI_PROBLEMS: MiniProblem[] = [
+  {
+    id: 'frame-no',
+    title: '프레임 번호 뽑기',
+    prompt:
+      "`skiing_frame00030.jpg` 같은 파일명에서 `_frame` 뒤의 숫자를 **정수**로 돌려주는 `frame_no(name)` 를 만드세요. " +
+      '앞의 0 은 떼어져야 합니다 (`00030` → `30`).',
+    starter: `import re
+
+def frame_no(name):
+    # 여기에 작성
+    pass`,
+    check: `# 확인 — 모두 통과하면 아무것도 찍히지 않고, 틀리면 AssertionError 가 난다
+assert frame_no('skiing_frame00030.jpg') == 30
+assert frame_no('alpinist_frame00300.jpg') == 300
+assert frame_no('x_frame0.jpg') == 0
+print('통과!')`,
+  },
+  {
+    id: 'every-nth',
+    title: '일정 간격으로 고르기',
+    prompt:
+      '프레임 목록 `frames` 에서 `step` 개마다 하나씩(0번째부터) 고르는 `every_nth(frames, step)` 을 만드세요. ' +
+      '예: `every_nth([0,1,2,3,4,5], 3)` → `[0, 3]`',
+    starter: `def every_nth(frames, step):
+    # 여기에 작성
+    pass`,
+    check: `assert every_nth([0, 1, 2, 3, 4, 5], 3) == [0, 3]
+assert every_nth(list(range(10)), 4) == [0, 4, 8]
+assert every_nth([], 2) == []
+print('통과!')`,
+  },
+  {
+    id: 'cosine',
+    title: '코사인 유사도',
+    prompt:
+      '두 벡터의 코사인 유사도 `cosine(a, b)` 를 numpy 로 만드세요. 내적을 두 벡터 크기의 곱으로 나눕니다. ' +
+      '같은 방향이면 1, 직각이면 0 이어야 합니다.',
+    starter: `import numpy as np
+
+def cosine(a, b):
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    # 여기에 작성
+    pass`,
+    check: `assert abs(cosine([1, 0], [1, 0]) - 1) < 1e-9
+assert abs(cosine([1, 0], [0, 1])) < 1e-9
+assert abs(cosine([1, 1], [1, 0]) - 0.7071) < 1e-3
+print('통과!')`,
+  },
+  {
+    id: 'count-words',
+    title: '단어 세기',
+    prompt:
+      "문장에서 단어별 개수를 딕셔너리로 돌려주는 `count_words(text)` 를 만드세요. 대소문자는 가리지 않습니다. " +
+      "예: `'to be or not to be'` → `{'to': 2, 'be': 2, 'or': 1, 'not': 1}`",
+    starter: `def count_words(text):
+    # 여기에 작성
+    pass`,
+    check: `assert count_words('to be or not to be') == {'to': 2, 'be': 2, 'or': 1, 'not': 1}
+assert count_words('A a b') == {'a': 2, 'b': 1}
+assert count_words('') == {}
+print('통과!')`,
+  },
+  {
+    id: 'top-k',
+    title: '가장 비슷한 k개',
+    prompt:
+      '점수 배열 `scores` 에서 값이 큰 순서로 인덱스 `k` 개를 돌려주는 `top_k(scores, k)` 를 만드세요. ' +
+      '예: `top_k([0.1, 0.9, 0.5], 2)` → `[1, 2]`',
+    starter: `import numpy as np
+
+def top_k(scores, k):
+    # 여기에 작성 — np.argsort 를 떠올려 보세요
+    pass`,
+    check: `assert list(top_k([0.1, 0.9, 0.5], 2)) == [1, 2]
+assert list(top_k([3, 1, 2], 3)) == [0, 2, 1]
+assert list(top_k([5], 1)) == [0]
+print('통과!')`,
+  },
+];
