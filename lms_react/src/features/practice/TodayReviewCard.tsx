@@ -7,6 +7,7 @@ import type { PracticeKind, PracticeProblem } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { useCurrentUser } from '../auth/session';
 import { KIND_LABEL } from './ProblemCell';
+import { useIsHidden } from './useIsHidden';
 import {
   dueRetries,
   lessonFileLabel,
@@ -32,7 +33,8 @@ export function TodayReviewCard() {
   const review = pickTodayReview(sets, attempts, today);
   if (!review) return null;
   // 오늘 틀린 문제는 빼고, 하루 이상 지난 것만 다시 보여 준다
-  const retries = dueRetries(retryItems(sets, attempts), today);
+  const isHidden = useIsHidden();
+  const retries = dueRetries(retryItems(sets, attempts).filter((i) => !isHidden(i.set.id, i.index)), today);
 
   const { set, daysAgo, state, passed, total, minutes, continuesFrom } = review;
   const kinds = countKinds(set.problems.map((p) => p.kind));

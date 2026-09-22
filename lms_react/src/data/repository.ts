@@ -30,6 +30,9 @@ import type {
   Todo,
   User,
   PracticeAttempt,
+  PracticeReport,
+  PracticeReportReason,
+  PracticeReview,
   PracticeSet,
 } from '../domain/types';
 import { getDb, mutate, nextId, subscribe, type Database } from './store';
@@ -1064,4 +1067,37 @@ export function recordPracticeAttempt(uid: string, setId: string, index: number,
       ),
     };
   });
+}
+
+// ── 복습 문제 신고 ────────────────────────────────────────
+
+export function usePracticeReports(): PracticeReport[] {
+  return useDb((db) => db.practiceReports);
+}
+
+export function usePracticeReviews(): PracticeReview[] {
+  return useDb((db) => db.practiceReviews);
+}
+
+/** 한 문제에 한 사람 한 번. 이미 했으면 이유·메모만 바꾼다 */
+export function reportPracticeProblem(uid: string, setId: string, index: number, reason: PracticeReportReason, note: string): void {
+  mutate((db) => {
+    const found = db.practiceReports.find((r) => r.uid === uid && r.setId === setId && r.index === index);
+    if (found) {
+      return { practiceReports: db.practiceReports.map((r) => (r === found ? { ...r, reason, note, createdAt: new Date() } : r)) };
+    }
+    return {
+      practiceReports: [...db.practiceReports, { id: nextId('pr'), uid, setId, index, reason, note, createdAt: new Date() }],
+    };
+  });
+}
+
+/** 강사 결정 — 숨김 유지 또는 다시 보이기 */
+export function reviewPracticeProblem(decidedBy: string, setId: string, index: number, decision: PracticeReview['decision']): void {
+  mutate((db) => ({
+    practiceReviews: [
+      ...db.practiceReviews.filter((r) => !(r.setId === setId && r.index === index)),
+      { setId, index, decision, decidedBy, decidedAt: new Date() },
+    ],
+  }));
 }

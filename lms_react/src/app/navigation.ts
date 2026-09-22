@@ -49,6 +49,7 @@ export const instructorNav: NavSection[] = [
       { icon: 'forum', label: '게시물관리', path: RoutePaths.instructorBoard, targetId: InstructorTargets.navBoard },
       { icon: 'quiz', label: '성취도평가', path: RoutePaths.instructorAssessments, targetId: InstructorTargets.navAssessments },
       { icon: 'table_chart', label: '커리큘럼', path: RoutePaths.instructorCurriculum, targetId: InstructorTargets.navCurriculum },
+      { icon: 'flag', label: '복습 문제', path: RoutePaths.instructorPractice },
       { icon: 'person', label: '마이페이지', path: RoutePaths.instructorMyPage, targetId: InstructorTargets.navMyPage },
       { icon: 'settings', label: '설정', path: RoutePaths.instructorSettings },
     ],

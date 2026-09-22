@@ -36,6 +36,7 @@ import {
   InstructorAssessmentsScreen,
 } from '../features/instructor/InstructorAssessmentScreens';
 import { InstructorCurriculumScreen } from '../features/instructor/InstructorCurriculumScreen';
+import { InstructorPracticeScreen } from '../features/instructor/InstructorPracticeScreen';
 import { ReviewerResumesScreen } from '../features/resume/ReviewerResumesScreen';
 import { NoticeFormScreen } from '../features/notices/NoticeFormScreen';
 import { AdminDashboardScreen } from '../features/admin/AdminDashboardScreen';
@@ -125,6 +126,7 @@ export const instructorRoutes: AppRoute[] = [
     roles: instructor,
   },
   { path: RoutePaths.instructorAssessments, element: <InstructorAssessmentsScreen />, roles: instructor },
+  { path: RoutePaths.instructorPractice, element: <InstructorPracticeScreen />, roles: instructor },
   {
     path: RoutePaths.instructorAssessmentsCreate,
     element: <InstructorAssessmentFormScreen />,

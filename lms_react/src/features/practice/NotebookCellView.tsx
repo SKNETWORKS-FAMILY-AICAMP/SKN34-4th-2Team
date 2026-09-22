@@ -33,6 +33,21 @@ function ProblemCellRow({ cell, nb, mode }: { cell: Cell; nb: Notebook; mode: Pr
   const problem = mode.set?.problems[index];
   if (!problem) return null;
   const number = index + 1;
+  if (mode.hiddenOf(index)) {
+    return (
+      <article className="py-nb-cell py-nb-cell--hidden" data-cell-id={cell.id}>
+        <div className="py-nb-cell__prompt" aria-label={`문제 ${number}`}>
+          Q{number}
+        </div>
+        <div className="py-nb-cell__main pb-hidden">
+          <Icon name="visibility_off" size={18} />
+          <span>
+            <strong>문제 {number}</strong> · 이상하다는 신고가 모여 잠시 숨겼어요. 강사가 확인한 뒤 다시 열리거나 빠집니다.
+          </span>
+        </div>
+      </article>
+    );
+  }
   return (
     <article
       className={`py-nb-cell py-nb-cell--problem${cell.id === nb.activeId ? ' py-nb-cell--active' : ''}`}
@@ -49,6 +64,8 @@ function ProblemCellRow({ cell, nb, mode }: { cell: Cell; nb: Notebook; mode: Pr
           code={cell.code}
           attempt={mode.attemptOf(index)}
           note={mode.noteOf(index)}
+          myReport={mode.myReportOf(index)}
+          onReport={(reason, memo) => mode.report(index, reason, memo)}
           onCodeChange={(code) => nb.patch(cell.id, { code })}
           onAttempt={(passed) => mode.record(index, passed)}
           runInSession={nb.runProblemInSession}

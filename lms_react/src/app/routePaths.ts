@@ -69,6 +69,7 @@ export const RoutePaths = {
   instructorAssessments: '/instructor/assessments',
   instructorAssessmentsCreate: '/instructor/assessments/create',
   instructorCurriculum: '/instructor/curriculum',
+  instructorPractice: '/instructor/practice',
   instructorMyPage: '/instructor/my-page',
   instructorSettings: '/instructor/settings',
 } as const;

@@ -8949,3 +8949,281 @@ a.link {
     text-overflow: ellipsis;
   }
 }
+
+/* ── 복습 문제 「이상해요」 신고 ───────────────────────────── */
+.pb__flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-hint);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pb__flag:hover {
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+
+.pb__flag--sent {
+  color: var(--warning);
+}
+
+.pb__report {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 10px 16px 0;
+  padding: 12px 14px;
+  border: 1px dashed color-mix(in srgb, var(--warning) 55%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warning) 6%, var(--surface));
+}
+
+.pb__report-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pb__report-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pb__report-reason {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.pb__report-reason input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.pb__report-reason--on {
+  border-color: var(--warning);
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.pb__report input[type='text'] {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.pb__report .pb__actions {
+  padding: 0;
+}
+
+/* 신고가 모여 숨긴 문제 자리 */
+.py-nb-cell--hidden .py-nb-cell__prompt {
+  color: var(--text-hint);
+}
+
+.pb-hidden {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-style: dashed !important;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+/* 강사 · 복습 문제 신고 화면 */
+.practice-mod {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 980px;
+}
+
+.practice-mod__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.practice-mod__head h1 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+.practice-mod__head .hint {
+  max-width: 560px;
+}
+
+.practice-mod__stats {
+  display: flex;
+  gap: 8px;
+}
+
+.practice-mod__stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 84px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.practice-mod__stat strong {
+  font-size: 20px;
+}
+
+.practice-mod__stat span {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.practice-mod__stat--warn strong {
+  color: var(--warning);
+}
+
+.practice-mod__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.flag-row {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.flag-row--hidden {
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--border));
+}
+
+.flag-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--divider);
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+  font-size: 12.5px;
+}
+
+.flag-row__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(220px, 1fr);
+  gap: 16px;
+  padding: 12px 16px;
+}
+
+.flag-row__prompt {
+  min-width: 0;
+  font-size: 14px;
+}
+
+.flag-row__choices {
+  margin: 6px 0 0;
+  padding-left: 22px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.flag-row__choices .is-answer {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.flag-row__tests {
+  margin-top: 8px;
+  font-size: 12.5px;
+}
+
+.flag-row__tests summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.flag-row__tests pre {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-variant, color-mix(in srgb, var(--text-primary) 5%, var(--surface)));
+  font-size: 12px;
+  overflow-x: auto;
+}
+
+.flag-row__reports {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warning) 6%, var(--surface));
+  list-style: none;
+  font-size: 13px;
+}
+
+.flag-row__reports li {
+  display: flex;
+  gap: 8px;
+  color: var(--warning);
+}
+
+.flag-row__reports li div {
+  color: var(--text-primary);
+}
+
+.flag-row__reports p {
+  margin: 2px 0;
+  color: var(--text-secondary);
+}
+
+.flag-row__reports small {
+  color: var(--text-hint);
+}
+
+.flag-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--divider);
+}
+
+@media (max-width: 720px) {
+  .flag-row__body {
+    grid-template-columns: 1fr;
+  }
+  .practice-mod__stats {
+    width: 100%;
+  }
+  .practice-mod__stat {
+    flex: 1;
+    min-width: 0;
+  }
+}

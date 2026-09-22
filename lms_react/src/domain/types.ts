@@ -516,6 +516,28 @@ export interface PracticeAttempt {
   answeredAt: Date;
 }
 
+export type PracticeReportReason = 'unclear' | 'answer' | 'tests' | 'offtopic' | 'other';
+
+/** 학생의 「이 문제 이상해요」 신고. 한 문제에 한 사람 한 번 */
+export interface PracticeReport {
+  id: string;
+  uid: string;
+  setId: string;
+  index: number;
+  reason: PracticeReportReason;
+  note: string;
+  createdAt: Date;
+}
+
+/** 강사가 신고를 보고 내린 결정 — 없으면 신고 수로 자동 판단(2명이면 숨김) */
+export interface PracticeReview {
+  setId: string;
+  index: number;
+  decision: 'hidden' | 'kept';
+  decidedBy: string;
+  decidedAt: Date;
+}
+
 // ── 커리큘럼 ───────────────────────────────────────────
 
 export interface CurriculumRow {

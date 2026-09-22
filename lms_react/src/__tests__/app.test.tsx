@@ -472,6 +472,29 @@ describe('데이터가 실제로 흐른다', () => {
     expect(held.length).toBe(1);
     expect(held[0].userId).not.toBe(confirmed[0].userId);
   });
+
+  it('복습 문제 신고 — 2명이 신고하면 숨겨지고 강사 화면에서 다시 보이게 할 수 있다', async () => {
+    // 시드: 다른 학생 하나가 9/14 문제 5를 신고해 둔 상태. 데모 학생이 한 번 더 신고한다.
+    mutate((db) => ({
+      practiceReports: [
+        ...db.practiceReports,
+        { id: 'pr-t', uid: 'demo-student-001', setId: 'ps-mm-0914', index: 4, reason: 'answer', note: '', createdAt: new Date() },
+      ],
+    }));
+    await render('/instructor');
+    await loginAs('강사');
+    await render('/instructor/practice');
+
+    expect(container.textContent).toContain('복습 문제 신고');
+    expect(container.textContent).toContain('자동 숨김');
+    expect(container.textContent).toContain('테스트가 문제 문장과 달라요');
+
+    press('다시 보이기');
+    await flush();
+    const review = getDb().practiceReviews.find((r) => r.setId === 'ps-mm-0914' && r.index === 4);
+    expect(review?.decision).toBe('kept');
+    expect(container.textContent).toContain('강사가 다시 보임');
+  });
 });
 
 describe('라우트 표', () => {

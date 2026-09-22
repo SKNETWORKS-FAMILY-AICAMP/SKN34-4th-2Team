@@ -129,7 +129,7 @@ function Playground({ setId, focusProblem }: { setId: string | null; focusProble
 
 /** 위치 · 제목 · 설명, 문제 세트면 진행 막대 */
 function PlaygroundTitle({ mode }: { mode: PracticeSetMode }) {
-  const { set, isRetry, passedCount } = mode;
+  const { set, isRetry, passedCount, visibleCount } = mode;
   return (
     <div>
       <nav className="py-crumbs" aria-label="위치">
@@ -156,15 +156,16 @@ function PlaygroundTitle({ mode }: { mode: PracticeSetMode }) {
             : '노트북처럼 셀을 나눠 실행합니다. 앞 셀에서 만든 변수는 다음 셀에서 그대로 쓸 수 있어요. 코드는 이 브라우저 안에서만 돕니다.'}
       </p>
       {set && (
-        <div className="pb-progress" aria-label={`통과 ${passedCount} / ${set.problems.length}`}>
+        <div className="pb-progress" aria-label={`통과 ${passedCount} / ${visibleCount}`}>
           <div className="pb-progress__bar">
             {set.problems.map((_, i) => {
+              if (mode.hiddenOf(i)) return null;
               const a = mode.attemptOf(i);
               return <i key={i} className={a?.passed ? 'ok' : a ? 'no' : ''} />;
             })}
           </div>
           <span>
-            통과 <strong>{passedCount}</strong> / {set.problems.length}
+            통과 <strong>{passedCount}</strong> / {visibleCount}
           </span>
         </div>
       )}

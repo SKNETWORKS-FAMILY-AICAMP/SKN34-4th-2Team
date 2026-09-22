@@ -1,6 +1,7 @@
 import type {
   AiEvalResult,
   PracticeAttempt,
+  PracticeReport,
   ResumeContent,
   AiGenerationLog,
   AlertPopup,
@@ -1486,4 +1487,17 @@ export const seedPracticeAttempts: PracticeAttempt[] = [
     answeredAt: daysAgo(6),
     ...a,
   })),
+];
+
+/** 데모 신고 — 다른 학생 하나가 9/14 문제 5(디버깅)를 신고해 둔 상태. 데모 학생이 한 번 더 신고하면 2명이 되어 숨겨진다. */
+export const seedPracticeReports: PracticeReport[] = [
+  {
+    id: 'pr-seed-1',
+    uid: 'demo-student-004',
+    setId: 'ps-mm-0914',
+    index: 4,
+    reason: 'tests',
+    note: '문제 문장에는 없는 입력이 테스트에 있어요',
+    createdAt: daysAgo(2),
+  },
 ];

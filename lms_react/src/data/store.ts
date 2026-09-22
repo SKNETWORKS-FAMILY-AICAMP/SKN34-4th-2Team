@@ -20,6 +20,7 @@ import {
   seedPosts,
   seedPostComments,
   seedPracticeAttempts,
+  seedPracticeReports,
   seedPurchaseRequests,
   seedQualExams,
   seedResumeFeedbacks,
@@ -55,6 +56,8 @@ import type {
   MileageTransaction,
   Notice,
   PracticeAttempt,
+  PracticeReport,
+  PracticeReview,
   PracticeSet,
   Post,
   PostComment,
@@ -121,6 +124,9 @@ export interface Database {
   practiceSets: PracticeSet[];
   /** 학생별 풀이 기록 — 복습 추천·강사 대시보드의 재료 */
   practiceAttempts: PracticeAttempt[];
+  /** 「이 문제 이상해요」 신고 · 강사 결정 */
+  practiceReports: PracticeReport[];
+  practiceReviews: PracticeReview[];
   aiLogs: AiGenerationLog[];
   aiEvals: AiEvalResult[];
   /** 알림 팝업 「오늘 하루 보지 않기」 — uid → popupId → dateKey */
@@ -163,6 +169,8 @@ function initial(): Database {
     qualExams: seedQualExams,
     practiceSets: seedPracticeSets,
     practiceAttempts: seedPracticeAttempts,
+    practiceReports: seedPracticeReports,
+    practiceReviews: [],
     aiLogs: seedAiLogs,
     aiEvals: seedAiEvals,
     alertDismissals: {},

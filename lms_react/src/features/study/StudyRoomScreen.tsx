@@ -25,6 +25,7 @@ import {
 } from '../../ui/components';
 import { formatDate } from '../../utils/format';
 import { RETRY_SET_ID, retryDates, retryItems, retryTopics } from '../practice/review';
+import { useIsHidden } from '../practice/useIsHidden';
 import { useCurrentUser } from '../auth/session';
 
 const packageTypeLabels: Record<string, string> = {
@@ -139,7 +140,8 @@ const PRACTICE_KIND_LABEL: Record<string, string> = {
 function PracticeSetsSection({ cohortId, uid }: { cohortId: string; uid: string }) {
   const sets = usePracticeSets(cohortId);
   const attempts = useMyPracticeAttempts(uid);
-  const retries = retryItems(sets, attempts);
+  const isHidden = useIsHidden();
+  const retries = retryItems(sets, attempts).filter((i) => !isHidden(i.set.id, i.index));
   if (sets.length === 0) return null;
   return (
     <section className="practice-sets">

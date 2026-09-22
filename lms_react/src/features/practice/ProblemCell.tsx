@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 
-import type { PracticeAttempt, PracticeKind, PracticeProblem } from '../../domain/types';
+import type { PracticeAttempt, PracticeKind, PracticeProblem, PracticeReport, PracticeReportReason } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { CodeEditor } from './CodeEditor';
 import { NotebookMarkdown } from './NotebookMarkdown';
@@ -13,6 +13,7 @@ import {
   type TestStatus,
 } from './practiceGrading';
 import type { RunResult } from './pythonProtocol';
+import { HIDE_AT, REASON_LABEL } from './reports';
 
 export const KIND_LABEL: Record<PracticeKind, string> = {
   concept: '개념',
@@ -45,6 +46,8 @@ export function ProblemCell({
   code,
   attempt,
   note,
+  myReport,
+  onReport,
   onCodeChange,
   onAttempt,
   runInSession,
@@ -59,6 +62,9 @@ export function ProblemCell({
   attempt: PracticeAttempt | undefined;
   /** 머리에 덧붙일 글 — 다시 풀 문제의 원래 수업 */
   note?: string;
+  /** 내가 이 문제에 남긴 「이상해요」 신고 */
+  myReport?: PracticeReport;
+  onReport?: (reason: PracticeReportReason, note: string) => void;
   onCodeChange: (code: string) => void;
   onAttempt: (passed: boolean) => void;
   runInSession: (code: string) => Promise<RunResult>;
@@ -75,6 +81,7 @@ export function ProblemCell({
   const [report, setReport] = useState<GradeReport | null>(null);
   const [working, setWorking] = useState<'run' | 'grade' | null>(null);
   const [showSolution, setShowSolution] = useState(false);
+  const [reporting, setReporting] = useState(false);
 
   const tests = splitTests(problem.hiddenTests);
   const passed = attempt?.passed ?? false;
@@ -148,7 +155,31 @@ export function ProblemCell({
         ) : tries > 0 ? (
           <span className="pb__state pb__state--no">{tries}번 시도</span>
         ) : null}
+        {onReport && (
+          <button
+            type="button"
+            className={`pb__flag${myReport ? ' pb__flag--sent' : ''}`}
+            onClick={() => setReporting((v) => !v)}
+            aria-expanded={reporting}
+            title={myReport ? '신고를 고치거나 다시 봅니다' : '문제가 이상하면 알려 주세요'}
+          >
+            <Icon name="flag" size={15} fill={Boolean(myReport)} />
+            {myReport ? '신고했어요' : '이상해요'}
+          </button>
+        )}
       </div>
+
+      {reporting && onReport && (
+        <ReportForm
+          number={number}
+          current={myReport}
+          onSend={(reason, memo) => {
+            onReport(reason, memo);
+            setReporting(false);
+          }}
+          onClose={() => setReporting(false)}
+        />
+      )}
 
       <div className="pb__prompt">
         <NotebookMarkdown source={problem.prompt} />
@@ -330,6 +361,63 @@ export function ProblemCell({
         </div>
       )}
     </div>
+  );
+}
+
+/** 「이 문제 이상해요」 — 이유 하나 고르고 한 줄 덧붙인다. 한 사람 한 번, 다시 보내면 고쳐진다. */
+function ReportForm({
+  number,
+  current,
+  onSend,
+  onClose,
+}: {
+  number: number;
+  current: PracticeReport | undefined;
+  onSend: (reason: PracticeReportReason, note: string) => void;
+  onClose: () => void;
+}) {
+  const [reason, setReason] = useState<PracticeReportReason>(current?.reason ?? 'unclear');
+  const [memo, setMemo] = useState(current?.note ?? '');
+  const reasons = Object.keys(REASON_LABEL) as PracticeReportReason[];
+  return (
+    <form
+      className="pb__report"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSend(reason, memo.trim());
+      }}
+    >
+      <p className="pb__report-title">
+        <Icon name="flag" size={16} />
+        문제 {number}, 어디가 이상한가요?
+      </p>
+      <div className="pb__report-reasons" role="radiogroup" aria-label="신고 이유">
+        {reasons.map((r) => (
+          <label key={r} className={`pb__report-reason${reason === r ? ' pb__report-reason--on' : ''}`}>
+            <input type="radio" name={`pb-report-${number}`} checked={reason === r} onChange={() => setReason(r)} />
+            {REASON_LABEL[r]}
+          </label>
+        ))}
+      </div>
+      <input
+        type="text"
+        value={memo}
+        maxLength={120}
+        onChange={(e) => setMemo(e.target.value)}
+        placeholder="한 줄 덧붙이기 (선택)"
+        aria-label="신고 메모"
+      />
+      <div className="pb__actions">
+        <button type="submit" className="btn btn--filled btn--sm">
+          <Icon name="send" size={16} />
+          {current ? '신고 고치기' : '보내기'}
+        </button>
+        <button type="button" className="btn btn--text btn--sm" onClick={onClose}>
+          닫기
+        </button>
+        <span className="pb__muted">{HIDE_AT}명이 신고하면 잠시 숨기고 강사가 확인해요. 채점에는 영향이 없어요.</span>
+      </div>
+    </form>
   );
 }
 
