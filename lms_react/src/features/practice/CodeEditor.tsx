@@ -11,8 +11,10 @@ import {
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { python, pythonLanguage } from '@codemirror/lang-python';
 import { bracketMatching, HighlightStyle, indentOnInput, indentUnit, syntaxHighlighting } from '@codemirror/language';
-import { EditorState, Prec } from '@codemirror/state';
+import { EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import {
+  Decoration,
+  type DecorationSet,
   drawSelection,
   EditorView,
   highlightActiveLine,
@@ -47,6 +49,7 @@ export function CodeEditor({
   label = '파이썬 코드',
   minLines = 8,
   placeholder,
+  markedLines,
 }: {
   value: string;
   onChange?: (value: string) => void;
@@ -64,6 +67,8 @@ export function CodeEditor({
   label?: string;
   minLines?: number;
   placeholder?: string;
+  /** 튜터가 가리킨 줄(1부터) — 옅게 칠한다 */
+  markedLines?: number[];
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -112,6 +117,7 @@ export function CodeEditor({
             if (update.docChanged) latest.current.onChange?.(update.state.doc.toString());
             if (update.focusChanged && update.view.hasFocus) latest.current.onFocus?.();
           }),
+          markedField,
           editorTheme,
         ],
       }),
@@ -145,6 +151,18 @@ export function CodeEditor({
     }
   }, [value]);
 
+  const marked = (markedLines ?? []).join(',');
+  useEffect(() => {
+    const editor = view.current;
+    if (!editor) return;
+    const lines = marked ? marked.split(',').map(Number) : [];
+    editor.dispatch({ effects: setMarked.of(lines) });
+    const first = lines[0];
+    if (first && first <= editor.state.doc.lines) {
+      editor.dispatch({ effects: EditorView.scrollIntoView(editor.state.doc.line(first).from, { y: 'center' }) });
+    }
+  }, [marked]);
+
   return <div className="py-editor" ref={host} style={{ minHeight: `calc(${minLines} * 1.65em + 28px)` }} />;
 }
 
@@ -154,6 +172,29 @@ function fire(handler: (() => void) | undefined): boolean {
   handler();
   return true;
 }
+
+// ── 튜터가 가리킨 줄 ─────────────────────────────────
+
+const setMarked = StateEffect.define<number[]>();
+const markedLine = Decoration.line({ class: 'cm-tutor-line' });
+
+function markLines(doc: EditorState['doc'], lines: number[]): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+  for (const n of [...new Set(lines)].sort((a, b) => a - b)) {
+    if (n >= 1 && n <= doc.lines) builder.add(doc.line(n).from, doc.line(n).from, markedLine);
+  }
+  return builder.finish();
+}
+
+/** 줄 번호로 받아 두고, 코드를 고치면 표시를 지운다 — 고친 뒤엔 가리키던 줄이 달라진다 */
+const markedField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(value, tr) {
+    for (const e of tr.effects) if (e.is(setMarked)) return markLines(tr.state.doc, e.value);
+    return tr.docChanged ? Decoration.none : value;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
 
 // ── 자동완성: 모듈 뒤 점(.) ─────────────────────────────
 
@@ -222,6 +263,10 @@ const editorTheme = EditorView.theme({
     outline: '1px solid color-mix(in srgb, var(--primary) 40%, transparent)',
   },
   '.cm-placeholder': { color: 'var(--text-hint)' },
+  '.cm-tutor-line': {
+    backgroundColor: 'color-mix(in srgb, var(--warning, #f59e0b) 16%, transparent)',
+    boxShadow: 'inset 3px 0 0 var(--warning, #f59e0b)',
+  },
   // 자동완성 목록
   '.cm-tooltip': {
     border: '1px solid var(--border)',

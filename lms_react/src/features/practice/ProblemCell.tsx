@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 
 import type { PracticeAttempt, PracticeKind, PracticeProblem, PracticeReport, PracticeReportReason } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
@@ -15,6 +15,7 @@ import {
 } from './practiceGrading';
 import type { RunResult } from './pythonProtocol';
 import { HIDE_AT, REASON_LABEL } from './reports';
+import type { TutorSnapshot } from './TutorContext';
 
 export { KIND_LABEL };
 
@@ -51,6 +52,8 @@ export function ProblemCell({
   onFocus,
   focusSignal,
   onRunAndNext,
+  onAskTutor,
+  markedLines,
 }: {
   problem: PracticeProblem;
   number: number;
@@ -68,6 +71,10 @@ export function ProblemCell({
   onFocus: () => void;
   focusSignal: number;
   onRunAndNext: () => void;
+  /** 튜터 패널을 이 문제로 연다. 넘기는 함수는 물을 때마다 지금 코드 · 출력 · 채점을 읽는다 */
+  onAskTutor?: (read: () => TutorSnapshot) => void;
+  /** 튜터가 가리킨 줄 */
+  markedLines?: number[];
 }) {
   const [pick, setPick] = useState<number | null>(null);
   const [answer, setAnswer] = useState('');
@@ -85,6 +92,18 @@ export function ProblemCell({
   const canReveal = problem.referenceSolution !== '' && (passed || tries >= REVEAL_AFTER_TRIES);
   const isCode =
     problem.kind === 'code_blank' || problem.kind === 'code_fix' || problem.kind === 'code_write' || problem.kind === 'code_scratch';
+
+  // 튜터는 물을 때 읽는다 — 그 사이 고친 코드 · 새 출력이 가야 한다
+  const snapshot = useRef<TutorSnapshot>({ code: '', run: '', grade: '' });
+  snapshot.current = {
+    code: problem.kind === 'code_output' ? problem.starterCode : isCode ? code : '',
+    run: [...lines.map((l) => l.text), ...(value !== null ? [`Out: ${value}`] : [])].join('\n'),
+    grade: report
+      ? `${report.passed ? '통과' : '실패'} · ${report.headline}${report.detail ? `\n${report.detail}` : ''}`
+      : submitted !== null
+        ? `${submitted ? '정답' : '오답'} · 학생 답: ${problem.kind === 'concept' ? 'ABCD'[pick ?? 0] : answer}`
+        : '',
+  };
 
   const run = async () => {
     if (working) return;
@@ -152,6 +171,12 @@ export function ProblemCell({
         ) : tries > 0 ? (
           <span className="pb__state pb__state--no">{tries}번 시도</span>
         ) : null}
+        {onAskTutor && (
+          <button type="button" className="pb__tutor" onClick={() => onAskTutor(() => snapshot.current)} title="힌트를 한 단계씩 받아요">
+            <Icon name="school" size={15} />
+            튜터에게 묻기
+          </button>
+        )}
         {onReport && (
           <button
             type="button"
@@ -226,7 +251,7 @@ export function ProblemCell({
 
       {problem.kind === 'code_output' && (
         <>
-          <CodeEditor value={problem.starterCode} readOnly minLines={2} label={`문제 ${number} 코드`} />
+          <CodeEditor value={problem.starterCode} readOnly minLines={2} label={`문제 ${number} 코드`} markedLines={markedLines} />
           <div className="pb__answer">
             <label htmlFor={`pb-answer-${number}`}>출력을 그대로 적어 보세요</label>
             <textarea
@@ -274,6 +299,7 @@ export function ProblemCell({
             }}
             onFocus={onFocus}
             focusSignal={focusSignal}
+            markedLines={markedLines}
             minLines={3}
             label={`문제 ${number} 코드`}
           />

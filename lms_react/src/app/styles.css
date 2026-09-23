@@ -10126,3 +10126,346 @@ a.link {
     flex-wrap: wrap;
   }
 }
+
+/* ── 연습장 튜터 — 오른쪽에 붙는 패널 ───────────────────────── */
+.py-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.py-layout--tutor {
+  grid-template-columns: minmax(0, 1fr) 380px;
+  max-width: 1520px;
+}
+
+.py-layout > .py-playground {
+  max-width: none;
+  margin: 0;
+}
+
+/* 튜터가 열리면 오른쪽 아래 로봇을 숨긴다 — 패널의 「학습 도우미」 탭으로 연다 */
+.py-tutor-open .chatbot-launcher {
+  display: none;
+}
+
+.tutor {
+  position: sticky;
+  /* 위 appbar(sticky, 70px 안팎) 아래에 붙는다 */
+  top: 80px;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 96px);
+  min-height: 420px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px var(--shadow);
+  overflow: hidden;
+}
+
+.tutor__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 0 12px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.tutor__tabs {
+  display: flex;
+  flex: 1;
+  gap: 4px;
+}
+
+.tutor__tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tutor__tabs button[aria-selected='true'] {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+.tutor__target {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--divider);
+  font-size: 13.5px;
+}
+
+.tutor__sub {
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.tutor__ladder {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.tutor__ladder span {
+  padding: 4px 0;
+  border-radius: 6px;
+  background: var(--surface-variant);
+  color: var(--text-hint);
+  font-size: 12px;
+  text-align: center;
+}
+
+.tutor__ladder span.on {
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+  color: var(--warning);
+  font-weight: 700;
+}
+
+.tutor__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  overflow-y: auto;
+}
+
+.tutor__empty {
+  margin: auto 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.tutor__msg {
+  max-width: 92%;
+  padding: 9px 12px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tutor__msg p {
+  margin: 0;
+}
+
+.tutor__msg--me {
+  align-self: flex-end;
+  background: var(--primary);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.tutor__msg--bot {
+  align-self: flex-start;
+  background: var(--surface-variant);
+  color: var(--text-primary);
+  border-bottom-left-radius: 4px;
+}
+
+.tutor__msg--muted {
+  color: var(--text-secondary);
+}
+
+.tutor__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-bottom: 4px;
+  color: var(--warning);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.tutor__lines {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.tutor__lines button {
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
+  border-radius: 999px;
+  background: transparent;
+  color: var(--warning);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tutor__dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.tutor__dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-hint);
+  animation: tutor-dot 1s infinite ease-in-out;
+}
+
+.tutor__dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.tutor__dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes tutor-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+.tutor__error {
+  margin: 0 14px 6px;
+  color: var(--error);
+  font-size: 12.5px;
+}
+
+.tutor__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 14px 0;
+}
+
+.tutor__chips button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.tutor__chips button:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.tutor__chips button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.tutor__form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 14px 4px;
+}
+
+.tutor__form textarea {
+  flex: 1;
+  resize: none;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13.5px;
+}
+
+.tutor__form textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.tutor__foot {
+  margin: 0;
+  padding: 2px 14px 12px;
+  color: var(--text-hint);
+  font-size: 11.5px;
+}
+
+.tutor__helper {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.pb__tutor {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, var(--border));
+  border-radius: 999px;
+  background: transparent;
+  color: var(--primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pb__tutor:hover {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+.py-icon-btn--tutor.is-on {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+
+/* 좁은 화면 — 오른쪽에서 밀려 나오는 서랍 */
+@media (max-width: 1100px) {
+  .py-layout--tutor {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 1120px;
+  }
+
+  .tutor {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 70;
+    width: min(400px, 100vw);
+    height: auto;
+    border-radius: 0;
+  }
+}

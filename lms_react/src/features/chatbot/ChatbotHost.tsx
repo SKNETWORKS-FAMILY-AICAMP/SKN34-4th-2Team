@@ -22,6 +22,9 @@ interface Message {
   feedback?: 'up' | 'down';
 }
 
+/** 다른 화면이 학습 도우미를 여는 신호 — 연습장 튜터의 「학습 도우미」 탭 */
+export const OPEN_CHATBOT_EVENT = 'lms:open-chatbot';
+
 export function ChatbotHost() {
   const { user } = useSession();
   const [open, setOpen] = useState(false);
@@ -44,6 +47,12 @@ export function ChatbotHost() {
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [messages, thinking]);
+
+  useEffect(() => {
+    const show = () => setOpen(true);
+    window.addEventListener(OPEN_CHATBOT_EVENT, show);
+    return () => window.removeEventListener(OPEN_CHATBOT_EVENT, show);
+  }, []);
 
   // 학생만 쓴다. 강사·관리자 화면에는 뜨지 않는다.
   if (user === null || user.role !== 'student') return null;

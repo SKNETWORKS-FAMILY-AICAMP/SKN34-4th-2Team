@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { Icon } from '../../ui/Icon';
 import { CodeEditor } from './CodeEditor';
@@ -6,6 +6,7 @@ import type { Cell, CellType } from './notebookModel';
 import { NotebookMarkdown } from './NotebookMarkdown';
 import { ProblemCell } from './ProblemCell';
 import type { TableData } from './pythonProtocol';
+import { useTutor, useTutorMarks } from './TutorContext';
 import type { Notebook } from './useNotebook';
 import type { PracticeSetMode } from './usePracticeSetMode';
 
@@ -31,6 +32,9 @@ export function NotebookCellView({
 function ProblemCellRow({ cell, nb, mode }: { cell: Cell; nb: Notebook; mode: PracticeSetMode }) {
   const index = cell.problemIndex ?? 0;
   const problem = mode.set?.problems[index];
+  const tutor = useTutor();
+  const marked = useTutorMarks(cell.id);
+  const origin = mode.originOf(index);
   if (!problem) return null;
   const number = index + 1;
   if (mode.hiddenOf(index)) {
@@ -73,6 +77,15 @@ function ProblemCellRow({ cell, nb, mode }: { cell: Cell; nb: Notebook; mode: Pr
           onFocus={() => nb.setActiveId(cell.id)}
           focusSignal={nb.focusSignalOf(cell.id)}
           onRunAndNext={() => nb.focusNext(cell.id)}
+          markedLines={marked}
+          onAskTutor={
+            tutor && origin
+              ? (read) => {
+                  nb.setActiveId(cell.id);
+                  tutor.open({ cellId: cell.id, mode: 'problem', ...origin, label: `문제 ${number} · ${problem.topic}`, read });
+                }
+              : undefined
+          }
         />
         <div className="pb__below">
           <button
@@ -94,6 +107,11 @@ function ProblemCellRow({ cell, nb, mode }: { cell: Cell; nb: Notebook; mode: Pr
 function CodeOrMarkdownCell({ cell, index, total, nb }: { cell: Cell; index: number; total: number; nb: Notebook }) {
   const isMarkdown = cell.type === 'markdown';
   const rendered = isMarkdown && !cell.editing;
+  const tutor = useTutor();
+  const marked = useTutorMarks(cell.id);
+  // 튜터는 물을 때 읽는다 — 그 사이 다시 돌린 출력이 가야 한다
+  const live = useRef(cell);
+  live.current = cell;
   return (
     <article
       className={`py-nb-cell py-nb-cell--${cell.type} py-nb-cell--${cell.state}${cell.id === nb.activeId ? ' py-nb-cell--active' : ''}`}
@@ -125,6 +143,19 @@ function CodeOrMarkdownCell({ cell, index, total, nb }: { cell: Cell; index: num
           </select>
           <span className="py-grow" />
           {cell.ms !== null && cell.ms >= 10 && <span className="py-nb-cell__ms">{(cell.ms / 1000).toFixed(2)}초</span>}
+          {tutor && !isMarkdown && (
+            <button
+              type="button"
+              className={`py-icon-btn py-icon-btn--tutor${tutor.target?.cellId === cell.id ? ' is-on' : ''}`}
+              onClick={() =>
+                tutor.open({ cellId: cell.id, mode: 'cell', label: `셀 ${index + 1}`, read: () => cellSnapshot(live.current) })
+              }
+              aria-label="튜터에게 묻기"
+              title="튜터에게 이 코드 · 오류 묻기"
+            >
+              <Icon name="school" size={16} />
+            </button>
+          )}
           {rendered && (
             <button type="button" className="py-icon-btn" onClick={() => nb.editMarkdown(cell.id)} aria-label="편집" title="편집">
               <Icon name="edit" size={16} />
@@ -162,6 +193,7 @@ function CodeOrMarkdownCell({ cell, index, total, nb }: { cell: Cell; index: num
             onRunAndInsert={() => nb.runAndInsert(cell.id)}
             onFocus={() => nb.setActiveId(cell.id)}
             focusSignal={nb.focusSignalOf(cell.id)}
+            markedLines={isMarkdown ? undefined : marked}
             minLines={2}
             label={`셀 ${index + 1} ${isMarkdown ? '마크다운' : '코드'}`}
             placeholder={isMarkdown ? '## 제목, - 목록, **굵게**, `코드` … Shift+Enter 로 보기' : '코드를 입력하고 Shift+Enter'}
@@ -173,6 +205,15 @@ function CodeOrMarkdownCell({ cell, index, total, nb }: { cell: Cell; index: num
       </div>
     </article>
   );
+}
+
+/** 튜터에게 보낼 셀 — 코드와 출력(오류 포함) */
+function cellSnapshot(cell: Cell) {
+  const run = [
+    ...cell.lines.map((l) => (l.kind === 'out' ? l.text.replace(/\n$/, '') : l.text)),
+    ...(cell.value !== null ? [`Out: ${cell.value}`] : []),
+  ].join('\n');
+  return { code: cell.code, run, grade: '' };
 }
 
 /** input() 이 기다리는 동안 셀 아래에 뜨는 입력칸 — Jupyter 와 같다. Enter 로 넘기고, Esc 는 입력 끝(EOF) */

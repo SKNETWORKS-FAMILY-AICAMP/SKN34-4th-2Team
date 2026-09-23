@@ -46,6 +46,7 @@ import { http, readApiError } from './http';
 import { fetchBootstrap, lastBootstrapSession, mapStudyNote } from './bootstrap';
 import { getBootstrapDb, subscribeBootstrap } from './bootstrapStore';
 import { queryClient, queryKeys } from './queryClient';
+import { demoTutorAsk, demoTutorThread } from './tutorDemo';
 
 function isTestMode(): boolean {
   return typeof import.meta !== 'undefined' && import.meta.env?.MODE === 'test';
@@ -1302,6 +1303,58 @@ export async function startPracticeFromFile(name: string, content: string): Prom
 
 export async function fetchPracticeJob(id: string): Promise<PracticeJob> {
   const { data } = await http.get<PracticeJob>(`/practice-custom/${encodeURIComponent(id)}`);
+  return data;
+}
+
+// ── 연습장 튜터 — 문제 셀은 3단계 힌트, 일반 셀은 코드 · 오류 설명. 대화는 서버가 기억한다 ─────────
+
+export type TutorMode = 'problem' | 'cell';
+export type TutorKind = 'hint' | 'explain' | 'offtopic' | 'locked';
+
+export interface TutorTurn {
+  role: 'user' | 'assistant';
+  text: string;
+  kind: TutorKind | null;
+  hintLevel: number | null;
+  /** 답이 가리킨 코드 줄(1부터) */
+  lines: number[];
+  at: string;
+}
+
+export interface TutorReply {
+  reply: string;
+  kind: TutorKind;
+  lines: number[];
+  /** 문제 셀의 지금 힌트 단계(1~3). 일반 셀은 null */
+  hintLevel: number | null;
+  llm: boolean;
+}
+
+export interface TutorQuestion {
+  mode: TutorMode;
+  /** more = 「힌트 더」, answer = 「정답 알려 줘」 */
+  action?: 'ask' | 'more' | 'answer';
+  question?: string;
+  /** 문제 셀 — 원래 세트 · 번호(다시 풀 문제도 원래 자리) */
+  setId?: string;
+  index?: number;
+  code: string;
+  run: string;
+  grade: string;
+}
+
+export async function askTutor(body: TutorQuestion): Promise<TutorReply> {
+  if (isTestMode()) return demoTutorAsk(body);
+  const { data } = await http.post<TutorReply>('/practice-tutor', body);
+  return data;
+}
+
+/** 튜터 창을 다시 열 때 — 지난 대화와 지금 힌트 단계 */
+export async function fetchTutorThread(mode: TutorMode, setId?: string, index?: number): Promise<{ turns: TutorTurn[]; hintLevel: number }> {
+  if (isTestMode()) return demoTutorThread(mode, setId, index);
+  const { data } = await http.get<{ turns: TutorTurn[]; hintLevel: number }>('/practice-tutor', {
+    params: mode === 'problem' ? { mode, setId, index } : { mode },
+  });
   return data;
 }
 

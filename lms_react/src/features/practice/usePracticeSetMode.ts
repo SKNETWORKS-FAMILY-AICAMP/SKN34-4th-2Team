@@ -29,6 +29,8 @@ export interface PracticeSetMode {
   /** 내가 이 문제에 남긴 신고 */
   myReportOf(index: number): PracticeReport | undefined;
   report(index: number, reason: PracticeReportReason, note: string): void;
+  /** 문제 i 의 원래 자리 — 다시 풀 문제는 여러 세트에서 모였다 */
+  originOf(index: number): { setId: string; index: number } | null;
   /** 문제 머리에 붙일 원래 수업 — 다시 풀 문제에서만 */
   noteOf(index: number): string | undefined;
   record(index: number, passed: boolean): void;
@@ -74,6 +76,7 @@ export function usePracticeSetMode(setId: string | null): PracticeSetMode {
     visibleCount: visible.length,
     attemptOf,
     hiddenOf,
+    originOf: (i) => originOf(i) ?? null,
     myReportOf: (i) => {
       const o = originOf(i);
       return o ? reports.find((r) => r.uid === user.uid && r.setId === o.setId && r.index === o.index) : undefined;
