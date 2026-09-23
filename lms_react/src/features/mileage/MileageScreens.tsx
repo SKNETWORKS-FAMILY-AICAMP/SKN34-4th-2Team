@@ -28,6 +28,7 @@ import {
   TextInput,
 } from '../../ui/components';
 import { formatDate, formatDateTime, formatMileage, formatSigned } from '../../utils/format';
+import { dateKeyOf } from '../../data/seed';
 import { useCurrentUser } from '../auth/session';
 import { MileageCreditCard } from './MileageCreditCard';
 import { useCart } from './cart';
@@ -44,7 +45,8 @@ function monthAgo(d: Date): Date {
   return x;
 }
 
-const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+// 내 PC 시각 기준 — toISOString 은 세계 표준시라 오후에 고른 날짜가 하루 앞으로 밀린다
+const isoDay = (d: Date) => dateKeyOf(d);
 
 export function MileageScreen() {
   const user = useCurrentUser();

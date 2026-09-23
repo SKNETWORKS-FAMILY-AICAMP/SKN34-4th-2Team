@@ -43,9 +43,11 @@ import { formatDate, formatDateTime, formatMileage } from '../../utils/format';
 import { FilterPillHeader } from '../../ui/FilterPillHeader';
 import { MoreMenu } from '../../ui/MoreMenu';
 import { Icon } from '../../ui/Icon';
+import { dateKeyOf } from '../../data/seed';
 import { useCurrentUser } from '../auth/session';
 
-const toInputDate = (d?: Date) => (d === undefined ? '' : d.toISOString().slice(0, 10));
+// 내 PC 시각 기준 — toISOString 은 세계 표준시라 하루 어긋난다
+const toInputDate = (d?: Date) => (d === undefined ? '' : dateKeyOf(d));
 
 /** 학생 관리 — admin_students_screen.dart */
 export function AdminStudentsScreen() {

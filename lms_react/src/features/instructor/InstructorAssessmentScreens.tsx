@@ -42,9 +42,11 @@ import {
   TextInput,
 } from '../../ui/components';
 import { formatDate, formatDateTime } from '../../utils/format';
+import { dateKeyOf } from '../../data/seed';
 import { useCurrentUser } from '../auth/session';
 
-const toInputDate = (d: Date) => d.toISOString().slice(0, 10);
+// 내 PC 시각 기준 — toISOString 은 세계 표준시라 하루 어긋난다
+const toInputDate = (d: Date) => dateKeyOf(d);
 
 /** 성취도평가 목록(강사) — instructor_assessments_screen.dart */
 export function InstructorAssessmentsScreen({ readOnly = false }: { readOnly?: boolean }) {
