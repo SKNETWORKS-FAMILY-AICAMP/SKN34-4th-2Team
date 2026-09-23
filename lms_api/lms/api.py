@@ -273,6 +273,73 @@ def chat(request, body: ChatIn):
     return {"answer": answer or "답변을 받지 못했습니다."}
 
 
+class ResumeReviewIn(Schema):
+    resumeId: str
+    """공고 맞춤 첨삭이면 그 공고 id. 없으면 이력서 자체를 본다."""
+    selectedJobId: str | None = None
+    tailoredResumeId: str | None = None
+    reviewMode: str = "general"
+
+
+@api.post("/resume-review")
+def resume_review(request, body: ResumeReviewIn):
+    """이력서 첨삭 — 학생을 확인하고 첨삭 서버(cover_letter_rag)로 넘긴다.
+
+    첨삭 서버는 원래 Firebase 토큰을 받았는데 우리 앱은 자체 JWT 를 쓴다(학생에게 그 토큰이
+    아예 없다). 그래서 uid 를 받는 창구(`/reviews/proxy`)로 넘긴다 — 챗봇과 같은 방식이다.
+    이력서 · 첨삭 기록은 그쪽도 Postgres 를 보므로, 여기서 넘기는 것은 누구인지뿐이다.
+
+    첨삭은 1분쯤 걸린다.
+    """
+    user = _require_user(request)
+    with connection.cursor() as cur:
+        cur.execute(
+            """SELECT r.legacy_id, c.code, u.firebase_uid, r.cohort_id
+               FROM resumes r JOIN users u ON u.id = r.user_id
+               JOIN cohorts c ON c.id = r.cohort_id
+               WHERE r.legacy_id = %s OR r.id::text = %s""",
+            [body.resumeId, body.resumeId],
+        )
+        row = _one(cur)
+    if not row:
+        return Response({"detail": "이력서를 찾을 수 없습니다."}, status=404)
+    if row["firebase_uid"] != user["firebase_uid"] and not (
+        user["role"] in ("admin", "instructor") and can_access_cohort(user, row["cohort_id"])
+    ):
+        return Response({"detail": "본인 이력서만 첨삭받을 수 있습니다."}, status=403)
+
+    base = (os.environ.get("RESUME_REVIEW_URL") or os.environ.get("JOBS_URL") or "").rstrip("/")
+    if not base:
+        return Response({"detail": "첨삭 서버가 연결되어 있지 않습니다(RESUME_REVIEW_URL)."}, status=503)
+    payload = {
+        "uid": row["firebase_uid"],
+        "cohort_id": row["code"],
+        "resume_id": row["legacy_id"],
+        "review_mode": "job" if body.selectedJobId else body.reviewMode,
+    }
+    if body.selectedJobId:
+        payload["selected_job_id"] = body.selectedJobId
+    if body.tailoredResumeId:
+        payload["tailored_resume_id"] = body.tailoredResumeId
+    req = urllib.request.Request(
+        f"{base}/resume-review/api/v1/resumes/reviews/proxy",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("detail")
+        except Exception:
+            detail = None
+        return Response({"detail": detail or "첨삭하지 못했습니다."}, status=exc.code)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return Response({"detail": "첨삭 서버에 연결하지 못했습니다."}, status=503)
+
+
 class JobRecommendIn(Schema):
     resumeId: str
     topK: int = 10

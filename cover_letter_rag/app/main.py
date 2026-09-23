@@ -1,6 +1,7 @@
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query
 from langchain_core.exceptions import LangChainException
 from openai import OpenAIError
+from pydantic import Field
 
 from app.config import Settings, get_settings
 from app.models import (
@@ -255,6 +256,11 @@ def get_resume_review_service(authorization: str | None = Header(default=None)) 
         extract_bearer_token(authorization)
     except FirebaseAuthenticationError as exc:
         raise HTTPException(status_code=401, detail='Firebase authentication failed') from exc
+    return build_resume_review_service()
+
+
+def build_resume_review_service() -> ResumeReviewService:
+    """토큰 검사 없이 서비스만 만든다. LMS 프록시 창구가 쓴다 — 학생 확인은 Django 가 한다."""
     settings = get_settings()
     if not settings.openai_api_key:
         raise HTTPException(status_code=503, detail="OPENAI_API_KEY is not configured on the server")
@@ -272,6 +278,33 @@ def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
         model=settings.openai_model,
         firebase_auth="configured" if settings.firebase_project_id else "not_configured",
     )
+
+
+class ProxyResumeReviewRequest(FirestoreResumeReviewRequest):
+    """LMS(Django) 프록시용. Firebase 토큰 대신 uid 로 학생을 확인한다."""
+
+    uid: str = Field(min_length=1, max_length=128)
+
+
+@app.post("/api/v1/resumes/reviews/proxy", response_model=FirestoreResumeReviewResponse)
+def review_stored_resume_as_user(request: ProxyResumeReviewRequest) -> FirestoreResumeReviewResponse:
+    """LMS 가 학생을 확인한 뒤 부른다. 이 창구는 바깥에 열지 않는다(Django 만 부른다)."""
+    service = build_resume_review_service()
+    inner = FirestoreResumeReviewRequest(**request.model_dump(exclude={"uid"}))
+    try:
+        return service.review_as(request.uid, inner)
+    except ResumeAccessError as exc:
+        raise HTTPException(status_code=403, detail="Resume access denied") from exc
+    except ReviewConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ReviewInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ResumeNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Resume was not found") from exc
+    except (GoogleAPIError, GoogleAuthError, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail=_safe_error(exc)) from exc
+    except (OpenAIError, LangChainException, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=_safe_error(exc)) from exc
 
 
 @app.post("/api/v1/resumes/reviews", response_model=FirestoreResumeReviewResponse)

@@ -192,6 +192,38 @@ class ResumeReviewService:
         from app.review_workflow import run_review
         return run_review(self, id_token, request)
 
+    def review_as(self, uid: str, request: FirestoreResumeReviewRequest) -> FirestoreResumeReviewResponse:
+        """이미 확인된 학생으로 첨삭한다 — LMS(Django) 프록시용.
+
+        앱은 Firebase 토큰을 더 이상 쓰지 않는다(자체 JWT 로그인). 학생 확인은 Django 가
+        먼저 하고 uid 만 넘겨 준다. 그래서 여기서는 토큰 검사만 건너뛰고, 그 뒤의
+        「이 학생 것이 맞는지」는 그대로 본다 — 이력서도 첨삭 기록도 이미 Postgres 라
+        소유자 확인이 거기서 걸린다.
+
+        chatbot/api.py 의 ProxyChatRequest 와 같은 방식이다.
+        """
+        import copy
+
+        from app.review_workflow import run_review
+
+        trusted = copy.copy(self)
+        trusted._firebase = _TrustedUid(self._firebase, uid)
+        return run_review(trusted, "", request)
+
+
+class _TrustedUid:
+    """게이트웨이를 그대로 쓰되 토큰 검사 자리에만 확인된 uid 를 돌려준다."""
+
+    def __init__(self, inner, uid: str) -> None:
+        self._inner = inner
+        self._uid = uid
+
+    def verify_id_token(self, id_token: str) -> str:
+        return self._uid
+
+    def __getattr__(self, name: str):
+        return getattr(self._inner, name)
+
 
 def render_resume_content(content: Any) -> str:
     """Render only review-relevant fields; basicInfo/URLs/internal IDs are excluded."""
