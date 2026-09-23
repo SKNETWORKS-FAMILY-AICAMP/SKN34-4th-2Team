@@ -121,6 +121,7 @@ vectordb/project_reference_documents.jsonl
 # 가상환경
 venv/
 .venv/
+.venv-ai/
 env/
 
 # ─────────────────────────────────────────────
