@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { http } from '../../data/http';
+import { Icon } from '../../ui/Icon';
 import type { Resume } from '../../domain/types';
 import { JobRecommendationLoading } from './JobRecommendationLoading';
 
@@ -100,6 +101,120 @@ function toResult(data: Record<string, unknown>): JobResult {
   };
 }
 
+/**
+ * 공고 카드 하나 — ai_job_coach_panel.dart 의 _RecommendationCard.
+ *
+ * 원본을 그대로 따른다:
+ * - 왼쪽에 번호 동그라미, 제목을 누르면 공고가 열린다
+ * - **적합도(높음/보통/낮음)는 내지 않는다.** 사람 정답으로 검증된 적이 없어 순서에만 쓴다.
+ *   그 자리는 근거 문장이 대신한다(원본 주석 그대로)
+ * - 한 줄 요약은 근무지 · 고용형태 · 경력. 지원할지 정할 때 먼저 보는 것들이다
+ * - 마감은 표 안이 아니라 밖에 둔다. 펼치지 않아도 보여야 한다
+ * - 근거는 접어 둔다. 「추천 근거 보기」를 눌러야 이력서 ↔ 공고 인용이 나온다
+ */
+/** 마감은 날짜까지만 — 원본 _deadlineDate. 시각·시간대는 지원 여부를 정하는 데 쓰이지 않는다 */
+function deadlineDate(value: string): string {
+  return /^\d{4}-\d{2}-\d{2}/.exec(value)?.[0] ?? value;
+}
+
+function JobCard({ index, job }: { index: number; job: JobPick }) {
+  const [open, setOpen] = useState(false);
+  const summary = [job.conditions.region, job.conditions.employmentType, job.conditions.career]
+    .filter((v) => v !== null && v !== undefined && v !== '')
+    .join(' · ');
+  const link = job.sourceUrl.startsWith('http') ? job.sourceUrl : '';
+
+  return (
+    <div className="job-card">
+      <div className="job-card__top">
+        <span className="job-card__no">{index}</span>
+        <div className="job-card__title">
+          {link === '' ? (
+            <strong>{job.title}</strong>
+          ) : (
+            <a href={link} target="_blank" rel="noreferrer">
+              <strong>{job.title}</strong>
+            </a>
+          )}
+          <span className="job-card__company">{job.company}</span>
+        </div>
+        {link !== '' && (
+          <a className="job-card__open" href={link} target="_blank" rel="noreferrer" aria-label="공고 열기">
+            <Icon name="open_in_new" size={14} />
+          </a>
+        )}
+      </div>
+
+      {summary !== '' && <span className="job-card__summary">{summary}</span>}
+      {job.conditions.deadline != null && job.conditions.deadline !== '' && (
+        <span className="job-card__deadline">~ {deadlineDate(job.conditions.deadline)}</span>
+      )}
+      {job.unknownConditions.length > 0 && (
+        <span className="job-card__check">확인 필요: {job.unknownConditions.join(', ')}</span>
+      )}
+
+      {open && (
+        <div className="job-card__why">
+          <span className="job-card__label">공고 조건</span>
+          <dl className="job-card__conds">
+            <div>
+              <dt>근무지역</dt>
+              <dd>{job.conditions.region || '미기재'}</dd>
+            </div>
+            <div>
+              <dt>고용형태</dt>
+              <dd>{job.conditions.employmentType || '미기재'}</dd>
+            </div>
+            <div>
+              <dt>경력</dt>
+              <dd>{job.conditions.career || '미기재'}</dd>
+            </div>
+            <div>
+              <dt>학력</dt>
+              <dd>{job.conditions.education || '미기재'}</dd>
+            </div>
+          </dl>
+
+          {job.reasons.length > 0 && (
+            <>
+              <span className="job-card__label job-card__label--ok">추천 근거 — 이력서 문장 ↔ 공고 문장</span>
+              {job.reasons.map((reason) => (
+                <div key={reason.claim} className="job-card__reason">
+                  <strong>{reason.claim}</strong>
+                  {reason.resumeQuote !== '' && (
+                    <span className="job-card__quote job-card__quote--resume">이력서 “{reason.resumeQuote}”</span>
+                  )}
+                  {reason.jobQuote !== '' && (
+                    <span className="job-card__quote job-card__quote--job">공고 “{reason.jobQuote}”</span>
+                  )}
+                </div>
+              ))}
+            </>
+          )}
+
+          {job.concerns.length > 0 && (
+            <>
+              <span className="job-card__label job-card__label--warn">
+                공고 자격요건 중 이력서에서 확인되지 않는 것
+              </span>
+              {job.concerns.map((concern) => (
+                <span key={concern} className="job-card__concern">
+                  {concern}
+                </span>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
+      <button type="button" className="job-card__toggle" onClick={() => setOpen((v) => !v)}>
+        {open ? '근거 접기' : '추천 근거 보기'}
+        <Icon name={open ? 'expand_less' : 'expand_more'} size={14} />
+      </button>
+    </div>
+  );
+}
+
 export function JobRecommendationRun({ resume }: { resume: Resume }) {
   const cached = jobCache.get(resume.id);
   const [result, setResult] = useState<JobResult | null>(cached ?? null);
@@ -180,38 +295,13 @@ export function JobRecommendationRun({ resume }: { resume: Resume }) {
           </button>
         </div>
         {result.jobs.length === 0 ? (
-          <p className="hint">조건에 맞는 공고를 찾지 못했어요. 희망 조건을 넓혀 보세요.</p>
+          <p className="hint">
+            조건에 맞는 공고를 찾지 못했습니다. 희망 지역·고용형태를 넓히거나 이력서에 기술과 프로젝트를 더 적어 보세요.
+          </p>
         ) : (
           <div className="coach-jobs">
-            {result.jobs.map((job) => (
-              <div key={job.jobId} className="coach-job">
-                <div className="coach-job__head">
-                  <strong>{job.title}</strong>
-                  <span className={`coach-job__fit coach-job__fit--${job.fit === '높음' ? 'high' : job.fit === '보통' ? 'mid' : 'low'}`}>
-                    {job.fit}
-                  </span>
-                </div>
-                <span className="hint">
-                  {[job.company, job.conditions.region, job.conditions.employmentType]
-                    .filter((v) => v !== null && v !== undefined && v !== '')
-                    .join(' · ')}
-                </span>
-                {job.reasons.slice(0, 2).map((reason) => (
-                  <span key={reason.claim} className="coach-job__why">
-                    {reason.claim}
-                  </span>
-                ))}
-                {job.filterStatus === 'CHECK_REQUIRED' && (
-                  <span className="coach-job__check">
-                    확인 필요: {job.unknownConditions.join(' · ') || '지원 자격을 공고에서 확인하세요'}
-                  </span>
-                )}
-                {job.sourceUrl !== '' && (
-                  <a className="coach-job__link" href={job.sourceUrl} target="_blank" rel="noreferrer">
-                    공고 보기
-                  </a>
-                )}
-              </div>
+            {result.jobs.map((job, index) => (
+              <JobCard key={job.jobId} index={index + 1} job={job} />
             ))}
           </div>
         )}
