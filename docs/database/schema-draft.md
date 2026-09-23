@@ -59,6 +59,74 @@ assessment_answers
 assessment_score_adjustments
 ```
 
+## Practice
+```text
+practice_sets
+- id PK
+- legacy_id UNIQUE
+- cohort_id FK
+- source_title
+- lesson_date
+- day_label
+- title
+- source_files JSONB
+- generation_model
+- created_at
+
+practice_problems
+- id PK
+- set_id FK
+- position
+- kind CHECK(concept, code_output, code_blank, code_fix, code_write)
+- topic
+- prompt
+- source_files JSONB
+- explanation
+- choices JSONB
+- answer_index NULL
+- starter_code
+- expected_stdout
+- blank_answers JSONB
+- reference_solution
+- hidden_tests
+- packages JSONB
+UNIQUE(set_id, position)
+
+practice_attempts
+- user_id FK
+- problem_id FK
+- passed
+- tries
+- answered_at
+PRIMARY KEY(user_id, problem_id)
+
+practice_reports
+- id PK
+- user_id FK
+- problem_id FK
+- reason CHECK(unclear, answer, tests, offtopic, other)
+- note
+- created_at
+- updated_at
+UNIQUE(user_id, problem_id)
+
+practice_reviews
+- problem_id PK/FK
+- decision CHECK(hidden, kept)
+- decided_by_id FK
+- decided_at
+
+practice_coverage
+- cohort_id FK
+- source_title
+- data JSONB
+- updated_at
+UNIQUE(cohort_id, source_title)
+```
+
+`hidden_tests`와 `reference_solution`은 저장은 하되 학생용 serializer/schema에서 제외한다.
+학생 코드 실행은 별도 격리 runner의 책임이다.
+
 ## Mileage
 ```text
 mileage_transactions
@@ -78,6 +146,8 @@ resumes
 - status
 - content JSONB
 - is_base_resume
+- base_resume_id FK -> resumes.id NULL, ON DELETE SET NULL
+- linked_job_id NULL
 - revision_count
 - created_at
 - updated_at
@@ -106,6 +176,16 @@ resume_revisions
 - created_by FK
 - created_at
 UNIQUE(resume_id, revision_no)
+```
+
+Resume 제약/검증:
+```text
+CHECK(base_resume_id IS NULL OR base_resume_id <> id)
+기본 이력서(is_base_resume=true)는 base_resume_id가 NULL
+base resume와 tailored resume의 user_id 일치: Django service validation
+legacy sections JSONB는 ETL에서 content.section_status로 병합
+linked_job_id는 jobs 스키마가 Django 관리 대상으로 확정되기 전까지 stable job ID로 저장하고,
+이후 가능한 경우 jobs FK로 승격
 ```
 
 ## Skills / Career Profile
@@ -226,3 +306,61 @@ form_tasks/form_responses            -> submission_tasks/submission_responses
 seating_rooms/cells/assignments      -> cohort_seating JSONB (current layout)
 roll_calls/roll_call_entries         -> seat_presences
 ```
+
+
+# Physical Constraint / Index Checklist
+
+## 필수 UNIQUE
+```text
+cohorts(cohort_number or code)
+users(email)
+cohort_seating(cohort_id)
+seat_presences(cohort_id, user_id, presence_date, period)
+attendances(user_id, attendance_date)
+submission_task_cohorts(task_id, cohort_id)
+submission_responses(task_id, user_id)
+assessment_submissions(assessment_id, user_id)
+practice_sets(legacy_id)
+practice_problems(set_id, position)
+practice_attempts(user_id, problem_id)
+practice_reports(user_id, problem_id)
+practice_coverage(cohort_id, source_title)
+resume_revisions(resume_id, revision_no)
+resumes(user_id) WHERE is_base_resume = true   -- 사용자별 기본 이력서 1개 정책 채택 시 partial UNIQUE
+skills(canonical_name)
+user_skills(user_id, skill_id)
+```
+
+## 필수/권장 INDEX
+```text
+users(cohort_id, role)
+attendances(cohort_id, attendance_date)
+seat_presences(cohort_id, presence_date, period)
+submission_tasks(due_at, published)
+submission_responses(task_id, submitted_at)
+record_submissions(user_id, status, submitted_at)
+record_submissions(cohort_id, type, status)
+assessments(cohort_id, published, start_at, end_at)
+assessment_submissions(assessment_id, submitted_at)
+practice_sets(cohort_id, lesson_date DESC)
+practice_attempts(problem_id)
+practice_reports(problem_id)
+mileage_transactions(user_id, created_at DESC)
+purchase_requests(cohort_id, status, created_at DESC)
+resumes(user_id, updated_at DESC)
+resumes(base_resume_id)
+resumes(linked_job_id)
+resume_feedback(resume_id, created_at)
+user_skills(skill_id)
+scheduled_notices(is_active, next_publish_at)
+notices(cohort_id, created_at DESC)
+```
+
+## FK 삭제 정책 기본
+```text
+업무 이력 부모(users/cohorts)       -> RESTRICT 또는 soft deactivate
+종속 child(answer/file/item 등)     -> CASCADE
+검토자/작성자처럼 부가 참조         -> SET NULL
+```
+
+업무 이력 데이터는 사용자 삭제로 함께 사라지지 않도록 한다.

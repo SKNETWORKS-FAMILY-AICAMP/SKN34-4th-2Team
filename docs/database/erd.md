@@ -27,6 +27,16 @@ erDiagram
     ASSESSMENT_QUESTIONS ||--o{ ASSESSMENT_ANSWERS : answered
     ASSESSMENT_SUBMISSIONS ||--o{ ASSESSMENT_SCORE_ADJUSTMENTS : adjusted
 
+    COHORTS ||--o{ PRACTICE_SETS : has
+    PRACTICE_SETS ||--o{ PRACTICE_PROBLEMS : contains
+    USERS ||--o{ PRACTICE_ATTEMPTS : solves
+    PRACTICE_PROBLEMS ||--o{ PRACTICE_ATTEMPTS : receives
+    USERS ||--o{ PRACTICE_REPORTS : reports
+    PRACTICE_PROBLEMS ||--o{ PRACTICE_REPORTS : receives
+    PRACTICE_PROBLEMS ||--o| PRACTICE_REVIEWS : reviewed
+    USERS ||--o{ PRACTICE_REVIEWS : decides
+    COHORTS ||--o{ PRACTICE_COVERAGE : tracks
+
     USERS ||--o{ MILEAGE_TRANSACTIONS : owns
     COHORTS ||--|| MILEAGE_SETTINGS : configures
     COHORTS ||--o{ MILEAGE_PRODUCTS : offers
@@ -35,8 +45,11 @@ erDiagram
     PURCHASE_REQUESTS ||--o{ MILEAGE_TRANSACTIONS : causes
 
     USERS ||--o{ RESUMES : owns
+    RESUMES o|--o{ RESUMES : derives_tailored
     RESUMES ||--o{ RESUME_FEEDBACK : receives
     RESUMES ||--o{ RESUME_REVISIONS : versions
+
+    JOBS o|--o{ RESUMES : targets
 
     USERS ||--o{ USER_SKILLS : has
     SKILLS ||--o{ USER_SKILLS : describes
