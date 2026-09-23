@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 
 import { RoutePaths, studyRoomNoteSourcePath } from '../../app/routePaths';
 import {
+  deleteStudyNote,
   fetchStudySourceTree,
   refreshStudyNote,
   requestStudyNote,
@@ -542,13 +543,13 @@ export function StudyNoteSourceScreen() {
               <Row><Spacer /><Button onClick={generate} disabled={busy}>{busy ? '요청 중…' : '선택한 범위 정리하기'}</Button></Row>
             </Card>
           ) : note.status === 'generating' ? (
-            <Card className="split__main" title={noteLabel(note)}>
+            <Card className="split__main" title={noteLabel(note)} actions={<NoteDelete id={note.id} onDeleted={() => setSelectedId(null)} />}>
               <div className="callout" role="status">
                 정리 중이에요. 저장소를 읽고 AI 가 요약하느라 몇 분 걸려요. 이 화면을 떠나도 계속 만들고, 끝나면 여기에 나타나요.
               </div>
             </Card>
           ) : note.status === 'failed' ? (
-            <Card className="split__main" title={noteLabel(note)}>
+            <Card className="split__main" title={noteLabel(note)} actions={<NoteDelete id={note.id} onDeleted={() => setSelectedId(null)} />}>
               <div className="callout callout--error">{note.errorMessage || '노트를 만들지 못했어요.'}</div>
               {error !== '' && <div className="callout callout--error">{error}</div>}
               {note.scopeType && note.scopeValue !== undefined && (
@@ -571,7 +572,7 @@ export function StudyNoteSourceScreen() {
               </Row>
             </Card>
           ) : (
-          <Card className="split__main">
+          <Card className="split__main" title={noteLabel(note)} actions={<NoteDelete id={note.id} onDeleted={() => setSelectedId(null)} />}>
             {daySet && dayProgress && (
               <div className="note-practice">
                 <Icon name="fitness_center" size={18} />
@@ -610,6 +611,45 @@ export function StudyNoteSourceScreen() {
           )}
         </div>
     </div>
+  );
+}
+
+/** 노트 삭제 — 되돌릴 수 없어 한 번 더 묻는다. 같은 범위를 다시 고르면 새로 만들 수 있다 */
+function NoteDelete({ id, onDeleted }: { id: string; onDeleted(): void }) {
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  if (!asking) {
+    return (
+      <button type="button" className="btn btn--text btn--sm" onClick={() => setAsking(true)}>
+        <Icon name="delete" size={16} />
+        노트 삭제
+      </button>
+    );
+  }
+  return (
+    <Row gap={6}>
+      <span className="hint">{error || '이 노트를 지울까요?'}</span>
+      <Button
+        size="sm"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await deleteStudyNote(id);
+            onDeleted();
+          } catch (e) {
+            setError(await readApiError(e));
+            setBusy(false);
+          }
+        }}
+      >
+        삭제
+      </Button>
+      <Button size="sm" variant="outline" disabled={busy} onClick={() => setAsking(false)}>
+        취소
+      </Button>
+    </Row>
   );
 }
 

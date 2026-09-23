@@ -375,6 +375,13 @@ def study_notes_get(request, note_id: str):
     return _study(lambda: study_note_service.get_note(user, note_id))
 
 
+@api.delete("/study-notes/{note_id}")
+def study_notes_delete(request, note_id: str):
+    """내 노트 지우기 — 다른 학생 노트는 404"""
+    user = _require_user(request)
+    return _study(lambda: study_note_service.delete_note(user, note_id))
+
+
 class StudyOwnerIn(Schema):
     cohortId: str = ""
     owner: str

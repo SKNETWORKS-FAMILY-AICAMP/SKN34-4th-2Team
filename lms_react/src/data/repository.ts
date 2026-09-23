@@ -1269,6 +1269,12 @@ export async function setStudySourceActive(sourceId: string, isActive: boolean):
   await invalidateBootstrap();
 }
 
+/** 내 노트 지우기. 같은 범위를 다시 고르면 새로 만든다 */
+export async function deleteStudyNote(id: string): Promise<void> {
+  if (!isTestMode()) await http.delete(`/study-notes/${encodeURIComponent(id)}`);
+  mutate((db) => ({ studyNotes: db.studyNotes.filter((n) => n.id !== id) }));
+}
+
 function createDemoStudyNote(
   sourceId: string,
   scopeType: StudyNoteScopeType,

@@ -177,6 +177,19 @@ def get_note(user: dict, note_key: str) -> dict:
     return serialize(row, row.get("source_key") or "")
 
 
+def delete_note(user: dict, note_key: str) -> dict:
+    """내 노트 지우기. 정리 중이던 노트면 뒤에서 도는 스레드가 끝나도 채울 행이 없어 그냥 끝난다.
+    같은 범위를 다시 누르면 새로 만든다."""
+    with connection.cursor() as cur:
+        cur.execute(
+            "DELETE FROM study_notes WHERE user_id = %s AND (legacy_id = %s OR id::text = %s) RETURNING id",
+            [user["id"], note_key, note_key],
+        )
+        if not cur.fetchone():
+            raise StudyNoteError(404, "노트를 찾을 수 없습니다.")
+    return {"ok": True}
+
+
 # ── 만들기 ────────────────────────────────────────────────────────
 
 
