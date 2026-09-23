@@ -129,6 +129,17 @@ legacy ID 0건, revision 없는 정책 문서 0건. 이미지 key 2건은 S3 HEA
 `manage.py check`는 0 issues다. 이는 **선별 운영 데이터의 fresh DB 재현**이며,
 전체 Firestore ETL의 실패 항목 0건이나 운영 DB 이전 완료를 뜻하지 않는다.
 
+같은 재현 DB에서 Django HTTP Client로 인증 경로도 확인했다. 임시 학생은 롤백
+트랜잭션에서만 생성했고, 익명 `/api/bootstrap`은 401, 로그인은 200,
+Bearer 인증된 `/api/bootstrap`은 200과 공지 15건을 반환했다. 시험 계정은
+롤백 후 잔여 0건이다. 브라우저 화면과 다른 업무 API의 종단 간 검증은 남아 있다.
+
+React–Django 계약 대조에서 `public_row`가 공지 등의 `id`를 legacy ID로,
+`pk`를 실제 DB 정수 ID로 보내는 점을 확인했다. 공지·예약 공지·팝업의 React
+매퍼는 수정/삭제 HTTP 경로가 요구하는 `pk`를 우선 사용하도록 수정했다.
+매핑 회귀 테스트 2건과 TypeScript 컴파일은 통과했다. 실제 브라우저에서
+수정·삭제와 캐시 갱신까지 검증한 것은 아니다.
+
 
 1. `jobs` schema의 migration 편입과 운영 수집기 DDL 제거는 검증 DB에서 확인했다.
    기존 데이터가 있는 운영 DB 적용 전에는 schema 호환성 검사·백업이 필요하다.

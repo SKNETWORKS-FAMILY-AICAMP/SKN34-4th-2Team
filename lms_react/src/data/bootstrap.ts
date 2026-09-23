@@ -75,7 +75,7 @@ export function mapUser(row: Record<string, unknown>): User {
 
 export function mapNotice(row: Record<string, unknown>): Notice {
   return {
-    id: String(row.id ?? row.pk ?? ''),
+    id: String(row.pk ?? row.id ?? ''),
     title: String(row.title ?? ''),
     content: String(row.content ?? ''),
     authorName: String(row.authorName ?? row.author_name ?? ''),
@@ -93,7 +93,7 @@ export function mapNotice(row: Record<string, unknown>): Notice {
 export function mapScheduled(row: Record<string, unknown>): ScheduledNotice {
   const repeat = String(row.repeatType ?? row.repeat_type ?? 'once');
   return {
-    id: String(row.id ?? row.pk ?? ''),
+    id: String(row.pk ?? row.id ?? ''),
     title: String(row.title ?? ''),
     content: String(row.content ?? ''),
     authorName: String(row.authorName ?? row.author_name ?? ''),
@@ -111,7 +111,7 @@ export function mapScheduled(row: Record<string, unknown>): ScheduledNotice {
 
 export function mapAlert(row: Record<string, unknown>): AlertPopup {
   return {
-    id: String(row.id ?? row.pk ?? ''),
+    id: String(row.pk ?? row.id ?? ''),
     title: String(row.title ?? ''),
     content: String(row.content ?? ''),
     authorName: String(row.authorName ?? row.author_name ?? ''),
