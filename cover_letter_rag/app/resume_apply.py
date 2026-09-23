@@ -257,6 +257,43 @@ def dispatch(request, token, gateway, undo):
         raise HTTPException(503, 'Firebase unavailable') from exc
 
 
+class ProxyApplyRequest(ApplyRequest):
+    """LMS(Django) 프록시용. Firebase 토큰 대신 uid 로 학생을 확인한다."""
+
+    uid: str = Field(min_length=1, max_length=128)
+
+
+class ProxyUndoRequest(UndoRequest):
+    uid: str = Field(min_length=1, max_length=128)
+
+
+def dispatch_as(request, uid: str, undo: bool):
+    """이미 확인된 학생으로 반영 · 되돌리기. 학생 확인은 Django 가 먼저 한다."""
+    inner = (UndoRequest if undo else ApplyRequest)(**request.model_dump(exclude={"uid"}))
+    try:
+        return mutate(gateway_dependency(), uid, inner, undo)
+    except ResumeAccessError as exc:
+        raise HTTPException(403, 'Resume access denied') from exc
+    except ResumeNotFoundError as exc:
+        raise HTTPException(404, 'Resume or source not found') from exc
+    except ReviewConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ReviewInputError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except (GoogleAPIError, GoogleAuthError) as exc:
+        raise HTTPException(503, 'Firebase unavailable') from exc
+
+
+@router.post('/api/v1/resumes/reviews/apply/proxy', response_model=ApplyResponse)
+def apply_review_as_user(request: ProxyApplyRequest):
+    return dispatch_as(request, request.uid, False)
+
+
+@router.post('/api/v1/resumes/reviews/undo/proxy', response_model=ApplyResponse)
+def undo_review_as_user(request: ProxyUndoRequest):
+    return dispatch_as(request, request.uid, True)
+
+
 @router.post('/api/v1/resumes/reviews/apply', response_model=ApplyResponse)
 def apply_review(request: ApplyRequest, token: str = Depends(authenticated_token), gateway=Depends(gateway_dependency)):
     return dispatch(request, token, gateway, False)

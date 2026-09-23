@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
-import { updateResume } from '../../data/repository';
 import type { Resume, ResumeReviewSuggestion } from '../../domain/types';
+import { applyBootstrap } from '../../data/repository';
+import { http } from '../../data/http';
 import { Icon } from '../../ui/Icon';
 import { RobotHead } from '../../ui/RobotHead';
 import { ReviewProgress } from './JobRecommendationLoading';
@@ -26,10 +27,6 @@ interface CoachResponse {
   suggestion?: ResumeReviewSuggestion;
 }
 
-interface AppliedReview {
-  suggestion: ResumeReviewSuggestion;
-  revisionAfterApply: string;
-}
 
 const REVIEW_SUGGESTIONS = [
   '이 이력서의 약한 곳은 어디야?',
@@ -118,20 +115,81 @@ function jobSearchAnswerFor(question: string): CoachResponse {
 }
 
 /** 첨삭 대화가 시작하며 코치가 던지는 확인 질문 */
-function openingQuestions(resume: Resume): string[] {
-  const c = resume.content;
-  const questions: string[] = [];
-  if (c.projects.length > 0) {
-    questions.push(`「${c.projects[0].name}」에서 맡은 범위가 어디까지였나요? 혼자 한 일과 함께 한 일을 나눠 적으면 근거가 또렷해집니다.`);
-  }
-  if (c.experience.length > 0) {
-    questions.push(`${c.experience[0].company}에서의 성과를 숫자로 말할 수 있을까요? 기간·규모·개선 폭 중 하나면 됩니다.`);
-  }
-  if (questions.length === 0) {
-    questions.push('먼저 프로젝트를 하나 적어 주세요. 그 내용을 근거로 문장을 다듬겠습니다.');
-  }
-  return questions;
+
+/** 서버 첨삭 결과 — cover_letter_rag 가 돌려주는 것 중 화면이 쓰는 것만 */
+interface ReviewResult {
+  summary: string;
+  suggestions: ResumeReviewSuggestion[];
+  questions: string[];
+  /** 이 첨삭 결과의 이름 — 서버가 어느 수정안인지 찾는 데 쓴다 */
+  reviewId: string;
+  /** 첨삭 당시 이력서 상태. 그 뒤 이력서를 고쳤으면 서버가 반영을 막는다 */
+  inputHash: string;
 }
+
+/**
+ * 첨삭은 40초쯤 걸리고 LLM 을 부른다. 같은 이력서로 가는 요청은 하나로 묶는다
+ * (React 는 개발 모드에서 효과를 두 번 실행한다).
+ */
+const reviewPending = new Map<string, Promise<ReviewResult>>();
+
+function requestReview(resumeId: string): Promise<ReviewResult> {
+  const going = reviewPending.get(resumeId);
+  if (going !== undefined) return going;
+  const promise = http
+    .post<Record<string, unknown>>('/resume-review', { resumeId })
+    .then(({ data }) => toReviewResult(data))
+    .finally(() => reviewPending.delete(resumeId));
+  reviewPending.set(resumeId, promise);
+  return promise;
+}
+
+function toReviewResult(data: Record<string, unknown>): ReviewResult {
+  const rows = Array.isArray(data.sentence_reviews) ? (data.sentence_reviews as Record<string, unknown>[]) : [];
+  const asked = Array.isArray(data.questions) ? (data.questions as Record<string, unknown>[]) : [];
+  return {
+    reviewId: String(data.review_id ?? ''),
+    inputHash: String(data.input_hash ?? ''),
+    summary: String(data.summary ?? ''),
+    suggestions: rows.map((r, order) => {
+      const fieldPath = String(r.field_path ?? '');
+      return {
+        // 서버가 반영할 수정안을 고를 때 쓰는 차례(칸 번호가 아니다)
+        index: order,
+        fieldPath,
+        originalQuote: String(r.original_quote ?? ''),
+        suggestedRevision: r.suggested_revision == null ? null : String(r.suggested_revision),
+        reason: String(r.reason ?? ''),
+        evidenceSources: Array.isArray(r.evidence_sources) ? (r.evidence_sources as string[]) : [],
+        status: (r.status as ResumeReviewSuggestion['status']) ?? 'needs_confirmation',
+        editType: (r.edit_type as ResumeReviewSuggestion['editType']) ?? 'content',
+      };
+    }),
+    questions: asked.map((q) => String(q.question ?? '')).filter((q) => q !== ''),
+  };
+}
+
+
+/** `selfIntroduction.motivation.body` → 'motivation'. 모르는 이름이면 undefined */
+
+/**
+ * 바로 반영해도 되는 수정안인가 — 원본(job_resume_review_dialog.dart) 규칙 그대로.
+ *
+ * 상태가 아니라 **고침 종류**로 가른다. 맞춤법 · 말투 · 표현 정리는 새 사실을 더하지 않으므로
+ * 바로 반영한다. 내용(content)을 바꾸는 수정안은 사람이 사실을 확인한 뒤에 넣어야 한다.
+ */
+const POLISH_EDITS = ['spelling', 'tone', 'clarity'];
+
+function canApply(suggestion: ResumeReviewSuggestion): boolean {
+  return suggestion.suggestedRevision !== null && POLISH_EDITS.includes(suggestion.editType);
+}
+
+/** 첨삭이 가리키는 칸의 지금 글. 못 찾으면 undefined — 그 수정안은 반영 단추를 달지 않는다 */
+
+/** `projects[2].description` → ['projects', 2]. 설명 칸이 있는 목록만 다룬다 */
+
+
+/** 그 칸만 바꾼 새 이력서 내용 */
 
 export function CoachChat({
   resume,
@@ -157,7 +215,15 @@ export function CoachChat({
   );
   const [draft, setDraft] = useState('');
   const [thinking, setThinking] = useState(false);
-  const [appliedReviews, setAppliedReviews] = useState<Record<string, AppliedReview>>({});
+  /**
+   * 반영한 수정안 → 되돌리는 데 필요한 것.
+   *
+   * `inputHash` 는 **반영 뒤** 이력서 상태다. 서버는 되돌릴 때 그 값을 보고, 그 사이 이력서가
+   * 또 바뀌었으면 막는다(409 resume_changed_after_application). 그래서 첨삭 당시 값이 아니라
+   * 반영 응답이 준 값을 들고 있어야 한다.
+   */
+  const [appliedReviews, setAppliedReviews] = useState<Record<string, { operationId: string; inputHash: string }>>({});
+  const [review, setReview] = useState<ReviewResult | null>(null);
   const [actionNotice, setActionNotice] = useState('');
   const bodyRef = useRef<HTMLDivElement>(null);
   const timers = useRef<number[]>([]);
@@ -194,27 +260,46 @@ export function CoachChat({
     );
   };
 
-  /** 첨삭 시작 — 네 단계를 지나고 확인 질문으로 대화를 연다. */
+  /**
+   * 첨삭 시작 — 서버(cover_letter_rag)가 이력서를 읽고 문장별 수정안과 확인 질문을 돌려준다.
+   *
+   * 40초쯤 걸린다. 그동안 준비 단계를 차례로 켜 두되 **끝났다고 먼저 말하지 않는다.**
+   * 마지막 단계는 답이 올 때까지 켜 둔 채로 기다린다.
+   */
   const startReview = () => {
     setStarted(true);
     setPreparing(true);
-    [0, 1, 2, 3].forEach((i) =>
-      timers.current.push(
-        window.setTimeout(() => {
-          if (i < 3) {
-            setStage(i + 1);
-            return;
-          }
-          setPreparing(false);
-          const questions = openingQuestions(resume);
-          const projectReview = reviewAnswerFor('프로젝트 설명을 더 낫게 고쳐 줘', resume);
-          stream({
-            ...projectReview,
-            text: `이력서를 다 읽었어요. 먼저 바로 고칠 수 있는 문장을 찾았습니다.\n\n${projectReview.text}\n\n추가 확인: ${questions[0]}`,
-          });
-        }, 1000 * (i + 1)),
-      ),
+    [0, 1, 2].forEach((i) =>
+      timers.current.push(window.setTimeout(() => setStage(i + 1), 2500 * (i + 1))),
     );
+    void requestReview(resume.id)
+      .then((result) => {
+        setPreparing(false);
+        setStage(3);
+        setReview(result);
+        const found = result.suggestions.filter((s) => s.suggestedRevision !== null);
+        stream({
+          text:
+            result.summary === ''
+              ? '이력서를 다 읽었어요.'
+              : `이력서를 다 읽었어요.\n\n${result.summary}`,
+        });
+        // 고칠 문장을 하나씩. 각 말풍선에 원문 · 수정안 · 반영 단추가 붙는다
+        for (const suggestion of found) {
+          stream({ text: suggestion.reason, suggestion });
+        }
+        if (found.length === 0) {
+          stream({ text: '바로 고칠 문장은 찾지 못했어요. 아래 질문에 답해 주시면 근거를 더 채울 수 있어요.' });
+        }
+        if (result.questions.length > 0) {
+          stream({ text: `확인하고 싶은 것이 있어요.\n\n${result.questions.slice(0, 5).map((q, i) => `${i + 1}. ${q}`).join('\n')}` });
+        }
+      })
+      .catch((err: unknown) => {
+        setPreparing(false);
+        const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+        stream({ text: detail ?? '첨삭하지 못했어요. 잠시 후 다시 시도해 주세요.' });
+      });
   };
 
   const ask = (question: string) => {
@@ -222,50 +307,66 @@ export function CoachChat({
     stream(mode === 'review' ? reviewAnswerFor(question, resume) : jobSearchAnswerFor(question));
   };
 
+  /**
+   * 수정안 반영 — 글자는 **서버가** 바꾼다.
+   *
+   * 첨삭은 칸 전체가 아니라 그 안의 한 문장을 인용한다. 화면에서 글자를 갈아 끼우면
+   * 어느 문장인지 다시 찾아야 하고, 서버가 남기는 반영 기록(resume_ai_applications)과도
+   * 어긋난다. 그래서 「몇 번째 수정안」만 보내고, 바뀐 이력서를 다시 받아 온다.
+   */
   const applySuggestion = (suggestion: ResumeReviewSuggestion) => {
-    if (suggestion.status !== 'improved' || suggestion.suggestedRevision === null) return;
-    const project = resume.content.projects[suggestion.index];
-    if (project === undefined || project.description !== suggestion.originalQuote) {
-      setActionNotice('원문이 바뀌어 이 수정안을 반영할 수 없습니다. 다시 첨삭해 주세요.');
-      return;
-    }
-    const projects = resume.content.projects.map((item, index) =>
-      index === suggestion.index ? { ...item, description: suggestion.suggestedRevision! } : item,
-    );
-    updateResume(resume.id, {
-      content: { ...resume.content, projects },
-      revisionCount: resume.revisionCount + 1,
-    });
-    setAppliedReviews((reviews) => ({
-      ...reviews,
-      [suggestion.fieldPath]: { suggestion, revisionAfterApply: suggestion.suggestedRevision! },
-    }));
-    setActionNotice('수정안을 이력서에 반영했습니다.');
+    if (review === null) return;
+    setActionNotice('수정안을 반영하고 있어요…');
+    void http
+      .post<{ operation_id?: string; input_hash?: string }>('/resume-review/apply', {
+        resumeId: resume.id,
+        reviewId: review.reviewId,
+        requestId: `apply-${Date.now()}`,
+        expectedInputHash: review.inputHash,
+        selectedIndices: [suggestion.index],
+      })
+      .then(async ({ data }) => {
+        await applyBootstrap();
+        setAppliedReviews((rows) => ({
+          ...rows,
+          [suggestion.fieldPath]: {
+            operationId: String(data.operation_id ?? ''),
+            inputHash: String(data.input_hash ?? ''),
+          },
+        }));
+        setActionNotice('수정안을 이력서에 반영했습니다.');
+      })
+      .catch((err: unknown) => {
+        const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+        setActionNotice(detail ?? '반영하지 못했습니다. 그 사이 이력서를 고쳤다면 다시 첨삭해 주세요.');
+      });
   };
 
   const undoSuggestion = (fieldPath: string) => {
     const applied = appliedReviews[fieldPath];
-    if (applied === undefined) return;
-    const project = resume.content.projects[applied.suggestion.index];
-    if (project === undefined || project.description !== applied.revisionAfterApply) {
-      setActionNotice('반영 후 문장이 다시 편집되어 자동으로 되돌릴 수 없습니다.');
-      return;
-    }
-    const projects = resume.content.projects.map((item, index) =>
-      index === applied.suggestion.index
-        ? { ...item, description: applied.suggestion.originalQuote }
-        : item,
-    );
-    updateResume(resume.id, {
-      content: { ...resume.content, projects },
-      revisionCount: resume.revisionCount + 1,
-    });
-    setAppliedReviews((reviews) => {
-      const next = { ...reviews };
-      delete next[fieldPath];
-      return next;
-    });
-    setActionNotice('수정안 반영을 되돌렸습니다.');
+    if (applied === undefined || review === null) return;
+    setActionNotice('되돌리고 있어요…');
+    void http
+      .post('/resume-review/undo', {
+        resumeId: resume.id,
+        reviewId: review.reviewId,
+        requestId: `undo-${Date.now()}`,
+        applicationId: applied.operationId,
+        expectedInputHash: applied.inputHash,
+      })
+      .then(async () => {
+        await applyBootstrap();
+        setAppliedReviews((rows) => {
+          const next = { ...rows };
+          delete next[fieldPath];
+          return next;
+        });
+        setActionNotice('수정안 반영을 되돌렸습니다.');
+      })
+      .catch((err: unknown) => {
+        const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+        setActionNotice(detail ?? '되돌리지 못했습니다.');
+      });
   };
 
   const submit = (e: FormEvent) => {
@@ -328,7 +429,7 @@ export function CoachChat({
                   <span className="review-suggestion__label">수정 이유</span>
                   <p>{message.suggestion.reason}</p>
                   <small>근거: {message.suggestion.evidenceSources.join(' · ')}</small>
-                  {message.suggestion.status === 'improved' ? (
+                  {canApply(message.suggestion) ? (
                     <div className="review-suggestion__actions">
                       <button
                         type="button"

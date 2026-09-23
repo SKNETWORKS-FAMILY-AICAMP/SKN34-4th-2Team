@@ -281,6 +281,101 @@ class ResumeReviewIn(Schema):
     reviewMode: str = "general"
 
 
+def _owned_resume(request, resume_id: str):
+    """이 학생이 볼 수 있는 이력서인지 보고 (행, 오류) 를 돌려준다."""
+    user = _require_user(request)
+    with connection.cursor() as cur:
+        cur.execute(
+            """SELECT r.legacy_id, c.code, u.firebase_uid, r.cohort_id
+               FROM resumes r JOIN users u ON u.id = r.user_id
+               JOIN cohorts c ON c.id = r.cohort_id
+               WHERE r.legacy_id = %s OR r.id::text = %s""",
+            [resume_id, resume_id],
+        )
+        row = _one(cur)
+    if not row:
+        return None, Response({"detail": "이력서를 찾을 수 없습니다."}, status=404)
+    if row["firebase_uid"] != user["firebase_uid"] and not (
+        user["role"] in ("admin", "instructor") and can_access_cohort(user, row["cohort_id"])
+    ):
+        return None, Response({"detail": "본인 이력서만 첨삭받을 수 있습니다."}, status=403)
+    return row, None
+
+
+def _review_call(path: str, payload: dict, timeout: int = 180):
+    """첨삭 서버로 넘긴다. 주소는 RESUME_REVIEW_URL(없으면 AI 서버와 같은 곳)."""
+    base = (os.environ.get("RESUME_REVIEW_URL") or os.environ.get("JOBS_URL") or "").rstrip("/")
+    if not base:
+        return Response({"detail": "첨삭 서버가 연결되어 있지 않습니다(RESUME_REVIEW_URL)."}, status=503)
+    req = urllib.request.Request(
+        f"{base}/resume-review{path}",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("detail")
+        except Exception:
+            detail = None
+        return Response({"detail": detail or "첨삭하지 못했습니다."}, status=exc.code)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return Response({"detail": "첨삭 서버에 연결하지 못했습니다."}, status=503)
+
+
+class ResumeReviewApplyIn(Schema):
+    resumeId: str
+    reviewId: str
+    requestId: str
+    expectedInputHash: str
+    """반영할 수정안 번호들(첨삭 결과의 차례). 되돌릴 때는 비운다."""
+    selectedIndices: list[int] = []
+    applicationId: str | None = None
+    tailoredResumeId: str | None = None
+
+
+@api.post("/resume-review/apply")
+def resume_review_apply(request, body: ResumeReviewApplyIn):
+    """수정안을 이력서에 반영한다 — 글자는 서버가 바꾸고 기록도 서버가 남긴다."""
+    row, error = _owned_resume(request, body.resumeId)
+    if error is not None:
+        return error
+    payload = {
+        "uid": row["firebase_uid"],
+        "cohort_id": row["code"],
+        "resume_id": row["legacy_id"],
+        "request_id": body.requestId,
+        "review_id": body.reviewId,
+        "expected_input_hash": body.expectedInputHash,
+        "selected_indices": body.selectedIndices,
+    }
+    if body.tailoredResumeId:
+        payload["tailored_resume_id"] = body.tailoredResumeId
+    return _review_call("/api/v1/resumes/reviews/apply/proxy", payload, timeout=60)
+
+
+@api.post("/resume-review/undo")
+def resume_review_undo(request, body: ResumeReviewApplyIn):
+    """반영을 되돌린다."""
+    row, error = _owned_resume(request, body.resumeId)
+    if error is not None:
+        return error
+    payload = {
+        "uid": row["firebase_uid"],
+        "cohort_id": row["code"],
+        "resume_id": row["legacy_id"],
+        "request_id": body.requestId,
+        "application_id": body.applicationId or "",
+        "expected_input_hash": body.expectedInputHash,
+    }
+    if body.tailoredResumeId:
+        payload["tailored_resume_id"] = body.tailoredResumeId
+    return _review_call("/api/v1/resumes/reviews/undo/proxy", payload, timeout=60)
+
+
 @api.post("/resume-review")
 def resume_review(request, body: ResumeReviewIn):
     """이력서 첨삭 — 학생을 확인하고 첨삭 서버(cover_letter_rag)로 넘긴다.
@@ -291,26 +386,9 @@ def resume_review(request, body: ResumeReviewIn):
 
     첨삭은 1분쯤 걸린다.
     """
-    user = _require_user(request)
-    with connection.cursor() as cur:
-        cur.execute(
-            """SELECT r.legacy_id, c.code, u.firebase_uid, r.cohort_id
-               FROM resumes r JOIN users u ON u.id = r.user_id
-               JOIN cohorts c ON c.id = r.cohort_id
-               WHERE r.legacy_id = %s OR r.id::text = %s""",
-            [body.resumeId, body.resumeId],
-        )
-        row = _one(cur)
-    if not row:
-        return Response({"detail": "이력서를 찾을 수 없습니다."}, status=404)
-    if row["firebase_uid"] != user["firebase_uid"] and not (
-        user["role"] in ("admin", "instructor") and can_access_cohort(user, row["cohort_id"])
-    ):
-        return Response({"detail": "본인 이력서만 첨삭받을 수 있습니다."}, status=403)
-
-    base = (os.environ.get("RESUME_REVIEW_URL") or os.environ.get("JOBS_URL") or "").rstrip("/")
-    if not base:
-        return Response({"detail": "첨삭 서버가 연결되어 있지 않습니다(RESUME_REVIEW_URL)."}, status=503)
+    row, error = _owned_resume(request, body.resumeId)
+    if error is not None:
+        return error
     payload = {
         "uid": row["firebase_uid"],
         "cohort_id": row["code"],
@@ -321,23 +399,7 @@ def resume_review(request, body: ResumeReviewIn):
         payload["selected_job_id"] = body.selectedJobId
     if body.tailoredResumeId:
         payload["tailored_resume_id"] = body.tailoredResumeId
-    req = urllib.request.Request(
-        f"{base}/resume-review/api/v1/resumes/reviews/proxy",
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=180) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        try:
-            detail = json.loads(exc.read().decode("utf-8")).get("detail")
-        except Exception:
-            detail = None
-        return Response({"detail": detail or "첨삭하지 못했습니다."}, status=exc.code)
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-        return Response({"detail": "첨삭 서버에 연결하지 못했습니다."}, status=503)
+    return _review_call("/api/v1/resumes/reviews/proxy", payload)
 
 
 class JobRecommendIn(Schema):
