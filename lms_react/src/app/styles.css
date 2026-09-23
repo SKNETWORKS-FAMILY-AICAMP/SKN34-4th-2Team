@@ -8132,6 +8132,29 @@ a.link {
   min-width: 240px;
 }
 
+.more__heading {
+  padding: 8px 11px 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+}
+
+.more__heading--divider {
+  margin-top: 5px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.more__item--done {
+  color: var(--text-secondary);
+}
+
+.more__done {
+  margin-left: auto;
+  color: var(--success);
+}
+
 /* 인쇄 전용 이력서 — 화면에서는 숨어 있다가 종이에서만 나온다. */
 .print-doc {
   display: none;

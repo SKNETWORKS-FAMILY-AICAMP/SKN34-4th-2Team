@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { Icon } from './Icon';
 
@@ -17,6 +17,10 @@ export interface MoreMenuItem {
   icon?: string;
   /** 이 항목 위에 가는 줄을 긋는다. 성격이 다른 묶음을 가른다. */
   divider?: boolean;
+  /** 이 항목 위에 작은 제목을 단다. 묶음 이름 — 「기초」「중급」처럼. */
+  heading?: string;
+  /** 눌러도 아무 일 없이 흐리게 보인다. 이미 한 것을 표시할 때. */
+  done?: boolean;
   /** 지우기처럼 되돌릴 수 없는 것은 붉게 보인다. */
   danger?: boolean;
   onSelect(): void;
@@ -68,7 +72,7 @@ export function MoreMenu({
       <button
         type="button"
         className={className ?? 'icon-btn'}
-        aria-label={iconOnly ? label : undefined}
+        aria-label={iconOnly || children !== undefined ? label : undefined}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={(e) => {
@@ -84,30 +88,36 @@ export function MoreMenu({
       {open && (
         <div className={`more__pop more__pop--${align}`} role="menu">
           {items.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              role="menuitem"
-              className={[
-                'more__item',
-                item.danger === true ? 'more__item--danger' : '',
-                item.divider === true ? 'more__item--divider' : '',
-                item.hint !== undefined ? 'more__item--hinted' : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              onClick={(e) => {
-                e.stopPropagation();
-                setOpen(false);
-                item.onSelect();
-              }}
-            >
-              {item.icon !== undefined && <Icon name={item.icon} size={18} className="more__icon" />}
-              <span className="more__text">
-                {item.label}
-                {item.hint !== undefined && <small>{item.hint}</small>}
-              </span>
-            </button>
+            <Fragment key={item.key}>
+              {item.heading !== undefined && (
+                <div className={`more__heading${item.divider === true ? ' more__heading--divider' : ''}`}>{item.heading}</div>
+              )}
+              <button
+                type="button"
+                role="menuitem"
+                className={[
+                  'more__item',
+                  item.danger === true ? 'more__item--danger' : '',
+                  item.divider === true && item.heading === undefined ? 'more__item--divider' : '',
+                  item.hint !== undefined ? 'more__item--hinted' : '',
+                  item.done === true ? 'more__item--done' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpen(false);
+                  item.onSelect();
+                }}
+              >
+                {item.icon !== undefined && <Icon name={item.icon} size={18} className="more__icon" />}
+                <span className="more__text">
+                  {item.label}
+                  {item.hint !== undefined && <small>{item.hint}</small>}
+                </span>
+                {item.done === true && <Icon name="check" size={16} className="more__done" />}
+              </button>
+            </Fragment>
           ))}
         </div>
       )}

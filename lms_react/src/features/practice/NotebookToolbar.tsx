@@ -4,7 +4,7 @@ import type { PracticeSet } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { MoreMenu } from '../../ui/MoreMenu';
 import { useNotebookFile } from './NotebookFileMenu';
-import { EXAMPLES, MINI_PROBLEMS } from './notebookExamples';
+import { EXAMPLES, MINI_HEADING, MINI_LEVELS, MINI_PROBLEMS } from './notebookExamples';
 import { canPromptInput } from './pythonRunner';
 import type { Notebook } from './useNotebook';
 
@@ -107,15 +107,31 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
   );
 }
 
-/** 연습 문제 넣기 — 누르면 아무거나 하나, 화살표로는 골라서 */
+/**
+ * 연습 문제 넣기 — 누르면 **아직 안 푼 것 중 가장 쉬운 것**, 화살표로는 골라서.
+ *
+ * 목록이 쉬운 순서라 처음 누르면 기초부터 차례로 나온다. 노트북에 이미 든 문제는
+ * 설명 셀 머리글로 알아본다 — 저장했다 다시 연 노트북에서도 이어진다.
+ */
 function ProblemPicker({ nb }: { nb: Notebook }) {
+  const done = new Set(
+    nb.cells
+      .filter((c) => c.type === 'markdown' && c.code.startsWith(MINI_HEADING))
+      .map((c) => c.code.slice(MINI_HEADING.length).split('\n')[0].trim()),
+  );
+  const next = MINI_PROBLEMS.find((m) => !done.has(m.title)) ?? MINI_PROBLEMS[0];
   const pick = (id?: string) => {
-    const p = id ? MINI_PROBLEMS.find((m) => m.id === id) : MINI_PROBLEMS[Math.floor(Math.random() * MINI_PROBLEMS.length)];
+    const p = id ? MINI_PROBLEMS.find((m) => m.id === id) : next;
     if (p) nb.addMiniProblem(p);
   };
   return (
     <span className="py-picker">
-      <button type="button" className="btn btn--outline btn--sm py-picker__main" onClick={() => pick()} title="연습 문제 하나를 아래에 넣습니다">
+      <button
+        type="button"
+        className="btn btn--outline btn--sm py-picker__main"
+        onClick={() => pick()}
+        title={`다음 문제 · ${MINI_LEVELS[next.level]} · ${next.title}`}
+      >
         <Icon name="fitness_center" size={18} />
         연습 문제 풀기
       </button>
@@ -123,7 +139,14 @@ function ProblemPicker({ nb }: { nb: Notebook }) {
         label="문제 고르기"
         align="left"
         className="btn btn--outline btn--sm py-picker__more"
-        items={MINI_PROBLEMS.map((m) => ({ key: m.id, label: m.title, onSelect: () => pick(m.id) }))}
+        items={MINI_PROBLEMS.map((m, i) => ({
+          key: m.id,
+          label: m.title,
+          heading: i === 0 || MINI_PROBLEMS[i - 1].level !== m.level ? MINI_LEVELS[m.level] : undefined,
+          divider: i > 0 && MINI_PROBLEMS[i - 1].level !== m.level,
+          done: done.has(m.title),
+          onSelect: () => pick(m.id),
+        }))}
       >
         <Icon name="expand_more" size={18} />
       </MoreMenu>

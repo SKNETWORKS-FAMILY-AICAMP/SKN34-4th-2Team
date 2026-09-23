@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type { PracticeSet } from '../../domain/types';
-import type { MiniProblem } from './notebookExamples';
+import { MINI_HEADING, MINI_LEVELS, type MiniProblem } from './notebookExamples';
 import type { ImportedCell } from './notebookFile';
 import {
   CLEAR_OUTPUT,
@@ -301,7 +301,10 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
 
   /** 연습 문제 — 설명 · 풀 자리 · 확인 코드 세 셀을 끝에 붙이고 풀 자리로 간다 */
   const addMiniProblem = (p: MiniProblem) => {
-    const prompt = newCell(`### 연습 · ${p.title}\n${p.prompt}\n\n아래 셀에 작성하고 **Shift+Enter**, 그다음 확인 셀을 실행하세요.`, 'markdown');
+    const prompt = newCell(
+      `${MINI_HEADING}${p.title}\n*${MINI_LEVELS[p.level]}* · ${p.prompt}\n\n아래 셀에 작성하고 **Shift+Enter**, 그다음 확인 셀을 실행하세요.`,
+      'markdown',
+    );
     const work = newCell(p.starter);
     const check = newCell(p.check);
     setCells((prev) => [...prev, prompt, work, check]);
