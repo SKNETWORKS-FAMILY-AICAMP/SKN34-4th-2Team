@@ -4,6 +4,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { RoutePaths } from '../../app/routePaths';
 import {
   addResumeFeedback,
+  applyBootstrap,
   updateResume,
   useResume,
   useResumeFeedbacks,
@@ -21,6 +22,7 @@ import { formatDateTime } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
 import { CoachChat } from './CoachChat';
 import { JobRecommendationRun } from './JobRecommendationRun';
+import { useReviewDock } from './review/ReviewDock';
 import { ResumePrintDoc } from './ResumePrintDoc';
 import { SectionBody } from './ResumeSections';
 import { RobotHead } from '../../ui/RobotHead';
@@ -102,7 +104,8 @@ export function ResumeEditScreen() {
   const showCoach = wide || coachVisible;
 
   const [mode, setMode] = useState<'doc' | 'edit'>(reviewer ? 'doc' : 'edit');
-  const [panel, setPanel] = useState<'coach' | 'review' | 'ask' | 'jobs'>('coach');
+  const [panel, setPanel] = useState<'coach' | 'ask' | 'jobs'>('coach');
+  const { openReview } = useReviewDock();
   const [current, setCurrent] = useState<string>(search.get('section') ?? 'basicInfo');
   const [saveState, setSaveState] = useState<'idle' | 'saved'>('idle');
 
@@ -364,7 +367,19 @@ export function ResumeEditScreen() {
 
             <span className="coach-label">빠른 실행</span>
             <div className="coach-actions">
-              <button type="button" className="coach-action" onClick={() => setPanel('review')}>
+              {/* 원본 _reviewResume — 공고와 무관하게 문장 자체를 다듬는 첨삭 창을 연다 */}
+              <button
+                type="button"
+                className="coach-action"
+                onClick={() =>
+                  openReview(`general-review-${resume.id}`, {
+                    resumeId: resume.id,
+                    generalReview: true,
+                    // 서버가 이미 저장했다. 편집 화면이 바뀐 이력서를 다시 받아 그린다
+                    onChanged: () => void applyBootstrap(),
+                  })
+                }
+              >
                 <Icon name="edit" size={22} className="coach-action__icon coach-action__icon--red" />
                 이력서 첨삭
               </button>
@@ -378,9 +393,7 @@ export function ResumeEditScreen() {
               </button>
             </div>
 
-            {panel === 'review' ? (
-              <CoachChat key="review" resume={resume} mode="review" />
-            ) : panel === 'ask' ? (
+            {panel === 'ask' ? (
               <CoachChat key="ask" resume={resume} mode="ask" />
             ) : panel === 'jobs' ? (
               <JobRecommendationRun resume={resume} />

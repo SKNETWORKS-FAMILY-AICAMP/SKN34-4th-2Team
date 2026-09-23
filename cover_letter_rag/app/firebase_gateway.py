@@ -161,13 +161,32 @@ class FirebaseGateway:
                 (legacy,),
             ).fetchone()
             if existing:
-                meta = (existing[3] or {}).get("_tailored") or {}
+                existing_sections = dict(existing[3] or {})
+                meta = dict(existing_sections.get("_tailored") or {})
+                if not meta.get("jobSnapshotHash"):
+                    # Firestore 에서 옮겨 온 맞춤본은 _tailored 정보가 비어 있다. 같은 공고 · 스냅샷으로 만든
+                    # 이름(tailored_id)이므로 지금 스냅샷을 채워 넣고 이어 쓴다. 없으면 매번 404 였다.
+                    meta = {**sections["_tailored"], **meta, "jobSnapshotHash": snapshot_hash}
+                    existing_sections["_tailored"] = meta
+                    conn.execute(
+                        "UPDATE resumes SET sections=%s, linked_job_id=COALESCE(linked_job_id, %s), updated_at=now() WHERE id=%s",
+                        (Jsonb(existing_sections), job_id, existing[0]),
+                    )
+                    conn.commit()
                 if meta.get("jobSnapshotHash") != snapshot_hash:
                     raise ResumeNotFoundError("tailored resume not found")
                 if title and existing[1] != title:
                     conn.execute("UPDATE resumes SET title=%s, updated_at=now() WHERE id=%s", (title, existing[0]))
                     conn.commit()
-                return {"tailored_resume_id": tailored_id, **payload, "title": title or existing[1]}
+                # 이미 있는 맞춤본은 그 내용과 저장된 첨삭 대화를 돌려준다. 원본 내용을 주면 반영한 수정이
+                # 안 보이고, 첨삭 창이 대화를 이어 가지 못했다.
+                return {
+                    "tailored_resume_id": tailored_id,
+                    **payload,
+                    "title": title or existing[1],
+                    "content": existing[2] or payload["content"],
+                    "reviewSession": meta.get("reviewSession") or {},
+                }
             conn.execute(
                 """INSERT INTO resumes (legacy_id, cohort_id, user_id, title, status, content, sections, is_base_resume, base_resume_id, linked_job_id, created_at, updated_at)
                    VALUES (%s,%s,%s,%s,'draft',%s,%s,false,%s,%s, now(), now())""",

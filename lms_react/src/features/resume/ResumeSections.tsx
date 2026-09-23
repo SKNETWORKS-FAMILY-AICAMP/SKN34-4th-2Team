@@ -1,6 +1,7 @@
-import { SelfIntroKeys, SelfIntroLabels, TechLevels } from '../../domain/constants';
+import { SelfIntroKeys, SelfIntroLabels } from '../../domain/constants';
 import type { Resume, ResumeContent } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
+import { TechStackEditor } from './skills/TechStackEditor';
 
 /**
  * 이력서 섹션 — features/resume/presentation/resume_edit_screen.dart의 양식.
@@ -329,62 +330,12 @@ export function SectionBody({
 
     case 'techStack':
       return (
-        <>
-          <div className="tech-rows">
-            {c.techStack.map((item) => (
-              <div key={item.id} className="tech-row">
-                {readOnly ? (
-                  <>
-                    <span className="skill-chip">{item.name}</span>
-                    <span className="hint">{item.level}</span>
-                  </>
-                ) : (
-                  <>
-                    <input
-                      className="input"
-                      value={item.name}
-                      placeholder="기술 이름"
-                      onChange={(e) =>
-                        patch({
-                          techStack: c.techStack.map((x) => (x.id === item.id ? { ...x, name: e.target.value } : x)),
-                        })
-                      }
-                    />
-                    <select
-                      className="input input--select"
-                      value={item.level}
-                      onChange={(e) =>
-                        patch({
-                          techStack: c.techStack.map((x) => (x.id === item.id ? { ...x, level: e.target.value } : x)),
-                        })
-                      }
-                    >
-                      {TechLevels.map((l) => (
-                        <option key={l} value={l}>
-                          {l}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      aria-label="삭제"
-                      onClick={() => patch({ techStack: c.techStack.filter((x) => x.id !== item.id) })}
-                    >
-                      <Icon name="delete" size={17} />
-                    </button>
-                  </>
-                )}
-              </div>
-            ))}
-          </div>
-          {!readOnly && (
-            <AddItem
-              label="기술 추가"
-              onAdd={() => patch({ techStack: [...c.techStack, { id: nextId('t'), name: '', level: '중급' }] })}
-            />
-          )}
-        </>
+        <TechStackEditor
+          items={c.techStack}
+          readOnly={readOnly}
+          onChange={(techStack) => patch({ techStack })}
+          newId={() => nextId('t')}
+        />
       );
 
     case 'certifications':

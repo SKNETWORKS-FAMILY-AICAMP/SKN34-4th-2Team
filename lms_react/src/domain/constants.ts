@@ -216,8 +216,6 @@ export const SelfIntroLabels: Record<string, string> = {
 };
 
 /** 기술 숙련도 */
-export const TechLevels = ['고급', '중급', '초급'] as const;
-
 /**
  * 채운 섹션 판정 — resume_content.dart의 computeSections()
  *

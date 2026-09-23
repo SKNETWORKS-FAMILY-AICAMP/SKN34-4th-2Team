@@ -1010,6 +1010,31 @@ button.chip {
   cursor: pointer;
 }
 
+/* 근거 보기 · 공고 맞춤 첨삭 — 원본처럼 한 줄 양 끝 */
+.job-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.job-card__foot .btn {
+  margin-top: 4px;
+}
+
+/* 원본 _reviewButton — 작게, 근거를 펼치면 근거 위 오른쪽으로 */
+.job-card__review {
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.job-card__review-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+
 /* 펼친 근거 */
 .job-card__why {
   display: flex;

@@ -83,7 +83,8 @@ export const resumeEditPath = (
   if (opts.section !== undefined && opts.section !== '') params.set('section', opts.section);
   if (opts.feedback === true) params.set('feedback', '1');
   const query = params.toString();
-  return `/resume/${resumeId}/edit${query === '' ? '' : `?${query}`}`;
+  // 공고 맞춤 이력서 id 는 「원본/tailored/…」처럼 / 가 든다 — 그대로 넣으면 라우트가 안 맞는다
+  return `/resume/${encodeURIComponent(resumeId)}/edit${query === '' ? '' : `?${query}`}`;
 };
 
 export const assessmentTakePath = (id: string) => `/assessments/${id}/take`;

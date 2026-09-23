@@ -8,6 +8,7 @@ from app.models import (
     FirestoreResumeReviewRequest,
     FirestoreResumeReviewResponse,
     HealthResponse,
+    StrictModel,
     TailoredResumeCreateRequest,
     TailoredResumePromoteRequest,
     TailoredResumeResponse,
@@ -57,11 +58,41 @@ def review_context(
     gateway: FirebaseGateway = Depends(get_context_gateway),
     settings: Settings = Depends(get_settings),
 ):
+    return _review_context(
+        lambda: gateway.verify_id_token(extract_bearer_token(authorization)),
+        cohort_id, resume_id, job_id, tailored_resume_id, gateway, settings,
+    )
+
+
+class ProxyReviewContextRequest(StrictModel):
+    """LMS(Django) 프록시용 review-context. uid 로 학생을 확인한다."""
+
+    uid: str = Field(min_length=1, max_length=128)
+    cohort_id: str = Field(min_length=1, max_length=200, pattern=r'^[^/]+$')
+    resume_id: str = Field(min_length=1, max_length=200, pattern=r'^[^/]+$')
+    job_id: str | None = Field(default=None, min_length=1, max_length=200)
+    tailored_resume_id: str | None = Field(default=None, min_length=1, max_length=100, pattern=r'^[A-Za-z0-9_-]+$')
+
+
+@app.post('/api/v1/resumes/review-context/proxy')
+def review_context_as_user(
+    request: ProxyReviewContextRequest,
+    gateway: FirebaseGateway = Depends(get_context_gateway),
+    settings: Settings = Depends(get_settings),
+):
+    """LMS 가 학생을 확인한 뒤 부른다. 이 창구는 바깥에 열지 않는다(Django 만 부른다)."""
+    return _review_context(
+        lambda: request.uid, request.cohort_id, request.resume_id,
+        request.job_id, request.tailored_resume_id, gateway, settings,
+    )
+
+
+def _review_context(resolve_uid, cohort_id, resume_id, job_id, tailored_resume_id, gateway, settings):
     from app.matching_handoff import load_selected_job
     from app.review_workflow import digest
     from fastapi.responses import JSONResponse
     try:
-        uid = gateway.verify_id_token(extract_bearer_token(authorization))
+        uid = resolve_uid()
         job = load_selected_job(settings.matching_job_store_path, job_id) if job_id else None
         if tailored_resume_id:
             resume = gateway.get_owned_tailored_resume(cohort_id, resume_id, tailored_resume_id, uid)
@@ -105,9 +136,33 @@ def create_tailored_resume(
     gateway: FirebaseGateway = Depends(get_context_gateway),
     settings: Settings = Depends(get_settings),
 ):
+    return _create_tailored(
+        lambda: gateway.verify_id_token(extract_bearer_token(authorization)),
+        request, background, gateway, settings,
+    )
+
+
+class ProxyTailoredResumeCreateRequest(TailoredResumeCreateRequest):
+    """LMS(Django) 프록시용. Firebase 토큰 대신 uid 로 학생을 확인한다."""
+
+    uid: str = Field(min_length=1, max_length=128)
+
+
+@app.post('/api/v1/resumes/tailored/proxy', response_model=TailoredResumeResponse)
+def create_tailored_resume_as_user(
+    request: ProxyTailoredResumeCreateRequest,
+    background: BackgroundTasks,
+    gateway: FirebaseGateway = Depends(get_context_gateway),
+    settings: Settings = Depends(get_settings),
+):
+    """LMS 가 학생을 확인한 뒤 부른다. 이 창구는 바깥에 열지 않는다(Django 만 부른다)."""
+    return _create_tailored(lambda: request.uid, request, background, gateway, settings)
+
+
+def _create_tailored(resolve_uid, request, background, gateway, settings):
     from app.matching_handoff import load_selected_job
     try:
-        uid = gateway.verify_id_token(extract_bearer_token(authorization))
+        uid = resolve_uid()
         jobs = {}
 
         def load_job(job_id):
@@ -232,10 +287,84 @@ def promote_tailored_resume(
     authorization: str | None = Header(default=None),
     gateway: FirebaseGateway = Depends(get_context_gateway),
 ):
+    return _promote_tailored(
+        lambda: gateway.verify_id_token(extract_bearer_token(authorization)),
+        request.cohort_id, resume_id, tailored_resume_id, gateway,
+    )
+
+
+class ProxyTailoredResumePromoteRequest(TailoredResumePromoteRequest):
+    """LMS(Django) 프록시용. 이력서 id 둘은 주소 대신 본문으로 받는다."""
+
+    uid: str = Field(min_length=1, max_length=128)
+    resume_id: str = Field(pattern=r'^[A-Za-z0-9_-]{1,200}$')
+    tailored_resume_id: str = Field(pattern=r'^[A-Za-z0-9_-]{1,100}$')
+
+
+@app.post('/api/v1/resumes/tailored/promote/proxy')
+def promote_tailored_resume_as_user(
+    request: ProxyTailoredResumePromoteRequest,
+    gateway: FirebaseGateway = Depends(get_context_gateway),
+):
+    """LMS 가 학생을 확인한 뒤 부른다. 이 창구는 바깥에 열지 않는다(Django 만 부른다)."""
+    return _promote_tailored(
+        lambda: request.uid, request.cohort_id, request.resume_id, request.tailored_resume_id, gateway,
+    )
+
+
+class ProxyTailoredResumeRef(StrictModel):
+    """LMS(Django) 프록시용. 맞춤본 하나를 가리킨다."""
+
+    uid: str = Field(min_length=1, max_length=128)
+    cohort_id: str = Field(min_length=1, max_length=200, pattern=r'^[^/]+$')
+    resume_id: str = Field(pattern=r'^[A-Za-z0-9_-]{1,200}$')
+    tailored_resume_id: str = Field(pattern=r'^[A-Za-z0-9_-]{1,100}$')
+
+
+@app.post('/api/v1/resumes/tailored/get/proxy', response_model=TailoredResumeResponse)
+def get_tailored_resume_as_user(
+    request: ProxyTailoredResumeRef,
+    gateway: FirebaseGateway = Depends(get_context_gateway),
+):
+    """맞춤본과 저장된 첨삭 대화. 재첨삭 창이 이어서 연다. Django 만 부른다."""
     try:
-        uid = gateway.verify_id_token(extract_bearer_token(authorization))
+        return TailoredResumeService(gateway, lambda _: {}).get(
+            request.uid, request.cohort_id, request.resume_id, request.tailored_resume_id,
+        )
+    except ResumeAccessError as exc:
+        raise HTTPException(status_code=403, detail='Resume access denied') from exc
+    except ResumeNotFoundError as exc:
+        raise HTTPException(status_code=404, detail='Tailored resume was not found') from exc
+    except (GoogleAPIError, GoogleAuthError, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail=_safe_error(exc)) from exc
+
+
+class ProxyTailoredSessionRequest(ProxyTailoredResumeRef):
+    state: dict = Field(default_factory=dict)
+
+
+@app.post('/api/v1/resumes/tailored/session/proxy')
+def save_tailored_resume_session_as_user(
+    request: ProxyTailoredSessionRequest,
+    gateway: FirebaseGateway = Depends(get_context_gateway),
+):
+    """첨삭 대화를 맞춤본에 남긴다. 창을 닫았다 다시 열면 이어 간다. Django 만 부른다."""
+    try:
+        gateway.save_tailored_resume_session(
+            request.cohort_id, request.resume_id, request.tailored_resume_id, request.uid, request.state,
+        )
+        return {'saved': True}
+    except ResumeAccessError as exc:
+        raise HTTPException(status_code=403, detail='Resume access denied') from exc
+    except ResumeNotFoundError as exc:
+        raise HTTPException(status_code=404, detail='Tailored resume was not found') from exc
+
+
+def _promote_tailored(resolve_uid, cohort_id, resume_id, tailored_resume_id, gateway):
+    try:
+        uid = resolve_uid()
         workspace_resume_id = gateway.promote_tailored_resume(
-            request.cohort_id,
+            cohort_id,
             resume_id,
             tailored_resume_id,
             uid,

@@ -7563,20 +7563,6 @@ a.link {
   color: var(--text-secondary);
 }
 
-/* 기술스택 — 이름과 숙련도를 한 줄씩 */
-.tech-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.tech-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 110px 36px;
-  align-items: center;
-  gap: 8px;
-}
-
 .skill-chip {
   display: inline-flex;
   align-items: center;

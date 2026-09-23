@@ -8,6 +8,7 @@ import { Shell } from './Shell';
 import { BootstrapQuery } from '../data/BootstrapQuery';
 import { queryClient } from '../data/queryClient';
 import { CartProvider } from '../features/mileage/cart';
+import { ReviewDockHost } from '../features/resume/review/ReviewDock';
 import { SessionProvider, useSession } from '../features/auth/session';
 import { LoginScreen } from '../features/auth/LoginScreen';
 import { ChangePasswordScreen } from '../features/auth/ChangePasswordScreen';
@@ -89,6 +90,8 @@ export function App() {
       <SessionProvider>
         <TourProvider>
           <CartProvider>
+            {/* 첨삭 창은 화면 위 층에 뜬다. 화면을 옮겨도 진행 중인 첨삭이 남는다 */}
+            <ReviewDockHost>
             <Routes>
               <Route path={RoutePaths.login} element={<LoginScreen />} />
               <Route element={<Protected />}>
@@ -132,6 +135,7 @@ export function App() {
               </Route>
               <Route path="*" element={<Navigate to={RoutePaths.dashboard} replace />} />
             </Routes>
+            </ReviewDockHost>
           </CartProvider>
         </TourProvider>
       </SessionProvider>

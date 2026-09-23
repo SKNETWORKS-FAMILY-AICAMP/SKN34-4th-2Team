@@ -279,6 +279,15 @@ class ResumeReviewIn(Schema):
     selectedJobId: str | None = None
     tailoredResumeId: str | None = None
     reviewMode: str = "general"
+    # 아래는 첨삭 창이 대화를 이어 갈 때 보낸다(job_resume_review_dialog.dart 의 요청 그대로).
+    requestId: str | None = None
+    expectedInputHash: str | None = None
+    expectedJobHash: str | None = None
+    """standard · gap_audit(질문을 다 마친 뒤 한 번 하는 누락 점검)"""
+    reviewPhase: str | None = None
+    previousReviewId: str | None = None
+    """[{question_id, field_path, question, answer}]"""
+    answers: list[dict] | None = None
 
 
 def _owned_resume(request, resume_id: str):
@@ -399,7 +408,121 @@ def resume_review(request, body: ResumeReviewIn):
         payload["selected_job_id"] = body.selectedJobId
     if body.tailoredResumeId:
         payload["tailored_resume_id"] = body.tailoredResumeId
+    for key, value in (
+        ("request_id", body.requestId),
+        ("expected_input_hash", body.expectedInputHash),
+        ("expected_job_hash", body.expectedJobHash),
+        ("review_phase", body.reviewPhase),
+        ("previous_review_id", body.previousReviewId),
+        ("answers", body.answers),
+    ):
+        if value:
+            payload[key] = value
     return _review_call("/api/v1/resumes/reviews/proxy", payload)
+
+
+class ReviewContextIn(Schema):
+    resumeId: str
+    selectedJobId: str | None = None
+    tailoredResumeId: str | None = None
+
+
+@api.post("/resume-review/context")
+def resume_review_context(request, body: ReviewContextIn):
+    """첨삭 창이 보는 이력서 · 공고 스냅샷. 저장된 판(input_hash)과 화면이 같은지 여기서 본다."""
+    row, error = _owned_resume(request, body.resumeId)
+    if error is not None:
+        return error
+    payload = {"uid": row["firebase_uid"], "cohort_id": row["code"], "resume_id": row["legacy_id"]}
+    if body.selectedJobId:
+        payload["job_id"] = body.selectedJobId
+    if body.tailoredResumeId:
+        payload["tailored_resume_id"] = body.tailoredResumeId
+    return _review_call("/api/v1/resumes/review-context/proxy", payload, timeout=60)
+
+
+class TailoredRefIn(Schema):
+    resumeId: str
+    tailoredResumeId: str
+
+
+@api.post("/resume-review/tailored/get")
+def resume_review_tailored_get(request, body: TailoredRefIn):
+    """공고 맞춤본과 저장된 첨삭 대화 — 재첨삭 창이 이어서 연다."""
+    row, error = _owned_resume(request, body.resumeId)
+    if error is not None:
+        return error
+    payload = {
+        "uid": row["firebase_uid"],
+        "cohort_id": row["code"],
+        "resume_id": row["legacy_id"],
+        "tailored_resume_id": body.tailoredResumeId,
+    }
+    return _review_call("/api/v1/resumes/tailored/get/proxy", payload, timeout=60)
+
+
+class TailoredSessionIn(TailoredRefIn):
+    state: dict
+
+
+@api.post("/resume-review/session")
+def resume_review_session(request, body: TailoredSessionIn):
+    """첨삭 대화를 공고 맞춤본에 남긴다. 창을 닫았다 열면 이어 간다."""
+    row, error = _owned_resume(request, body.resumeId)
+    if error is not None:
+        return error
+    payload = {
+        "uid": row["firebase_uid"],
+        "cohort_id": row["code"],
+        "resume_id": row["legacy_id"],
+        "tailored_resume_id": body.tailoredResumeId,
+        "state": body.state,
+    }
+    return _review_call("/api/v1/resumes/tailored/session/proxy", payload, timeout=60)
+
+
+class TailoredResumeIn(Schema):
+    resumeId: str
+    selectedJobId: str
+
+
+@api.post("/resume-review/tailored")
+def resume_review_tailored(request, body: TailoredResumeIn):
+    """공고 맞춤 첨삭을 시작한다 — 원본을 그 공고용 사본으로 떠 둔다.
+
+    첨삭 · 반영은 이 사본에 한다. 원본은 그대로 남는다. 돌려주는 `tailored_resume_id` 를
+    첨삭 · 반영 · 옮기기에 같이 보낸다.
+    """
+    row, error = _owned_resume(request, body.resumeId)
+    if error is not None:
+        return error
+    payload = {
+        "uid": row["firebase_uid"],
+        "cohort_id": row["code"],
+        "resume_id": row["legacy_id"],
+        "selected_job_id": body.selectedJobId,
+    }
+    return _review_call("/api/v1/resumes/tailored/proxy", payload, timeout=60)
+
+
+class TailoredPromoteIn(Schema):
+    resumeId: str
+    tailoredResumeId: str
+
+
+@api.post("/resume-review/promote")
+def resume_review_promote(request, body: TailoredPromoteIn):
+    """첨삭을 마친 공고 사본을 편집할 수 있는 이력서로 옮긴다. 새 이력서 id 를 돌려준다."""
+    row, error = _owned_resume(request, body.resumeId)
+    if error is not None:
+        return error
+    payload = {
+        "uid": row["firebase_uid"],
+        "cohort_id": row["code"],
+        "resume_id": row["legacy_id"],
+        "tailored_resume_id": body.tailoredResumeId,
+    }
+    return _review_call("/api/v1/resumes/tailored/promote/proxy", payload, timeout=60)
 
 
 class JobRecommendIn(Schema):
@@ -475,6 +598,34 @@ def jobs_recommend(request, body: JobRecommendIn):
         return Response({"detail": detail or "공고를 추천하지 못했습니다."}, status=exc.code)
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         return Response({"detail": "공고 추천 서버에 연결하지 못했습니다."}, status=503)
+
+
+class LinkedJobIn(Schema):
+    jobId: str
+
+
+@api.post("/jobs/linked")
+def jobs_linked(request, body: LinkedJobIn):
+    """공고 맞춤 이력서에 연결된 공고 하나 — 새로 추천하지 않고 그 공고만 읽는다(ai_job_coach_panel._showLinkedJob)."""
+    _require_user(request)
+    base = (os.environ.get("JOBS_URL") or "").rstrip("/")
+    if not base:
+        return Response({"detail": "공고 서버가 연결되어 있지 않습니다(JOBS_URL)."}, status=503)
+    req = urllib.request.Request(
+        f"{base}/api/v1/jobs/chat",
+        data=json.dumps({"message": "이 공고 정보", "job_id": body.jobId}, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            jobs = json.loads(resp.read().decode("utf-8")).get("jobs") or []
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return Response({"detail": "연결된 맞춤 공고를 불러올 수 없습니다."}, status=503)
+    job = next((j for j in jobs if j.get("job_id") == body.jobId), None)
+    if job is None:
+        return Response({"detail": "연결된 공고가 현재 공고 저장소에 없습니다."}, status=404)
+    return job
 
 
 @api.get("/bootstrap")

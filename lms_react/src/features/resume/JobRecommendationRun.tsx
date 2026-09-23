@@ -4,6 +4,7 @@ import { http } from '../../data/http';
 import { Icon } from '../../ui/Icon';
 import type { Resume } from '../../domain/types';
 import { JobRecommendationLoading } from './JobRecommendationLoading';
+import { useReviewDock } from './review/ReviewDock';
 
 /**
  * 공고 추천 — 단계가 하나씩 켜지다 마지막에 로봇이 손을 놓는다.
@@ -34,6 +35,8 @@ interface JobPick {
   conditions: { region?: string; employmentType?: string | null; career?: string; education?: string; deadline?: string | null };
   filterStatus: string;
   unknownConditions: string[];
+  /** 상세 공고가 이미지뿐이면 원문 근거로 첨삭할 수 없다 */
+  bodyIsImage: boolean;
 }
 
 interface JobResult {
@@ -67,6 +70,39 @@ function requestJobs(resumeId: string): Promise<JobResult> {
   return promise;
 }
 
+/**
+ * 맞춤 이력서에 연결된 공고 하나 — 원본 _showLinkedJob. 새로 점수를 매긴 추천이 아니라서
+ * 근거 · 적합도는 없고, 서버 공고 카드로 보여 「재첨삭」을 단다.
+ */
+function requestLinkedJob(jobId: string): Promise<JobResult> {
+  return http.post<Record<string, unknown>>('/jobs/linked', { jobId }).then(({ data }) => ({
+    jobs: [
+      {
+        jobId: String(data.job_id ?? jobId),
+        title: String(data.title ?? ''),
+        company: String(data.company ?? ''),
+        sourceUrl: String(data.source_url ?? ''),
+        fit: '',
+        reasons: [],
+        concerns: [],
+        conditions: {
+          region: String(data.region ?? ''),
+          employmentType: (data.employment_type ?? null) as string | null,
+          career: String(data.career ?? ''),
+          education: '',
+          deadline: (data.deadline ?? null) as string | null,
+        },
+        filterStatus: 'PASS',
+        unknownConditions: [],
+        bodyIsImage: false,
+      },
+    ],
+    searchQuery: '',
+    notice: '이 맞춤 이력서와 연결된 공고입니다.',
+    warnings: [],
+  }));
+}
+
 const STEP_IDS = ['resume', 'search', 'filter', 'judge'] as const;
 
 /** 서버 응답(snake_case)을 화면 모양으로 */
@@ -94,6 +130,7 @@ function toResult(data: Record<string, unknown>): JobResult {
       },
       filterStatus: String(r.filter_status ?? 'PASS'),
       unknownConditions: Array.isArray(r.unknown_conditions) ? (r.unknown_conditions as string[]) : [],
+      bodyIsImage: Boolean(r.body_is_image),
     })),
     searchQuery: String(data.search_query ?? ''),
     notice: String(data.notice ?? ''),
@@ -117,8 +154,32 @@ function deadlineDate(value: string): string {
   return /^\d{4}-\d{2}-\d{2}/.exec(value)?.[0] ?? value;
 }
 
-function JobCard({ index, job }: { index: number; job: JobPick }) {
+function JobCard({
+  index,
+  job,
+  onReview,
+  reviewLabel,
+}: {
+  index: number;
+  job: JobPick;
+  onReview?(job: JobPick): void;
+  /** 맞춤 이력서에 연결된 공고면 「재첨삭」 */
+  reviewLabel?: string;
+}) {
   const [open, setOpen] = useState(false);
+  // 원본 _reviewButton — 접었을 때는 근거 보기 옆, 펼치면 근거 위 오른쪽에 둔다
+  const reviewButton = onReview !== undefined && (
+    <button
+      type="button"
+      className="btn btn--filled btn--sm job-card__review"
+      disabled={job.bodyIsImage}
+      title={job.bodyIsImage ? '상세 공고가 이미지뿐이라 원문 근거 첨삭을 할 수 없습니다.' : '선택 공고와 이력서를 비교해 첨삭합니다.'}
+      onClick={() => onReview(job)}
+    >
+      <Icon name="auto_fix_high" size={14} />
+      {job.bodyIsImage ? '원문 확인 불가' : (reviewLabel ?? '공고 맞춤 첨삭')}
+    </button>
+  );
   const summary = [job.conditions.region, job.conditions.employmentType, job.conditions.career]
     .filter((v) => v !== null && v !== undefined && v !== '')
     .join(' · ');
@@ -152,6 +213,8 @@ function JobCard({ index, job }: { index: number; job: JobPick }) {
       {job.unknownConditions.length > 0 && (
         <span className="job-card__check">확인 필요: {job.unknownConditions.join(', ')}</span>
       )}
+
+      {open && reviewButton !== false && <div className="job-card__review-row">{reviewButton}</div>}
 
       {open && (
         <div className="job-card__why">
@@ -207,10 +270,13 @@ function JobCard({ index, job }: { index: number; job: JobPick }) {
         </div>
       )}
 
-      <button type="button" className="job-card__toggle" onClick={() => setOpen((v) => !v)}>
-        {open ? '근거 접기' : '추천 근거 보기'}
-        <Icon name={open ? 'expand_less' : 'expand_more'} size={14} />
-      </button>
+      <div className="job-card__foot">
+        <button type="button" className="job-card__toggle" onClick={() => setOpen((v) => !v)}>
+          {open ? '근거 접기' : '추천 근거 보기'}
+          <Icon name={open ? 'expand_less' : 'expand_more'} size={14} />
+        </button>
+        {!open && reviewButton}
+      </div>
     </div>
   );
 }
@@ -221,10 +287,38 @@ export function JobRecommendationRun({ resume }: { resume: Resume }) {
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [results, setResults] = useState<Record<string, string>>({});
+  const { openReview } = useReviewDock();
+  // 공고 맞춤 이력서(편집기로 옮긴 사본)는 연결된 공고를 보여 주고 「재첨삭」을 단다 — 원본 _hasLinkedJob
+  const linkedJobId = resume.linkedJobId ?? '';
+  // 첨삭 작업본(「원본/tailored/…」)은 편집기 밖의 사본이라 여기서 다시 뜨지 않는다
+  const canTailor = !resume.id.includes('/');
+
+  const reviewJob = (job: JobPick) =>
+    openReview(`job-review-${resume.id}-${job.jobId}`, {
+      resumeId: resume.id,
+      generalReview: false,
+      jobId: job.jobId,
+      jobCompany: job.company,
+      jobTitle: job.title,
+    });
 
   useEffect(() => {
     if (result !== null || error !== null) return;
     let alive = true;
+
+    // 연결된 공고 하나를 읽어 온다. 새로 추천하는 게 아니라 로봇 단계 로딩은 띄우지 않는다
+    if (linkedJobId !== '') {
+      void requestLinkedJob(linkedJobId)
+        .then((next) => alive && setResult(next))
+        .catch((err: unknown) => {
+          if (!alive) return;
+          const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+          setError(detail ?? '연결된 맞춤 공고를 불러올 수 없습니다.');
+        });
+      return () => {
+        alive = false;
+      };
+    }
 
     // 단계 카드는 기다리는 동안 차례로 켠다. 마지막 단계는 답이 올 때까지 켜 둔다.
     const lines = [
@@ -258,7 +352,7 @@ export function JobRecommendationRun({ resume }: { resume: Resume }) {
       alive = false;
       timers.forEach((t) => window.clearTimeout(t));
     };
-  }, [error, result, resume]);
+  }, [error, result, resume, linkedJobId]);
 
   const again = () => {
     jobCache.delete(resume.id);
@@ -283,16 +377,26 @@ export function JobRecommendationRun({ resume }: { resume: Resume }) {
     );
   }
 
+  if (linkedJobId !== '' && result === null) {
+    return (
+      <div className="coach-run">
+        <p className="hint">연결된 맞춤 공고를 불러오고 있어요…</p>
+      </div>
+    );
+  }
+
   // 추천이 끝나면 로딩은 사라지고 목록만 남는다.
   if (result !== null) {
     return (
       <div className="coach-run">
         <div className="coach-jobs__head">
-          <strong>맞춤 공고 {result.jobs.length}건</strong>
+          <strong>{linkedJobId !== '' ? '연결된 맞춤 공고' : `맞춤 공고 ${result.jobs.length}건`}</strong>
           <span className="spacer" />
-          <button type="button" className="btn btn--text btn--sm" onClick={again}>
-            다시 추천
-          </button>
+          {linkedJobId === '' && (
+            <button type="button" className="btn btn--text btn--sm" onClick={again}>
+              다시 추천
+            </button>
+          )}
         </div>
         {result.jobs.length === 0 ? (
           <p className="hint">
@@ -301,7 +405,13 @@ export function JobRecommendationRun({ resume }: { resume: Resume }) {
         ) : (
           <div className="coach-jobs">
             {result.jobs.map((job, index) => (
-              <JobCard key={job.jobId} index={index + 1} job={job} />
+              <JobCard
+                key={job.jobId}
+                index={index + 1}
+                job={job}
+                onReview={canTailor ? reviewJob : undefined}
+                reviewLabel={linkedJobId !== '' ? '재첨삭' : undefined}
+              />
             ))}
           </div>
         )}
