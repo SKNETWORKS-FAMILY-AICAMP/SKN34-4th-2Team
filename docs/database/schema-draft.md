@@ -303,6 +303,14 @@ study_sources
 study_notes
 ```
 
+`study_notes`의 4차 생성 경로는 Django migration `0005`에서
+`updated_at`, `generation_token`을 추가한다. 새 노트는 기존 고유
+`legacy_id`에 `pg:{user_id}:{cohort_code}:{note_id}` 키를 저장해
+동시 생성 선점을 원자화한다. `generation_token`이 일치하는 요청만
+완료·실패 상태를 기록할 수 있다. 기존 Firestore에서 이전한 노트의
+`legacy_id`는 읽기 호환을 유지한다. PostgreSQL이 노트 원본이며
+LLM 호출 중에는 DB 트랜잭션을 열어 두지 않는다.
+
 ## AI Operations
 ```text
 ai_generation_logs

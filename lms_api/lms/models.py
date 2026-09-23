@@ -827,6 +827,8 @@ class StudyNotes(models.Model):
     message = models.TextField(blank=True, null=True)
     files = models.JSONField()
     created_at = models.DateTimeField(blank=True, null=True)
+    updated_at = models.DateTimeField(blank=True, null=True)
+    generation_token = models.CharField(blank=True, null=True)
 
     class Meta:
         db_table = 'study_notes'
