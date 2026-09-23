@@ -9751,3 +9751,304 @@ a.link {
   color: var(--primary);
   font-weight: 600;
 }
+
+/* ── 공부방: 오늘 복습 · 다시 풀 문제 · 과목별 목록 (LessonDaysSection) ── */
+.review-board {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.review-hero {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 20px 22px;
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 9%, var(--surface)), var(--surface) 60%);
+}
+
+.review-hero--done {
+  border-color: color-mix(in srgb, var(--success) 40%, var(--border));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--success) 9%, var(--surface)), var(--surface) 60%);
+}
+
+.review-hero--empty {
+  align-items: flex-start;
+  gap: 12px;
+  border-style: dashed;
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+}
+
+.review-hero--empty strong {
+  color: var(--text-primary);
+}
+
+.review-hero--empty p {
+  margin: 2px 0 0;
+}
+
+.review-hero__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review-hero__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.review-hero--done .review-hero__eyebrow {
+  color: var(--success);
+}
+
+.review-hero__title {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.review-hero__progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 460px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.review-hero__progress strong {
+  color: var(--text-primary);
+}
+
+.review-hero__progress .review-bar {
+  height: 8px;
+}
+
+.review-hero__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+/* 진행 막대 — 옅은 칸은 풀어 본 문제, 진한 칸은 통과 */
+.review-bar {
+  position: relative;
+  flex: 1;
+  min-width: 60px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--divider);
+  overflow: hidden;
+}
+
+.review-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+}
+
+.review-bar__tried {
+  background: color-mix(in srgb, var(--warning) 45%, transparent);
+}
+
+.review-bar__passed {
+  background: var(--success);
+}
+
+.review-retry {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warning) 8%, var(--surface));
+  color: var(--text-primary);
+}
+
+.review-retry > .icon {
+  color: var(--warning);
+}
+
+.review-retry__meta {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-retry__go {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--warning);
+}
+
+.review-subjects {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.review-subject + .review-subject {
+  border-top: 1px solid var(--divider);
+}
+
+.review-subject > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 13px 16px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.review-subject > summary::-webkit-details-marker {
+  display: none;
+}
+
+.review-subject > summary:hover {
+  background: var(--surface-variant);
+}
+
+.review-subject > summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.review-subject__chevron {
+  color: var(--text-hint);
+  transition: transform 0.15s;
+}
+
+.review-subject[open] .review-subject__chevron {
+  transform: rotate(90deg);
+}
+
+.review-subject__meta {
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.review-subject__score {
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--surface-variant);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.review-subject__score--done {
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success);
+}
+
+.review-days {
+  list-style: none;
+  margin: 0;
+  padding: 0 16px 6px 42px;
+}
+
+.review-day {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) 150px auto;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid var(--divider);
+  font-size: 14px;
+}
+
+.review-day__date {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.review-day__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-day__progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.review-day__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.review-subject__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 16px 12px 42px;
+}
+
+@media (max-width: 720px) {
+  .review-hero {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .review-hero__actions {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .review-days,
+  .review-subject__foot {
+    padding-left: 16px;
+  }
+
+  .review-day {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      'date actions'
+      'title title'
+      'progress progress';
+    gap: 4px 12px;
+  }
+
+  .review-day__date { grid-area: date; }
+  .review-day__title { grid-area: title; white-space: normal; }
+  .review-day__progress { grid-area: progress; }
+  .review-day__actions { grid-area: actions; }
+}

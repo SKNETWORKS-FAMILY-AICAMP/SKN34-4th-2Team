@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { PracticeSet, StudyNote } from '../../../domain/types';
-import { lessonDays, looseNotes, noteDate, noteLabel } from '../lessonDays';
+import type { PracticeSet, StudyNote, StudySource } from '../../../domain/types';
+import { lessonDays, looseNotes, noteDate, noteLabel, repoName, reviewBoard } from '../lessonDays';
 
 const set = (lessonDate: string): PracticeSet => ({
   id: `ps-${lessonDate}`, cohortId: 'c', sourceTitle: 'r', lessonDate, dayLabel: '', title: lessonDate, files: [], model: '', problems: [],
@@ -63,3 +63,51 @@ describe('공부방 수업 날짜', () => {
     expect(noteLabel({ ...note('c', 'x'), scopeType: 'files', scopeValue: ['lab/a.py', 'lab/b.py'] })).toBe('파일 a.py, b.py');
   });
 });
+
+describe('공부방 과목별 목록', () => {
+  const source = (id: string, repo: string, title: string): StudySource => ({
+    id, title, repoUrl: `https://github.com/skn-ai34-260616/${repo}`, branch: 'main', allowedPrefixes: [], isActive: true, sortOrder: 0,
+  });
+  const setOf = (name: string, lessonDate: string): PracticeSet => ({ ...set(lessonDate), id: `ps-${name}-${lessonDate}`, sourceTitle: name });
+  const sources = [source('mm', 'multimodal', 'Multimodal'), source('sw', 'sw_engineering', 'SW 공학'), source('dl', 'DL', 'Deep Learning')];
+
+  it('저장소 이름은 주소 끝을 소문자로 — 세트의 sourceTitle 과 맞춘다', () => {
+    expect(repoName('https://github.com/skn-ai34-260616/DL.git/')).toBe('dl');
+  });
+
+  it('세트는 저장소 이름으로, 노트는 저장소 id 로 과목에 붙고 최근 수업 과목부터', () => {
+    const board = reviewBoard(
+      sources,
+      [setOf('multimodal', '2026-09-11'), setOf('multimodal', '2026-09-15'), setOf('sw_engineering', '2026-09-21')],
+      [{ ...note('n', '2026-09-14'), sourceId: 'mm' }, { ...note('f', 'lab/'), sourceId: 'mm' }],
+    );
+    expect(board.subjects.map((s) => s.key)).toEqual(['sw', 'mm', 'dl']); // 자료 없는 DL 은 맨 뒤
+    const mm = board.subjects[1];
+    expect(mm.days.map((d) => [d.date, Boolean(d.set), Boolean(d.note)])).toEqual([
+      ['2026-09-15', true, false],
+      ['2026-09-14', false, true],
+      ['2026-09-11', true, false],
+    ]);
+    expect(mm.looseNotes.map((n) => n.id)).toEqual(['f']);
+    expect(board.latest?.subject.key).toBe('sw');
+    expect(board.latest?.day.date).toBe('2026-09-21');
+  });
+
+  it('저장소 목록에 없는 세트도 버리지 않고 제 이름의 과목으로', () => {
+    const board = reviewBoard(sources, [setOf('workflow', '2026-09-21')], []);
+    expect(board.subjects[0]).toMatchObject({ key: 'set:workflow', title: 'workflow' });
+    expect(board.subjects[0].source).toBeUndefined(); // 저장소가 없으니 노트 만들기는 못 한다
+    expect(board.latest?.day.set?.id).toBe('ps-workflow-2026-09-21');
+  });
+
+  it('오늘 복습은 문제가 있는 가장 최근 수업 — 노트만 있는 더 늦은 날은 건너뛴다', () => {
+    const board = reviewBoard(sources, [setOf('multimodal', '2026-09-15')], [{ ...note('late', '2026-09-22'), sourceId: 'sw' }]);
+    expect(board.latest?.day.date).toBe('2026-09-15');
+    expect(board.subjects[0].key).toBe('sw'); // 목록 순서는 노트까지 본 최근 수업
+  });
+
+  it('문제가 하나도 없으면 오늘 복습이 없다', () => {
+    expect(reviewBoard(sources, [], []).latest).toBeUndefined();
+  });
+});
+

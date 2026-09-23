@@ -22,6 +22,7 @@ import {
 import { Icon } from '../../ui/Icon';
 import { Button, Row, Spacer, TextInput, Toggle } from '../../ui/components';
 import { formatRelative } from '../../utils/format';
+import { repoName } from './lessonDays';
 
 /**
  * 수업 저장소 관리 — 강사(자기 기수)와 관리자(고른 기수)가 같이 쓴다.
@@ -231,11 +232,6 @@ export function StudySourcesPanel({ cohortId }: { cohortId: string }) {
       )}
     </div>
   );
-}
-
-/** 복습 세트의 저장소 이름 — 서버가 세트 · 출제 기록을 저장소 이름(소문자)으로 묶는다(practice_auto._repo_name) */
-function repoName(url: string): string {
-  return url.replace(/\/+$/, '').replace(/\.git$/, '').split('/').pop()!.toLowerCase();
 }
 
 /** 한 번에 고를 수 있는 날짜 — 날짜마다 LLM 을 부른다(서버도 5일로 막는다) */

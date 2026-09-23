@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
-import { RoutePaths, studyRoomNoteSourcePath } from '../../app/routePaths';
+import { RoutePaths } from '../../app/routePaths';
 import {
   deleteStudyNote,
   fetchStudySourceTree,
@@ -19,7 +19,6 @@ import { readApiError } from '../../data/http';
 import type { InflearnPackage, PracticeSet, StudyNoteScopeType } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import {
-  Badge,
   Button,
   Card,
   Checkbox,
@@ -33,7 +32,6 @@ import { retryItems } from '../practice/review';
 import { useIsHidden } from '../practice/useIsHidden';
 import { useCurrentUser } from '../auth/session';
 import { LessonDaysSection, practicePath, setProgress } from './LessonDaysSection';
-import { looseNotes } from './lessonDays';
 import { noteDate, noteLabel } from './noteScope';
 
 const packageTypeLabels: Record<string, string> = {
@@ -289,13 +287,9 @@ function CourseRow({ title, url }: { title: string; url: string }) {
   );
 }
 
-/** 학습 노트 목록 — study_room_notes_screen.dart */
+/** 공부방 — study_room_notes_screen.dart. 오늘 복습 · 다시 풀 문제 · 과목별 목록(LessonDaysSection) */
 export function StudyNotesScreen() {
   const user = useCurrentUser();
-  // 강사·관리자가 숨긴 저장소는 빼고
-  const sources = useStudySources().filter((s) => s.isActive);
-  const notes = useStudyNotes();
-  const loose = looseNotes(notes);
 
   return (
     <div className="screen__inner study-room">
@@ -307,47 +301,11 @@ export function StudyNotesScreen() {
             <span>공부방</span>
           </nav>
           <h1 className="study-head__title">공부방</h1>
-          <p className="study-head__desc">수업 날짜마다 복습 노트와 복습 문제를 함께 봅니다. 노트로 다시 읽고, 문제로 확인하세요.</p>
+          <p className="study-head__desc">수업이 끝나면 그날 복습 문제가 생겨요. 문제로 확인하고, 필요하면 노트로 다시 읽으세요.</p>
         </div>
       </header>
 
       <LessonDaysSection cohortId={user.cohortId} uid={user.uid} />
-
-      <section className="study-list">
-        <h2 className="study-section__title">저장소에서 노트 만들기</h2>
-        <p className="study-section__desc">날짜·폴더·파일 중 필요한 범위만 골라 노트를 만듭니다. 날짜로 만든 노트는 위 수업 카드에 붙어요.</p>
-        {sources.map((source) => {
-          const mine = loose.filter((n) => n.sourceId === source.id);
-          return (
-            <Card key={source.id} title={source.title}>
-              <Row gap={6}>
-                <a className="link" href={source.repoUrl} target="_blank" rel="noreferrer">
-                  {source.repoUrl}
-                </a>
-                <Badge tone="neutral">{source.branch}</Badge>
-                <Spacer />
-                <Link className="btn btn--filled btn--sm" to={studyRoomNoteSourcePath(source.id)}>
-                  새 수업노트 만들기
-                </Link>
-              </Row>
-              {mine.length > 0 && (
-                <div className="study-note-chips">
-                  {mine.map((note) => (
-                    <Link
-                      key={note.id}
-                      className="chip"
-                      to={`${studyRoomNoteSourcePath(source.id)}?note=${encodeURIComponent(note.id)}`}
-                    >
-                      <Icon name="description" size={16} />
-                      {noteLabel(note)}
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </Card>
-          );
-        })}
-      </section>
     </div>
   );
 }
