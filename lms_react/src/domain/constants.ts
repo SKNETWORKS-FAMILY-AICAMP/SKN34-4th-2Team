@@ -134,7 +134,7 @@ export const MileageCategories = ['gifticon', 'book', 'onlineCourse'] as const;
 
 export const MileagePricingLabels: Record<MileagePricingType, string> = {
   fixed: '정가',
-  variable: '직접 입력',
+  custom: '직접 입력',
 };
 
 export const PurchaseRequestStatusLabels: Record<string, string> = {

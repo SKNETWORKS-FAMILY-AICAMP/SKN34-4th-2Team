@@ -5,11 +5,14 @@ import { RoutePaths } from '../../app/routePaths';
 import {
   createPurchaseRequest,
   useMileageProducts,
+  useMileageSettings,
   useMileageTransactions,
   usePurchaseRequests,
 } from '../../data/repository';
 import {
+  MileageCategories,
   MileageCategoryLabels,
+  MileageDefaultLimits,
   PurchaseRequestStatusLabels,
 } from '../../domain/constants';
 import type { MileageCartItem, MileageProduct, PurchaseRequest } from '../../domain/types';
@@ -18,7 +21,9 @@ import {
   Badge,
   Button,
   Card,
+  Chip,
   DataTable,
+  Dialog,
   EmptyState,
   Field,
   PageHeader,
@@ -340,25 +345,72 @@ function PurchaseRequestCard({ request }: { request: PurchaseRequest }) {
   );
 }
 
-/** 마일리지 상점 — mileage_shop_screen.dart */
+/**
+ * 마일리지 교환소 — mileage_shop_screen.dart
+ *
+ * 잔액 카드 → 카테고리별 남은 한도 → 분류 · 정렬 · 검색 → 상품 격자 순서. 원본 그대로다.
+ * 한도는 내 구매 요청에서 센다: 승인 · 대기 · 수정 요청이 한도를 깎는다(반려 · 취소는 빼지 않는다).
+ */
 export function MileageShopScreen() {
+  const user = useCurrentUser();
   const products = useMileageProducts().filter((p) => p.isActive);
+  const settings = useMileageSettings();
+  const myRequests = usePurchaseRequests(user.uid);
   const { items, add } = useCart();
   const [category, setCategory] = useState('all');
+  const [sort, setSort] = useState<'default' | 'high' | 'low'>('default');
+  const [query, setQuery] = useState('');
+  const [picked, setPicked] = useState<MileageProduct | undefined>(undefined);
 
-  const filtered = category === 'all' ? products : products.filter((p) => p.category === category);
+  const usages = useCategoryUsage(myRequests, settings.categoryLimits);
+  const usageOf = (c: string) => usages.find((u) => u.category === c);
+
+  const text = query.trim().toLowerCase();
+  const filtered = products.filter(
+    (p) =>
+      (category === 'all' || p.category === category) &&
+      (text === '' || p.name.toLowerCase().includes(text)),
+  );
+  // 가격 직접 입력 상품은 값이 없으므로 0 으로 놓고 견준다(원본과 같다)
+  const priceOf = (p: MileageProduct) => (p.pricingType === 'custom' ? 0 : p.fixedPrice ?? 0);
+  const sorted =
+    sort === 'default'
+      ? filtered
+      : [...filtered].sort((a, b) => (sort === 'high' ? priceOf(b) - priceOf(a) : priceOf(a) - priceOf(b)));
 
   return (
     <div className="screen__inner">
       <PageHeader
-        title="마일리지 상점"
-        description="적립한 마일리지로 상품을 신청합니다."
+        title="마일리지 교환소"
+        description="상품을 선택해 장바구니에 담으세요."
         actions={
           <Link className="btn btn--filled btn--md" to={RoutePaths.mileageCart}>
             장바구니 {items.length > 0 ? `(${items.length})` : ''}
           </Link>
         }
       />
+
+      <div className="shop__credit">
+        <MileageCreditCard balance={user.mileageBalance} holderName={user.displayName} />
+      </div>
+
+      <div className="grid grid--3 shop__limits">
+        {usages.map((u) => (
+          <article key={u.category} className="limit-card">
+            <Row>
+              <strong>{MileageCategoryLabels[u.category] ?? u.category}</strong>
+              <Spacer />
+              <span className="muted limit-card__cap">한도 {formatMileage(u.limit)}</span>
+            </Row>
+            <strong className="limit-card__left">{formatMileage(u.remaining)}</strong>
+            <span className="muted">추가 신청 가능</span>
+            <span className="muted limit-card__break">
+              승인 {formatMileage(u.approved)} · 대기 {formatMileage(u.pending)} · 수정요청{' '}
+              {formatMileage(u.modifyRequested)}
+            </span>
+          </article>
+        ))}
+      </div>
 
       <Tabs
         items={[
@@ -373,58 +425,241 @@ export function MileageShopScreen() {
         onChange={setCategory}
       />
 
-      <div className="grid grid--3">
-        {filtered.map((product) => (
-          <ProductCard key={product.id} product={product} onAdd={add} />
+      <Row>
+        <span className="muted">정렬</span>
+        {([
+          ['default', '기본'],
+          ['high', '높은 순'],
+          ['low', '낮은 순'],
+        ] as const).map(([id, label]) => (
+          <Chip key={id} selected={sort === id} onClick={() => setSort(id)}>
+            {label}
+          </Chip>
         ))}
-      </div>
+        <Spacer />
+        <TextInput
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="상품 검색"
+          aria-label="상품 검색"
+        />
+      </Row>
+
+      {sorted.length === 0 ? (
+        <EmptyState message="등록된 상품이 없습니다. 관리자에게 문의해 주세요." />
+      ) : (
+        <div className="grid grid--3">
+          {sorted.map((product) => (
+            <ProductCard
+              key={product.id}
+              product={product}
+              remaining={usageOf(product.category)?.remaining}
+              onPick={() => setPicked(product)}
+            />
+          ))}
+        </div>
+      )}
+
+      {picked !== undefined && (
+        <AddToCartDialog
+          product={picked}
+          usage={usageOf(picked.category)}
+          balance={user.mileageBalance}
+          onClose={() => setPicked(undefined)}
+          onAdd={(item) => {
+            add(item);
+            setPicked(undefined);
+          }}
+        />
+      )}
     </div>
   );
 }
 
+interface CategoryUsage {
+  category: string;
+  limit: number;
+  approved: number;
+  pending: number;
+  modifyRequested: number;
+  remaining: number;
+}
+
+/** 카테고리별 한도 사용량 — mileage_repository.computeCategoryUsage */
+function useCategoryUsage(requests: PurchaseRequest[], limits: Record<string, number>): CategoryUsage[] {
+  return MileageCategories.map((category) => {
+    const limit = limits[category] ?? MileageDefaultLimits[category] ?? 0;
+    const sum = (status: string) =>
+      requests
+        .filter((r) => r.status === status)
+        .flatMap((r) => r.items)
+        .filter((i) => i.category === category)
+        .reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+    const approved = sum('approved');
+    const pending = sum('pending');
+    const modifyRequested = sum('modify_requested');
+    const used = approved + pending + modifyRequested;
+    return {
+      category,
+      limit,
+      approved,
+      pending,
+      modifyRequested,
+      remaining: Math.min(Math.max(limit - used, 0), limit),
+    };
+  });
+}
+
 function ProductCard({
   product,
-  onAdd,
+  remaining,
+  onPick,
 }: {
   product: MileageProduct;
-  onAdd(item: MileageCartItem): void;
+  remaining?: number;
+  onPick(): void;
 }) {
-  const [custom, setCustom] = useState('');
-  const variable = product.pricingType === 'variable';
-  const price = variable ? Number(custom) : (product.fixedPrice ?? 0);
+  const custom = product.pricingType === 'custom';
+  return (
+    <button type="button" className="product-card" onClick={onPick}>
+      <Badge tone="neutral">{MileageCategoryLabels[product.category] ?? product.category}</Badge>
+      {product.imageUrl ? (
+        <img className="product-card__image" src={product.imageUrl} alt="" />
+      ) : (
+        <span className="product-card__image product-card__image--empty">
+          <Icon name="card_giftcard" />
+        </span>
+      )}
+      <strong className="product-card__name">{product.name}</strong>
+      <span className="product-card__price">
+        {custom ? '가격 직접 입력' : formatMileage(product.fixedPrice ?? 0)}
+      </span>
+      {remaining !== undefined && <span className="muted">잔여 {formatMileage(remaining)}</span>}
+    </button>
+  );
+}
+
+/**
+ * 장바구니에 담기 — 정가 상품은 수량만, 가격 직접 입력 상품은 링크와 가격을 받는다.
+ * 가격은 카테고리 잔여 한도와 내 잔액을 넘을 수 없다(mileage_product_dialogs.dart).
+ */
+function AddToCartDialog({
+  product,
+  usage,
+  balance,
+  onAdd,
+  onClose,
+}: {
+  product: MileageProduct;
+  usage?: CategoryUsage;
+  balance: number;
+  onAdd(item: MileageCartItem): void;
+  onClose(): void;
+}) {
+  const custom = product.pricingType === 'custom';
+  const [quantity, setQuantity] = useState(1);
+  const [link, setLink] = useState('');
+  const [price, setPrice] = useState('');
+  const [error, setError] = useState<{ link?: string; price?: string }>({});
+
+  const submit = () => {
+    if (!custom) {
+      onAdd({
+        productId: product.id,
+        productName: product.name,
+        category: product.category,
+        pricingType: product.pricingType,
+        unitPrice: product.fixedPrice ?? 0,
+        quantity,
+      });
+      return;
+    }
+    const value = Number(price.trim());
+    const next: { link?: string; price?: string } = {};
+    if (link.trim() === '') next.link = '링크를 입력해 주세요.';
+    else if (!link.trim().startsWith('http')) next.link = '올바른 URL을 입력해 주세요.';
+    if (!Number.isFinite(value) || value <= 0) next.price = '올바른 가격을 입력해 주세요.';
+    else if (usage !== undefined && value > usage.remaining) next.price = '카테고리 잔여 한도를 초과합니다.';
+    else if (value > balance) next.price = '마일리지 잔액이 부족합니다.';
+    setError(next);
+    if (next.link !== undefined || next.price !== undefined) return;
+    onAdd({
+      productId: product.id,
+      productName: product.name,
+      category: product.category,
+      pricingType: product.pricingType,
+      unitPrice: value,
+      quantity: 1,
+      purchaseLink: link.trim(),
+    });
+  };
 
   return (
-    <Card title={product.name}>
-      <Badge tone="neutral">{MileageCategoryLabels[product.category] ?? product.category}</Badge>
-      <p className="muted">{product.description}</p>
-      {variable ? (
-        <Field label="금액 직접 입력">
-          <TextInput
-            type="number"
-            value={custom}
-            onChange={(e) => setCustom(e.target.value)}
-            placeholder="예) 55000"
-          />
-        </Field>
-      ) : (
-        <strong className="price">{formatMileage(product.fixedPrice ?? 0)}</strong>
+    <Dialog
+      title={product.name}
+      onClose={onClose}
+      actions={
+        <>
+          <Button variant="text" onClick={onClose}>
+            취소
+          </Button>
+          <Button onClick={submit}>장바구니에 담기</Button>
+        </>
+      }
+    >
+      {usage !== undefined && (
+        <p className="notice-banner">
+          {MileageCategoryLabels[product.category] ?? product.category} 잔여 한도:{' '}
+          {formatMileage(usage.remaining)} / {formatMileage(usage.limit)}
+        </p>
       )}
-      <Button
-        disabled={price <= 0}
-        onClick={() =>
-          onAdd({
-            productId: product.id,
-            productName: product.name,
-            category: product.category,
-            pricingType: product.pricingType,
-            unitPrice: price,
-            quantity: 1,
-          })
-        }
-      >
-        장바구니 담기
-      </Button>
-    </Card>
+      {custom ? (
+        <>
+          <Field
+            label={product.category === 'onlineCourse' ? '강의 링크' : '도서 링크'}
+            error={error.link}
+          >
+            <TextInput
+              value={link}
+              onChange={(e) => setLink(e.target.value)}
+              placeholder={
+                product.category === 'onlineCourse'
+                  ? 'https://www.inflearn.com/course/...'
+                  : 'https://www.yes24.com/...'
+              }
+            />
+          </Field>
+          <Field label="가격 (M)" error={error.price}>
+            <TextInput
+              type="number"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              placeholder="예) 66000"
+            />
+          </Field>
+        </>
+      ) : (
+        <>
+          <strong className="price">{formatMileage(product.fixedPrice ?? 0)}</strong>
+          <Field label="수량">
+            <Row>
+              <Button
+                variant="text"
+                disabled={quantity <= 1}
+                onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+                aria-label="수량 줄이기"
+              >
+                −
+              </Button>
+              <span>{quantity}</span>
+              <Button variant="text" onClick={() => setQuantity((q) => q + 1)} aria-label="수량 늘리기">
+                +
+              </Button>
+            </Row>
+          </Field>
+        </>
+      )}
+    </Dialog>
   );
 }
 

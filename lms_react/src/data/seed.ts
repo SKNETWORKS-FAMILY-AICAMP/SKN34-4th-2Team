@@ -1229,7 +1229,7 @@ export const seedMileageProducts: MileageProduct[] = [
     name: '인프런 강의 (직접 입력)',
     description: '수강하고 싶은 강의 링크와 금액을 직접 입력합니다.',
     category: 'onlineCourse',
-    pricingType: 'variable',
+    pricingType: 'custom',
     isActive: true,
     sortOrder: 3,
   },

@@ -611,7 +611,8 @@ export interface MileageTransaction {
   createdAt?: Date;
 }
 
-export type MileagePricingType = 'fixed' | 'variable';
+// DB · Flutter 원본과 같은 값을 쓴다(custom = 학생이 가격을 직접 넣는 상품)
+export type MileagePricingType = 'fixed' | 'custom';
 
 export interface MileageProduct {
   id: string;

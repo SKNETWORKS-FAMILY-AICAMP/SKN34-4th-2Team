@@ -200,7 +200,7 @@ export function AdminMileageProductFormScreen() {
           <Field label="가격 방식">
             <Select value={pricingType} onChange={(e) => setPricingType(e.target.value as MileagePricingType)}>
               <option value="fixed">정가</option>
-              <option value="variable">학생이 직접 입력</option>
+              <option value="custom">학생이 직접 입력</option>
             </Select>
           </Field>
           {pricingType === 'fixed' && (
