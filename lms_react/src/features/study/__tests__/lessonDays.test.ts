@@ -37,6 +37,17 @@ describe('공부방 수업 날짜', () => {
     ]);
   });
 
+  it('정리 중 · 실패한 노트는 수업 카드와 따로 노트 목록에 붙이지 않는다', () => {
+    const days = lessonDays(
+      [set('2026-09-15')],
+      [{ ...note('done', '2026-09-15', 1) }, { ...note('busy', '2026-09-15', 2), status: 'generating' }, { ...note('bad', '2026-09-19'), status: 'failed' }],
+    );
+    expect(days.map((d) => [d.date, d.note?.id ?? null])).toEqual([['2026-09-15', 'done']]);
+    expect(looseNotes([{ ...note('f', 'python/day01'), status: 'generating' }, note('g', 'python/day02')]).map((n) => n.id)).toEqual(['g']);
+    // 서버가 새로 만든 노트는 ready, 옛 데이터는 done
+    expect(lessonDays([], [{ ...note('r', '2026-09-20'), status: 'ready' }])[0].note?.id).toBe('r');
+  });
+
   it('같은 날 노트가 여럿이면 가장 최근 것', () => {
     const days = lessonDays([], [note('old', '2026-09-15', 1), note('new', '2026-09-15', 5), note('mid', '2026-09-15', 3)]);
     expect(days[0].note?.id).toBe('new');

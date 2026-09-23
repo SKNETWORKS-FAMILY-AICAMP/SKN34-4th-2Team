@@ -1,17 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { RoutePaths, studyRoomNoteSourcePath } from '../../app/routePaths';
 import {
-  createDemoStudyNote,
+  fetchStudySourceTree,
+  refreshStudyNote,
+  requestStudyNote,
   useInflearnPackages,
   useMyPracticeAttempts,
   usePracticeSets,
   useStudyNotes,
   useStudySources,
   useYoutubeRecommendations,
+  type StudySourceTree,
 } from '../../data/repository';
-import type { InflearnPackage, PracticeSet } from '../../domain/types';
+import { readApiError } from '../../data/http';
+import type { InflearnPackage, PracticeSet, StudyNoteScopeType } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import {
   Badge,
@@ -346,11 +350,16 @@ export function StudyNotesScreen() {
   );
 }
 
+/** 정리 중인 노트를 다시 물어보는 간격 — 노트 하나에 몇 분 걸린다 */
+const POLL_MS = 5000;
+
+const STATUS_SUFFIX: Record<string, string> = { generating: ' · 정리 중', failed: ' · 실패' };
+
 /** 노트 상세 — study_room_note_source_screen.dart */
 export function StudyNoteSourceScreen() {
-  const { sourceId } = useParams<{ sourceId: string }>();
+  const { sourceId = '' } = useParams<{ sourceId: string }>();
   const sources = useStudySources();
-  const notes = useStudyNotes().filter((n) => n.sourceId === sourceId);
+  const allNotes = useStudyNotes();
   const source = sources.find((s) => s.id === sourceId);
   const query = new URLSearchParams(window.location.search);
   const initialNoteId = query.get('note');
@@ -367,35 +376,82 @@ export function StudyNoteSourceScreen() {
   const isHidden = useIsHidden();
   const [checkedFiles, setCheckedFiles] = useState<string[]>([]);
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [tree, setTree] = useState<StudySourceTree | null>(null);
+  const [treeError, setTreeError] = useState('');
+  // 범위가 너무 넓다고 돌아온 파일들 — 이 중에서 고르게 한다
+  const [candidates, setCandidates] = useState<string[] | null>(null);
 
+  // 너무 넓었던 노트는 목록에 두지 않는다(보고 있는 것만)
+  const notes = allNotes.filter((n) => n.sourceId === sourceId && (n.status !== 'too_broad' || n.id === selectedId));
   const note = notes.find((item) => item.id === selectedId);
-  const files = Array.from(new Set(notes.flatMap((item) => item.files.map((file) => file.path))));
-  const dateChoices = [...new Set([...(initialDate ? [initialDate] : []), '2026-09-17', '2026-09-18', '2026-09-19'])].sort();
+
+  useEffect(() => {
+    let alive = true;
+    fetchStudySourceTree(sourceId)
+      .then((next) => {
+        if (alive) setTree(next);
+      })
+      .catch(async (e) => {
+        const reason = await readApiError(e);
+        if (alive) setTreeError(reason);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [sourceId]);
+
+  // 정리 중이면 끝날 때까지 물어본다. 화면을 떠나도 서버는 계속 만든다
+  const pollId = note?.status === 'generating' ? note.id : null;
+  useEffect(() => {
+    if (!pollId) return;
+    const timer = window.setInterval(() => {
+      refreshStudyNote(pollId).catch(() => {
+        // 잠깐 끊겨도 다음 차례에 다시 묻는다
+      });
+    }, POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [pollId]);
+
+  const files = candidates ?? tree?.files ?? [];
+  const dateChoices = [...new Set([...(initialDate ? [initialDate] : []), ...(tree?.dates ?? [])])].sort().reverse();
   const noteDay = note ? noteDate(note) : null;
   const daySet = noteDay ? sets.find((s) => s.lessonDate === noteDay) : undefined;
   const dayProgress = daySet ? setProgress(daySet, attempts, isHidden) : null;
-  const folderChoices = source?.allowedPrefixes ?? [];
+  const folderChoices = source?.allowedPrefixes.length
+    ? source.allowedPrefixes
+    : [...new Set((tree?.files ?? []).filter((p) => p.includes('/')).map((p) => p.split('/')[0]))];
+
+  const request = async (scopeType: StudyNoteScopeType, value: string | string[]) => {
+    setBusy(true);
+    setError('');
+    try {
+      const made = await requestStudyNote(sourceId, scopeType, value);
+      setSelectedId(made.id);
+      setTab('report');
+    } catch (e) {
+      setError(await readApiError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const generate = () => {
-    const selectedFiles = scopeMode === 'file' ? checkedFiles : files.filter((path) =>
-      scopeMode === 'folder' ? path.startsWith(scopeValue) : true,
-    );
     if ((scopeMode === 'file' && checkedFiles.length === 0) || (scopeMode !== 'file' && scopeValue === '')) {
       setError(scopeMode === 'file' ? '파일을 1개 이상 선택하세요.' : '정리할 범위를 선택하세요.');
       return;
     }
     // 범위 종류는 백엔드와 같은 이름 — 폴더는 prefix
     const scopeType = scopeMode === 'date' ? 'date' : scopeMode === 'folder' ? 'prefix' : 'files';
-    const value = scopeMode === 'file' ? [...checkedFiles].sort() : scopeValue;
-    const id = createDemoStudyNote(
-      sourceId ?? '',
-      scopeType,
-      value,
-      selectedFiles.slice(0, 8).map((path) => ({ path, commit: 'demo-local' })),
-    );
-    setSelectedId(id);
-    setTab('report');
-    setError('');
+    void request(scopeType, scopeMode === 'file' ? [...checkedFiles].sort() : scopeValue);
+  };
+
+  const pickFromTooBroad = (picked: string[]) => {
+    setCandidates(picked);
+    setCheckedFiles([]);
+    setScopeMode('file');
+    setScopeValue('');
+    setSelectedId(null);
   };
 
   return (
@@ -425,6 +481,7 @@ export function StudyNoteSourceScreen() {
                     onClick={() => setSelectedId(n.id)}
                   >
                     {noteLabel(n)}
+                    {STATUS_SUFFIX[n.status] ?? ''}
                   </button>
                 </li>
               ))}
@@ -433,7 +490,7 @@ export function StudyNoteSourceScreen() {
 
           {note === undefined ? (
             <Card className="split__main" title="새 수업노트 만들기">
-              <p className="muted">정리할 범위를 하나만 고르면 됩니다.</p>
+              <p className="muted">정리할 범위를 하나만 고르면 됩니다. 저장소를 읽어 AI 가 정리하느라 몇 분 걸려요.</p>
               <Tabs
                 items={[
                   { id: 'date', label: '날짜' },
@@ -447,6 +504,8 @@ export function StudyNoteSourceScreen() {
                   setError('');
                 }}
               />
+              {tree === null && treeError === '' && <p className="hint">저장소를 읽는 중…</p>}
+              {treeError !== '' && <div className="callout callout--error">저장소 목록을 불러오지 못했어요 — {treeError}</div>}
               <div className="study-scope-options">
                 {scopeMode === 'date' && dateChoices.map((date) => (
                   <button key={date} type="button" className={`chip${scopeValue === date ? ' chip--on' : ''}`} onClick={() => setScopeValue(date)}>{date}</button>
@@ -465,10 +524,47 @@ export function StudyNoteSourceScreen() {
                   />
                 ))}
               </div>
-              {scopeMode === 'file' && <span className="hint">{checkedFiles.length}/8개 선택</span>}
+              {scopeMode === 'file' && (
+                <Row gap={8}>
+                  <span className="hint">{checkedFiles.length}/8개 선택</span>
+                  {candidates && (
+                    <button type="button" className="btn btn--text btn--sm" onClick={() => setCandidates(null)}>
+                      전체 파일 보기
+                    </button>
+                  )}
+                </Row>
+              )}
               {error !== '' && <div className="callout callout--error">{error}</div>}
-              <div className="callout">현재는 화면 확인용 로컬 생성입니다. 실제 저장소 분석은 Django·공부방 API 연결 후 동작합니다.</div>
-              <Row><Spacer /><Button onClick={generate}>선택한 범위 정리하기</Button></Row>
+              <Row><Spacer /><Button onClick={generate} disabled={busy}>{busy ? '요청 중…' : '선택한 범위 정리하기'}</Button></Row>
+            </Card>
+          ) : note.status === 'generating' ? (
+            <Card className="split__main" title={noteLabel(note)}>
+              <div className="callout" role="status">
+                정리 중이에요. 저장소를 읽고 AI 가 요약하느라 몇 분 걸려요. 이 화면을 떠나도 계속 만들고, 끝나면 여기에 나타나요.
+              </div>
+            </Card>
+          ) : note.status === 'failed' ? (
+            <Card className="split__main" title={noteLabel(note)}>
+              <div className="callout callout--error">{note.errorMessage || '노트를 만들지 못했어요.'}</div>
+              {error !== '' && <div className="callout callout--error">{error}</div>}
+              {note.scopeType && note.scopeValue !== undefined && (
+                <Row>
+                  <Spacer />
+                  <Button onClick={() => void request(note.scopeType!, note.scopeValue!)} disabled={busy}>
+                    다시 만들기
+                  </Button>
+                </Row>
+              )}
+            </Card>
+          ) : note.status === 'too_broad' ? (
+            <Card className="split__main" title={noteLabel(note)}>
+              <div className="callout">
+                {note.message || '파일이 너무 많아요.'} 이 범위의 파일 {note.files.length}개 중에서 골라 주세요.
+              </div>
+              <Row>
+                <Spacer />
+                <Button onClick={() => pickFromTooBroad(note.files.map((f) => f.path))}>파일 골라 정리하기</Button>
+              </Row>
             </Card>
           ) : (
           <Card className="split__main">

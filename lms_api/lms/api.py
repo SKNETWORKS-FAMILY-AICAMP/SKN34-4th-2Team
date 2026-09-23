@@ -25,6 +25,7 @@ from lms.permissions import can_access_cohort
 from lms.publish import publish_scheduled_notices
 from lms.resume_text import build_profile, build_resume_text
 from lms.services import schedule_notice_vector
+from lms import study_note_service
 
 
 class LmsAuth(HttpBearer):
@@ -333,6 +334,45 @@ def _review_call(path: str, payload: dict, timeout: int = 180):
         return Response({"detail": detail or "첨삭하지 못했습니다."}, status=exc.code)
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         return Response({"detail": "첨삭 서버에 연결하지 못했습니다."}, status=503)
+
+
+class StudyTreeIn(Schema):
+    sourceId: str
+
+
+class StudyNoteIn(Schema):
+    sourceId: str
+    scopeType: str
+    scopeValue: Any = None
+
+
+def _study(call):
+    """공부방 노트 — 실패 이유를 화면이 그대로 보여 줄 수 있게 {"detail"} 로"""
+    try:
+        return call()
+    except study_note_service.StudyNoteError as exc:
+        return Response({"detail": exc.detail}, status=exc.status)
+
+
+@api.post("/study-notes/tree")
+def study_notes_tree(request, body: StudyTreeIn):
+    """수업 저장소의 최근 수업 날짜와 파일 목록 — 노트 범위를 고르는 화면이 쓴다."""
+    user = _require_user(request)
+    return _study(lambda: study_note_service.source_tree(user, body.sourceId))
+
+
+@api.post("/study-notes")
+def study_notes_create(request, body: StudyNoteIn):
+    """노트 만들기. 몇 분 걸려서 「정리 중」 노트를 바로 돌려주고, 화면은 GET 으로 끝났는지 본다.
+    같은 범위의 노트가 이미 있으면 새로 만들지 않고 그것을 돌려준다."""
+    user = _require_user(request)
+    return _study(lambda: study_note_service.start_note(user, body.sourceId, body.scopeType, body.scopeValue))
+
+
+@api.get("/study-notes/{note_id}")
+def study_notes_get(request, note_id: str):
+    user = _require_user(request)
+    return _study(lambda: study_note_service.get_note(user, note_id))
 
 
 class ResumeReviewApplyIn(Schema):

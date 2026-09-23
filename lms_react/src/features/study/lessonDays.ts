@@ -1,5 +1,5 @@
 import type { PracticeSet, StudyNote } from '../../domain/types';
-import { noteDate } from './noteScope';
+import { isReadyNote, noteDate } from './noteScope';
 
 export { noteDate, noteLabel } from './noteScope';
 
@@ -27,7 +27,8 @@ export function lessonDays(sets: PracticeSet[], notes: StudyNote[]): LessonDay[]
   for (const s of sets) day(s.lessonDate).set = s;
   for (const n of notes) {
     const date = noteDate(n);
-    if (!date) continue;
+    // 정리 중 · 실패한 노트는 수업 카드에 붙이지 않는다 — 노트 화면에서 상태를 본다
+    if (!date || !isReadyNote(n)) continue;
     const d = day(date);
     const older = d.note && (d.note.createdAt?.getTime() ?? 0) > (n.createdAt?.getTime() ?? 0);
     if (!older) d.note = n;
@@ -35,7 +36,7 @@ export function lessonDays(sets: PracticeSet[], notes: StudyNote[]): LessonDay[]
   return [...days.values()].sort((a, b) => b.date.localeCompare(a.date));
 }
 
-/** 날짜와 상관없는 노트 — 폴더·파일로 범위를 고른 것 */
+/** 날짜와 상관없는 노트 — 폴더·파일로 범위를 고른 것. 다 만든 것만 */
 export function looseNotes(notes: StudyNote[]): StudyNote[] {
-  return notes.filter((n) => noteDate(n) === null);
+  return notes.filter((n) => noteDate(n) === null && isReadyNote(n));
 }

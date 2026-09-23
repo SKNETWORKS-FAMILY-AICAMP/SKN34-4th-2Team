@@ -34,6 +34,7 @@ import type {
   PracticeReportReason,
   PracticeReview,
   PracticeSet,
+  StudyNote,
   StudyNoteScopeType,
 } from '../domain/types';
 import { getDb, mutate as mutateStore, nextId, subscribe, type Database } from './store';
@@ -42,7 +43,7 @@ import { buildScopeKey, scopeLabel } from '../features/study/noteScope';
 import { resumeStatusToServer } from '../features/resume/resumeGroups';
 import { remapAssignments } from '../domain/seatingLayout';
 import { http, readApiError } from './http';
-import { fetchBootstrap, lastBootstrapSession } from './bootstrap';
+import { fetchBootstrap, lastBootstrapSession, mapStudyNote } from './bootstrap';
 import { getBootstrapDb, subscribeBootstrap } from './bootstrapStore';
 import { queryClient, queryKeys } from './queryClient';
 
@@ -1109,7 +1110,61 @@ export function useStudyNotes() {
   return useDb((db) => db.studyNotes);
 }
 
-export function createDemoStudyNote(
+/** 노트 범위를 고를 재료 — 저장소의 최근 수업 날짜와 분석할 수 있는 파일 */
+export interface StudySourceTree {
+  dates: string[];
+  files: string[];
+}
+
+/** 테스트(데모)는 저장소를 못 읽으니 정해 둔 날짜와, 이미 있는 노트의 파일로 대신한다 */
+const DEMO_DATES = ['2026-09-17', '2026-09-18', '2026-09-19'];
+
+function demoFiles(sourceId: string): string[] {
+  const notes = getDb().studyNotes.filter((n) => n.sourceId === sourceId);
+  return [...new Set(notes.flatMap((n) => n.files.map((f) => f.path)))];
+}
+
+export async function fetchStudySourceTree(sourceId: string): Promise<StudySourceTree> {
+  if (isTestMode()) return { dates: DEMO_DATES, files: demoFiles(sourceId) };
+  const { data } = await http.post<{ dates?: string[]; entries?: { path: string }[] }>('/study-notes/tree', { sourceId });
+  return { dates: data.dates ?? [], files: (data.entries ?? []).map((e) => e.path) };
+}
+
+function putStudyNote(note: StudyNote): StudyNote {
+  mutate((db) => ({ studyNotes: [...db.studyNotes.filter((n) => n.id !== note.id), note] }));
+  return note;
+}
+
+/**
+ * 노트 만들기 — 서버가 수업 저장소를 읽어 AI 로 정리한다. 몇 분 걸려서 서버는 「정리 중」 노트를 먼저 돌려주고,
+ * 화면은 refreshStudyNote 로 끝났는지 본다. 같은 범위의 노트가 이미 있으면 그것이 온다.
+ */
+export async function requestStudyNote(
+  sourceId: string,
+  scopeType: StudyNoteScopeType,
+  scopeValue: string | string[],
+): Promise<StudyNote> {
+  if (isTestMode()) {
+    const all = demoFiles(sourceId);
+    const picked = Array.isArray(scopeValue) ? scopeValue : all.filter((p) => scopeType !== 'prefix' || p.startsWith(scopeValue));
+    const id = createDemoStudyNote(sourceId, scopeType, scopeValue, picked.slice(0, 8).map((path) => ({ path, commit: 'demo-local' })));
+    return getDb().studyNotes.find((n) => n.id === id)!;
+  }
+  const { data } = await http.post<Record<string, unknown>>('/study-notes', { sourceId, scopeType, scopeValue });
+  return putStudyNote(mapStudyNote(data));
+}
+
+export async function refreshStudyNote(id: string): Promise<StudyNote> {
+  if (isTestMode()) {
+    const found = getDb().studyNotes.find((n) => n.id === id);
+    if (!found) throw new Error('노트를 찾을 수 없습니다.');
+    return found;
+  }
+  const { data } = await http.get<Record<string, unknown>>(`/study-notes/${encodeURIComponent(id)}`);
+  return putStudyNote(mapStudyNote(data));
+}
+
+function createDemoStudyNote(
   sourceId: string,
   scopeType: StudyNoteScopeType,
   scopeValue: string | string[],

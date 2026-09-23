@@ -64,7 +64,25 @@ flowchart LR
 
 ## API
 
-통합 서버(포트 8000)에 붙어 있다. 모두 `Authorization: Bearer <Firebase ID 토큰>`이 필요하다.
+통합 서버(포트 8000)에 붙어 있다. 창구가 두 갈래다.
+
+**LMS(React · Django)** — 웹은 Django 를 부르고, Django 가 JWT 로 학생을 확인한 뒤 DB(`study_sources`)의 저장소 정보를
+아래 `/proxy/*` 로 넘긴다. 노트는 Django 가 `study_notes` 에 저장한다(`lms_api/lms/study_note_service.py`).
+노트 하나에 몇 분 걸려 gunicorn·nginx 의 120초를 넘으므로, Django 는 「정리 중」 행을 먼저 돌려주고 스레드에서 기다린다.
+
+| 경로 | 요청 | 응답 |
+|---|---|---|
+| `POST /api/study-notes/tree` (Django) | `{sourceId}` | `dates`, `entries` |
+| `POST /api/study-notes` (Django) | `{sourceId, scopeType, scopeValue}` | 노트 행. 새로 만들면 `status: generating` |
+| `GET /api/study-notes/{id}` (Django) | | 노트 행 — 화면이 5초마다 물어 끝났는지 본다 |
+| `POST /api/v1/study-notes/proxy/tree` (여기) | `{cohortId, source: {id, title, repoUrl, branch, allowedPrefixes}}` | `dates`, `entries` |
+| `POST /api/v1/study-notes/proxy/generate` (여기) | 위 + `{scopeType, scopeValue}` | `ready` 면 노트 내용, `too_broad` 면 파일 목록. 저장하지 않는다 |
+
+
+`/proxy/*` 는 이력서 첨삭의 `/proxy` 처럼 인증이 없다 — 바깥에 열지 않고 Django 만 부른다.
+
+
+**Flutter 앱** — 아래 경로. 모두 `Authorization: Bearer <Firebase ID 토큰>`이 필요하고 Firestore 에 저장한다.
 
 | 경로 | 요청 | 응답 |
 |---|---|---|

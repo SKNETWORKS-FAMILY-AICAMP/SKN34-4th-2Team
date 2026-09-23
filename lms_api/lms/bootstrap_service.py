@@ -114,7 +114,14 @@ def build_bootstrap(user: dict) -> dict:
         inflearn = q("SELECT * FROM inflearn_packages WHERE cohort_id = ANY(%s)", [cohort_ids])
         youtube = q("SELECT * FROM youtube_recommendations WHERE cohort_id = ANY(%s)", [cohort_ids])
         sources = q("SELECT * FROM study_sources WHERE cohort_id = ANY(%s)", [cohort_ids])
-        notes = q("SELECT * FROM study_notes WHERE user_id = %s", [user["id"]])
+        # 화면은 소스를 legacy_id(없으면 숫자 id)로 부른다 — 노트의 source_id 도 같은 값으로 바꿔 보낸다
+        notes = q(
+            """SELECT n.*, COALESCE(s.legacy_id, s.id::text) AS source_key
+               FROM study_notes n LEFT JOIN study_sources s ON s.id = n.source_id WHERE n.user_id = %s""",
+            [user["id"]],
+        )
+        for note in notes:
+            note["source_id"] = note.pop("source_key")
         sheets = q("SELECT * FROM curriculum_sheets WHERE cohort_id = ANY(%s)", [cohort_ids])
         sheet_ids = [s["id"] for s in sheets] or [-1]
         curriculum_rows = q(

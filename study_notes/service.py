@@ -117,6 +117,23 @@ def load_active_source(db: Client, cohort_id: str, source_id: str) -> StudySourc
     )
 
 
+def source_from_payload(raw: dict[str, Any]) -> StudySource:
+    """LMS(Django) 가 DB 에서 읽어 넘긴 저장소 정보 — Firestore 를 읽지 않는 창구(api.py 의 /proxy/*)용."""
+    repo_url = str(raw.get("repoUrl") or "")
+    try:
+        parse_repo_url(repo_url)
+        branch = sanitize_branch(str(raw.get("branch") or "main"))
+    except GitToolError as exc:
+        raise _bad_request(str(exc)) from exc
+    return StudySource(
+        id=str(raw.get("id") or ""),
+        title=str(raw.get("title") or ""),
+        repo_url=repo_url,
+        branch=branch,
+        allowed_prefixes=_normalize_prefixes(raw.get("allowedPrefixes")),
+    )
+
+
 def repo_cache(cohort_id: str, source: StudySource) -> RepoCache:
     return RepoCache(cohort_id, source.id, parse_repo_url(source.repo_url), source.branch)
 
@@ -228,7 +245,11 @@ def serialize_note(note_id: str, data: dict[str, Any], caller: Caller) -> dict[s
 
 def list_source_tree(db: Client, caller: Caller, cohort_id: str, source_id: str) -> dict[str, Any]:
     assert_cohort_access(caller, cohort_id)
-    source = load_active_source(db, cohort_id, source_id)
+    return source_tree(cohort_id, load_active_source(db, cohort_id, source_id))
+
+
+def source_tree(cohort_id: str, source: StudySource) -> dict[str, Any]:
+    """저장소의 최근 수업 날짜와 파일 목록. 권한은 부르는 쪽이 이미 확인했다."""
     cache = repo_cache(cohort_id, source)
     try:
         cache.sync()
@@ -340,6 +361,68 @@ def _load_materials(cache: RepoCache, files: list[dict[str, str]]) -> list[Mater
         return list(pool.map(one, files))
 
 
+def build_note(cohort_id: str, source: StudySource, scope_type: ScopeType,
+               scope_value: str | list[str]) -> dict[str, Any]:
+    """저장소에서 범위의 파일을 모아 노트를 만든다. 저장은 하지 않는다 — 부르는 쪽(Firestore · LMS DB)이 한다.
+
+    파일이 너무 많으면 {"status": "too_broad", "message", "files"}, 아니면 {"status": "ready", commits, files, …}.
+    범위(scope_value)는 normalize_scope_value · assert_scope_allowed 를 이미 거친 값이어야 한다."""
+    cache = repo_cache(cohort_id, source)
+    commits, files, too_broad = _collect(cache, source, scope_type, scope_value)
+    if too_broad:
+        return {
+            "status": "too_broad",
+            "message": f"파일을 선택하세요. 한 번에 최대 {MAX_FILES}개까지 정리할 수 있습니다.",
+            "files": files,
+        }
+    if not files:
+        raise HTTPException(status_code=404, detail="이 범위에서 분석 가능한 .ipynb/.py/.md 파일이 없습니다.")
+
+    materials = _load_materials(cache, files)
+    report, review = generate_study_note(
+        scope_label=scope_label(scope_type, scope_value),
+        commits=commits,
+        materials=materials,
+    )
+    return {
+        "status": "ready",
+        "commits": commits,
+        "files": files,
+        "reportMarkdown": report,
+        "reviewMarkdown": review,
+    }
+
+
+def failure_message(exc: Exception) -> str:
+    """학생에게 보여 줄 실패 이유"""
+    if isinstance(exc, HTTPException):
+        return str(exc.detail)
+    if isinstance(exc, GitToolError):
+        return str(exc)
+    return f"AI 수업 노트 생성 실패: {str(exc)[:200]}"
+
+
+def build_note_for_lms(cohort_id: str, source: StudySource, scope_type_raw: str,
+                       scope_value_raw: Any) -> dict[str, Any]:
+    """LMS(Django) 창구 — 범위를 검사하고 노트를 만들어 돌려준다. 잠금·저장은 LMS 가 한다."""
+    scope_type = parse_scope_type(scope_type_raw)
+    scope_value = normalize_scope_value(scope_type, scope_value_raw)
+    assert_scope_allowed(source, scope_type, scope_value)
+    try:
+        built = build_note(cohort_id, source, scope_type, scope_value)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        status = 502 if isinstance(exc, GitToolError) else 500
+        raise HTTPException(status_code=status, detail=failure_message(exc)) from exc
+    return {
+        **built,
+        "scopeType": scope_type,
+        "scopeValue": scope_value,
+        "scopeKey": build_scope_key(scope_type, scope_value),
+    }
+
+
 def generate_note(db: Client, caller: Caller, cohort_id: str, source_id: str,
                   scope_type_raw: str, scope_value_raw: Any) -> dict[str, Any]:
     assert_cohort_access(caller, cohort_id)
@@ -363,25 +446,10 @@ def generate_note(db: Client, caller: Caller, cohort_id: str, source_id: str,
         }
 
     try:
-        cache = repo_cache(cohort_id, source)
-        commits, files, too_broad = _collect(cache, source, scope_type, scope_value)
-        if too_broad:
+        built = build_note(cohort_id, source, scope_type, scope_value)
+        if built["status"] == "too_broad":
             ref.delete()
-            return {
-                "status": "too_broad",
-                "noteId": note_id,
-                "message": f"파일을 선택하세요. 한 번에 최대 {MAX_FILES}개까지 정리할 수 있습니다.",
-                "files": files,
-            }
-        if not files:
-            raise HTTPException(status_code=404, detail="이 범위에서 분석 가능한 .ipynb/.py/.md 파일이 없습니다.")
-
-        materials = _load_materials(cache, files)
-        report, review = generate_study_note(
-            scope_label=scope_label(scope_type, scope_value),
-            commits=commits,
-            materials=materials,
-        )
+            return {"noteId": note_id, **built}
         ref.set({
             "sourceId": source.id,
             "cohortId": cohort_id,
@@ -390,10 +458,10 @@ def generate_note(db: Client, caller: Caller, cohort_id: str, source_id: str,
             "scopeValue": scope_value,
             "scopeKey": scope_key,
             "status": "ready",
-            "commits": commits,
-            "files": files,
-            "reportMarkdown": report,
-            "reviewMarkdown": review,
+            "commits": built["commits"],
+            "files": built["files"],
+            "reportMarkdown": built["reportMarkdown"],
+            "reviewMarkdown": built["reviewMarkdown"],
             "errorMessage": gcf.DELETE_FIELD,
             "generatedAt": gcf.SERVER_TIMESTAMP,
             "updatedAt": gcf.SERVER_TIMESTAMP,
@@ -406,17 +474,12 @@ def generate_note(db: Client, caller: Caller, cohort_id: str, source_id: str,
             "sourceId": source.id,
             "scopeType": scope_type,
             "scopeValue": scope_value,
-            "reportMarkdown": report,
-            "reviewMarkdown": review,
-            "files": files,
+            "reportMarkdown": built["reportMarkdown"],
+            "reviewMarkdown": built["reviewMarkdown"],
+            "files": built["files"],
         }
     except Exception as exc:
-        if isinstance(exc, HTTPException):
-            message = str(exc.detail)
-        elif isinstance(exc, GitToolError):
-            message = str(exc)
-        else:
-            message = f"AI 수업 노트 생성 실패: {str(exc)[:200]}"
+        message = failure_message(exc)
         ref.set({
             "status": "failed",
             "errorMessage": message[:500],

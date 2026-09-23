@@ -482,7 +482,12 @@ export type StudyNoteScopeType = 'date' | 'prefix' | 'files';
 export interface StudyNote {
   id: string;
   sourceId: string;
+  /** ready(옛 데이터는 done) · generating(정리 중) · too_broad(파일이 너무 많음) · failed */
   status: string;
+  /** failed 일 때 이유 */
+  errorMessage?: string;
+  /** generating · too_broad 일 때 안내 */
+  message?: string;
   /** 범위 종류 · 값 · 키 — DB 의 scope_type / scope_value / scope_key 그대로(features/study/noteScope.ts) */
   scopeType?: StudyNoteScopeType;
   scopeValue?: string | string[];

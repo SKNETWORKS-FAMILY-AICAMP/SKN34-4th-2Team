@@ -26,6 +26,7 @@ import type {
   SeatingCellType,
   SeatingRoom,
   SeatPresence,
+  StudyNote,
   Submission,
   Todo,
   User,
@@ -73,6 +74,32 @@ export function parseJsonb(row: Record<string, unknown>): Record<string, unknown
 function rowsOf(payload: Record<string, unknown>, key: string): Record<string, unknown>[] {
   const value = payload[key];
   return Array.isArray(value) ? (value as Record<string, unknown>[]).map(parseJsonb) : [];
+}
+
+/** 노트 한 행 — bootstrap 의 studyNotes 와 /study-notes API 가 같은 모양을 준다 */
+export function mapStudyNote(raw: Record<string, unknown>): StudyNote {
+  const row = parseJsonb(raw);
+  const text = (v: unknown) => (v == null || v === '' ? undefined : String(v));
+  return {
+    id: String(row.id ?? row.pk ?? ''),
+    sourceId: String(row.sourceId ?? row.source_id ?? ''),
+    status: String(row.status ?? 'done'),
+    errorMessage: text(row.errorMessage ?? row.error_message),
+    message: text(row.message),
+    scopeType: ['date', 'prefix', 'files'].includes(String(row.scopeType))
+      ? (String(row.scopeType) as 'date' | 'prefix' | 'files')
+      : undefined,
+    scopeValue: Array.isArray(row.scopeValue)
+      ? (row.scopeValue as unknown[]).map(String)
+      : row.scopeValue != null
+        ? String(row.scopeValue)
+        : undefined,
+    scopeKey: row.scopeKey ? String(row.scopeKey) : undefined,
+    reportMarkdown: String(row.reportMarkdown ?? row.report_markdown ?? ''),
+    reviewMarkdown: String(row.reviewMarkdown ?? row.review_markdown ?? ''),
+    files: Array.isArray(row.files) ? (row.files as { path: string; commit: string }[]) : [],
+    createdAt: asDate(row.createdAt ?? row.created_at),
+  };
 }
 
 function withJobDefaults(value: unknown): User['jobPreferences'] {
@@ -731,24 +758,7 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
       isActive: Boolean(row.isActive ?? row.is_active ?? true),
       sortOrder: Number(row.sortOrder ?? row.sort_order ?? 0),
     })),
-    studyNotes: rowsOf(payload, 'studyNotes').map((row) => ({
-      id: String(row.id ?? row.pk ?? ''),
-      sourceId: String(row.sourceId ?? row.source_id ?? ''),
-      status: String(row.status ?? 'done'),
-      scopeType: ['date', 'prefix', 'files'].includes(String(row.scopeType))
-        ? (String(row.scopeType) as 'date' | 'prefix' | 'files')
-        : undefined,
-      scopeValue: Array.isArray(row.scopeValue)
-        ? (row.scopeValue as unknown[]).map(String)
-        : row.scopeValue != null
-          ? String(row.scopeValue)
-          : undefined,
-      scopeKey: row.scopeKey ? String(row.scopeKey) : undefined,
-      reportMarkdown: String(row.reportMarkdown ?? row.report_markdown ?? ''),
-      reviewMarkdown: String(row.reviewMarkdown ?? row.review_markdown ?? ''),
-      files: Array.isArray(row.files) ? (row.files as { path: string; commit: string }[]) : [],
-      createdAt: asDate(row.createdAt ?? row.created_at),
-    })),
+    studyNotes: rowsOf(payload, 'studyNotes').map(mapStudyNote),
     curriculumSheets: sheets,
     formTasks: rowsOf(payload, 'formTasks').map(mapFormTask),
     formResponses: withNames(rowsOf(payload, 'formResponses').map(mapFormResponse), nameOf),

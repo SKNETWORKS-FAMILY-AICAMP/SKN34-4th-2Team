@@ -33,6 +33,11 @@ export function scopeLabel(type: StudyNoteScopeType, value: string | string[]): 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** 날짜로 만든 노트면 그 날짜 'YYYY-MM-DD' */
+/** 다 만든 노트인지 — 옛 데이터는 status 가 done 이거나 비어 있다. 정리 중 · 실패 · 너무 넓음은 아니다 */
+export function isReadyNote(note: StudyNote): boolean {
+  return note.status === 'ready' || note.status === 'done' || note.status === '';
+}
+
 export function noteDate(note: StudyNote): string | null {
   if (note.scopeType && note.scopeType !== 'date') return null;
   const value = typeof note.scopeValue === 'string' ? note.scopeValue : note.scopeKey ?? '';

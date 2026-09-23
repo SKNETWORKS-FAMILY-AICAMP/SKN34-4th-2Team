@@ -1,7 +1,11 @@
 """공부방 노트 API. 취업 코치 통합 서버(8000)에 include_router로 붙는다.
 
-인증은 학생 챗봇과 같은 Firebase ID 토큰(Authorization: Bearer)이다.
-학생·강사는 자기 기수만, 관리자는 모든 기수에 접근할 수 있다.
+두 갈래다.
+- /tree · /generate · /get — Flutter 앱. Firebase ID 토큰(Authorization: Bearer)으로 학생을 확인하고
+  Firestore 에서 저장소를 읽고 노트를 저장한다. 학생·강사는 자기 기수만, 관리자는 모든 기수.
+- /proxy/tree · /proxy/generate — LMS(Django). Django 가 JWT 로 학생을 확인하고 DB 에서 저장소 정보를
+  읽어 넘긴다. 여기서는 저장소를 읽어 노트를 만들어 돌려주기만 하고, 잠금·저장은 Django 가 한다.
+  이력서 첨삭의 /proxy 와 같이 바깥에 열지 않는다(Django 만 부른다).
 """
 
 from __future__ import annotations
@@ -35,6 +39,24 @@ class GetNoteRequest(BaseModel):
     sourceId: str | None = Field(default=None, max_length=120)
     scopeType: str | None = Field(default=None, max_length=10)
     scopeValue: Any = None
+
+
+class ProxySource(BaseModel):
+    id: str = Field(min_length=1, max_length=120)
+    title: str = Field(default="", max_length=200)
+    repoUrl: str = Field(min_length=1, max_length=500)
+    branch: str = Field(default="main", max_length=200)
+    allowedPrefixes: list[str] = Field(default_factory=list, max_length=100)
+
+
+class ProxyTreeRequest(BaseModel):
+    cohortId: str = Field(min_length=1, max_length=80)
+    source: ProxySource
+
+
+class ProxyGenerateRequest(ProxyTreeRequest):
+    scopeType: str = Field(min_length=1, max_length=10)
+    scopeValue: Any
 
 
 class Session:
@@ -85,3 +107,16 @@ def get_note(request: GetNoteRequest, session: Session = Depends(_session)) -> d
         scope_type=request.scopeType,
         scope_value=request.scopeValue,
     )
+
+
+@router.post("/proxy/tree")
+def proxy_tree(request: ProxyTreeRequest) -> dict[str, Any]:
+    source = service.source_from_payload(request.source.model_dump())
+    return service.source_tree(request.cohortId, source)
+
+
+@router.post("/proxy/generate")
+def proxy_generate(request: ProxyGenerateRequest) -> dict[str, Any]:
+    """몇 분 걸린다. Django 는 학생 요청을 먼저 돌려보내고 뒤에서 이걸 기다린다."""
+    source = service.source_from_payload(request.source.model_dump())
+    return service.build_note_for_lms(request.cohortId, source, request.scopeType, request.scopeValue)
