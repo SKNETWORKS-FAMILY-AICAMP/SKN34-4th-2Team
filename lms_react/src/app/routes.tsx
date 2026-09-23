@@ -49,6 +49,8 @@ const loadInstructorCurriculumScreen = tracked(() => import('../features/instruc
 const InstructorCurriculumScreen = lazyNamed(loadInstructorCurriculumScreen, 'InstructorCurriculumScreen');
 const loadInstructorPracticeScreen = tracked(() => import('../features/instructor/InstructorPracticeScreen'));
 const InstructorPracticeScreen = lazyNamed(loadInstructorPracticeScreen, 'InstructorPracticeScreen');
+const loadInstructorStudySourcesScreen = tracked(() => import('../features/instructor/InstructorStudySourcesScreen'));
+const InstructorStudySourcesScreen = lazyNamed(loadInstructorStudySourcesScreen, 'InstructorStudySourcesScreen');
 const loadReviewerResumesScreen = tracked(() => import('../features/resume/ReviewerResumesScreen'));
 const ReviewerResumesScreen = lazyNamed(loadReviewerResumesScreen, 'ReviewerResumesScreen');
 const loadNoticeFormScreen = tracked(() => import('../features/notices/NoticeFormScreen'));
@@ -97,6 +99,7 @@ export const prefetchByRole: Record<string, (() => Promise<unknown>)[]> = {
     loadInstructorAssessmentScreens,
     loadInstructorCurriculumScreen,
     loadInstructorPracticeScreen,
+    loadInstructorStudySourcesScreen,
     loadReviewerResumesScreen,
     loadNoticeFormScreen,
   ],
@@ -167,6 +170,7 @@ export const instructorRoutes: AppRoute[] = [
   },
   { path: RoutePaths.instructorAssessments, element: <InstructorAssessmentsScreen />, roles: instructor },
   { path: RoutePaths.instructorPractice, element: <InstructorPracticeScreen />, roles: instructor },
+  { path: RoutePaths.instructorStudySources, element: <InstructorStudySourcesScreen />, roles: instructor },
   {
     path: RoutePaths.instructorAssessmentsCreate,
     element: <InstructorAssessmentFormScreen />,

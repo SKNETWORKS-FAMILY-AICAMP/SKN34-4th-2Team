@@ -1164,6 +1164,66 @@ export async function refreshStudyNote(id: string): Promise<StudyNote> {
   return putStudyNote(mapStudyNote(data));
 }
 
+// ── 수업 저장소 관리 (강사 · 관리자) ─────────────────────────
+// 기수에 GitHub 조직·강사 계정을 연결해 두면 서버가 저장소를 찾아 바로 공개로 올린다. 여기서는 연결과 숨기기만.
+
+export interface GithubOwner {
+  id: string;
+  owner: string;
+  lastSyncedAt: string | null;
+  lastError: string;
+}
+
+export interface StudySourceSync {
+  owners: GithubOwner[];
+  /** 이번에 새로 올라간 저장소 이름 */
+  added: string[];
+  errors: { owner: string; error: string }[];
+}
+
+/** 테스트(데모)는 GitHub 에 못 나가니 연결만 기억한다 */
+let demoOwners: GithubOwner[] = [];
+
+export async function fetchGithubOwners(cohortId: string): Promise<GithubOwner[]> {
+  if (isTestMode()) return demoOwners;
+  const { data } = await http.get<{ owners: GithubOwner[] }>('/study-sources/github', { params: { cohortId } });
+  return data.owners;
+}
+
+export async function syncStudySources(cohortId: string, force = false): Promise<StudySourceSync> {
+  if (isTestMode()) return { owners: demoOwners, added: [], errors: [] };
+  const { data } = await http.post<StudySourceSync>('/study-sources/sync', { cohortId, force });
+  if (data.added.length) await invalidateBootstrap();
+  return data;
+}
+
+export async function addGithubOwner(cohortId: string, owner: string): Promise<StudySourceSync> {
+  if (isTestMode()) {
+    demoOwners = [...demoOwners, { id: nextId('gh'), owner: owner.trim(), lastSyncedAt: new Date().toISOString(), lastError: '' }];
+    return { owners: demoOwners, added: [], errors: [] };
+  }
+  const { data } = await http.post<StudySourceSync>('/study-sources/github', { cohortId, owner });
+  if (data.added.length) await invalidateBootstrap();
+  return data;
+}
+
+export async function removeGithubOwner(id: string): Promise<GithubOwner[]> {
+  if (isTestMode()) {
+    demoOwners = demoOwners.filter((o) => o.id !== id);
+    return demoOwners;
+  }
+  const { data } = await http.delete<{ owners: GithubOwner[] }>(`/study-sources/github/${encodeURIComponent(id)}`);
+  return data.owners;
+}
+
+/** 공개 · 숨김. 숨긴 저장소는 학생 공부방에서 빠지고, 다시 찾아도 숨긴 채로 남는다 */
+export async function setStudySourceActive(sourceId: string, isActive: boolean): Promise<void> {
+  mutate((db) => ({ studySources: db.studySources.map((s) => (s.id === sourceId ? { ...s, isActive } : s)) }));
+  if (isTestMode()) return;
+  await http.patch(`/study-sources/${encodeURIComponent(sourceId)}`, { isActive });
+  await invalidateBootstrap();
+}
+
 function createDemoStudyNote(
   sourceId: string,
   scopeType: StudyNoteScopeType,

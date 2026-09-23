@@ -468,6 +468,8 @@ export interface StudyNoteFileRef {
 
 export interface StudySource {
   id: string;
+  /** 어느 기수의 저장소인지 — 관리자는 여러 기수를 한 화면에서 본다 */
+  cohortId?: string;
   title: string;
   repoUrl: string;
   branch: string;

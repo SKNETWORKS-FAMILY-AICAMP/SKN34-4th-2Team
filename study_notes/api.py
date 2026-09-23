@@ -17,7 +17,8 @@ from firebase_admin import auth, firestore
 from pydantic import BaseModel, Field
 
 from chatbot.api import _firebase_app
-from study_notes import service
+from study_notes import github, service
+from study_notes.git_tools import GitToolError
 from study_notes.service import Caller
 
 router = APIRouter(prefix="/api/v1/study-notes", tags=["study-notes"])
@@ -57,6 +58,10 @@ class ProxyTreeRequest(BaseModel):
 class ProxyGenerateRequest(ProxyTreeRequest):
     scopeType: str = Field(min_length=1, max_length=10)
     scopeValue: Any
+
+
+class ProxyReposRequest(BaseModel):
+    owner: str = Field(min_length=1, max_length=39)
 
 
 class Session:
@@ -120,3 +125,12 @@ def proxy_generate(request: ProxyGenerateRequest) -> dict[str, Any]:
     """몇 분 걸린다. Django 는 학생 요청을 먼저 돌려보내고 뒤에서 이걸 기다린다."""
     source = service.source_from_payload(request.source.model_dump())
     return service.build_note_for_lms(request.cohortId, source, request.scopeType, request.scopeValue)
+
+
+@router.post("/proxy/repos")
+def proxy_repos(request: ProxyReposRequest) -> dict[str, Any]:
+    """GitHub 계정·조직의 수업 저장소 목록 — LMS 가 새 저장소를 공부방에 자동으로 올릴 때 쓴다."""
+    try:
+        return {"repos": github.list_owner_repos(request.owner)}
+    except GitToolError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc

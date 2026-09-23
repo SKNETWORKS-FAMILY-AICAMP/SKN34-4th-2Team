@@ -78,9 +78,16 @@ flowchart LR
 | `POST /api/v1/study-notes/proxy/tree` (여기) | `{cohortId, source: {id, title, repoUrl, branch, allowedPrefixes}}` | `dates`, `entries` |
 | `POST /api/v1/study-notes/proxy/generate` (여기) | 위 + `{scopeType, scopeValue}` | `ready` 면 노트 내용, `too_broad` 면 파일 목록. 저장하지 않는다 |
 
+| `POST /api/v1/study-notes/proxy/repos` (여기) | `{owner}` | GitHub 조직·계정의 저장소 `repos` — Django 가 공부방에 자동으로 올릴 때 |
 
 `/proxy/*` 는 이력서 첨삭의 `/proxy` 처럼 인증이 없다 — 바깥에 열지 않고 Django 만 부른다.
 
+**수업 저장소 자동 등록** — 강사(자기 기수)·관리자가 기수에 GitHub 조직이나 강사 개인 계정을 연결하면
+(`study.github_owners`, `scripts/firestore_to_postgres/study_schema.sql`), 그 안의 저장소를 `study_sources` 에
+바로 공개로 올린다. 이미 있는 저장소는 건드리지 않아 숨긴 저장소는 숨긴 채 남는다. 저장소 관리 화면을 열 때(10분에 한 번까지),
+「저장소 새로 찾기」, Celery beat 한 시간마다 찾는다(`lms_api/lms/study_source_service.py`).
+비공개 저장소는 AI 서버 환경변수 `GITHUB_TOKEN`(읽기 전용)으로 받는다. 없으면 로컬에선 이 PC 의 git 로그인을 쓴다.
+Django 가 만드는 노트 키(`lms_api/lms/study_scope.py`)는 여기 `build_scope_key` 와 같아야 한다(`tests/test_study_notes_lms.py` 가 본다).
 
 **Flutter 앱** — 아래 경로. 모두 `Authorization: Bearer <Firebase ID 토큰>`이 필요하고 Firestore 에 저장한다.
 

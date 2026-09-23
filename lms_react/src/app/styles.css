@@ -2731,6 +2731,63 @@ a.link {
   color: var(--primary);
 }
 
+/* 숨긴 수업 저장소 — 학생에게 안 보인다 */
+.media-row--off .media-row__body {
+  opacity: 0.55;
+}
+
+/* 수업 저장소 관리 (StudySourcesPanel) */
+.study-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.study-sources__owners {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.study-sources__owners .hint {
+  margin: 0;
+}
+
+.study-sources__add {
+  display: flex;
+  gap: 8px;
+}
+
+.study-sources__add .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.chip--warn {
+  border-color: color-mix(in srgb, var(--error) 45%, var(--border));
+  color: var(--error);
+}
+
+.chip__remove {
+  display: inline-grid;
+  place-items: center;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.chip__remove:hover {
+  opacity: 1;
+}
+
 /* ── 커리큘럼 ─────────────────────────────────────────── */
 .curri-page {
   position: relative;

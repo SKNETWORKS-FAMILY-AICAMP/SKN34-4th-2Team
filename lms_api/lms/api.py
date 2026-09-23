@@ -25,7 +25,7 @@ from lms.permissions import can_access_cohort
 from lms.publish import publish_scheduled_notices
 from lms.resume_text import build_profile, build_resume_text
 from lms.services import schedule_notice_vector
-from lms import study_note_service
+from lms import study_note_service, study_source_service
 
 
 class LmsAuth(HttpBearer):
@@ -373,6 +373,62 @@ def study_notes_create(request, body: StudyNoteIn):
 def study_notes_get(request, note_id: str):
     user = _require_user(request)
     return _study(lambda: study_note_service.get_note(user, note_id))
+
+
+class StudyOwnerIn(Schema):
+    cohortId: str = ""
+    owner: str
+
+
+class StudySyncIn(Schema):
+    cohortId: str = ""
+    force: bool = False
+
+
+class StudySourcePatch(Schema):
+    isActive: bool | None = None
+    title: str | None = None
+
+
+def _sources(call):
+    try:
+        return call()
+    except study_source_service.StudySourceError as exc:
+        return Response({"detail": exc.detail}, status=exc.status)
+
+
+@api.get("/study-sources/github")
+def study_sources_owners(request, cohortId: str = ""):
+    """기수에 연결한 GitHub 조직·계정 — 강사는 자기 기수, 관리자는 모든 기수"""
+    user = _require_user(request)
+    return _sources(lambda: study_source_service.list_owners(user, cohortId))
+
+
+@api.post("/study-sources/github")
+def study_sources_add_owner(request, body: StudyOwnerIn):
+    """조직·계정을 연결하고 바로 저장소를 찾아 올린다(바로 공개)"""
+    user = _require_user(request)
+    return _sources(lambda: study_source_service.add_owner(user, body.cohortId, body.owner))
+
+
+@api.delete("/study-sources/github/{owner_id}")
+def study_sources_remove_owner(request, owner_id: str):
+    user = _require_user(request)
+    return _sources(lambda: study_source_service.remove_owner(user, owner_id))
+
+
+@api.post("/study-sources/sync")
+def study_sources_sync(request, body: StudySyncIn):
+    """새 저장소 찾기. force 가 아니면 10분 안에 찾은 조직·계정은 건너뛴다(화면을 열 때마다 부른다)."""
+    user = _require_user(request)
+    return _sources(lambda: study_source_service.sync_cohort(user, body.cohortId, force=body.force))
+
+
+@api.patch("/study-sources/{source_id}")
+def study_sources_update(request, source_id: str, body: StudySourcePatch):
+    """공개 · 숨김, 이름 바꾸기"""
+    user = _require_user(request)
+    return _sources(lambda: study_source_service.update_source(user, source_id, is_active=body.isActive, title=body.title))
 
 
 class ResumeReviewApplyIn(Schema):

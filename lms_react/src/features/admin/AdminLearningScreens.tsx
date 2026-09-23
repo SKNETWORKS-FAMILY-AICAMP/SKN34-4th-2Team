@@ -7,6 +7,7 @@ import {
   deleteInflearnPackage,
   upsertFormTask,
   upsertInflearnPackage,
+  useCohorts,
   useFormResponses,
   useFormTasks,
   useInflearnPackages,
@@ -23,6 +24,7 @@ import type {
   InflearnUnit,
 } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
+import { StudySourcesPanel } from '../study/StudySourcesPanel';
 import {
   Badge,
   Button,
@@ -222,8 +224,13 @@ export function AdminFormTaskFormScreen() {
 export function AdminStudyRoomScreen() {
   const packages = useInflearnPackages();
   const videos = useYoutubeRecommendations();
+  const cohorts = useCohorts();
   const sources = useStudySources();
   const navigate = useNavigate();
+  // 저장소가 있는 첫 기수부터 — 없으면 첫 기수
+  const [sourceCohort, setSourceCohort] = useState(
+    () => sources.find((s) => s.cohortId)?.cohortId ?? cohorts[0]?.cohortId ?? '',
+  );
 
   return (
     <div className="admin-page admin-page--wide study-admin">
@@ -307,38 +314,24 @@ export function AdminStudyRoomScreen() {
       ))}
 
       <SectionHead
-        title="공부 소스"
-        desc="기수별 수업 저장소를 등록합니다. 공개 GitHub 저장소면 토큰 없이 됩니다. 학생은 활성 소스만 보고, 고른 범위만 정리합니다."
+        title="수업 저장소"
+        desc="기수에 GitHub 조직이나 강사 계정을 연결하면 저장소가 학생 공부방에 자동으로 올라갑니다. 올리지 않을 저장소는 숨기세요."
         action={
-          <button type="button" className="btn btn--filled btn--md">
-            <Icon name="add" size={18} />
-            소스 추가
-          </button>
+          <Select
+            id="admin-source-cohort"
+            aria-label="기수"
+            value={sourceCohort}
+            onChange={(e) => setSourceCohort(e.target.value)}
+          >
+            {cohorts.map((c) => (
+              <option key={c.cohortId} value={c.cohortId}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
         }
       />
-
-      {sources.map((src) => (
-        <div key={src.id} className="media-row">
-          <span className="media-row__main media-row__main--plain">
-            <span className="media-row__body">
-              <strong>{src.title}</strong>
-              <span className="media-row__repo">{src.repoUrl.replace(/^https?:\/\/github\.com\//, '')}</span>
-              <span className="hint">
-                {src.branch} · {src.allowedPrefixes.join(', ')}
-              </span>
-            </span>
-          </span>
-          <span className={src.isActive ? 'media-row__on' : 'hint'}>
-            {src.isActive ? '공개' : '비공개'}
-          </span>
-          <button type="button" className="icon-btn" aria-label="수정">
-            <Icon name="edit" size={20} />
-          </button>
-          <button type="button" className="icon-btn" aria-label="숨기기">
-            <Icon name="visibility_off" size={20} />
-          </button>
-        </div>
-      ))}
+      {sourceCohort !== '' && <StudySourcesPanel cohortId={sourceCohort} />}
     </div>
   );
 }

@@ -751,6 +751,7 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
     youtubeRecommendations: rowsOf(payload, 'youtubeRecommendations').map(mapYoutube),
     studySources: rowsOf(payload, 'studySources').map((row) => ({
       id: String(row.id ?? row.pk ?? ''),
+      cohortId: row.cohortId ? String(row.cohortId) : undefined,
       title: String(row.title ?? ''),
       repoUrl: String(row.repoUrl ?? row.repo_url ?? ''),
       branch: String(row.branch ?? 'main'),

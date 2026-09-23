@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -124,8 +125,24 @@ def _lock_for(key: str) -> threading.Lock:
         return lock
 
 
+def env_github_token() -> str:
+    """비공개 수업 저장소를 읽을 토큰 — 읽기 전용(fine-grained PAT 의 Contents: read)이면 된다.
+    없으면 git 은 이 PC 의 GitHub 로그인(자격 증명 관리자)을 쓴다. 배포 서버(컨테이너)엔 로그인이 없으니 꼭 넣는다."""
+    return (os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN") or "").strip()
+
+
+def _auth_args() -> list[str]:
+    """토큰을 원격 주소나 git 설정 파일에 남기지 않고 요청 머리에만 싣는다. 파일 내용은 필요할 때 받아 오므로
+    (--filter=blob:none) clone · fetch 뿐 아니라 show · cat-file 도 인증이 필요하다 — 그래서 모든 호출에 붙인다."""
+    token = env_github_token()
+    if not token:
+        return []
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    return ["-c", f"http.https://github.com/.extraheader=AUTHORIZATION: basic {basic}"]
+
+
 def run_git(args: list[str], cwd: Path | None = None) -> str:
-    command = ["git", *args]
+    command = ["git", *_auth_args(), *args]
     try:
         result = subprocess.run(
             command,
@@ -153,7 +170,7 @@ def _friendly_git_error(stderr: str) -> str:
     stderr = "\n".join(line for line in stderr.splitlines() if not line.startswith("Cloning into")).strip()
     lower = stderr.lower()
     if "could not read username" in lower or "authentication failed" in lower:
-        return "비공개 저장소입니다. 서버 PC에서 GitHub 로그인이 필요합니다."
+        return "비공개 저장소입니다. AI 서버에 읽기 권한이 있는 GITHUB_TOKEN 을 넣거나, 서버 PC에서 GitHub 로그인이 필요합니다."
     if "repository not found" in lower or "not found" in lower:
         return "GitHub 저장소를 찾지 못했습니다. 주소를 확인하세요."
     if "couldn't find remote ref" in lower or "remote branch" in lower:

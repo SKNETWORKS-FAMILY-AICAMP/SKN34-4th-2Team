@@ -291,7 +291,8 @@ function CourseRow({ title, url }: { title: string; url: string }) {
 /** 학습 노트 목록 — study_room_notes_screen.dart */
 export function StudyNotesScreen() {
   const user = useCurrentUser();
-  const sources = useStudySources();
+  // 강사·관리자가 숨긴 저장소는 빼고
+  const sources = useStudySources().filter((s) => s.isActive);
   const notes = useStudyNotes();
   const loose = looseNotes(notes);
 

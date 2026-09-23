@@ -114,7 +114,12 @@ CELERY_BEAT_SCHEDULE = {
     "publish-scheduled-notices": {
         "task": "lms.tasks.publish_due_notices",
         "schedule": 60.0,
-    }
+    },
+    # 공부방 — 연결한 GitHub 조직·계정의 새 수업 저장소를 올린다(lms/study_source_service.py)
+    "sync-study-sources": {
+        "task": "lms.tasks.sync_study_sources",
+        "schedule": 3600.0,
+    },
 }
 # DEBUG면 Celery 없이도 60초마다 예약 공지 발행. 끄려면 LMS_INLINE_PUBLISH=0
 LMS_INLINE_PUBLISH = os.environ.get("LMS_INLINE_PUBLISH", "1" if DEBUG else "0")
