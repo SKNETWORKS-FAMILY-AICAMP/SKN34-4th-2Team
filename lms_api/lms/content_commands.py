@@ -404,7 +404,42 @@ def op_set_seat_presence(cur, user, p):
     return {"ok": True}
 
 
+# ── 학생 상담 ─────────────────────────────────────────
+
+INTAKE_FIELDS = [
+    "education_major", "current_status", "weekly_study_hours", "programming_level",
+    "collaboration_tools", "ai_llm_experience", "motivation", "desired_role",
+    "post_completion_goal", "awards", "project_links", "team_role",
+    "self_learning_style", "slump_overcome_experience",
+]
+
+
+def op_save_student_intake(cur, user, p):
+    """학생 상담 내용 — 열쇠가 user_id 라 범용 upsert 가 못 다룬다."""
+    _require_staff(user)
+    target = resolve_user(cur, str(p.get("uid") or ""))
+    if not target:
+        raise KeyError("user")
+    values = [p.get(_camel(f)) or "" for f in INTAKE_FIELDS]
+    cols = ", ".join(INTAKE_FIELDS)
+    marks = ", ".join(["%s"] * len(INTAKE_FIELDS))
+    updates = ", ".join(f"{f} = EXCLUDED.{f}" for f in INTAKE_FIELDS)
+    cur.execute(
+        f"""INSERT INTO student_intakes (user_id, {cols}, is_active, created_by, created_at)
+            VALUES (%s, {marks}, true, %s, now())
+            ON CONFLICT (user_id) DO UPDATE SET {updates}""",
+        [target, *values, user["id"]],
+    )
+    return {"ok": True}
+
+
+def _camel(name: str) -> str:
+    head, *rest = name.split("_")
+    return head + "".join(w.capitalize() for w in rest)
+
+
 CONTENT_OPS = {
+    "saveStudentIntake": op_save_student_intake,
     "reviewRecord": op_review_record,
     "saveAssessment": op_save_assessment,
     "submitAssessment": op_submit_assessment,

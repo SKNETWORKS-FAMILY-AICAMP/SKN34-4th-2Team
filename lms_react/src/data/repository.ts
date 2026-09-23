@@ -187,6 +187,11 @@ export function createUser(user: User): void {
   if (!isTestMode()) void runCommand('createUser', { ...user });
 }
 
+/** 학생 상담 내용 저장 — 열쇠가 학생이라 표 하나에 한 줄이다(student_intakes) */
+export function saveStudentIntake(uid: string, intake: import('../domain/types').StudentIntake): void {
+  if (!isTestMode()) void runCommand('saveStudentIntake', { uid, ...intake });
+}
+
 export function createCohort(cohort: Cohort): void {
   mutate((db) => ({ cohorts: [...db.cohorts, cohort] }));
   if (!isTestMode()) void runCommand('createCohort', { ...cohort });

@@ -604,7 +604,7 @@ def op_mileage_adjust(cur, user, p):
     amount = int(p.get("amount") or 0)
     cur.execute(
         """INSERT INTO mileage_transactions (cohort_id, user_id, amount, type, reason, adjusted_by, created_at)
-           VALUES (%s,%s,%s,'adjust',%s,%s, now())""",
+           VALUES (%s,%s,%s,'admin_adjust',%s,%s, now())""",
         [row[1], row[0], amount, p.get("reason") or "", user["id"]],
     )
     cur.execute("UPDATE users SET mileage_balance = mileage_balance + %s WHERE id = %s", [amount, row[0]])

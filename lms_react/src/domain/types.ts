@@ -168,6 +168,24 @@ export interface Submission {
 
 export type CohortStatus = 'planned' | 'active' | 'closed';
 
+/** 학생 상담 내용 — student_intakes. 관리자가 학생을 등록할 때 함께 받는다 */
+export interface StudentIntake {
+  educationMajor: string;
+  currentStatus: string;
+  weeklyStudyHours: string;
+  programmingLevel: string;
+  collaborationTools: string;
+  aiLlmExperience: string;
+  motivation: string;
+  desiredRole: string;
+  postCompletionGoal: string;
+  awards: string;
+  projectLinks: string;
+  teamRole: string;
+  selfLearningStyle: string;
+  slumpOvercomeExperience: string;
+}
+
 export interface Cohort {
   cohortId: string;
   name: string;

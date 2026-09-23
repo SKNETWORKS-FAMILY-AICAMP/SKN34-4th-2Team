@@ -351,6 +351,7 @@ export function AdminAlertPopupFormScreen() {
   const [startTime, setStartTime] = useState(existing?.startTime ?? '');
   const [endTime, setEndTime] = useState(existing?.endTime ?? '');
   const [isActive, setActive] = useState(existing?.isActive ?? true);
+  const [sortOrder, setSortOrder] = useState(String(existing?.sortOrder ?? 0));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -365,7 +366,7 @@ export function AdminAlertPopupFormScreen() {
       content: content.trim(),
       authorName: user.displayName,
       isActive,
-      sortOrder: existing?.sortOrder ?? popups.length + 1,
+      sortOrder: Number(sortOrder) || 0,
       linkUrl: linkUrl.trim() === '' ? undefined : linkUrl.trim(),
       startTime: startTime === '' ? undefined : startTime,
       endTime: endTime === '' ? undefined : endTime,
@@ -401,6 +402,9 @@ export function AdminAlertPopupFormScreen() {
             <TextInput type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
           </Field>
         </div>
+        <Field label="표시 순서" hint="작을수록 먼저 보여 줍니다.">
+          <TextInput type="number" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} />
+        </Field>
         <Toggle checked={isActive} onChange={setActive} label="지금 노출" />
         <Row>
           <Spacer />

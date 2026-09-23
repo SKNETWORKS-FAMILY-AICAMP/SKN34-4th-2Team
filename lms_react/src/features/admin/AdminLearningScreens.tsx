@@ -15,12 +15,19 @@ import {
   useYoutubeRecommendations,
 } from '../../data/repository';
 import { nextId } from '../../data/store';
-import type { FormTask, InflearnPackage, InflearnPackageType } from '../../domain/types';
+import type {
+  FormTask,
+  InflearnCourse,
+  InflearnPackage,
+  InflearnPackageType,
+  InflearnUnit,
+} from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import {
   Badge,
   Button,
   Card,
+  Chip,
   Dialog,
   Field,
   PageHeader,
@@ -373,6 +380,10 @@ export function AdminInflearnPackageFormScreen() {
   const [courses, setCourses] = useState(existing?.courses ?? []);
   const [courseTitle, setCourseTitle] = useState('');
   const [courseUrl, setCourseUrl] = useState('');
+  const [units, setUnits] = useState<InflearnUnit[]>(existing?.units ?? []);
+  // 원본은 「단원별(표) / 단순 목록」 둘 중 하나로 넣는다. 단원이 있으면 표 모양으로 시작한다
+  const [layout, setLayout] = useState<'units' | 'flat'>((existing?.units ?? []).length > 0 ? 'units' : 'flat');
+  const [sortOrder, setSortOrder] = useState(String(existing?.sortOrder ?? packages.length + 1));
   const [error, setError] = useState<string | null>(null);
 
   const save = () => {
@@ -386,10 +397,10 @@ export function AdminInflearnPackageFormScreen() {
       subject: subject.trim(),
       type,
       summary: summary.trim() === '' ? undefined : summary.trim(),
-      units: existing?.units ?? [],
-      courses,
+      units: layout === 'units' ? units.filter((u) => u.name.trim() !== '') : [],
+      courses: layout === 'flat' ? courses : units.flatMap((u) => u.courses),
       isPublished,
-      sortOrder: existing?.sortOrder ?? packages.length + 1,
+      sortOrder: Number(sortOrder) || 0,
       publishedAt: isPublished ? new Date() : existing?.publishedAt,
     };
     upsertInflearnPackage(pkg);
@@ -420,9 +431,90 @@ export function AdminInflearnPackageFormScreen() {
         <Field label="설명">
           <TextArea rows={2} value={summary} onChange={(e) => setSummary(e.target.value)} />
         </Field>
+        <Field label="정렬 순서" hint="작을수록 먼저 보여 줍니다.">
+          <TextInput type="number" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} />
+        </Field>
         <Toggle checked={isPublished} onChange={setPublished} label="기수에 공개" />
       </Card>
 
+      <Card title="강의 넣는 방식">
+        <Row>
+          {([
+            ['units', '단원별 (표 형태)'],
+            ['flat', '단순 목록'],
+          ] as const).map(([id, label]) => (
+            <Chip key={id} selected={layout === id} onClick={() => setLayout(id)}>
+              {label}
+            </Chip>
+          ))}
+        </Row>
+        <span className="muted">
+          단원별은 단원 밑에 강의를 묶어 넣습니다. 학생 화면에서 단원 제목과 함께 보입니다.
+        </span>
+      </Card>
+
+      {layout === 'units' && (
+        <Card title={`단원 (${units.length})`}>
+          {units.map((unit, unitIndex) => (
+            <Card key={unitIndex} title={`단원 ${unitIndex + 1}`}>
+              <Row gap={8} wrap={false}>
+                <Field label="단원 이름">
+                  <TextInput
+                    value={unit.name}
+                    placeholder="예) Python"
+                    onChange={(e) =>
+                      setUnits((list) =>
+                        list.map((u, i) => (i === unitIndex ? { ...u, name: e.target.value } : u)),
+                      )
+                    }
+                  />
+                </Field>
+                <Button
+                  variant="text"
+                  onClick={() => setUnits((list) => list.filter((_, i) => i !== unitIndex))}
+                >
+                  단원 삭제
+                </Button>
+              </Row>
+              <ul className="list">
+                {unit.courses.map((course, courseIndex) => (
+                  <li key={courseIndex} className="list__item">
+                    <span>{course.title}</span>
+                    <Spacer />
+                    <span className="hint">{course.url}</span>
+                    <Button
+                      variant="text"
+                      onClick={() =>
+                        setUnits((list) =>
+                          list.map((u, i) =>
+                            i === unitIndex
+                              ? { ...u, courses: u.courses.filter((_, c) => c !== courseIndex) }
+                              : u,
+                          ),
+                        )
+                      }
+                    >
+                      삭제
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+              <UnitCourseAdder
+                onAdd={(course) =>
+                  setUnits((list) =>
+                    list.map((u, i) => (i === unitIndex ? { ...u, courses: [...u.courses, course] } : u)),
+                  )
+                }
+              />
+            </Card>
+          ))}
+          <Button variant="outline" onClick={() => setUnits((list) => [...list, { name: '', courses: [] }])}>
+            단원 추가
+          </Button>
+        </Card>
+      )}
+
+      {layout === 'flat' && (
       <Card title={`강의 목록 (${courses.length})`}>
         <Row gap={8} wrap={false}>
           <TextInput value={courseTitle} placeholder="강의 제목" onChange={(e) => setCourseTitle(e.target.value)} />
@@ -450,6 +542,7 @@ export function AdminInflearnPackageFormScreen() {
           ))}
         </ul>
       </Card>
+      )}
 
       <Row>
         <Spacer />
@@ -459,6 +552,29 @@ export function AdminInflearnPackageFormScreen() {
         <Button onClick={save}>저장</Button>
       </Row>
     </div>
+  );
+}
+
+/** 단원 밑에 강의 한 줄 넣기 — 단원마다 입력칸이 따로 있어야 해서 따로 뺀다 */
+function UnitCourseAdder({ onAdd }: { onAdd(course: InflearnCourse): void }) {
+  const [title, setTitle] = useState('');
+  const [url, setUrl] = useState('');
+  return (
+    <Row gap={8} wrap={false}>
+      <TextInput value={title} placeholder="강의명" onChange={(e) => setTitle(e.target.value)} />
+      <TextInput value={url} placeholder="URL" onChange={(e) => setUrl(e.target.value)} />
+      <Button
+        variant="outline"
+        onClick={() => {
+          if (title.trim() === '') return;
+          onAdd({ title: title.trim(), url: url.trim() });
+          setTitle('');
+          setUrl('');
+        }}
+      >
+        강의 추가
+      </Button>
+    </Row>
   );
 }
 

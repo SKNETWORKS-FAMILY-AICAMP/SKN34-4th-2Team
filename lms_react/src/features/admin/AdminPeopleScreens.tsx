@@ -19,10 +19,11 @@ import {
   useMySubmissions,
   useStudents,
   useUser,
+  saveStudentIntake,
 } from '../../data/repository';
 import { nextId } from '../../data/store';
 import { CohortStatusLabels, RecordTypeLabels, attendanceLabel } from '../../domain/constants';
-import type { Cohort, CohortStatus, User } from '../../domain/types';
+import type { Cohort, CohortStatus, StudentIntake, User } from '../../domain/types';
 import {
   Badge,
   Button,
@@ -282,6 +283,72 @@ export function AdminStudentDetailScreen() {
   );
 }
 
+/**
+ * 학생 상담 문항 — admin_student_create_screen.dart 의 다섯 묶음 그대로.
+ * 등록할 때만 받는다(수정 화면에는 원본에도 없다).
+ */
+const INTAKE_SECTIONS: {
+  title: string;
+  fields: { key: keyof StudentIntake; label: string; hint?: string }[];
+}[] = [
+  {
+    title: '1. 기본 인적 사항',
+    fields: [
+      { key: 'educationMajor', label: '학력 / 전공' },
+      { key: 'currentStatus', label: '현재 상태', hint: '재학, 휴학, 직장인, 구직 등' },
+      { key: 'weeklyStudyHours', label: '주당 학습 가능 시간', hint: '예: 평일 3시간, 주말 6시간' },
+    ],
+  },
+  {
+    title: '2. 기술 역량 및 사전 준비도',
+    fields: [
+      { key: 'programmingLevel', label: '프로그래밍 언어 숙련도' },
+      { key: 'collaborationTools', label: 'Git 등 협업 툴' },
+      { key: 'aiLlmExperience', label: 'AI/LLM 활용 경험' },
+    ],
+  },
+  {
+    title: '3. 지원 동기 및 수료 후 목표',
+    fields: [
+      { key: 'motivation', label: '지원 동기' },
+      { key: 'desiredRole', label: '희망 직무' },
+      { key: 'postCompletionGoal', label: '수료 후 목표', hint: '취업, 창업, 역량 강화 등' },
+    ],
+  },
+  {
+    title: '4. 수상 경력 및 프로젝트 경험',
+    fields: [
+      { key: 'awards', label: '수상 경력', hint: '해커톤, 경진대회 등' },
+      { key: 'projectLinks', label: '주요 프로젝트 링크', hint: 'GitHub, Notion 등' },
+    ],
+  },
+  {
+    title: '5. 협업 성향',
+    fields: [
+      { key: 'teamRole', label: '팀 프로젝트 역할' },
+      { key: 'selfLearningStyle', label: '자기주도 학습 방식' },
+      { key: 'slumpOvercomeExperience', label: '슬럼프 극복 경험' },
+    ],
+  },
+];
+
+const EMPTY_INTAKE: StudentIntake = {
+  educationMajor: '',
+  currentStatus: '',
+  weeklyStudyHours: '',
+  programmingLevel: '',
+  collaborationTools: '',
+  aiLlmExperience: '',
+  motivation: '',
+  desiredRole: '',
+  postCompletionGoal: '',
+  awards: '',
+  projectLinks: '',
+  teamRole: '',
+  selfLearningStyle: '',
+  slumpOvercomeExperience: '',
+};
+
 /** 학생 등록·수정 — admin_student_create_screen.dart / admin_student_edit_screen.dart */
 export function AdminStudentFormScreen() {
   const { studentUid } = useParams<{ studentUid: string }>();
@@ -295,7 +362,11 @@ export function AdminStudentFormScreen() {
   const [seatNumber, setSeatNumber] = useState(String(existing?.seatNumber ?? ''));
   const [birthDate, setBirthDate] = useState(existing?.birthDate ?? '');
   const [isActive, setActive] = useState(existing?.isActive ?? true);
+  const [intake, setIntake] = useState<StudentIntake>(EMPTY_INTAKE);
   const [error, setError] = useState<string | null>(null);
+
+  const setField = (key: keyof StudentIntake, value: string) =>
+    setIntake((current) => ({ ...current, [key]: value }));
 
   const save = () => {
     if (displayName.trim() === '' || email.trim() === '') {
@@ -323,6 +394,7 @@ export function AdminStudentFormScreen() {
         mileageBalance: 0,
         createdAt: new Date(),
       });
+      if (Object.values(intake).some((v) => v.trim() !== '')) saveStudentIntake(uid, intake);
       navigate(adminStudentDetailPath(uid));
       return;
     }
@@ -364,6 +436,20 @@ export function AdminStudentFormScreen() {
             등록하면 임시 비밀번호로 계정이 만들어지고, 첫 로그인에서 비밀번호를 바꾸게 됩니다.
           </div>
         )}
+      </Card>
+
+      {existing === undefined &&
+        INTAKE_SECTIONS.map((section) => (
+          <Card key={section.title} title={section.title}>
+            {section.fields.map(({ key, label, hint }) => (
+              <Field key={String(key)} label={label} hint={hint}>
+                <TextArea rows={2} value={intake[key]} onChange={(e) => setField(key, e.target.value)} />
+              </Field>
+            ))}
+          </Card>
+        ))}
+
+      <Card>
         <Row>
           <Spacer />
           <Button variant="outline" onClick={() => navigate(RoutePaths.adminStudents)}>

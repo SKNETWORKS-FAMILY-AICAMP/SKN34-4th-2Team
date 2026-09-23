@@ -25,6 +25,7 @@ import {
   Badge,
   Button,
   Card,
+  Chip,
   DataTable,
   Dialog,
   Field,
@@ -155,6 +156,8 @@ export function AdminMileageProductFormScreen() {
   const [category, setCategory] = useState(existing?.category ?? MileageCategories[0]);
   const [pricingType, setPricingType] = useState<MileagePricingType>(existing?.pricingType ?? 'fixed');
   const [fixedPrice, setFixedPrice] = useState(String(existing?.fixedPrice ?? ''));
+  const [imageUrl, setImageUrl] = useState(existing?.imageUrl ?? '');
+  const [sortOrder, setSortOrder] = useState(String(existing?.sortOrder ?? products.length + 1));
   const [isActive, setActive] = useState(existing?.isActive ?? true);
   const [error, setError] = useState<string | null>(null);
 
@@ -170,8 +173,9 @@ export function AdminMileageProductFormScreen() {
       category,
       pricingType,
       fixedPrice: pricingType === 'fixed' ? Number(fixedPrice) : undefined,
+      imageUrl: imageUrl.trim() === '' ? undefined : imageUrl.trim(),
       isActive,
-      sortOrder: existing?.sortOrder ?? products.length + 1,
+      sortOrder: Number(sortOrder) || 0,
     };
     upsertMileageProduct(product);
     navigate(RoutePaths.adminMileageProducts);
@@ -209,6 +213,13 @@ export function AdminMileageProductFormScreen() {
             </Field>
           )}
         </div>
+        {/* 원본은 이미지 주소를 받는다(교환소 카드에 쓴다) */}
+        <Field label="이미지 주소">
+          <TextInput value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://" />
+        </Field>
+        <Field label="정렬 순서" hint="작을수록 먼저 보여 줍니다.">
+          <TextInput type="number" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} />
+        </Field>
         <Toggle checked={isActive} onChange={setActive} label="판매 중" />
         <Row>
           <Spacer />
@@ -224,15 +235,42 @@ export function AdminMileageProductFormScreen() {
 
 /** 구매 요청 — admin_purchase_requests_screen.dart */
 export function AdminPurchaseRequestsScreen() {
-  const requests = usePurchaseRequests();
+  const all = usePurchaseRequests();
   const [open, setOpen] = useState<string | null>(null);
   const [comment, setComment] = useState('');
+  const [status, setStatus] = useState('all');
+  const [category, setCategory] = useState('all');
 
-  const target = requests.find((r) => r.id === open);
+  // 원본(admin_purchase_requests_screen.dart)처럼 상태 · 상품 타입으로 거른다
+  const requests = all.filter(
+    (r) =>
+      (status === 'all' || r.status === status) &&
+      (category === 'all' || r.items.some((i) => i.category === category)),
+  );
+  const target = all.find((r) => r.id === open);
 
   return (
     <div className="screen__inner">
       <PageHeader title="구매 요청" description="학생 구매 요청을 승인·반려합니다. 승인하면 마일리지가 차감됩니다." />
+
+      <Row wrap>
+        <span className="muted">상태</span>
+        {[['all', '전체'], ['pending', '대기'], ['approved', '승인'], ['modify_requested', '수정 요청'], ['rejected', '반려'], ['cancelled', '취소']].map(
+          ([id, label]) => (
+            <Chip key={id} selected={status === id} onClick={() => setStatus(id)}>
+              {label}
+            </Chip>
+          ),
+        )}
+      </Row>
+      <Row wrap>
+        <span className="muted">상품 타입</span>
+        {[['all', '전체'], ...MileageCategories.map((c) => [c, MileageCategoryLabels[c]])].map(([id, label]) => (
+          <Chip key={id} selected={category === id} onClick={() => setCategory(id)}>
+            {label}
+          </Chip>
+        ))}
+      </Row>
 
       <Card padded={false}>
         <DataTable
@@ -323,14 +361,20 @@ export function AdminMileageAdjustScreen() {
   const transactions = useMileageTransactions();
 
   const [userId, setUserId] = useState(students[0]?.uid ?? '');
+  const [studentQuery, setStudentQuery] = useState('');
+  const [direction, setDirection] = useState<'grant' | 'deduct'>('grant');
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
+  // 이름으로 좁혀 고른다(원본은 검색칸 + 목록)
+  const shown = students.filter((s) => s.displayName.includes(studentQuery.trim()));
+
   const submit = () => {
-    const value = Number(amount);
-    if (userId === '' || Number.isNaN(value) || value === 0) {
+    const entered = Math.abs(Number(amount));
+    const value = direction === 'deduct' ? -entered : entered;
+    if (userId === '' || Number.isNaN(entered) || entered === 0) {
       setError('학생과 0이 아닌 금액을 지정해 주세요.');
       return;
     }
@@ -348,37 +392,50 @@ export function AdminMileageAdjustScreen() {
 
   return (
     <div className="screen__inner">
-      <PageHeader title="마일리지 수동 조정" description="적립·차감을 직접 넣습니다. 음수를 넣으면 차감입니다." />
+      <PageHeader title="마일리지 지급/차감" description="학생을 골라 마일리지를 지급하거나 차감합니다." />
 
       {done && <div className="callout callout--success">조정을 반영했습니다.</div>}
 
       <Card>
+        <Field label="학생 검색 (이름)">
+          <TextInput value={studentQuery} onChange={(e) => setStudentQuery(e.target.value)} placeholder="이름" />
+        </Field>
         <div className="grid grid--3">
           <Field label="학생">
             <Select value={userId} onChange={(e) => setUserId(e.target.value)}>
-              {students.map((s) => (
+              {shown.map((s) => (
                 <option key={s.uid} value={s.uid}>
                   {s.displayName} ({formatMileage(s.mileageBalance)})
                 </option>
               ))}
             </Select>
           </Field>
-          <Field label="금액(M)" hint="음수는 차감">
+          <Field label="금액(M)">
             <TextInput type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="50000" />
           </Field>
         </div>
+        <Row>
+          {([
+            ['grant', '지급'],
+            ['deduct', '차감'],
+          ] as const).map(([id, label]) => (
+            <Chip key={id} selected={direction === id} onClick={() => setDirection(id)}>
+              {label}
+            </Chip>
+          ))}
+        </Row>
         <Field label="사유" error={error ?? undefined}>
           <TextInput value={reason} onChange={(e) => setReason(e.target.value)} placeholder="예) 특강 우수 발표 보상" />
         </Field>
         <Row>
           <Spacer />
-          <Button onClick={submit}>반영</Button>
+          <Button onClick={submit}>{direction === 'grant' ? '지급하기' : '차감하기'}</Button>
         </Row>
       </Card>
 
       <Card padded={false} title="최근 조정 내역">
         <DataTable
-          rows={transactions.filter((t) => t.type === 'admin_adjust').slice(0, 20)}
+          rows={transactions.filter((t) => t.type === 'admin_adjust' || t.type === 'adjust').slice(0, 20)}
           rowKey={(t) => t.id}
           empty="수동 조정 내역이 없습니다."
           columns={[

@@ -45,8 +45,14 @@ import { formatDate, formatDateTime } from '../../utils/format';
 import { dateKeyOf } from '../../data/seed';
 import { useCurrentUser } from '../auth/session';
 
-// 내 PC 시각 기준 — toISOString 은 세계 표준시라 하루 어긋난다
-const toInputDate = (d: Date) => dateKeyOf(d);
+/**
+ * date-time 입력칸 값 — 내 PC 시각 기준(toISOString 은 세계 표준시라 하루 어긋난다).
+ * 원본은 응시 기간을 분 단위로 정한다(시작: 2026-09-23 01:14).
+ */
+const toInputDateTime = (d: Date) => {
+  const p = (v: number) => String(v).padStart(2, '0');
+  return `${dateKeyOf(d)}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
 
 /** 성취도평가 목록(강사) — instructor_assessments_screen.dart */
 export function InstructorAssessmentsScreen({ readOnly = false }: { readOnly?: boolean }) {
@@ -326,10 +332,11 @@ export function InstructorAssessmentFormScreen() {
 
   const [title, setTitle] = useState(existing?.title ?? '');
   const [tags, setTags] = useState((existing?.tags ?? []).join(', '));
-  const [startAt, setStartAt] = useState(toInputDate(existing?.startAt ?? new Date()));
+  const [startAt, setStartAt] = useState(toInputDateTime(existing?.startAt ?? new Date()));
   const [endAt, setEndAt] = useState(
-    toInputDate(existing?.endAt ?? new Date(Date.now() + 14 * 86400000)),
+    toInputDateTime(existing?.endAt ?? new Date(Date.now() + 14 * 86400000)),
   );
+  const [thumbnailUrl, setThumbnailUrl] = useState(existing?.thumbnailUrl ?? '');
   const [published, setPublished] = useState(existing?.published ?? false);
   const [questions, setQuestions] = useState<AssessmentQuestion[]>(existingQuestions);
   const [error, setError] = useState<string | null>(null);
@@ -384,6 +391,7 @@ export function InstructorAssessmentFormScreen() {
       maxScore: questions.reduce((s, q) => s + q.points, 0),
       startAt: new Date(startAt),
       endAt: new Date(endAt),
+      thumbnailUrl: thumbnailUrl.trim() === '' ? undefined : thumbnailUrl.trim(),
       published,
       createdBy: existing?.createdBy ?? user.uid,
       createdAt: existing?.createdAt ?? new Date(),
@@ -404,13 +412,18 @@ export function InstructorAssessmentFormScreen() {
           <TextInput value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Python, 기초" />
         </Field>
         <Row gap={12}>
-          <Field label="시작일">
-            <TextInput type="date" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
+          <Field label="시작" hint="응시를 열 날짜와 시각">
+            <TextInput type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
           </Field>
-          <Field label="종료일">
-            <TextInput type="date" value={endAt} onChange={(e) => setEndAt(e.target.value)} />
+          <Field label="종료">
+            <TextInput type="datetime-local" value={endAt} onChange={(e) => setEndAt(e.target.value)} />
           </Field>
         </Row>
+        {/* 원본은 썸네일을 직접 올린다(Storage). 서버에 올리는 길이 아직 없어 주소로 받는다 */}
+        <Field label="썸네일" hint="이미지 주소를 넣으면 평가 카드에 보입니다.">
+          <TextInput value={thumbnailUrl} onChange={(e) => setThumbnailUrl(e.target.value)} placeholder="https://" />
+        </Field>
+        {thumbnailUrl.trim() !== '' && <img className="notice-form__image" src={thumbnailUrl.trim()} alt="" />}
         <Checkbox checked={published} onChange={setPublished} label="학생에게 발행합니다" />
       </Card>
 
