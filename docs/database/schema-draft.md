@@ -234,6 +234,39 @@ project_skills
 ```
 
 `jobs` 원본 스키마는 기존 jobs schema를 우선 재사용한다.
+`lms.0003_jobs_schema`가 `jobs_schema.sql`의 테이블·인덱스·view를 고정된
+migration snapshot으로 생성한다. 운영 `jobs` schema에서 수집기의 런타임 DDL은
+제거했으며, 테스트 격리 schema에서만 자동 생성한다.
+기존 수집 데이터가 있는 환경에서는 migration 적용 전 중복·컬럼 타입을 먼저 검증한다.
+
+## Policy / FAQ 원본 (물리 스키마 적용, 적재 경로 미완료)
+
+현재 정책 ingestion은 파일/Notion에서 추출한 본문을 Pinecone에 직접 upsert한다.
+PostgreSQL source-of-truth 원칙을 지키려면 다음 두 계층이 필요하다.
+
+```text
+policy_documents
+- id, source_key UNIQUE, source_type, source_name, source_url
+- storage_key NULL, title, is_active, created_at, updated_at
+
+policy_document_revisions
+- id, document_id FK, revision_no, content_sha256, extracted_text
+- source_updated_at NULL, ingested_at, extraction_metadata JSONB
+- UNIQUE(document_id, revision_no)
+```
+
+`source_key`는 기존 `SourceSection.document_key`와 같은 안정 식별자로 매핑한다.
+PDF 등의 원본 바이트는 S3 key로, Notion은 원본 URL로 가리키고 추출 본문은
+revision에 보존한다. Pinecone chunk에는 document/revision ID와 content hash를
+담아 재생성할 수 있어야 한다. 현재 revision은 해당 document의 가장 큰
+`revision_no`로 결정하며, 중복 상태를 만들지 않기 위해 별도의
+`current_revision_id` 포인터는 두지 않는다. `lms.0004_policy_documents`로
+두 테이블과 제약을 검증 DB에 적용했다. `import_policy_sources`로 파일/Notion의
+추출 본문을 PostgreSQL에 revision으로 저장할 수 있다. 검증 DB의 Markdown
+원본 1건에서 재실행 시 중복 revision이 생기지 않음을 확인했다.
+`project_policy_index`의 PostgreSQL → Pinecone 스테이징 projection은
+미리보기까지 확인했다. 실제 Pinecone 쓰기와 원본 파일의 S3 key 대조는
+아직 검증하지 않았다.
 
 ## Curriculum / Class
 ```text
@@ -364,3 +397,12 @@ notices(cohort_id, created_at DESC)
 ```
 
 업무 이력 데이터는 사용자 삭제로 함께 사라지지 않도록 한다.
+
+## 물리 구현 점검 (2026-09-23)
+
+- `lms.0001_initial`은 검증용 PostgreSQL에서 적용되었으며 Django managed 테이블이 생성되었다. 이는 운영 DB 적용을 의미하지 않는다.
+- 위 인덱스 체크리스트 중 빠져 있던 assessments, assessment_submissions, mileage_transactions, purchase_requests, scheduled_notices, notices의 복합 인덱스 6개를 `lms.0002_physical_indexes`로 정의했다.
+- `job_requirement_profiles`, `resume_ai_reviews`, `resume_ai_applications`는 이미 Django 모델과 초기 migration에 있다. 별도 신규 생성 대상이 아니다.
+- `jobs` 원본 schema는 `lms.0003_jobs_schema`가 소유한다. 검증 DB의 7개 테이블 및 view 생성과 수집기 연결을 확인했다. 실제 일일 크롤러·Pinecone 전체 회귀와 운영 배포는 별도 검증이 필요하다.
+- 정책/FAQ 원본 및 revision 테이블은 `lms.0004_policy_documents`로 추가했고 `import_policy_sources`의 단일 Markdown 적재·재실행을 검증했다. `project_policy_index`는 1건/13개 chunk의 미리보기만 확인했다. 기존 Pinecone 직접 적재 경로가 남아 있고 전체 corpus/실제 쓰기는 미검증이므로 정책 ETL 완료로 간주하지 않는다.
+- Django `on_delete` 설정과 실제 PostgreSQL FK의 `ON DELETE` 동작은 다르다. 현재 DB FK는 `NO ACTION`이므로, 위 삭제 정책은 ORM 수준 정책이며 직접 SQL 삭제에는 적용되지 않는다.

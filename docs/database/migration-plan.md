@@ -420,7 +420,65 @@ S3 migration               = binary object migration
 18. Neo4j projection
 ```
 
-## 15. 통합 성공 기준
+## 15. 운영 데이터 선별 이전
+
+2026-09-23 확인 결과, 3차 Firebase의 학생 계정·출결·이력서·평가 등은
+실제 운영 데이터가 아니다. 전체 ETL은 스키마와 매핑의 시험용으로만 사용하고,
+운영 초기 적재 범위에서는 제외한다.
+
+- 실제 공지 15건은 모두 `cohort_34` 소속이므로, `cohorts`에 해당 기수를 만든 뒤
+  `notices`에 전량 적재한다. 명령은
+  `python scripts/firestore_to_postgres/import_notices.py --target-db <DB_NAME> --apply`.
+- 공지 작성자 계정은 이전하지 않는다. 공지의 `author_name` 스냅샷을 보존하고
+  `author_id`는 NULL로 둔다.
+- 이미 발행된 예약 공지 8건은 `source=scheduled`를 유지하되,
+  예약 작업 자체는 자동 활성화하지 않는다. 운영 관리자 계정 확정 후 별도 설정한다.
+- 이미지 참조가 있는 공지 2건은 S3 객체 복사와 키 검증이 끝나야 화면에서 표시할 수 있다.
+- 정책·FAQ는 현재 `vectordb/data/policy_*` 원본 파일 및 공개 Notion에서
+  Pinecone으로 직접 적재된다. 이 경로에는 PostgreSQL 원본이 없으므로
+  **운영 이전 완료가 아니다.** source identity, 원문 파일의 S3 key 또는 외부 URL,
+  추출 본문, content hash, 버전/동기화 시각을 보존하는 PostgreSQL 모델은
+  `lms.0004_policy_documents`로 만들었다. `import_policy_sources`는
+  명시한 파일/Notion 원본을 PostgreSQL revision으로 저장한다.
+  `project_policy_index`는 PostgreSQL의 최신 revision을 읽고, 기존
+  `policy`가 아닌 `policy_postgres` Pinecone 스테이징 namespace로 투영한다.
+  검증용 DB의 정책 1건에서 13개 chunk 미리보기만 확인했으며, 실제 embedding과
+  Pinecone 쓰기, PDF/Notion/S3 전체 검증은 아직 하지 않았다. 기존 Pinecone
+  직접 적재와 읽기 경로는 전체 corpus 검증 후에만 전환한다.
+- 채용공고는 Firestore ETL 대상이 아니다. `jobs` schema는
+  `lms.0003_jobs_schema` migration이 생성하고, 운영 수집기의 런타임 DDL은
+  제거했다. 매일 수집 자체는 유지하며 실제 운영 DB 접속·스케줄·회귀 테스트를
+  확인하기 전에는 채용공고 이전 완료로 보지 않는다.
+  실행 순서·upsert·상태 전이는 [채용공고 운영 계약](job-posting-operations.md)에 따른다.
+- 학생/관리자 계정과 학습 이력은 실제 서비스 시작 시 생성한다. 개발용 예시는
+  별도 fixture로 관리한다.
+
+정책 원본 적재 명령 (`lms_api`에서 실행, 미리보기 기본):
+
+```powershell
+python manage.py import_policy_sources <정책 파일 또는 디렉터리>
+python manage.py import_policy_sources <정책 파일 또는 디렉터리> --target-db <검증 DB 이름> --apply
+```
+
+`--apply`에는 실제 연결 `DB_NAME`과 일치하는 `--target-db`가 필요하다.
+PDF는 유료 AI 추출이 필요하므로 `--allow-ai-extraction`을 명시해야 하고,
+Notion은 `--source notion --notion-url <URL>`과 `NOTION_TOKEN`이 필요하다.
+이 명령은 PostgreSQL까지만 저장하며 Pinecone을 수정하지 않는다.
+
+PostgreSQL → Pinecone 투영은 별도 명령으로 미리보기가 기본이다:
+
+```powershell
+python manage.py project_policy_index --target-db <검증 DB 이름>
+python manage.py project_policy_index --target-db <검증 DB 이름> --expected-documents <확인한 문서 수> --apply
+```
+
+`--apply`는 유료 embedding 호출과 `policy_postgres` namespace 쓰기를 수행하므로,
+전체 정책 원본의 PostgreSQL 적재·건수 확인 후에만 사용한다. 스테이징 결과를
+검색 품질/누락/중복 기준으로 비교하기 전에는 기존 `policy` namespace의
+검색 경로를 바꾸거나 삭제하지 않는다. 투영 상태 파일은
+`vectordb/.policy_postgres_projection_state.json`으로 분리한다.
+
+## 16. 통합 성공 기준
 
 아래를 만족하면 DB 설계를 구현 단계로 Freeze한다.
 
@@ -432,3 +490,6 @@ S3 migration               = binary object migration
 - 인증 plaintext 제거
 - 검증 스크립트 통과
 - Pinecone/Neo4j 없이도 LMS 핵심 기능 동작
+- 채용공고 원본 `jobs` schema의 생성/변경 주체가 Django migration으로 일원화
+- 정책·FAQ 원본/버전의 PostgreSQL 모델 및 ingestion 경로 구현·검증
+- 운영 이전 대상인 공지 이미지의 S3 객체 존재 검증

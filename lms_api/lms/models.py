@@ -159,6 +159,7 @@ class AssessmentSubmissions(models.Model):
     class Meta:
         db_table = 'assessment_submissions'
         unique_together = (('assessment', 'user'),)
+        indexes = [models.Index(fields=['assessment', 'submitted_at'], name='idx_assessment_submission_at')]
 
 
 class Assessments(models.Model):
@@ -182,6 +183,7 @@ class Assessments(models.Model):
 
     class Meta:
         db_table = 'assessments'
+        indexes = [models.Index(fields=['cohort', 'published', 'start_at', 'end_at'], name='idx_assessment_cohort_window')]
 
 
 class AssignmentSubmissions(models.Model):
@@ -451,6 +453,7 @@ class MileageTransactions(models.Model):
 
     class Meta:
         db_table = 'mileage_transactions'
+        indexes = [models.Index(fields=['user', '-created_at'], name='idx_mileage_user_created')]
 
 
 class MissionProgress(models.Model):
@@ -498,6 +501,7 @@ class Notices(models.Model):
 
     class Meta:
         db_table = 'notices'
+        indexes = [models.Index(fields=['cohort', '-created_at'], name='idx_notice_cohort_created')]
 
 
 class ProjectTeamMembers(models.Model):
@@ -555,6 +559,7 @@ class PurchaseRequests(models.Model):
 
     class Meta:
         db_table = 'purchase_requests'
+        indexes = [models.Index(fields=['cohort', 'status', '-created_at'], name='idx_purchase_cohort_status')]
 
 
 class RecommendationEvents(models.Model):
@@ -755,6 +760,7 @@ class ScheduledNotices(models.Model):
 
     class Meta:
         db_table = 'scheduled_notices'
+        indexes = [models.Index(fields=['is_active', 'next_publish_at'], name='idx_scheduled_due')]
 
 
 class Schedules(models.Model):
@@ -972,6 +978,45 @@ class YoutubeRecommendations(models.Model):
     class Meta:
         db_table = 'youtube_recommendations'
         unique_together = (('cohort', 'video_id'),)
+
+
+class PolicyDocuments(models.Model):
+    """Stable identity and location of a policy/FAQ source."""
+
+    id = models.BigAutoField(primary_key=True)
+    source_key = models.TextField(unique=True)
+    source_type = models.CharField(max_length=32)
+    source_name = models.TextField()
+    source_url = models.TextField(blank=True, default='')
+    storage_key = models.TextField(blank=True, null=True)
+    title = models.TextField()
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'policy_documents'
+        indexes = [models.Index(fields=['is_active', 'source_type'], name='idx_policy_active_type')]
+
+
+class PolicyDocumentRevisions(models.Model):
+    """Immutable extracted text snapshot; latest revision_no is current."""
+
+    id = models.BigAutoField(primary_key=True)
+    document = models.ForeignKey(PolicyDocuments, models.PROTECT, related_name='revisions')
+    revision_no = models.PositiveIntegerField()
+    content_sha256 = models.CharField(max_length=64)
+    extracted_text = models.TextField()
+    source_updated_at = models.DateTimeField(blank=True, null=True)
+    ingested_at = models.DateTimeField(auto_now_add=True)
+    extraction_metadata = models.JSONField(default=dict)
+
+    class Meta:
+        db_table = 'policy_document_revisions'
+        constraints = [
+            models.UniqueConstraint(fields=['document', 'revision_no'], name='uq_policy_document_revision'),
+        ]
+        indexes = [models.Index(fields=['document', '-revision_no'], name='idx_policy_document_latest')]
 
 
 class PracticeSets(models.Model):

@@ -304,16 +304,45 @@ class SqliteJobStore:
             raise RuntimeError("DATABASE_URL 이 필요합니다 (jobs 스키마)")
         self.schema = _schema_for_path(self.path)
         raw = psycopg.connect(url, row_factory=dict_row, autocommit=False)
-        raw.execute(SQL("CREATE SCHEMA IF NOT EXISTS {}").format(Identifier(self.schema)))
-        raw.execute(SQL("SET search_path TO {}").format(Identifier(self.schema)))
-        for stmt in _sql_statements(_JOBS_SCHEMA_PATH.read_text(encoding="utf-8")):
-            raw.execute(stmt)
-        raw.commit()
-        self._pg = raw
-        self.conn = _PgConn(raw)
-        self._add_missing_columns()
+        try:
+            if self.schema != "jobs":
+                # Test stores use isolated schemas and may bootstrap them locally.
+                raw.execute(SQL("CREATE SCHEMA IF NOT EXISTS {}").format(Identifier(self.schema)))
+            raw.execute(SQL("SET search_path TO {}, public").format(Identifier(self.schema)))
+            if self.schema != "jobs":
+                for stmt in _sql_statements(_JOBS_SCHEMA_PATH.read_text(encoding="utf-8")):
+                    raw.execute(stmt)
+                raw.commit()
+            self._pg = raw
+            self.conn = _PgConn(raw)
+            if self.schema == "jobs":
+                self._verify_managed_schema()
+            else:
+                self._add_missing_columns()
+        except Exception:
+            raw.close()
+            raise
         if _looks_like_sqlite(self.path):
             self._import_sqlite_file(self.path)
+
+    def _verify_managed_schema(self) -> None:
+        """Production schema comes from Django migrations, never crawler DDL."""
+        required_tables = (
+            "jobs", "job_tags", "runs", "list_seen", "link_checks",
+            "list_jobs", "list_sweeps", "list_jobs_search",
+        )
+        missing_tables = [
+            table for table in required_tables
+            if self._pg.execute("SELECT to_regclass(%s)", (f"jobs.{table}",)).fetchone()["to_regclass"] is None
+        ]
+        required_columns = set(_COLUMNS) | {"embed_hash", "indexed_embed_hash", "indexed_at", "group_key"}
+        missing_columns = required_columns - self._table_columns("jobs") if not missing_tables else set()
+        if missing_tables or missing_columns:
+            raise RuntimeError(
+                "jobs schema가 Django migration과 일치하지 않습니다. "
+                "manage.py migrate를 먼저 실행하세요. "
+                f"missing tables/views={sorted(missing_tables)}, columns={sorted(missing_columns)}"
+            )
 
     def _table_columns(self, table: str) -> set[str]:
         rows = self.conn.execute(

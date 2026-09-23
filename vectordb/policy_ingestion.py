@@ -591,6 +591,7 @@ def _index_ready(pc: Any, index_name: str) -> None:
 def upload_records(
     records: Sequence[ChunkRecord], state_path: Path = STATE_FILE,
     managed_source_types: set[str] | None = None,
+    namespace: str = "policy",
 ) -> dict[str, Any]:
     if not records:
         return {"upserted": 0, "stats": {}}
@@ -604,7 +605,6 @@ def upload_records(
     openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], max_retries=2)
     pc = Pinecone(api_key=os.environ["PINECONE_API_KEY2"])
     index_name = "student"
-    namespace = "policy"
     dimension = int(os.getenv("OPENAI_EMBEDDING_DIMENSION", "1536"))
     if index_name not in set(pc.list_indexes().names()):
         retry(lambda: pc.create_index(

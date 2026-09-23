@@ -609,7 +609,7 @@ class Etl:
                 for uid in arr(d.get("memberIds")):
                     user_id = self.uid(str(uid))
                     if user_id:
-                        self.cur.execute("INSERT INTO project_team_members VALUES (%s,%s) ON CONFLICT DO NOTHING", (tid, user_id))
+                        self.cur.execute("INSERT INTO project_team_members (team_id,user_id) VALUES (%s,%s) ON CONFLICT DO NOTHING", (tid, user_id))
 
     def _comms(self) -> None:
         posts_n = qna_n = 0
@@ -672,7 +672,7 @@ class Etl:
                 if popup_id and user_id:
                     d = doc.to_dict() or {}
                     self.cur.execute(
-                        "INSERT INTO alert_popup_dismissals VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
+                        "INSERT INTO alert_popup_dismissals (user_id,popup_id,date_key) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
                         (user_id, popup_id, as_date(d.get("dateKey"))),
                     )
         self.r.fs_add("users/{uid}/alertPopupDismissals", dismiss)
@@ -786,7 +786,7 @@ class Etl:
                 aid = self.insert(
                     """INSERT INTO assessments (legacy_id, cohort_id, title, tags, max_score, start_at, end_at, thumbnail_storage_key, published, created_by, created_at, updated_at, curriculum_sheet_id, day_from, day_to, subject_filter)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                    (doc.id, cid, d.get("title"), arr(d.get("tags")), d.get("maxScore"), ts(d.get("startAt")), ts(d.get("endAt")),
+                    (doc.id, cid, d.get("title"), js(arr(d.get("tags"))), d.get("maxScore"), ts(d.get("startAt")), ts(d.get("endAt")),
                      storage_key(d.get("thumbnailPath") or d.get("thumbnailUrl")), bool(d.get("published", False)), self.uid(d.get("createdBy")),
                      ts(d.get("createdAt")), ts(d.get("updatedAt")), sheet_id, src.get("dayFrom") or src.get("snFrom"),
                      src.get("dayTo") or src.get("snTo"), src.get("subjectFilter") or src.get("moduleName")),
@@ -799,7 +799,7 @@ class Etl:
                         """INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points, choices, correct_index, accepted_answers, explanation, origin, ai_log_id, ai_draft_id, prompt_version, source_day, source_topic)
                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                         (q.id, aid, qd.get("order"), qd.get("type"), qd.get("prompt"), qd.get("points"),
-                         arr(qd.get("choices")), qd.get("correctIndex"), arr(qd.get("acceptedAnswers")),
+                         js(arr(qd.get("choices"))), qd.get("correctIndex"), js(arr(qd.get("acceptedAnswers"))),
                          qd.get("explanation"), qd.get("origin") or "manual", self.ai_logs.get(qd.get("aiLogId") or ""),
                          qd.get("aiDraftId"), qd.get("promptVersion"), qd.get("sourceDay"), qd.get("sourceTopic")),
                     )
@@ -829,7 +829,9 @@ class Etl:
                         if not pg_q:
                             continue
                         self.cur.execute(
-                            """INSERT INTO assessment_answers VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
+                            """INSERT INTO assessment_answers
+                               (submission_id,question_id,value,auto_score,final_score,is_correct)
+                               VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
                             (sid, pg_q, js(dump(ans.get("value"))), ans.get("autoScore"), ans.get("finalScore"), ans.get("isCorrect")),
                         )
                 for adj in arr(d.get("scoreAdjustments")):
@@ -863,7 +865,9 @@ class Etl:
             if cfg.exists:
                 d = cfg.to_dict() or {}
                 self.cur.execute(
-                    """INSERT INTO mileage_settings VALUES (%s,%s,%s,%s,%s) ON CONFLICT (cohort_id) DO NOTHING""",
+                    """INSERT INTO mileage_settings
+                       (cohort_id,category_limits,accrual_rules,updated_by,updated_at)
+                       VALUES (%s,%s,%s,%s,%s) ON CONFLICT (cohort_id) DO NOTHING""",
                     (cid, js(d.get("categoryLimits") or {}), js(d.get("accrualRules") or {}), self.uid(d.get("updatedBy")), ts(d.get("updatedAt"))),
                 )
             products = stream(ref.collection("mileageProducts"))
@@ -915,7 +919,9 @@ class Etl:
                     if not pid:
                         continue
                     self.cur.execute(
-                        """INSERT INTO mileage_cart_items VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
+                        """INSERT INTO mileage_cart_items
+                           (user_id,product_id,quantity,unit_price,purchase_link,updated_at)
+                           VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
                         (user_id, pid, item.get("quantity") or 1, item.get("unitPrice"), item.get("purchaseLink"), ts(d.get("updatedAt"))),
                     )
             missions = stream(ref.collection("missionProgress"))
@@ -926,13 +932,17 @@ class Etl:
                 if not user_id:
                     continue
                 self.cur.execute(
-                    """INSERT INTO mission_progress VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    """INSERT INTO mission_progress
+                       (cohort_id,user_id,study_cert_count,study_cert_granted,quiz_pass_count,quiz_granted,
+                        coding_pcce,coding_pccp,coding_pcsql,coding_granted,blog_weeks,blog_units_granted,
+                        study_week_keys,study_granted,updated_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        ON CONFLICT DO NOTHING""",
                     (cid, user_id, int(d.get("studyCertCount") or 0), int(d.get("studyCertGranted") or 0),
                      int(d.get("quizPassCount") or 0), int(d.get("quizGranted") or 0),
                      bool(d.get("codingPcce")), bool(d.get("codingPccp")), bool(d.get("codingPcsql")),
-                     int(d.get("codingGranted") or 0), arr(d.get("blogWeeks")), arr(d.get("blogUnitsGranted")),
-                     [str(x) for x in arr(d.get("studyWeekKeys"))], bool(d.get("studyGranted")), ts(d.get("updatedAt"))),
+                     int(d.get("codingGranted") or 0), js(arr(d.get("blogWeeks"))), js(arr(d.get("blogUnitsGranted"))),
+                     js([str(x) for x in arr(d.get("studyWeekKeys"))]), bool(d.get("studyGranted")), ts(d.get("updatedAt"))),
                 )
 
     def _resumes(self) -> None:
@@ -982,7 +992,7 @@ class Etl:
                         )
                     self.cur.execute(
                         """INSERT INTO resume_revisions
-                           (legacy_id,resume_id,revision_no,content,created_by,created_at)
+                           (legacy_id,resume_id,revision_no,content,created_by_id,created_at)
                            VALUES (%s,%s,%s,%s,%s,%s)""",
                         (rev.id, rid, revision_no, js(dump(revision_content)),
                          self.uid(rd.get("createdBy") or d.get("userId")),
@@ -1072,7 +1082,7 @@ class Etl:
                     """INSERT INTO recommendation_events (legacy_id, cohort_id, user_id, recommendation_id, youtube_video_id, user_skills, matched_tags, action, created_at)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (doc.id, cid, self.uid(d.get("userId")), self.yt.get((code, str(d.get("youtubeVideoId") or d.get("videoId") or ""))),
-                     d.get("youtubeVideoId") or d.get("videoId"), arr(d.get("userSkills")), arr(d.get("matchedTags")),
+                     d.get("youtubeVideoId") or d.get("videoId"), js(arr(d.get("userSkills"))), js(arr(d.get("matchedTags"))),
                      d.get("action"), ts(d.get("createdAt"))),
                 )
             cache = stream(ref.collection("youtubeCurriculumCache"))
@@ -1145,7 +1155,7 @@ class Etl:
                 """INSERT INTO ai_eval_runs (legacy_id, prompt_version, model, source, total_cases, passed, accuracy, avg_latency_ms, failed_ids, created_at)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (doc.id, d.get("promptVersion"), d.get("model"), d.get("source"), d.get("totalCases"), d.get("passed"),
-                 d.get("accuracy"), d.get("avgLatencyMs"), [str(x) for x in arr(d.get("failedIds"))], ts(d.get("createdAt"))),
+                 d.get("accuracy"), d.get("avgLatencyMs"), js([str(x) for x in arr(d.get("failedIds"))]), ts(d.get("createdAt"))),
             )
 
     def _unmapped(self) -> None:
@@ -1295,7 +1305,7 @@ def main() -> int:
     print(f"report: {REPORT}")
     print(f"pg users={report.pg.get('users')} fs users={report.fs.get('users')}")
     print(f"mileage mismatches={len(report.mileage)} uid_fail={len(set(report.uid_fail))} errors={len(report.errors)}")
-    return 0
+    return 1 if report.errors or report.uid_fail else 0
 
 
 if __name__ == "__main__":

@@ -50,7 +50,8 @@
 ## DEC-050 기본 이력서와 공고 맞춤 이력서의 파생 관계를 보존
 - 공고 맞춤 이력서도 `resumes`에 저장하고 `base_resume_id` self FK로 원본 기본 이력서를 참조한다.
 - 맞춤 이력서가 대상으로 삼은 채용공고는 `linked_job_id`로 추적한다.
-- 기본 이력서 또는 채용공고가 제거되어도 작성된 맞춤 이력서는 보존하며 연결은 `SET NULL`을 기본으로 한다.
+- 기본 이력서가 제거되어도 맞춤 이력서는 보존하고 `base_resume_id` 연결만 해제한다.
+- 채용공고는 일일 수집에서 물리 삭제하지 않고 상태를 전이한다. 따라서 과거 맞춤 이력서의 `linked_job_id`는 보존한다. 향후 공고 FK를 도입하고 예외적인 물리 삭제가 필요할 때만 `SET NULL`을 검토한다.
 - `base_resume_id`가 자기 자신을 가리키지 못하도록 하고, 기본/맞춤 이력서의 소유자 일치는 Django service validation으로 보장한다.
 
 ## DEC-051 Legacy resume sections는 content JSONB로 병합
@@ -69,3 +70,19 @@
 - 초기 범위에서는 학생/문제당 한 행에 `passed`, `tries`, `answered_at`을 저장한다.
 - 개별 제출 코드와 채점 결과 전체 이력이 필요해지면 `practice_attempt_events`를 별도 추가한다.
 - 문제 신고는 학생/문제당 한 행으로 유지하며 재신고 시 이유와 메모를 갱신한다.
+
+## DEC-054 물리 스키마 소유권은 도메인별로 명시
+- LMS/이력서/Practice의 신규 테이블과 인덱스는 Django managed models 및 migration이 소유한다.
+- 채용공고 `jobs` schema의 구조는 `lms.0003_jobs_schema` migration이 생성한다. 수집기는 운영 `jobs` schema에서 DDL을 실행하지 않고 구조를 확인한다. 테스트 격리 schema는 테스트 목적으로 자체 생성한다.
+- `resumes.linked_job_id`는 현재 stable job ID 문자열로 유지하며 존재성은 서비스에서 검증한다. FK 승격 전에는 서로 다른 스키마의 FK나 job 테이블 재생성에 의존하지 않는다.
+- 정책/FAQ의 PostgreSQL 원본·revision 테이블은 `lms.0004_policy_documents`로 생성한다. 다만 현재 저장소 파일 및 외부 문서에서 Pinecone으로 직접 적재하는 경로는 아직 전환되지 않았다. 원본의 식별자·버전/hash·본문 또는 S3 storage key를 이 테이블에 저장하는 ingestion과 Pinecone 재투영을 구현한 뒤 운영 적재한다. Pinecone은 원본이 아니다.
+
+## DEC-055 FK 삭제 정책은 ORM과 DB에서 구분
+- `models.PROTECT/CASCADE/SET_NULL`은 Django ORM을 통한 삭제 정책이다.
+- 현재 PostgreSQL migration이 생성한 FK는 DB 수준에서 `NO ACTION`이며, 직접 SQL 삭제가 자동 cascade/SET NULL 된다고 가정하지 않는다.
+- 운영 데이터 삭제는 우선 soft deactivate를 사용한다. SQL 수준 cascade가 실제로 필요한 관계는 별도 migration과 테스트를 거쳐 명시적으로 변경한다.
+
+## DEC-056 채용공고 수집과 스키마 변경의 책임 분리
+- 팀원의 매일 크롤링·정규화·upsert·상태 전이는 유지한다. Django migration은 `jobs` schema 구조만 소유한다.
+- 운영 schema의 런타임 DDL은 제거했다. 기존 증분 수집과 Pinecone 변경분 동기화의 전체 회귀 테스트는 별도 완료 조건이다.
+- 운영 순서와 장애·이력서 연결 정책은 [채용공고 일일 수집·저장 운영 계약](job-posting-operations.md)을 따른다.
