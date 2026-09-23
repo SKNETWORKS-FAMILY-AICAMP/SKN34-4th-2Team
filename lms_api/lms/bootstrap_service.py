@@ -85,8 +85,15 @@ def build_bootstrap(user: dict) -> dict:
         todos = q("SELECT * FROM todos WHERE user_id = %s", [user["id"]])
         attendances = q("SELECT * FROM attendances WHERE cohort_id = ANY(%s)", [cohort_ids])
         submissions = q("SELECT * FROM record_submissions WHERE cohort_id = ANY(%s)", [cohort_ids])
-        resumes = q("SELECT * FROM resumes WHERE cohort_id = ANY(%s)", [cohort_ids])
-        feedbacks = q("SELECT * FROM resume_feedback")
+        # 이력서는 남의 것을 보내지 않는다. 학생은 제 것만, 강사 · 관리자는 맡은 기수 것만.
+        if user["role"] in ("admin", "instructor"):
+            resumes = q("SELECT * FROM resumes WHERE cohort_id = ANY(%s)", [cohort_ids])
+        else:
+            resumes = q("SELECT * FROM resumes WHERE user_id = %s", [user["id"]])
+        feedbacks = q(
+            "SELECT * FROM resume_feedback WHERE resume_id = ANY(%s)",
+            [[r["id"] for r in resumes] or [-1]],
+        )
         if user["role"] in ("admin", "instructor"):
             assessments = q("SELECT * FROM assessments WHERE cohort_id = ANY(%s)", [cohort_ids])
             questions = q("SELECT * FROM assessment_questions")

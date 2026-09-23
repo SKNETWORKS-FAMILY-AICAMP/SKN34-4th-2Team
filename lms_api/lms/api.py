@@ -23,6 +23,7 @@ from lms.commands import dispatch, resolve_cohort
 from lms.jwt_auth import AuthError, issue_tokens, load_lms_user, user_from_access
 from lms.permissions import can_access_cohort
 from lms.publish import publish_scheduled_notices
+from lms.resume_text import build_profile, build_resume_text
 from lms.services import schedule_notice_vector
 
 
@@ -270,6 +271,81 @@ def chat(request, body: ChatIn):
         }
     answer = body_json.get("answer") or body_json.get("text") or body_json.get("message") or ""
     return {"answer": answer or "답변을 받지 못했습니다."}
+
+
+class JobRecommendIn(Schema):
+    resumeId: str
+    topK: int = 10
+
+
+@api.post("/jobs/recommend")
+def jobs_recommend(request, body: JobRecommendIn):
+    """공고 추천 — 이력서를 DB 에서 읽어 추천 서버(job_matching_bot)로 넘긴다.
+
+    이력서 평문을 화면에서 받지 않는다. 남의 이력서로 추천을 받거나, 화면이 보낸 글이
+    DB 와 달라지는 것을 막는다. 희망 조건은 마이페이지(`users.job_preferences`)에서 읽는다.
+
+    추천은 15초쯤 걸린다. 서버가 없으면(`JOBS_URL` 없음) 무엇이 빠졌는지 알려 준다.
+    """
+    user = _require_user(request)
+    with connection.cursor() as cur:
+        cur.execute(
+            """SELECT r.content, r.user_id, r.cohort_id, u.firebase_uid, u.job_preferences
+               FROM resumes r JOIN users u ON u.id = r.user_id
+               WHERE r.legacy_id = %s OR r.id::text = %s""",
+            [body.resumeId, body.resumeId],
+        )
+        row = _one(cur)
+    if not row:
+        return Response({"detail": "이력서를 찾을 수 없습니다."}, status=404)
+    # 본인 이력서이거나, 그 기수를 맡은 강사 · 관리자여야 한다
+    if row["firebase_uid"] != user["firebase_uid"] and not (
+        user["role"] in ("admin", "instructor") and can_access_cohort(user, row["cohort_id"])
+    ):
+        return Response({"detail": "본인 이력서만 추천받을 수 있습니다."}, status=403)
+
+    content = row["content"] or {}
+    if isinstance(content, str):
+        content = json.loads(content or "{}")
+    resume_text = build_resume_text(content)
+    if len(resume_text) < 20:
+        return Response({"detail": "이력서 내용이 너무 적습니다. 먼저 이력서를 채워 주세요."}, status=400)
+
+    prefs = row["job_preferences"] or {}
+    if isinstance(prefs, str):
+        prefs = json.loads(prefs or "{}")
+    profile = build_profile(content)
+    payload = json.dumps(
+        {
+            "resume_text": resume_text,
+            "preferred_regions": prefs.get("regions") or [],
+            "preferred_employment_types": prefs.get("employmentTypes") or [],
+            "top_k": max(1, min(body.topK, 12)),
+            **profile,
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+    base = (os.environ.get("JOBS_URL") or "").rstrip("/")
+    if not base:
+        return Response({"detail": "공고 추천 서버가 연결되어 있지 않습니다(JOBS_URL)."}, status=503)
+    req = urllib.request.Request(
+        f"{base}/api/v1/jobs/recommend",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("detail")
+        except Exception:
+            detail = None
+        return Response({"detail": detail or "공고를 추천하지 못했습니다."}, status=exc.code)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return Response({"detail": "공고 추천 서버에 연결하지 못했습니다."}, status=503)
 
 
 @api.get("/bootstrap")
