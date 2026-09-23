@@ -26,7 +26,7 @@ React 데모 모드 테스트만 통과한 항목은 사용자 E2E가 아니다.
 | 13 | 공부방 source | PARTIAL | React→Django proxy→AI 경로 코드 및 RDS `study_sources` 테이블 존재(0건). 실제 수업자료 E2E 미검증. |
 | 14 | 공부방 AI note | PARTIAL | React·Django proxy·AI PostgreSQL 서비스 코드와 RDS `study_notes` 테이블 존재(0건). 실제 생성/재조회 미검증. |
 | 15 | 학생 챗봇 | PARTIAL | Django `/api/chat` proxy 및 AI 서비스 코드. 실제 학생 대화의 React→AI→RDS/S3/Pinecone E2E 미검증. 직접 AI `/init`·`/stream`의 Firebase ID token 경로 잔존. |
-| 16 | 이력서 조회/저장 | PARTIAL | 임시 학생으로 Django API 생성·수정→RDS 행·bootstrap 재조회 성공. React가 생성 시 임시 ID 대신 서버 ID를 기다리도록 수정한 뒤 실제 브라우저 생성 200, `/resume/3/edit`에서 조회 성공. 테스트 계정·이력서 삭제 후 잔여 0건. 편집 화면의 저장 버튼과 AI 첨삭은 별도 검증 필요. |
+| 16 | 이력서 조회/저장 | PARTIAL | 임시 학생으로 Django API 생성·수정→RDS 행·bootstrap 재조회 성공. React가 생성 시 임시 ID 대신 서버 ID를 기다리도록 수정한 뒤 실제 브라우저 생성 200, 편집 화면 조회 성공. 편집 제목과 저장의 비동기 경합을 수정한 뒤 브라우저에서 제목 유지·`저장됨` 표시 및 RDS 제목·수정 횟수 재조회 성공. 테스트 계정·이력서 삭제 후 잔여 0건. 다른 섹션·AI 첨삭은 별도 검증 필요. |
 | 17 | AI 이력서 첨삭 | PARTIAL | PostgreSQL 중심 AI 코드 존재. 실제 첨삭 E2E 미검증; 실행 경로의 Firebase 인증/Firestore helper 구분 필요. |
 | 18 | 맞춤 이력서 | CODE EXISTS / NOT VERIFIED | DB·화면 코드가 있으나 공고 연결·저장·재조회 E2E 미검증. |
 | 19 | 첨삭 적용/undo | CODE EXISTS / NOT VERIFIED | 기존 로직 유지. 실제 적용/되돌리기 E2E 미검증. |
@@ -56,6 +56,10 @@ React 데모 모드 테스트만 통과한 항목은 사용자 E2E가 아니다.
   요청을 기다려 실제 ID로 이동하도록 최소 수정했다. 실제 RDS 생성과 브라우저
   편집 화면 재조회 확인 후 임시 학생·이력서를 정확한 ID로 삭제했다. React
   TypeScript 검사 및 Vitest 53개 통과.
+- 이력서 편집에서는 제목 변경과 저장 요청이 동시에 보내져 화면 제목이 이전
+  값으로 돌아가면서 저장 완료를 조기 표시했다. 이력서별 쓰기 순서를 보장하고
+  저장 API 응답 뒤에만 완료를 표시하도록 수정했다. 실제 브라우저와 RDS에서
+  제목·수정 횟수를 확인했고 임시 데이터는 삭제했다.
 - FastAPI AI 개별 생성·첨삭·추천 요청은 이번 범위에서 실제 성공 확인이 없다.
   이전의 proxy 단위 테스트와 실제 AI E2E를 혼동하지 않는다.
 
