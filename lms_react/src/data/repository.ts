@@ -631,12 +631,13 @@ export function useResumeFeedbacks(resumeId: string): ResumeFeedback[] {
   return useDb((db) => db.resumeFeedbacks.filter((f) => f.resumeId === resumeId));
 }
 
-export function createResume(resume: Omit<Resume, 'id' | 'updatedAt'>): string {
+export async function createResume(resume: Omit<Resume, 'id' | 'updatedAt'>): Promise<string> {
+  if (!isTestMode()) {
+    const result = await runCommand('upsert', { table: 'resumes', action: 'insert', ...resume, cohortId: apiCohortId() });
+    return String(result.id);
+  }
   const id = nextId('r');
   mutate((db) => ({ resumes: [{ ...resume, id, updatedAt: new Date() }, ...db.resumes] }));
-  if (!isTestMode()) {
-    void runCommand('upsert', { table: 'resumes', action: 'insert', ...resume, cohortId: apiCohortId() });
-  }
   return id;
 }
 

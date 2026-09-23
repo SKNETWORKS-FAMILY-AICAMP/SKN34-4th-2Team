@@ -50,6 +50,8 @@ export function ResumeScreen() {
   const query = useMyResumes(user.uid);
   const navigate = useNavigate();
   const [tab, setTab] = useState<'all' | 'draft' | 'feedbackRequested' | 'approved'>('all');
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState(false);
 
   // 훅은 모두 위에서 부른 뒤에 갈라진다 — 렌더마다 호출 순서가 같아야 하므로.
   // 지금은 메모리라 loading이 항상 false지만, 서버를 붙이면 여기가 실제로 걸린다.
@@ -76,24 +78,33 @@ export function ResumeScreen() {
   const shown =
     tab === 'all' ? others : others.filter((r) => r.status === tab);
 
-  const create = () => {
-    const id = createResume({
-      userId: user.uid,
-      userDisplayName: user.displayName,
-      title: '새 이력서',
-      status: 'draft',
-      sections: {},
-      content: {
-        ...emptyContent,
-        basicInfo: { ...emptyContent.basicInfo, name: user.displayName, email: user.email },
-      },
-      isBaseResume: resumes.length === 0,
-      feedbackCount: 0,
-      lastSeenFeedbackCount: 0,
-      readFeedbackIds: [],
-      revisionCount: 0,
-    });
-    navigate(resumeEditPath(id));
+  const create = async () => {
+    if (creating) return;
+    setCreating(true);
+    setCreateError(false);
+    try {
+      const id = await createResume({
+        userId: user.uid,
+        userDisplayName: user.displayName,
+        title: '새 이력서',
+        status: 'draft',
+        sections: {},
+        content: {
+          ...emptyContent,
+          basicInfo: { ...emptyContent.basicInfo, name: user.displayName, email: user.email },
+        },
+        isBaseResume: resumes.length === 0,
+        feedbackCount: 0,
+        lastSeenFeedbackCount: 0,
+        readFeedbackIds: [],
+        revisionCount: 0,
+      });
+      navigate(resumeEditPath(id));
+    } catch {
+      setCreateError(true);
+    } finally {
+      setCreating(false);
+    }
   };
 
   return (
@@ -104,6 +115,7 @@ export function ResumeScreen() {
           <p className="page-head__desc">기본 이력서로 AI 첨삭과 공고 추천을 받습니다.</p>
         </div>
       </header>
+      {createError && <ErrorState message="이력서를 만들지 못했습니다. 다시 시도해 주세요." onRetry={() => void create()} />}
 
       {/* 숫자 배지의 색은 뜻이다 — 작성 중은 주황, 피드백 요청은 늘 파랑, 승인은 초록. */}
       <div className="resume-tabs">
@@ -130,10 +142,10 @@ export function ResumeScreen() {
 
       {base === undefined ? (
         <Card>
-          <EmptyState message="작성한 이력서가 없습니다" action={<Button onClick={create}>이력서 만들기</Button>} />
+          <EmptyState message="작성한 이력서가 없습니다" action={<Button onClick={() => void create()} disabled={creating}>이력서 만들기</Button>} />
         </Card>
       ) : (
-        <BaseResumeCard resume={base} onCreate={create} />
+        <BaseResumeCard resume={base} onCreate={() => void create()} />
       )}
 
       <section className="panel panel--flush">
@@ -266,4 +278,3 @@ function BaseResumeCard({ resume, onCreate }: { resume: Resume; onCreate(): void
     </section>
   );
 }
-
