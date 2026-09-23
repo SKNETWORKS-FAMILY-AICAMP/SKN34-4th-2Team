@@ -1,5 +1,6 @@
 """Small API-contract checks that do not require a database connection."""
 
+import json
 import os
 from collections import namedtuple
 
@@ -7,7 +8,7 @@ from django.test import SimpleTestCase
 from unittest import TestCase
 from unittest.mock import Mock, patch
 
-from lms.api import ChatIn, _data, api, chat
+from lms.api import ChatIn, _data, _study_note_proxy, api, chat
 from lms.bootstrap_service import _dicts
 from lms.commands import (
     _validate_record_submission_write, _validate_resume_write, op_add_todo,
@@ -59,7 +60,7 @@ class JsonBodyContractTests(SimpleTestCase):
 
 class AiProxyContractTests(SimpleTestCase):
     def test_missing_internal_token_does_not_call_ai_service(self):
-        request = Mock(auth={"role": "student", "firebase_uid": "student-a"})
+        request = Mock(auth={"id": 42, "role": "student", "firebase_uid": "student-a"})
         with patch.dict(os.environ, {"CHATBOT_URL": "http://ai:8001", "LMS_AI_SHARED_TOKEN": ""}), \
              patch("lms.api.urllib.request.urlopen") as urlopen:
             response = chat(request, ChatIn(message="hello"))
@@ -76,6 +77,27 @@ class AiProxyContractTests(SimpleTestCase):
         self.assertEqual(response["answer"], "ok")
         self.assertEqual(sent.get_header("X-lms-ai-token"), "private-test-token")
         self.assertNotIn(b"private-test-token", sent.data)
+
+    def test_study_note_proxy_uses_authenticated_identity(self):
+        request = Mock(auth={"id": 42, "role": "student", "firebase_uid": "student-a"})
+        with patch.dict(os.environ, {"CHATBOT_URL": "http://ai:8001", "LMS_AI_SHARED_TOKEN": "private-test-token"}), \
+             patch("lms.api.urllib.request.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = b'{"status":"missing"}'
+            response = _study_note_proxy(
+                request, {"cohortId": "cohort_34", "userPk": 999, "noteId": "n1"}, "get",
+            )
+            sent = urlopen.call_args.args[0]
+        self.assertEqual(response["status"], "missing")
+        self.assertEqual(sent.get_header("X-lms-ai-token"), "private-test-token")
+        self.assertEqual(json.loads(sent.data)["userPk"], 42)
+
+    def test_study_note_proxy_fails_closed_without_internal_token(self):
+        request = Mock(auth={"id": 42, "role": "student", "firebase_uid": "student-a"})
+        with patch.dict(os.environ, {"CHATBOT_URL": "http://ai:8001", "LMS_AI_SHARED_TOKEN": ""}), \
+             patch("lms.api.urllib.request.urlopen") as urlopen:
+            response = _study_note_proxy(request, {"cohortId": "cohort_34"}, "tree")
+        self.assertEqual(response.status_code, 503)
+        urlopen.assert_not_called()
 
 
 class ResumeWriteValidationTests(SimpleTestCase):

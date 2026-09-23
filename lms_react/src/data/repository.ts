@@ -794,6 +794,37 @@ export function useStudyNotes() {
   return useDb((db) => db.studyNotes);
 }
 
+export type StudyNoteTree = { dates: string[]; entries: { path: string; type: string }[]; truncated: boolean };
+export type StudyNoteResult = {
+  noteId: string;
+  status: string;
+  sourceId?: string;
+  scopeType?: string;
+  scopeValue?: string | string[];
+  reportMarkdown?: string;
+  reviewMarkdown?: string;
+  files?: { path: string; commit: string }[];
+  message?: string;
+  errorMessage?: string;
+};
+
+export async function fetchStudyNoteTree(sourceId: string): Promise<StudyNoteTree> {
+  const { data } = await http.post<StudyNoteTree>('/study-notes/tree', {
+    cohortId: apiCohortId(), sourceId,
+  });
+  return data;
+}
+
+export async function generateStudyNote(
+  sourceId: string, scopeType: 'date' | 'prefix' | 'files', scopeValue: string | string[],
+): Promise<StudyNoteResult> {
+  const { data } = await http.post<StudyNoteResult>('/study-notes/generate', {
+    cohortId: apiCohortId(), sourceId, scopeType, scopeValue,
+  });
+  await invalidateBootstrap();
+  return data;
+}
+
 export function createDemoStudyNote(
   sourceId: string,
   scopeKey: string,

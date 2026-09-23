@@ -13,7 +13,9 @@ from firebase_admin import auth, firestore
 from pydantic import BaseModel, Field
 
 from chatbot.api import _firebase_app
+from chatbot.proxy_auth import valid_proxy_token
 from study_notes import service
+from study_notes import postgres_service
 from study_notes.service import Caller
 
 router = APIRouter(prefix="/api/v1/study-notes", tags=["study-notes"])
@@ -35,6 +37,30 @@ class GetNoteRequest(BaseModel):
     sourceId: str | None = Field(default=None, max_length=120)
     scopeType: str | None = Field(default=None, max_length=10)
     scopeValue: Any = None
+
+
+class InternalTreeRequest(TreeRequest):
+    userPk: int = Field(gt=0)
+
+
+class InternalGenerateRequest(GenerateRequest):
+    userPk: int = Field(gt=0)
+
+
+class InternalGetNoteRequest(GetNoteRequest):
+    userPk: int = Field(gt=0)
+
+
+def _internal_auth(token: str | None = Header(default=None, alias="X-LMS-AI-Token")) -> None:
+    if not valid_proxy_token(token):
+        raise HTTPException(status_code=401, detail="Django proxy authentication required")
+
+
+def _postgres_result(call):
+    try:
+        return call()
+    except postgres_service.StudyNotesError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 class Session:
@@ -85,3 +111,23 @@ def get_note(request: GetNoteRequest, session: Session = Depends(_session)) -> d
         scope_type=request.scopeType,
         scope_value=request.scopeValue,
     )
+
+
+@router.post("/internal/tree", dependencies=[Depends(_internal_auth)])
+def internal_tree(request: InternalTreeRequest) -> dict[str, Any]:
+    return _postgres_result(lambda: postgres_service.list_tree(request.userPk, request.cohortId, request.sourceId))
+
+
+@router.post("/internal/generate", dependencies=[Depends(_internal_auth)])
+def internal_generate(request: InternalGenerateRequest) -> dict[str, Any]:
+    return _postgres_result(lambda: postgres_service.generate_note(
+        request.userPk, request.cohortId, request.sourceId, request.scopeType, request.scopeValue,
+    ))
+
+
+@router.post("/internal/get", dependencies=[Depends(_internal_auth)])
+def internal_get(request: InternalGetNoteRequest) -> dict[str, Any]:
+    return _postgres_result(lambda: postgres_service.get_note(
+        request.userPk, request.cohortId, note_id=request.noteId, source_id=request.sourceId,
+        scope_type=request.scopeType, scope_value=request.scopeValue,
+    ))

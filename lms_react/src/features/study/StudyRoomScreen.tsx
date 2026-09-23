@@ -1,14 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { RoutePaths, studyRoomNoteSourcePath } from '../../app/routePaths';
 import {
   createDemoStudyNote,
+  fetchStudyNoteTree,
+  generateStudyNote,
   useInflearnPackages,
   useStudyNotes,
   useStudySources,
   useYoutubeRecommendations,
 } from '../../data/repository';
+import { readApiError } from '../../data/http';
 import type { InflearnPackage } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import {
@@ -302,13 +305,33 @@ export function StudyNoteSourceScreen() {
   const [scopeValue, setScopeValue] = useState('');
   const [checkedFiles, setCheckedFiles] = useState<string[]>([]);
   const [error, setError] = useState('');
+  const [tree, setTree] = useState<{ dates: string[]; entries: { path: string; type: string }[] } | null>(null);
+  const [loadingTree, setLoadingTree] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generatedNote, setGeneratedNote] = useState<import('../../domain/types').StudyNote | null>(null);
 
-  const note = notes.find((item) => item.id === selectedId);
-  const files = Array.from(new Set(notes.flatMap((item) => item.files.map((file) => file.path))));
-  const dateChoices = ['2026-09-17', '2026-09-18', '2026-09-19'];
+  useEffect(() => {
+    if (!sourceId || import.meta.env.MODE === 'test') return;
+    let active = true;
+    setLoadingTree(true);
+    fetchStudyNoteTree(sourceId).then((result) => {
+      if (active) setTree(result);
+    }).catch(async (cause) => {
+      if (active) setError(await readApiError(cause));
+    }).finally(() => {
+      if (active) setLoadingTree(false);
+    });
+    return () => { active = false; };
+  }, [sourceId]);
+
+  const note = notes.find((item) => item.id === selectedId) ??
+    (generatedNote?.id === selectedId ? generatedNote : undefined);
+  const files = tree ? tree.entries.filter((entry) => entry.type === 'blob').map((entry) => entry.path)
+    : Array.from(new Set(notes.flatMap((item) => item.files.map((file) => file.path))));
+  const dateChoices = tree?.dates ?? (import.meta.env.MODE === 'test' ? ['2026-09-17', '2026-09-18', '2026-09-19'] : []);
   const folderChoices = source?.allowedPrefixes ?? [];
 
-  const generate = () => {
+  const generate = async () => {
     const selectedFiles = scopeMode === 'file' ? checkedFiles : files.filter((path) =>
       scopeMode === 'folder' ? path.startsWith(scopeValue) : true,
     );
@@ -321,14 +344,36 @@ export function StudyNoteSourceScreen() {
       : scopeMode === 'folder'
         ? `folder:${scopeValue}`
         : `files:${checkedFiles.length}개`;
-    const id = createDemoStudyNote(
-      sourceId ?? '',
-      scopeKey,
-      selectedFiles.slice(0, 8).map((path) => ({ path, commit: 'demo-local' })),
-    );
-    setSelectedId(id);
-    setTab('report');
+    if (import.meta.env.MODE === 'test') {
+      const id = createDemoStudyNote(sourceId ?? '', scopeKey,
+        selectedFiles.slice(0, 8).map((path) => ({ path, commit: 'demo-local' })));
+      setSelectedId(id);
+      setTab('report');
+      setError('');
+      return;
+    }
+    if (!sourceId) return;
+    setGenerating(true);
     setError('');
+    try {
+      const result = await generateStudyNote(sourceId, scopeMode === 'file' ? 'files' : scopeMode === 'folder' ? 'prefix' : 'date',
+        scopeMode === 'file' ? checkedFiles : scopeValue);
+      if (result.status === 'ready') {
+        setGeneratedNote({
+          id: result.noteId, sourceId, status: 'done', scopeKey,
+          reportMarkdown: result.reportMarkdown ?? '', reviewMarkdown: result.reviewMarkdown ?? '',
+          files: result.files ?? [],
+        });
+        setSelectedId(result.noteId);
+        setTab('report');
+      } else {
+        setError(result.message ?? result.errorMessage ?? `노트 상태: ${result.status}`);
+      }
+    } catch (cause) {
+      setError(await readApiError(cause));
+    } finally {
+      setGenerating(false);
+    }
   };
 
   return (
@@ -398,10 +443,11 @@ export function StudyNoteSourceScreen() {
                   />
                 ))}
               </div>
+              {loadingTree && <span className="hint">수업 저장소 목록을 불러오는 중입니다.</span>}
               {scopeMode === 'file' && <span className="hint">{checkedFiles.length}/8개 선택</span>}
               {error !== '' && <div className="callout callout--error">{error}</div>}
-              <div className="callout">현재는 화면 확인용 로컬 생성입니다. 실제 저장소 분석은 Django·공부방 API 연결 후 동작합니다.</div>
-              <Row><Spacer /><Button onClick={generate}>선택한 범위 정리하기</Button></Row>
+              {import.meta.env.MODE === 'test' && <div className="callout">테스트 모드에서는 로컬 예시 노트를 만듭니다.</div>}
+              <Row><Spacer /><Button onClick={() => { void generate(); }} disabled={generating || loadingTree}>{generating ? '정리 중...' : '선택한 범위 정리하기'}</Button></Row>
             </Card>
           ) : (
           <Card className="split__main">

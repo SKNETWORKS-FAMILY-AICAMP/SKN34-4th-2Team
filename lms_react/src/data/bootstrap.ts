@@ -469,7 +469,9 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
     })),
     studyNotes: rowsOf(payload, 'studyNotes').map((row) => ({
       id: String(row.id ?? row.pk ?? ''),
-      sourceId: String(row.sourceId ?? row.source_id ?? ''),
+      sourceId: String(rowsOf(payload, 'studySources').find((source) =>
+        String(source.pk ?? '') === String(row.sourceId ?? row.source_id ?? ''),
+      )?.id ?? row.sourceId ?? row.source_id ?? ''),
       status: String(row.status ?? 'done'),
       scopeKey: row.scopeKey ? String(row.scopeKey) : undefined,
       reportMarkdown: String(row.reportMarkdown ?? row.report_markdown ?? ''),

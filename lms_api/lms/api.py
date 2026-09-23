@@ -268,6 +268,52 @@ def chat(request, body: ChatIn):
     return {"answer": answer or "답변을 받지 못했습니다."}
 
 
+def _study_note_proxy(request: HttpRequest, body: dict[str, Any], action: str):
+    user = _require_user(request)
+    if action not in {"tree", "generate", "get"}:
+        return Response({"detail": "unsupported study note action"}, status=400)
+    base = (os.environ.get("CHATBOT_URL") or "").rstrip("/")
+    token = os.environ.get("LMS_AI_SHARED_TOKEN") or ""
+    if not base or not token:
+        return Response({"detail": "공부방 AI 서비스가 연결되지 않았습니다"}, status=503)
+    cohort = body.get("cohortId")
+    if not isinstance(cohort, str) or not cohort.strip():
+        return Response({"detail": "cohortId required"}, status=400)
+    payload = {**body, "userPk": user["id"]}
+    req = urllib.request.Request(
+        f"{base}/api/v1/study-notes/internal/{action}",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json", "X-LMS-AI-Token": token},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            detail = {"detail": "공부방 요청을 처리하지 못했습니다"}
+        return Response(detail, status=exc.code if exc.code < 500 else 502)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return Response({"detail": "공부방 AI 서비스에 연결하지 못했습니다"}, status=502)
+
+
+@api.post("/study-notes/tree")
+def study_note_tree(request, body: dict[str, Any] = Body(...)):
+    return _study_note_proxy(request, body, "tree")
+
+
+@api.post("/study-notes/generate")
+def study_note_generate(request, body: dict[str, Any] = Body(...)):
+    return _study_note_proxy(request, body, "generate")
+
+
+@api.post("/study-notes/get")
+def study_note_get(request, body: dict[str, Any] = Body(...)):
+    return _study_note_proxy(request, body, "get")
+
+
 @api.get("/bootstrap")
 def bootstrap(request):
     user = _require_user(request)

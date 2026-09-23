@@ -1,5 +1,13 @@
 # 공부방 AI 수업 노트
 
+> **4차 이주 상태 (2026-09-23):** Django 인증 `/api/study-notes/{tree,generate,get}`
+> → 내부 토큰으로 보호된 AI `/api/v1/study-notes/internal/{tree,generate,get}`
+> → PostgreSQL `study_sources`/`study_notes` 경로를 추가했다. 기존 아래
+> Firebase ID 토큰 API는 3차 호환 경로로 남아 있다. 검증용 RDS에 `0005`
+> migration과 읽기 쿼리를 확인했지만, 실제 Git 저장소·LLM 생성과 최종 React
+> 화면의 종단 간 검증은 아직 아니다. 운영 전에는 AI 서비스 URL/공유 토큰 설정과
+> 실제 학생 데이터 검증이 필요하다.
+
 수업 자료가 올라가는 GitHub 저장소를 읽어 **그날 수업(또는 고른 폴더·파일)을 학습 노트와 복습 문제로**
 정리해 준다. 수업을 일부 놓친 학생이 코드를 다시 따라 할 수 있게 하는 것이 목표다.
 
