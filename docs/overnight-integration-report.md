@@ -11,7 +11,7 @@ React 데모 모드 테스트만 통과한 항목은 사용자 E2E가 아니다.
 
 | # | 기능 | 상태 | 확인한 범위 / 남은 일 |
 |---|---|---|---|
-| 1 | 로그인 / JWT / 권한 | PARTIAL | 실제 RDS 임시 관리자 계정으로 브라우저 로그인 200, 인증된 bootstrap 200. 일반 학생·강사 및 세부 권한 E2E 미검증. |
+| 1 | 로그인 / JWT / 권한 | PARTIAL | 실제 RDS 임시 관리자·학생·강사 계정으로 각각 브라우저 로그인 200, 인증된 bootstrap 200, 역할별 첫 화면 표시 확인. 세부 API 권한 경계는 미검증. |
 | 2 | React bootstrap | VERIFIED | 실제 브라우저 `/api/bootstrap` 200, `/admin` 대시보드 표시. 응답은 기준 RDS의 공지 15건을 포함. |
 | 3 | 공지 조회 | PARTIAL | 인증된 Django bootstrap에서 실제 공지 15건 조회. React 공지 목록의 개별 E2E는 별도 미검증. |
 | 4 | 공지 생성/수정/삭제 | VERIFIED | 실제 RDS에서 Django API 생성·수정·조회·삭제 200 검증. 임시 행 정리. React 조작은 미검증. |
@@ -35,7 +35,7 @@ React 데모 모드 테스트만 통과한 항목은 사용자 E2E가 아니다.
 | 22 | 채용 추천 | CODE EXISTS / NOT VERIFIED | React `JobRecommendationRun`은 현재 실제 API 대신 고정된 가상 공고 3건을 표시한다. AI `/api/v1/jobs/recommend`는 별도 존재하지만 React→Django 라우트가 없고 기준 DB `jobs.jobs`는 0건. 실제 추천 E2E 미검증이며 현재 화면 결과를 서비스 추천으로 취급하면 안 된다. |
 | 23 | 정책/공지/프로젝트 RAG | PARTIAL | Pinecone `smoke_search('cohort_34')` 실제 3개 결과 확인; 공지 projection은 별도 검증. 정책·프로젝트 전체 답변 E2E 미검증. |
 | 24 | 연습/복습 문제 | CODE EXISTS / NOT VERIFIED | `practice_*` Django 테이블 존재. 생성→풀이→신고·검토 E2E 미검증. |
-| 25 | React 화면과 Django API 실제 연결 | PARTIAL | 실제 Chrome에서 관리자 및 임시 학생 각각 React 로그인→Django API 200→RDS bootstrap 200→역할별 대시보드 표시. 전체 화면 계약은 미검증. |
+| 25 | React 화면과 Django API 실제 연결 | PARTIAL | 실제 Chrome에서 임시 관리자·학생·강사 각각 React 로그인→Django API 200→RDS bootstrap 200→역할별 첫 화면 표시. 전체 화면 계약은 미검증. |
 
 ## 이번 실행에서 완료한 범위
 
@@ -64,6 +64,9 @@ React 데모 모드 테스트만 통과한 항목은 사용자 E2E가 아니다.
   AI 환경의 PostgreSQL 드라이버로 기준 RDS의 `current_database()`와
   `jobs.jobs` 0건도 읽기 전용으로 확인했다. 헬스·DB 연결만으로 챗봇이나
   채용 추천의 실제 응답을 검증했다고 보지 않는다. 서버는 확인 후 종료했다.
+- 임시 강사 계정으로 React 로그인→Django `/api/login` 200→`/api/bootstrap`
+  200→`/instructor` 자리 확인 화면 표시까지 확인했다. 정확한 ID·UID·email로
+  계정 삭제 후 잔여 0건 확인. 세부 강사 쓰기 권한은 아직 별도 검증 대상이다.
 - FastAPI AI 개별 생성·첨삭·추천 요청은 이번 범위에서 실제 성공 확인이 없다.
   이전의 proxy 단위 테스트와 실제 AI E2E를 혼동하지 않는다.
 
