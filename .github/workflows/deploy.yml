@@ -33,9 +33,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build image
         run: docker build -f lms_api/Dockerfile -t lms-api .
+      # 챗봇 · 공부방 노트 · 첨삭 · 공고 추천. 이게 없으면 배포해도 그 기능들이 갈 곳이 없다.
+      - name: Build AI image
+        run: docker build -f deploy/ai.Dockerfile -t lms-ai .
       - name: Push ECR
         if: ${{ secrets.AWS_ROLE_ARN != '' }}
-        run: echo "Configure AWS_ROLE_ARN and ECR_REPOSITORY to enable push"
+        run: echo "Configure AWS_ROLE_ARN and ECR_REPOSITORY to enable push (lms-api, lms-ai 둘 다)"
       - name: Deploy EC2
         if: ${{ secrets.EC2_HOST != '' }}
         run: echo "Configure EC2_HOST to docker compose -f docker-compose.prod.yml pull && up -d"

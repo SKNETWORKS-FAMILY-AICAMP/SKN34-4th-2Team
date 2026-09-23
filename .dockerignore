@@ -1,0 +1,43 @@
+# 상자에 담지 않을 것. docker build 가 보내는 파일을 줄여 이미지가 커지는 것을 막는다.
+#
+# 특히 job_matching_bot/artifacts 에는 공고 저장소 sqlite(수백 MB)가 있다. 운영은 Postgres
+# `jobs` 스키마를 보므로 상자에 넣을 이유가 없다.
+
+.git
+.github
+.venv
+*/.venv
+playdata_venv
+node_modules
+*/node_modules
+
+__pycache__
+*/__pycache__
+**/__pycache__
+*.pyc
+
+# 수집 원본 · 평가 결과 — 운영에 필요 없다
+job_matching_bot/artifacts
+job_matching_bot/evaluation
+cover_letter_rag/evaluation
+chatbot_lab
+
+# 웹 빌드 · 테스트 산출물
+lms_react/dist
+lms_react/node_modules
+lms_react/tools/qa/out
+
+# 비밀 · 로컬 설정
+.env
+secrets
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite.gz
+
+# 문서 · 원본 앱(Flutter)
+docs
+android
+ios
+assets
+functions

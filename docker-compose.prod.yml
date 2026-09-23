@@ -10,9 +10,24 @@ services:
       - .env
     environment:
       DJANGO_DEBUG: "0"
+      # AI 서버는 같은 망 안에 있다. .env 값보다 이쪽이 우선이라 주소를 잘못 적을 일이 없다.
+      CHATBOT_URL: http://ai:8000
+      JOBS_URL: http://ai:8000
     depends_on:
       - redis
     command: gunicorn lms_server.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60
+
+  # 챗봇 · 공부방 노트 · 이력서 첨삭 · 공고 추천 (deploy/ai.Dockerfile)
+  # Django 와 상자를 나눈다 — 무거운 AI 의존성을 섞지 않고, 여기가 죽어도 LMS 는 산다.
+  ai:
+    image: ${ECR_AI_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - .env
+    # 추천 한 번이 30초쯤 걸린다. 일꾼을 늘리면 그동안 다른 요청이 막히지 않는다.
+    command: >
+      python -m uvicorn app.integrated:app --app-dir cover_letter_rag
+      --host 0.0.0.0 --port 8000 --workers 2 --timeout-keep-alive 120
 
   worker:
     image: ${ECR_IMAGE}
