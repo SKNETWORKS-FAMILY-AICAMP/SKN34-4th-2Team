@@ -5,6 +5,7 @@
 #   * Make sure each ForeignKey and OneToOneField has `on_delete` set to the desired behavior
 #   * Remove `managed = False` lines if you wish to allow Django to create, modify, and delete the table
 # Feel free to rename the models, but don't rename db_table values or field names.
+from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 
 
@@ -16,13 +17,12 @@ class AiEvalRuns(models.Model):
     source = models.CharField(blank=True, null=True)
     total_cases = models.IntegerField(blank=True, null=True)
     passed = models.IntegerField(blank=True, null=True)
-    accuracy = models.DecimalField(blank=True, null=True)
+    accuracy = models.DecimalField(max_digits=7, decimal_places=4, blank=True, null=True)
     avg_latency_ms = models.IntegerField(blank=True, null=True)
-    failed_ids = models.TextField()  # This field type is a guess.
+    failed_ids = models.JSONField(default=list)
     created_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'ai_eval_runs'
 
 
@@ -43,7 +43,6 @@ class AiGenerationLogs(models.Model):
     created_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'ai_generation_logs'
 
 
@@ -65,7 +64,6 @@ class AiQuestionFeedback(models.Model):
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'ai_question_feedback'
 
 
@@ -76,7 +74,6 @@ class AlertPopupDismissals(models.Model):
     date_key = models.DateField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'alert_popup_dismissals'
 
 
@@ -96,7 +93,6 @@ class AlertPopups(models.Model):
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'alert_popups'
 
 
@@ -110,7 +106,6 @@ class AssessmentAnswers(models.Model):
     is_correct = models.BooleanField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'assessment_answers'
 
 
@@ -122,9 +117,9 @@ class AssessmentQuestions(models.Model):
     type = models.CharField(blank=True, null=True)
     prompt = models.TextField(blank=True, null=True)
     points = models.IntegerField(blank=True, null=True)
-    choices = models.TextField()  # This field type is a guess.
+    choices = models.JSONField(default=list)
     correct_index = models.IntegerField(blank=True, null=True)
-    accepted_answers = models.TextField()  # This field type is a guess.
+    accepted_answers = models.JSONField(default=list)
     explanation = models.TextField(blank=True, null=True)
     origin = models.CharField(blank=True, null=True)
     ai_log = models.ForeignKey(AiGenerationLogs, models.SET_NULL, blank=True, null=True)
@@ -134,7 +129,6 @@ class AssessmentQuestions(models.Model):
     source_topic = models.CharField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'assessment_questions'
 
 
@@ -149,7 +143,6 @@ class AssessmentScoreAdjustments(models.Model):
     note = models.TextField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'assessment_score_adjustments'
 
 
@@ -164,7 +157,6 @@ class AssessmentSubmissions(models.Model):
     submitted_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'assessment_submissions'
         unique_together = (('assessment', 'user'),)
 
@@ -174,12 +166,11 @@ class Assessments(models.Model):
     legacy_id = models.CharField(unique=True, blank=True, null=True)
     cohort = models.ForeignKey('Cohorts', models.PROTECT)
     title = models.CharField(blank=True, null=True)
-    tags = models.TextField()  # This field type is a guess.
+    tags = models.JSONField(default=list)
     max_score = models.IntegerField(blank=True, null=True)
     start_at = models.DateTimeField(blank=True, null=True)
     end_at = models.DateTimeField(blank=True, null=True)
-    thumbnail_url = models.CharField(blank=True, null=True)
-    thumbnail_path = models.CharField(blank=True, null=True)
+    thumbnail_storage_key = models.CharField(blank=True, null=True)
     published = models.BooleanField()
     created_by = models.ForeignKey('Users', models.SET_NULL, db_column='created_by', blank=True, null=True)
     created_at = models.DateTimeField(blank=True, null=True)
@@ -190,7 +181,6 @@ class Assessments(models.Model):
     subject_filter = models.CharField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'assessments'
 
 
@@ -228,21 +218,38 @@ class Attendances(models.Model):
     legacy_id = models.CharField(unique=True, blank=True, null=True)
     cohort = models.ForeignKey('Cohorts', models.PROTECT)
     user = models.ForeignKey('Users', models.PROTECT)
-    date_key = models.DateField()
+    attendance_date = models.DateField()
+    check_in_at = models.DateTimeField(blank=True, null=True)
+    check_out_at = models.DateTimeField(blank=True, null=True)
     status = models.CharField(blank=True, null=True)
-    status_source = models.CharField(blank=True, null=True)
-    check_in_time = models.TimeField(blank=True, null=True)
-    check_out_time = models.TimeField(blank=True, null=True)
-    form_attendance_type = models.CharField(blank=True, null=True)
-    official_leave_used = models.BooleanField(blank=True, null=True)
-    official_leave_type = models.CharField(blank=True, null=True)
-    official_leave_other = models.CharField(blank=True, null=True)
-    recorded_at = models.DateTimeField(blank=True, null=True)
+    data_source = models.CharField(blank=True, null=True)
+    finalized_by = models.ForeignKey('Users', models.SET_NULL, related_name='finalized_attendances', blank=True, null=True)
+    finalized_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        managed = False
         db_table = 'attendances'
-        unique_together = (('user', 'date_key'),)
+        constraints = [models.UniqueConstraint(fields=['user', 'attendance_date'], name='uq_attendance_user_date')]
+        indexes = [models.Index(fields=['cohort', 'attendance_date'])]
+
+
+class AttendanceIssueReports(models.Model):
+    user = models.ForeignKey('Users', models.PROTECT)
+    cohort = models.ForeignKey('Cohorts', models.PROTECT)
+    attendance_date = models.DateField()
+    issue_type = models.CharField()
+    details = models.JSONField(default=dict, blank=True)
+    evidence_storage_key = models.CharField(blank=True, null=True)
+    status = models.CharField(default='submitted')
+    reviewed_by = models.ForeignKey('Users', models.SET_NULL, related_name='reviewed_attendance_issues', blank=True, null=True)
+    reviewed_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'attendance_issue_reports'
+        indexes = [models.Index(fields=['cohort', 'attendance_date', 'status'])]
 
 
 class Cohorts(models.Model):
@@ -256,24 +263,21 @@ class Cohorts(models.Model):
     is_active = models.BooleanField()
     start_date = models.DateField(blank=True, null=True)
     end_date = models.DateField(blank=True, null=True)
-    published_seating_room = models.ForeignKey('SeatingRooms', models.PROTECT, blank=True, null=True)
     created_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'cohorts'
 
 
 class CurriculumPdfs(models.Model):
     cohort = models.OneToOneField(Cohorts, models.PROTECT, primary_key=True)
-    full_pdf_url = models.CharField(blank=True, null=True)
-    full_pdf_file_name = models.CharField(blank=True, null=True)
+    storage_key = models.CharField(blank=True, null=True)
+    original_filename = models.CharField(blank=True, null=True)
     published = models.BooleanField()
     updated_by = models.ForeignKey('Users', models.SET_NULL, db_column='updated_by', blank=True, null=True)
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'curriculum_pdfs'
 
 
@@ -288,7 +292,6 @@ class CurriculumRows(models.Model):
     order = models.IntegerField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'curriculum_rows'
 
 
@@ -298,45 +301,54 @@ class CurriculumSheets(models.Model):
     cohort = models.ForeignKey(Cohorts, models.PROTECT)
     title = models.CharField(blank=True, null=True)
     file_name = models.CharField(blank=True, null=True)
-    storage_path = models.CharField(blank=True, null=True)
+    storage_key = models.CharField(blank=True, null=True)
     source = models.CharField(blank=True, null=True)
     uploaded_by = models.ForeignKey('Users', models.SET_NULL, db_column='uploaded_by', blank=True, null=True)
     uploaded_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'curriculum_sheets'
 
 
-class FormResponses(models.Model):
-    pk = models.CompositePrimaryKey('task_id', 'user_id')
-    task = models.ForeignKey('FormTasks', models.CASCADE)
-    user = models.ForeignKey('Users', models.PROTECT)
-    source = models.CharField(blank=True, null=True)
-    google_response_id = models.CharField(unique=True, blank=True, null=True)
-    submitted_at = models.DateTimeField(blank=True, null=True)
-
-    class Meta:
-        managed = False
-        db_table = 'form_responses'
-
-
-class FormTasks(models.Model):
+class SubmissionTasks(models.Model):
     id = models.BigAutoField(primary_key=True)
     legacy_id = models.CharField(unique=True, blank=True, null=True)
-    cohort = models.ForeignKey(Cohorts, models.PROTECT)
     title = models.CharField(blank=True, null=True)
     description = models.TextField(blank=True, null=True)
-    form_url = models.CharField(blank=True, null=True)
-    notion_guide_url = models.CharField(blank=True, null=True)
+    submission_type = models.CharField(default='external_form')
+    external_url = models.CharField(blank=True, null=True)
+    guide_url = models.CharField(blank=True, null=True)
     due_at = models.DateTimeField(blank=True, null=True)
-    published = models.BooleanField()
+    published = models.BooleanField(default=False)
     created_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
-        db_table = 'form_tasks'
+        db_table = 'submission_tasks'
+        indexes = [models.Index(fields=['due_at', 'published'])]
+
+
+class SubmissionTaskCohorts(models.Model):
+    task = models.ForeignKey(SubmissionTasks, models.CASCADE)
+    cohort = models.ForeignKey(Cohorts, models.PROTECT)
+
+    class Meta:
+        db_table = 'submission_task_cohorts'
+        constraints = [models.UniqueConstraint(fields=['task', 'cohort'], name='uq_submission_task_cohort')]
+
+
+class SubmissionResponses(models.Model):
+    task = models.ForeignKey(SubmissionTasks, models.CASCADE)
+    user = models.ForeignKey('Users', models.PROTECT)
+    source = models.CharField(blank=True, null=True)
+    external_response_id = models.CharField(unique=True, blank=True, null=True)
+    response = models.JSONField(default=dict, blank=True)
+    submitted_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        db_table = 'submission_responses'
+        constraints = [models.UniqueConstraint(fields=['task', 'user'], name='uq_submission_response_task_user')]
+        indexes = [models.Index(fields=['task', 'submitted_at'])]
 
 
 class InflearnPackages(models.Model):
@@ -356,7 +368,6 @@ class InflearnPackages(models.Model):
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'inflearn_packages'
 
 
@@ -366,7 +377,6 @@ class JobRequirementProfiles(models.Model):
     created_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'job_requirement_profiles'
 
 
@@ -375,13 +385,12 @@ class Materials(models.Model):
     legacy_id = models.CharField(unique=True, blank=True, null=True)
     cohort = models.ForeignKey(Cohorts, models.PROTECT)
     title = models.CharField(blank=True, null=True)
-    file_url = models.CharField(blank=True, null=True)
+    storage_key = models.CharField(blank=True, null=True)
     file_name = models.CharField(blank=True, null=True)
     description = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'materials'
 
 
@@ -395,7 +404,6 @@ class MileageCartItems(models.Model):
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'mileage_cart_items'
 
 
@@ -415,7 +423,6 @@ class MileageProducts(models.Model):
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'mileage_products'
 
 
@@ -427,7 +434,6 @@ class MileageSettings(models.Model):
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'mileage_settings'
 
 
@@ -444,7 +450,6 @@ class MileageTransactions(models.Model):
     created_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'mileage_transactions'
 
 
@@ -460,14 +465,13 @@ class MissionProgress(models.Model):
     coding_pccp = models.BooleanField()
     coding_pcsql = models.BooleanField()
     coding_granted = models.IntegerField()
-    blog_weeks = models.TextField()  # This field type is a guess.
-    blog_units_granted = models.TextField()  # This field type is a guess.
-    study_week_keys = models.TextField()  # This field type is a guess.
+    blog_weeks = models.JSONField(default=list)
+    blog_units_granted = models.JSONField(default=list)
+    study_week_keys = models.JSONField(default=list)
     study_granted = models.BooleanField()
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'mission_progress'
 
 
@@ -487,13 +491,12 @@ class Notices(models.Model):
     discord_channel_id = models.CharField(blank=True, null=True)
     discord_channel_type = models.CharField(blank=True, null=True)
     scheduled_notice = models.ForeignKey('ScheduledNotices', models.SET_NULL, blank=True, null=True)
-    image_url = models.CharField(blank=True, null=True)
+    image_storage_key = models.CharField(blank=True, null=True)
     vector_chunk_count = models.IntegerField()
     created_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'notices'
 
 
@@ -503,7 +506,6 @@ class ProjectTeamMembers(models.Model):
     user = models.ForeignKey('Users', models.PROTECT)
 
     class Meta:
-        managed = False
         db_table = 'project_team_members'
 
 
@@ -518,7 +520,6 @@ class ProjectTeams(models.Model):
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'project_teams'
 
 
@@ -534,7 +535,6 @@ class PurchaseRequestItems(models.Model):
     purchase_link = models.CharField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'purchase_request_items'
 
 
@@ -554,7 +554,6 @@ class PurchaseRequests(models.Model):
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'purchase_requests'
 
 
@@ -565,13 +564,12 @@ class RecommendationEvents(models.Model):
     user = models.ForeignKey('Users', models.SET_NULL, blank=True, null=True)
     recommendation = models.ForeignKey('YoutubeRecommendations', models.SET_NULL, blank=True, null=True)
     youtube_video_id = models.CharField(blank=True, null=True)
-    user_skills = models.TextField()  # This field type is a guess.
-    matched_tags = models.TextField()  # This field type is a guess.
+    user_skills = models.JSONField(default=list)
+    matched_tags = models.JSONField(default=list)
     action = models.CharField(blank=True, null=True)
     created_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'recommendation_events'
 
 
@@ -583,27 +581,35 @@ class RecordSubmissions(models.Model):
     type = models.CharField()
     status = models.CharField()
     title = models.CharField(blank=True, null=True)
+    details = models.JSONField(default=dict, blank=True)
     review_comment = models.TextField(blank=True, null=True)
     reviewed_by = models.ForeignKey('Users', models.SET_NULL, db_column='reviewed_by', related_name='recordsubmissions_reviewed_by_set', blank=True, null=True)
     reviewed_at = models.DateTimeField(blank=True, null=True)
-    cert_type = models.CharField(blank=True, null=True)
-    file_urls = models.TextField()  # This field type is a guess.
-    start_at = models.DateTimeField(blank=True, null=True)
-    end_at = models.DateTimeField(blank=True, null=True)
-    week_number = models.IntegerField(blank=True, null=True)
-    week_label = models.CharField(blank=True, null=True)
-    link = models.CharField(blank=True, null=True)
-    quiz_score = models.IntegerField(blank=True, null=True)
-    learning_date = models.DateField(blank=True, null=True)
-    learning_content = models.TextField(blank=True, null=True)
-    is_team_study = models.BooleanField(blank=True, null=True)
-    mileage_granted = models.BooleanField()
-    mileage_amount = models.IntegerField()
     submitted_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        managed = False
         db_table = 'record_submissions'
+        indexes = [
+            models.Index(fields=['user', 'status', 'submitted_at']),
+            models.Index(fields=['cohort', 'type', 'status']),
+        ]
+
+
+class RecordSubmissionFiles(models.Model):
+    submission = models.ForeignKey(RecordSubmissions, models.CASCADE, related_name='files')
+    storage_key = models.CharField()
+    original_filename = models.CharField()
+    content_type = models.CharField(blank=True, null=True)
+    file_size = models.BigIntegerField(blank=True, null=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'record_submission_files'
+        constraints = [
+            models.UniqueConstraint(fields=['submission', 'storage_key'], name='uq_record_file_submission_key')
+        ]
 
 
 class ResumeAiApplications(models.Model):
@@ -622,7 +628,6 @@ class ResumeAiApplications(models.Model):
     created_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'resume_ai_applications'
 
 
@@ -639,7 +644,6 @@ class ResumeAiReviews(models.Model):
     created_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'resume_ai_reviews'
 
 
@@ -654,18 +658,18 @@ class ResumeFeedback(models.Model):
     created_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'resume_feedback'
+        indexes = [models.Index(fields=['resume', 'created_at'])]
 
 
 class ResumeFeedbackReads(models.Model):
-    pk = models.CompositePrimaryKey('feedback_id', 'user_id')
+    pk = models.CompositePrimaryKey('resume_id', 'user_id', 'feedback_id')
+    resume = models.ForeignKey('Resumes', models.CASCADE)
     feedback = models.ForeignKey(ResumeFeedback, models.CASCADE)
     user = models.ForeignKey('Users', models.PROTECT)
     read_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'resume_feedback_reads'
 
 
@@ -673,13 +677,14 @@ class ResumeRevisions(models.Model):
     id = models.BigAutoField(primary_key=True)
     legacy_id = models.CharField(unique=True, blank=True, null=True)
     resume = models.ForeignKey('Resumes', models.CASCADE)
-    title = models.CharField(blank=True, null=True)
+    revision_no = models.PositiveIntegerField()
     content = models.JSONField()
-    saved_at = models.DateTimeField(blank=True, null=True)
+    created_by = models.ForeignKey('Users', models.SET_NULL, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        managed = False
         db_table = 'resume_revisions'
+        constraints = [models.UniqueConstraint(fields=['resume', 'revision_no'], name='uq_resume_revision_no')]
 
 
 class Resumes(models.Model):
@@ -690,44 +695,44 @@ class Resumes(models.Model):
     title = models.CharField(blank=True, null=True)
     status = models.CharField(blank=True, null=True)
     content = models.JSONField()
-    sections = models.JSONField()
-    is_base_resume = models.BooleanField()
-    base_resume = models.ForeignKey('self', models.SET_NULL, blank=True, null=True)
-    source_tailored_resume = models.ForeignKey('self', models.SET_NULL, related_name='resumes_source_tailored_resume_set', blank=True, null=True)
+    is_base_resume = models.BooleanField(default=False)
+    base_resume = models.ForeignKey('self', models.SET_NULL, related_name='tailored_resumes', blank=True, null=True)
     linked_job_id = models.CharField(blank=True, null=True)
+    revision_count = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'resumes'
+        constraints = [
+            models.CheckConstraint(condition=models.Q(base_resume__isnull=True) | ~models.Q(base_resume=models.F('id')), name='ck_resume_not_own_base'),
+            models.CheckConstraint(condition=models.Q(is_base_resume=False) | models.Q(base_resume__isnull=True), name='ck_base_resume_has_no_parent'),
+            models.UniqueConstraint(fields=['user'], condition=models.Q(is_base_resume=True), name='uq_user_base_resume'),
+        ]
+        indexes = [
+            models.Index(fields=['user', '-updated_at']),
+            models.Index(fields=['base_resume']),
+            models.Index(fields=['linked_job_id']),
+        ]
 
 
-class RollCallEntries(models.Model):
-    pk = models.CompositePrimaryKey('roll_call_id', 'user_id')
-    roll_call = models.ForeignKey('RollCalls', models.CASCADE)
-    user = models.ForeignKey('Users', models.PROTECT)
-    state = models.CharField()
-
-    class Meta:
-        managed = False
-        db_table = 'roll_call_entries'
-
-
-class RollCalls(models.Model):
-    id = models.BigAutoField(primary_key=True)
-    legacy_id = models.CharField(unique=True, blank=True, null=True)
+class SeatPresences(models.Model):
     cohort = models.ForeignKey(Cohorts, models.PROTECT)
-    date_key = models.DateField()
-    period_id = models.CharField()
-    carried_from_period_id = models.CharField(blank=True, null=True)
-    updated_by = models.ForeignKey('Users', models.SET_NULL, db_column='updated_by', blank=True, null=True)
+    user = models.ForeignKey('Users', models.PROTECT)
+    presence_date = models.DateField()
+    period = models.CharField()
+    state = models.CharField()
+    updated_by = models.ForeignKey(
+        'Users', models.SET_NULL, db_column='updated_by', related_name='updated_seat_presences', blank=True, null=True
+    )
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
-        db_table = 'roll_calls'
-        unique_together = (('cohort', 'date_key', 'period_id'),)
+        db_table = 'seat_presences'
+        constraints = [
+            models.UniqueConstraint(fields=['cohort', 'user', 'presence_date', 'period'], name='uq_seat_presence')
+        ]
+        indexes = [models.Index(fields=['cohort', 'presence_date', 'period'])]
 
 
 class ScheduledNotices(models.Model):
@@ -749,7 +754,6 @@ class ScheduledNotices(models.Model):
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'scheduled_notices'
 
 
@@ -762,67 +766,20 @@ class Schedules(models.Model):
     current_session_index = models.IntegerField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'schedules'
         unique_together = (('cohort', 'date_key'),)
 
 
-class SeatAssignments(models.Model):
-    pk = models.CompositePrimaryKey('room_id', 'cell_id')
-    room = models.ForeignKey('SeatingAssignments', models.CASCADE)
-    cell = models.ForeignKey('SeatingCells', models.CASCADE)
-    user = models.ForeignKey('Users', models.PROTECT)
-
-    class Meta:
-        managed = False
-        db_table = 'seat_assignments'
-        unique_together = (('room', 'user'),)
-
-
-class SeatingAssignments(models.Model):
-    room = models.OneToOneField('SeatingRooms', models.CASCADE, primary_key=True)
-    status = models.CharField()
-    published_at = models.DateTimeField(blank=True, null=True)
-    published_by = models.ForeignKey('Users', models.SET_NULL, db_column='published_by', blank=True, null=True)
-    updated_at = models.DateTimeField(blank=True, null=True)
-    updated_by = models.ForeignKey('Users', models.SET_NULL, db_column='updated_by', related_name='seatingassignments_updated_by_set', blank=True, null=True)
-
-    class Meta:
-        managed = False
-        db_table = 'seating_assignments'
-
-
-class SeatingCells(models.Model):
-    id = models.BigAutoField(primary_key=True)
-    room = models.ForeignKey('SeatingRooms', models.CASCADE)
-    seat_id = models.CharField()
-    row = models.IntegerField(blank=True, null=True)
-    col = models.IntegerField(blank=True, null=True)
-    label = models.CharField(blank=True, null=True)
-    type = models.CharField()
-    group_id = models.CharField(blank=True, null=True)
-
-    class Meta:
-        managed = False
-        db_table = 'seating_cells'
-        unique_together = (('room', 'row', 'col'), ('room', 'seat_id'),)
-
-
-class SeatingRooms(models.Model):
-    id = models.BigAutoField(primary_key=True)
-    legacy_id = models.CharField(unique=True, blank=True, null=True)
-    cohort = models.ForeignKey(Cohorts, models.PROTECT)
+class CohortSeating(models.Model):
+    cohort = models.OneToOneField(Cohorts, models.PROTECT, primary_key=True)
     room_number = models.CharField(blank=True, null=True)
-    rows = models.IntegerField(blank=True, null=True)
-    cols = models.IntegerField(blank=True, null=True)
-    max_students = models.IntegerField(blank=True, null=True)
+    layout = models.JSONField(default=dict)
+    published = models.BooleanField(default=False)
     updated_by = models.ForeignKey('Users', models.SET_NULL, db_column='updated_by', blank=True, null=True)
-    created_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
-        db_table = 'seating_rooms'
+        db_table = 'cohort_seating'
 
 
 class StudentIntakes(models.Model):
@@ -846,7 +803,6 @@ class StudentIntakes(models.Model):
     created_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'student_intakes'
 
 
@@ -867,7 +823,6 @@ class StudyNotes(models.Model):
     created_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'study_notes'
 
 
@@ -878,14 +833,13 @@ class StudySources(models.Model):
     title = models.CharField(blank=True, null=True)
     repo_url = models.CharField(blank=True, null=True)
     branch = models.CharField(blank=True, null=True)
-    allowed_prefixes = models.TextField()  # This field type is a guess.
+    allowed_prefixes = models.JSONField(default=list)
     is_active = models.BooleanField()
     sort_order = models.IntegerField(blank=True, null=True)
     created_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'study_sources'
 
 
@@ -895,7 +849,6 @@ class SystemCache(models.Model):
     synced_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'system_cache'
 
 
@@ -908,7 +861,6 @@ class Todos(models.Model):
     created_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'todos'
 
 
@@ -925,20 +877,55 @@ class Users(models.Model):
     is_active = models.BooleanField()
     must_change_password = models.BooleanField()
     motto = models.CharField(blank=True, null=True)
-    skills = models.TextField()  # This field type is a guess.
-    social_links = models.JSONField()
-    job_preferences = models.JSONField()
+    social_links = models.JSONField(default=dict, blank=True)
     birth_date = models.DateField(blank=True, null=True)
-    photo_url = models.CharField(blank=True, null=True)
-    photo_storage_path = models.CharField(blank=True, null=True)
-    mileage_balance = models.IntegerField()
+    photo_storage_key = models.CharField(blank=True, null=True)
+    mileage_balance = models.IntegerField(default=0)
     last_login = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'users'
+        indexes = [models.Index(fields=['cohort', 'role'])]
+
+    def set_password(self, raw_password: str) -> None:
+        self.password = make_password(raw_password)
+
+    def check_password(self, raw_password: str) -> bool:
+        return check_password(raw_password, self.password)
+
+
+class Skills(models.Model):
+    canonical_name = models.CharField(unique=True)
+    category = models.CharField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'skills'
+
+
+class UserSkills(models.Model):
+    user = models.ForeignKey(Users, models.PROTECT)
+    skill = models.ForeignKey(Skills, models.PROTECT)
+    proficiency = models.CharField(blank=True, null=True)
+    source = models.CharField(blank=True, null=True)
+    evidence = models.JSONField(blank=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_skills'
+        constraints = [models.UniqueConstraint(fields=['user', 'skill'], name='uq_user_skill')]
+        indexes = [models.Index(fields=['skill'])]
+
+
+class UserJobPreferences(models.Model):
+    user = models.OneToOneField(Users, models.CASCADE, primary_key=True)
+    preferences = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_job_preferences'
 
 
 class WeeklyProgress(models.Model):
@@ -976,13 +963,136 @@ class YoutubeRecommendations(models.Model):
     youtube_url = models.CharField(blank=True, null=True)
     thumbnail_url = models.CharField(blank=True, null=True)
     description = models.TextField(blank=True, null=True)
-    tags = models.TextField()  # This field type is a guess.
+    tags = models.JSONField(default=list)
     is_published = models.BooleanField()
     sort_order = models.IntegerField(blank=True, null=True)
     created_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'youtube_recommendations'
         unique_together = (('cohort', 'video_id'),)
+
+
+class PracticeSets(models.Model):
+    legacy_id = models.CharField(unique=True)
+    cohort = models.ForeignKey(Cohorts, models.PROTECT)
+    source_title = models.CharField(default='')
+    lesson_date = models.DateField()
+    day_label = models.CharField(default='')
+    title = models.CharField(default='')
+    source_files = models.JSONField(default=list)
+    generation_model = models.CharField(default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'practice_sets'
+        indexes = [models.Index(fields=['cohort', '-lesson_date'])]
+
+
+class PracticeProblems(models.Model):
+    class Kind(models.TextChoices):
+        CONCEPT = 'concept'
+        CODE_OUTPUT = 'code_output'
+        CODE_BLANK = 'code_blank'
+        CODE_FIX = 'code_fix'
+        CODE_WRITE = 'code_write'
+
+    problem_set = models.ForeignKey(PracticeSets, models.CASCADE, related_name='problems')
+    position = models.PositiveIntegerField()
+    kind = models.CharField(choices=Kind.choices)
+    topic = models.CharField(default='')
+    prompt = models.TextField(default='')
+    source_files = models.JSONField(default=list)
+    explanation = models.TextField(default='')
+    choices = models.JSONField(default=list)
+    answer_index = models.IntegerField(blank=True, null=True)
+    starter_code = models.TextField(default='')
+    expected_stdout = models.TextField(default='')
+    blank_answers = models.JSONField(default=list)
+    reference_solution = models.TextField(default='')
+    hidden_tests = models.TextField(default='')
+    packages = models.JSONField(default=list)
+
+    class Meta:
+        db_table = 'practice_problems'
+        constraints = [
+            models.UniqueConstraint(fields=['problem_set', 'position'], name='uq_practice_problem_position'),
+            models.CheckConstraint(
+                condition=models.Q(kind__in=('concept', 'code_output', 'code_blank', 'code_fix', 'code_write')),
+                name='ck_practice_problem_kind',
+            ),
+        ]
+
+
+class PracticeAttempts(models.Model):
+    pk = models.CompositePrimaryKey('user_id', 'problem_id')
+    user = models.ForeignKey(Users, models.PROTECT)
+    problem = models.ForeignKey(PracticeProblems, models.CASCADE)
+    passed = models.BooleanField(default=False)
+    tries = models.PositiveIntegerField(default=1)
+    answered_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'practice_attempts'
+        indexes = [models.Index(fields=['problem'])]
+
+
+class PracticeReports(models.Model):
+    class Reason(models.TextChoices):
+        UNCLEAR = 'unclear'
+        ANSWER = 'answer'
+        TESTS = 'tests'
+        OFFTOPIC = 'offtopic'
+        OTHER = 'other'
+
+    user = models.ForeignKey(Users, models.PROTECT)
+    problem = models.ForeignKey(PracticeProblems, models.CASCADE)
+    reason = models.CharField(choices=Reason.choices)
+    note = models.TextField(default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'practice_reports'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'problem'], name='uq_practice_report_user_problem'),
+            models.CheckConstraint(
+                condition=models.Q(reason__in=('unclear', 'answer', 'tests', 'offtopic', 'other')),
+                name='ck_practice_report_reason',
+            ),
+        ]
+        indexes = [models.Index(fields=['problem'])]
+
+
+class PracticeReviews(models.Model):
+    class Decision(models.TextChoices):
+        HIDDEN = 'hidden'
+        KEPT = 'kept'
+
+    problem = models.OneToOneField(PracticeProblems, models.CASCADE, primary_key=True)
+    decision = models.CharField(choices=Decision.choices)
+    decided_by = models.ForeignKey(Users, models.PROTECT)
+    decided_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'practice_reviews'
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(decision__in=('hidden', 'kept')),
+                name='ck_practice_review_decision',
+            )
+        ]
+
+
+class PracticeCoverage(models.Model):
+    cohort = models.ForeignKey(Cohorts, models.PROTECT)
+    source_title = models.CharField()
+    data = models.JSONField(default=dict)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'practice_coverage'
+        constraints = [
+            models.UniqueConstraint(fields=['cohort', 'source_title'], name='uq_practice_coverage_source')
+        ]

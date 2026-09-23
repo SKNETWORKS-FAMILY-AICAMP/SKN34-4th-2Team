@@ -8,6 +8,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from django.contrib.auth.hashers import check_password, make_password
 from django.db import connection, transaction
 from django.http import HttpRequest
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -127,7 +128,7 @@ def login(request, body: LoginIn):
             status=400,
         )
     stored = user.get("password") or ""
-    if stored and stored != password:
+    if not stored or not check_password(password, stored):
         return Response({"ok": False, "message": "비밀번호가 올바르지 않습니다."}, status=400)
     with connection.cursor() as cur:
         cur.execute("UPDATE users SET last_login = now() WHERE id = %s", [user["id"]])
@@ -197,13 +198,13 @@ def password(request, body: LooseBody):
         if not row:
             return Response({"ok": False, "message": "사용자를 찾을 수 없습니다."}, status=404)
         stored, must_change = row[0] or "", bool(row[1])
-        if not must_change and stored and stored != current:
+        if not must_change and (not stored or not check_password(current, stored)):
             return Response({"ok": False, "message": "현재 비밀번호가 올바르지 않습니다."}, status=400)
         cur.execute(
             """UPDATE users
                SET password = %s, must_change_password = false, updated_at = now()
                WHERE id = %s""",
-            [new_password, user["id"]],
+            [make_password(new_password), user["id"]],
         )
     return {"ok": True}
 

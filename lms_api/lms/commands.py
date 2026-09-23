@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from django.contrib.auth.hashers import make_password
 from django.db import connection, transaction
 
 from lms.permissions import can_access_cohort
@@ -85,21 +86,49 @@ def op_update_profile(cur, user, p):
     args = []
     mapping = {
         "motto": "motto",
-        "skills": "skills",
         "socialLinks": "social_links",
         "birthDate": "birth_date",
         "personalEmail": "personal_email",
-        "jobPreferences": "job_preferences",
-        "photoUrl": "photo_url",
-        "photoStoragePath": "photo_storage_path",
+        "photoStoragePath": "photo_storage_key",
         "mustChangePassword": "must_change_password",
-        "password": "password",
         "lastLoginAt": "last_login",
     }
     for src, col in mapping.items():
         if src in p:
             fields.append(f"{col} = %s")
             args.append(p[src])
+    if "password" in p:
+        fields.append("password = %s")
+        args.append(make_password(str(p["password"])))
+    target_user_id = resolve_user(cur, uid)
+    if target_user_id is None:
+        raise KeyError("user")
+    if "skills" in p:
+        cur.execute("DELETE FROM user_skills WHERE user_id = %s", [target_user_id])
+        for raw_skill in p.get("skills") or []:
+            name = " ".join(str(raw_skill).split()).casefold()
+            if not name:
+                continue
+            cur.execute(
+                """INSERT INTO skills (canonical_name,created_at) VALUES (%s,now())
+                   ON CONFLICT (canonical_name) DO UPDATE SET canonical_name=EXCLUDED.canonical_name
+                   RETURNING id""",
+                [name],
+            )
+            skill_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO user_skills (user_id,skill_id,source,updated_at)
+                   VALUES (%s,%s,'profile',now()) ON CONFLICT DO NOTHING""",
+                [target_user_id, skill_id],
+            )
+    if "jobPreferences" in p:
+        import json
+        cur.execute(
+            """INSERT INTO user_job_preferences (user_id,preferences,updated_at)
+               VALUES (%s,%s,now()) ON CONFLICT (user_id) DO UPDATE
+               SET preferences=EXCLUDED.preferences,updated_at=now()""",
+            [target_user_id, json.dumps(p.get("jobPreferences") or {})],
+        )
     if not fields:
         return {"ok": True}
     fields.append("updated_at = now()")
@@ -220,6 +249,8 @@ def _prepare_row(cur, user, table: str, payload: dict, columns: set[str]) -> dic
         if key in ("table", "action", "op"):
             continue
         col = _camel_to_snake(key)
+        if table == "attendances":
+            col = {"date_key": "attendance_date", "status_source": "data_source"}.get(col, col)
         if col in ("uid", "firebase_uid") and "user_id" in columns and "user_id" not in data:
             resolved = resolve_user(cur, str(value)) if value else None
             if resolved:
@@ -243,6 +274,14 @@ def _prepare_row(cur, user, table: str, payload: dict, columns: set[str]) -> dic
             data[col] = json.dumps(value)
         else:
             data[col] = value
+    if table == "resumes" and "sections" in payload:
+        current_content = payload.get("content")
+        if not isinstance(current_content, dict) and payload.get("id"):
+            existing = resolve_row(cur, "resumes", payload["id"])
+            current_content = (existing or {}).get("content")
+        merged_content = dict(current_content) if isinstance(current_content, dict) else {}
+        merged_content["section_status"] = payload.get("sections") or {}
+        data["content"] = json.dumps(merged_content)
     if "cohort_id" in columns and "cohort_id" not in data:
         resolved = resolve_cohort(cur, payload.get("cohortId"), user)
         if resolved:
@@ -261,14 +300,13 @@ def op_upsert_sql(cur, user, p):
     allowed = {
         "scheduled_notices", "alert_popups", "alert_popup_dismissals",
         "record_submissions", "resumes", "resume_feedback", "attendances",
-        "roll_calls", "inflearn_packages", "study_sources", "study_notes",
+        "seat_presences", "inflearn_packages", "study_sources", "study_notes",
         "youtube_recommendations", "assessments", "assessment_questions",
-        "assessment_submissions", "curriculum_sheets", "form_tasks", "form_responses",
+        "assessment_submissions", "curriculum_sheets", "submission_tasks", "submission_responses",
         "mileage_settings", "mileage_products", "mileage_cart_items",
-        "purchase_requests", "mileage_transactions", "seating_rooms",
-        "seating_assignments", "seat_assignments", "seating_cells",
+        "purchase_requests", "mileage_transactions", "cohort_seating",
         "project_teams", "curriculum_pdfs", "student_intakes", "cohorts",
-        "assignments", "materials", "schedules", "weekly_tasks", "weekly_progress",
+        "materials", "schedules",
         "mission_progress", "recommendation_events",
     }
     if table not in allowed:
@@ -352,14 +390,14 @@ def op_create_user(cur, user, p):
     import json
     cur.execute(
         """INSERT INTO users (firebase_uid, email, password, display_name, role, cohort_id,
-               seat_number, is_active, must_change_password, motto, skills, social_links,
-               job_preferences, mileage_balance, created_at, updated_at)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0, now(), now())
+               seat_number, is_active, must_change_password, motto, social_links,
+               mileage_balance, created_at, updated_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0, now(), now())
            RETURNING id""",
         [
             firebase_uid,
             (p.get("email") or "").strip().lower(),
-            p.get("password") or "",
+            make_password(p.get("password")) if p.get("password") else make_password(None),
             p.get("displayName") or "",
             p.get("role") or "student",
             cohort_id,
@@ -367,10 +405,28 @@ def op_create_user(cur, user, p):
             bool(p.get("isActive", True)),
             bool(p.get("mustChangePassword", True)),
             p.get("motto"),
-            json.dumps(p.get("skills") or []),
             json.dumps(p.get("socialLinks") or {}),
-            json.dumps(p.get("jobPreferences") or {"targetRoles": [], "regions": [], "employmentTypes": []}),
         ],
+    )
+    created_user_id = cur.fetchone()[0]
+    for raw_skill in p.get("skills") or []:
+        name = " ".join(str(raw_skill).split()).casefold()
+        if not name:
+            continue
+        cur.execute(
+            """INSERT INTO skills (canonical_name,created_at) VALUES (%s,now())
+               ON CONFLICT (canonical_name) DO UPDATE SET canonical_name=EXCLUDED.canonical_name RETURNING id""",
+            [name],
+        )
+        cur.execute(
+            """INSERT INTO user_skills (user_id,skill_id,source,updated_at)
+               VALUES (%s,%s,'profile',now()) ON CONFLICT DO NOTHING""",
+            [created_user_id, cur.fetchone()[0]],
+        )
+    import json
+    cur.execute(
+        """INSERT INTO user_job_preferences (user_id,preferences,updated_at) VALUES (%s,%s,now())""",
+        [created_user_id, json.dumps(p.get("jobPreferences") or {})],
     )
     return {"id": firebase_uid, "uid": firebase_uid}
 
@@ -572,12 +628,12 @@ def op_save_curriculum_pdf(cur, user, p):
     _require_staff(user)
     cohort_id = resolve_cohort(cur, p.get("cohortId"), user)
     cur.execute(
-        """INSERT INTO curriculum_pdfs (cohort_id, full_pdf_url, full_pdf_file_name, published, updated_by, updated_at)
+        """INSERT INTO curriculum_pdfs (cohort_id, storage_key, original_filename, published, updated_by, updated_at)
            VALUES (%s,%s,%s,%s,%s, now())
-           ON CONFLICT (cohort_id) DO UPDATE SET full_pdf_url = EXCLUDED.full_pdf_url,
-             full_pdf_file_name = EXCLUDED.full_pdf_file_name, published = EXCLUDED.published,
-             updated_by = EXCLUDED.updated_by, updated_at = now()""",
-        [cohort_id, p.get("pdfUrl"), p.get("fileName"), True, user["id"]],
+           ON CONFLICT (cohort_id) DO UPDATE SET storage_key = EXCLUDED.storage_key,
+              original_filename = EXCLUDED.original_filename, published = EXCLUDED.published,
+              updated_by = EXCLUDED.updated_by, updated_at = now()""",
+        [cohort_id, p.get("storageKey"), p.get("fileName"), True, user["id"]],
     )
 
 
@@ -585,7 +641,7 @@ def op_clear_curriculum_pdf(cur, user, p):
     _require_staff(user)
     cohort_id = resolve_cohort(cur, p.get("cohortId"), user)
     cur.execute(
-        "UPDATE curriculum_pdfs SET full_pdf_url=NULL, full_pdf_file_name=NULL, published=false, updated_at=now() WHERE cohort_id=%s",
+        "UPDATE curriculum_pdfs SET storage_key=NULL, original_filename=NULL, published=false, updated_at=now() WHERE cohort_id=%s",
         [cohort_id],
     )
 
@@ -593,23 +649,12 @@ def op_clear_curriculum_pdf(cur, user, p):
 def op_publish_seating(cur, user, p):
     _require_staff(user)
     cohort_id = resolve_cohort(cur, p.get("cohortId"), user)
-    room = resolve_row(cur, "seating_rooms", p["roomId"])
-    if not room:
-        raise KeyError("room")
     cur.execute(
-        """UPDATE seating_assignments SET status = 'draft'
-           FROM seating_rooms r
-           WHERE seating_assignments.room_id = r.id AND r.cohort_id = %s AND seating_assignments.status = 'published'""",
-        [cohort_id],
+        "UPDATE cohort_seating SET published=true, updated_by=%s, updated_at=now() WHERE cohort_id=%s",
+        [user["id"], cohort_id],
     )
-    cur.execute(
-        """INSERT INTO seating_assignments (room_id, status, published_by, published_at, updated_by, updated_at)
-           VALUES (%s,'published',%s, now(), %s, now())
-           ON CONFLICT (room_id) DO UPDATE SET status='published', published_by=EXCLUDED.published_by,
-             published_at=now(), updated_by=EXCLUDED.updated_by, updated_at=now()""",
-        [room["id"], user["id"], user["id"]],
-    )
-    cur.execute("UPDATE cohorts SET published_seating_room_id = %s WHERE id = %s", [room["id"], cohort_id])
+    if cur.rowcount == 0:
+        raise KeyError("seating")
 
 
 OPS = {

@@ -42,6 +42,24 @@ def build_bootstrap(user: dict) -> dict:
                 [user["id"], user["cohort_id"]],
             )
         users = _dicts(cur)
+        user_ids = [row["id"] for row in users] or [-1]
+        cur.execute(
+            """SELECT us.user_id, s.canonical_name
+               FROM user_skills us JOIN skills s ON s.id = us.skill_id
+               WHERE us.user_id = ANY(%s) ORDER BY s.canonical_name""",
+            [user_ids],
+        )
+        skills_by_user = {}
+        for user_id, skill_name in cur.fetchall():
+            skills_by_user.setdefault(user_id, []).append(skill_name)
+        cur.execute(
+            "SELECT user_id, preferences FROM user_job_preferences WHERE user_id = ANY(%s)",
+            [user_ids],
+        )
+        preferences_by_user = dict(cur.fetchall())
+        for row in users:
+            row["skills"] = skills_by_user.get(row["id"], [])
+            row["job_preferences"] = preferences_by_user.get(row["id"], {})
         if user["role"] == "admin":
             cur.execute("SELECT * FROM cohorts")
         else:
@@ -82,9 +100,25 @@ def build_bootstrap(user: dict) -> dict:
             [user["id"]],
         )
         todos = q("SELECT * FROM todos WHERE user_id = %s", [user["id"]])
-        attendances = q("SELECT * FROM attendances WHERE cohort_id = ANY(%s)", [cohort_ids])
-        submissions = q("SELECT * FROM record_submissions WHERE cohort_id = ANY(%s)", [cohort_ids])
-        resumes = q("SELECT * FROM resumes WHERE cohort_id = ANY(%s)", [cohort_ids])
+        attendances = q(
+            "SELECT a.*, a.attendance_date AS date_key FROM attendances a WHERE cohort_id = ANY(%s)",
+            [cohort_ids],
+        )
+        submissions = q(
+            """SELECT rs.*,
+                      COALESCE(array_agg(rf.storage_key ORDER BY rf.id)
+                               FILTER (WHERE rf.id IS NOT NULL), ARRAY[]::varchar[]) AS file_urls
+               FROM record_submissions rs
+               LEFT JOIN record_submission_files rf ON rf.submission_id = rs.id
+               WHERE rs.cohort_id = ANY(%s)
+               GROUP BY rs.id""",
+            [cohort_ids],
+        )
+        resumes = q(
+            """SELECT r.*, COALESCE(r.content->'section_status', '{}'::jsonb) AS sections
+               FROM resumes r WHERE cohort_id = ANY(%s)""",
+            [cohort_ids],
+        )
         feedbacks = q("SELECT * FROM resume_feedback")
         if user["role"] in ("admin", "instructor"):
             assessments = q("SELECT * FROM assessments WHERE cohort_id = ANY(%s)", [cohort_ids])
@@ -98,7 +132,13 @@ def build_bootstrap(user: dict) -> dict:
         products = q("SELECT * FROM mileage_products WHERE cohort_id = ANY(%s)", [cohort_ids])
         txs = q("SELECT * FROM mileage_transactions WHERE cohort_id = ANY(%s)", [cohort_ids])
         purchases = q("SELECT * FROM purchase_requests WHERE cohort_id = ANY(%s)", [cohort_ids])
-        forms = q("SELECT * FROM form_tasks WHERE cohort_id = ANY(%s)", [cohort_ids])
+        forms = q(
+            """SELECT st.*, stc.cohort_id, st.external_url AS form_url, st.guide_url AS notion_guide_url
+               FROM submission_tasks st
+               JOIN submission_task_cohorts stc ON stc.task_id = st.id
+               WHERE stc.cohort_id = ANY(%s)""",
+            [cohort_ids],
+        )
         inflearn = q("SELECT * FROM inflearn_packages WHERE cohort_id = ANY(%s)", [cohort_ids])
         youtube = q("SELECT * FROM youtube_recommendations WHERE cohort_id = ANY(%s)", [cohort_ids])
         sources = q("SELECT * FROM study_sources WHERE cohort_id = ANY(%s)", [cohort_ids])
@@ -106,11 +146,10 @@ def build_bootstrap(user: dict) -> dict:
         sheets = q("SELECT * FROM curriculum_sheets WHERE cohort_id = ANY(%s)", [cohort_ids])
         mileage_settings = q("SELECT * FROM mileage_settings WHERE cohort_id = ANY(%s)", [cohort_ids])
         cache = q("SELECT * FROM system_cache")
-        rooms = q("SELECT * FROM seating_rooms WHERE cohort_id = ANY(%s)", [cohort_ids])
-        room_ids = [r["id"] for r in rooms] or [-1]
-        cells = q("SELECT * FROM seating_cells WHERE room_id = ANY(%s)", [room_ids])
-        assignments = q("SELECT * FROM seating_assignments WHERE room_id = ANY(%s)", [room_ids])
-        seats = q("SELECT * FROM seat_assignments WHERE room_id = ANY(%s)", [room_ids])
+        rooms = q("SELECT * FROM cohort_seating WHERE cohort_id = ANY(%s)", [cohort_ids])
+        cells = []
+        assignments = []
+        seats = []
         teams = q("SELECT * FROM project_teams WHERE cohort_id = ANY(%s)", [cohort_ids])
         pdfs = q("SELECT * FROM curriculum_pdfs WHERE cohort_id = ANY(%s)", [cohort_ids])
         intakes = q(
@@ -121,13 +160,17 @@ def build_bootstrap(user: dict) -> dict:
         )
         cart = q("SELECT * FROM mileage_cart_items WHERE user_id = %s", [user["id"]])
         materials = q("SELECT * FROM materials WHERE cohort_id = ANY(%s)", [cohort_ids])
-        assignments_t = q("SELECT * FROM assignments WHERE cohort_id = ANY(%s)", [cohort_ids])
+        assignments_t = []
         schedules = q("SELECT * FROM schedules WHERE cohort_id = ANY(%s)", [cohort_ids])
-        weekly = q("SELECT * FROM weekly_tasks WHERE cohort_id = ANY(%s)", [cohort_ids])
-        progress = q("SELECT * FROM weekly_progress WHERE cohort_id = ANY(%s)", [cohort_ids])
+        weekly = []
+        progress = []
         missions = q("SELECT * FROM mission_progress WHERE cohort_id = ANY(%s)", [cohort_ids])
         form_responses = q(
-            "SELECT * FROM form_responses WHERE task_id IN (SELECT id FROM form_tasks WHERE cohort_id = ANY(%s))",
+            """SELECT sr.*, sr.external_response_id AS google_response_id
+               FROM submission_responses sr
+               WHERE sr.task_id IN (
+                 SELECT task_id FROM submission_task_cohorts WHERE cohort_id = ANY(%s)
+               )""",
             [cohort_ids],
         )
         assess_subs = q(
@@ -144,26 +187,16 @@ def build_bootstrap(user: dict) -> dict:
         published = None
         seating = None
         if cohorts:
-            room_id = cohorts[0].get("published_seating_room_id")
-            if room_id:
-                assignment = next((a for a in assignments if a["room_id"] == room_id), None)
-                if user["role"] in ("admin", "instructor") or (
-                    assignment and assignment.get("status") == "published"
-                ):
-                    room = next((r for r in rooms if r["id"] == room_id), None)
-                    seating = {
-                        "room": public_row(room, uid_by_pk, code_by_pk) if room else None,
-                        "cells": _pub_list(
-                            [c for c in cells if c["room_id"] == room_id], uid_by_pk, code_by_pk
-                        ),
-                        "assignment": public_row(assignment, uid_by_pk, code_by_pk)
-                        if assignment
-                        else None,
-                        "seats": _pub_list(
-                            [s for s in seats if s["room_id"] == room_id], uid_by_pk, code_by_pk
-                        ),
-                    }
-                    published = str(room_id)
+            room = next((r for r in rooms if r["cohort_id"] == cohorts[0]["id"]), None)
+            if room and (user["role"] in ("admin", "instructor") or room.get("published")):
+                layout = room.get("layout") or {}
+                seating = {
+                    "room": public_row(room, uid_by_pk, code_by_pk),
+                    "cells": layout.get("cells", []),
+                    "assignment": {"status": "published" if room.get("published") else "draft"},
+                    "seats": layout.get("assignments", {}),
+                }
+                published = str(room["cohort_id"])
 
     pub = lambda rows: _pub_list(rows, uid_by_pk, code_by_pk)
     return {
