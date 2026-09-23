@@ -52,9 +52,12 @@ def built(*topics: str) -> BuildResult:
 
 
 class DatesToRunTests(unittest.TestCase):
-    def test_first_run_only_recent_days(self) -> None:
-        lessons = ["2026-07-22", "2026-09-21", "2026-09-22", "2026-09-23"]
-        self.assertEqual(auto.dates_to_run(lessons, {}, "2026-09-23"), ["2026-09-21", "2026-09-22", "2026-09-23"])
+    def test_first_run_only_latest_recent_lesson(self) -> None:
+        # 처음엔 14일 안의 가장 최근 수업 하루만 — 지난 과목 전체를 한꺼번에 내지 않는다
+        lessons = ["2026-07-22", "2026-09-18", "2026-09-21"]
+        self.assertEqual(auto.dates_to_run(lessons, {}, "2026-09-24"), ["2026-09-21"])
+        # 끝난 과목(마지막 수업이 14일보다 전)은 처음 연결해도 내지 않는다
+        self.assertEqual(auto.dates_to_run(["2026-07-22", "2026-07-31"], {}, "2026-09-24"), [])
 
     def test_next_runs_start_from_last_done_day_again(self) -> None:
         lessons = ["2026-09-18", "2026-09-21", "2026-09-22", "2026-09-24"]
@@ -79,7 +82,7 @@ class RunSourceTests(unittest.TestCase):
         })
         out, fake = self.run_source(repo)
         self.assertEqual(repo.synced, 1)
-        self.assertEqual(fake.call_count, 1)  # 9/11 은 첫 실행 범위(최근 3일) 밖
+        self.assertEqual(fake.call_count, 1)  # 처음엔 가장 최근 수업(9/22) 하루만
         [s] = out["sets"]
         self.assertEqual(s["lessonDate"], "2026-09-22")
         self.assertEqual(s["dayLabel"], "멀티모달 2일차")  # 커밋이 있던 날 중 두 번째
@@ -117,10 +120,13 @@ class RunSourceTests(unittest.TestCase):
             "2026-09-21": {"a.ipynb": notebook(LONG)},
             "2026-09-22": {"b.ipynb": notebook(LONG + "q = 1\n" * 30)},
         })
-        out, _ = self.run_source(repo, results=[built("A"), RuntimeError("LLM 시간 초과")])
+        # 9/20 까지 출제해 둔 저장소 — 이번엔 9/21 · 9/22 를 차례로
+        seen = {"files": [], "days": {"2026-09-20": 12}}
+        out, _ = self.run_source(repo, coverage=seen, results=[built("A"), RuntimeError("LLM 시간 초과")])
         self.assertEqual([s["lessonDate"] for s in out["sets"]], ["2026-09-21"])
         self.assertIn("2026-09-22 출제 실패", out["error"])
-        self.assertEqual(out["coverage"]["days"], {"2026-09-21": 1})  # 실패한 날은 기록하지 않는다 — 다음에 다시
+        # 실패한 날은 기록하지 않는다 — 다음에 다시
+        self.assertEqual(out["coverage"]["days"], {"2026-09-20": 12, "2026-09-21": 1})
 
 
 if __name__ == "__main__":

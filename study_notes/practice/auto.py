@@ -5,7 +5,8 @@ daily.py 를 손으로 돌리던 것과 같은 일을 한다.
 
 - 마지막으로 출제한 수업 날짜부터 오늘까지, 커밋이 있는 날마다 「새로 생긴 셀」로만 출제한다(increments).
   마지막 날도 다시 본다 — 그날 저녁 늦게 올린 커밋은 다음 날 실행이 그날 몫에서 남은 만큼만 채운다.
-- 처음 보는 저장소는 최근 FIRST_RUN_DAYS 일만 — 연결하자마자 지난 과목 전체를 출제하지 않는다.
+- 처음 보는 저장소는 최근 FIRST_RUN_DAYS 일 안의 가장 최근 수업 하루만 — 연결하자마자 지난 과목 전체를 출제하지 않고,
+  며칠 커밋이 없던 과목도 마지막 수업은 바로 문제가 생긴다(학생 「오늘 복습」도 14일 안의 수업을 올린다).
 - 저장은 하지 않는다. 만든 문제와 새 출제 범위 기록을 돌려주면 Django 가 practice 스키마에 넣는다.
 - 한 날짜가 실패하면 거기서 멈추고, 그 앞까지의 결과와 기록을 돌려준다(다음 실행이 실패한 날부터 다시).
 """
@@ -23,7 +24,7 @@ from study_notes.practice.generate import practice_model_name
 from study_notes.practice.increments import DAY_QUOTA, FileCoverage, plan_day
 from study_notes.practice.runner import Runner
 
-FIRST_RUN_DAYS = 3
+FIRST_RUN_DAYS = 14
 MAX_TITLE_TOPICS = 3
 
 
@@ -52,9 +53,10 @@ def dates_to_run(lesson_dates: list[str], days: dict[str, int], today: str) -> l
     done = sorted(days)
     if done:
         start = done[-1]  # 마지막 날도 다시 — 늦은 커밋
-    else:
-        start = (Date.fromisoformat(today) - timedelta(days=FIRST_RUN_DAYS - 1)).isoformat()
-    return [d for d in sorted(set(lesson_dates)) if start <= d <= today]
+        return [d for d in sorted(set(lesson_dates)) if start <= d <= today]
+    since = (Date.fromisoformat(today) - timedelta(days=FIRST_RUN_DAYS - 1)).isoformat()
+    recent = [d for d in sorted(set(lesson_dates)) if since <= d <= today]
+    return recent[-1:]
 
 
 def set_title(problems: list[dict[str, Any]]) -> str:

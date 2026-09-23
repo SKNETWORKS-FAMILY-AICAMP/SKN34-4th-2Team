@@ -171,10 +171,12 @@ def _friendly_git_error(stderr: str) -> str:
     lower = stderr.lower()
     if "could not read username" in lower or "authentication failed" in lower:
         return "비공개 저장소입니다. AI 서버에 읽기 권한이 있는 GITHUB_TOKEN 을 넣거나, 서버 PC에서 GitHub 로그인이 필요합니다."
+    # 「Remote branch main not found」 에도 not found 가 들어 있다 — 브랜치를 먼저 본다.
+    # 커밋이 하나도 없는 저장소(수업 전 과목)도 이렇게 나온다
+    if "couldn't find remote ref" in lower or "remote branch" in lower:
+        return "브랜치를 찾지 못했습니다. 아직 비어 있는 저장소일 수 있어요 — 수업 파일이 올라오면 보입니다."
     if "repository not found" in lower or "not found" in lower:
         return "GitHub 저장소를 찾지 못했습니다. 주소를 확인하세요."
-    if "couldn't find remote ref" in lower or "remote branch" in lower:
-        return "브랜치를 찾지 못했습니다. 브랜치 이름을 확인하세요."
     if "could not resolve host" in lower or "unable to access" in lower:
         return "GitHub에 연결하지 못했습니다. 네트워크를 확인하세요."
     return f"git 오류: {stderr[:200] or '알 수 없는 오류'}"
