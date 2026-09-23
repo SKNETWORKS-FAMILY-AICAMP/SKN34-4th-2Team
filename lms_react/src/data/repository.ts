@@ -641,11 +641,27 @@ export async function createResume(resume: Omit<Resume, 'id' | 'updatedAt'>): Pr
   return id;
 }
 
-export function updateResume(id: string, patch: Partial<Resume>): void {
-  mutate((db) => ({
+const pendingResumeWrites = new Map<string, Promise<unknown>>();
+
+export function updateResume(id: string, patch: Partial<Resume>): Promise<void> {
+  const update = (db: Database): Database => ({
+    ...db,
     resumes: db.resumes.map((r) => (r.id === id ? { ...r, ...patch, updatedAt: new Date() } : r)),
-  }));
-  if (!isTestMode()) void runCommand('upsert', { table: 'resumes', id, action: 'update', ...patch });
+  });
+  if (isTestMode()) {
+    mutate((db) => ({ resumes: update(db).resumes }));
+    return Promise.resolve();
+  }
+  queryClient.setQueryData<Database>(queryKeys.bootstrap, (db) => db && update(db));
+  const previous = pendingResumeWrites.get(id) ?? Promise.resolve();
+  const request = previous.catch(() => undefined).then(async () => {
+    await runCommand('upsert', { table: 'resumes', id, action: 'update', ...patch });
+  });
+  pendingResumeWrites.set(id, request);
+  void request.finally(() => {
+    if (pendingResumeWrites.get(id) === request) pendingResumeWrites.delete(id);
+  }).catch(() => undefined);
+  return request;
 }
 
 export function deleteResume(id: string): void {
