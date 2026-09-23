@@ -12,10 +12,10 @@ from django.contrib.auth.hashers import check_password, make_password
 from django.db import connection, transaction
 from django.http import HttpRequest
 from django.views.decorators.csrf import ensure_csrf_cookie
-from ninja import NinjaAPI, Schema
+from ninja import Body, NinjaAPI, Schema
 from ninja.responses import Response
 from ninja.security import HttpBearer
-from pydantic import ConfigDict, Field
+from pydantic import Field
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -46,12 +46,6 @@ api = NinjaAPI(
 )
 
 
-class LooseBody(Schema):
-    """DRF request.data 처럼 임의 JSON을 받는다."""
-
-    model_config = ConfigDict(extra="allow")
-
-
 class LoginIn(Schema):
     email: str = ""
     password: str = ""
@@ -66,10 +60,8 @@ class CommandIn(Schema):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
-def _data(body: LooseBody | None) -> dict[str, Any]:
-    if body is None:
-        return {}
-    return body.model_dump(exclude_none=False)
+def _data(body: dict[str, Any] | None) -> dict[str, Any]:
+    return body or {}
 
 
 def _require_user(request: HttpRequest) -> dict:
@@ -175,7 +167,7 @@ def token_refresh(request, body: RefreshIn):
 
 
 @api.post("/password")
-def password(request, body: LooseBody):
+def password(request, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
     data = _data(body)
     if data.get("skip"):
@@ -280,7 +272,7 @@ def bootstrap(request):
 
 
 @api.post("/notices")
-def create_notice(request, body: LooseBody):
+def create_notice(request, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
     data = _data(body)
     if user["role"] not in ("admin", "instructor"):
@@ -298,8 +290,8 @@ def create_notice(request, body: LooseBody):
             cur.execute("SELECT code FROM cohorts WHERE id = %s", [cohort_id])
             code = (cur.fetchone() or [None])[0]
             cur.execute(
-                """INSERT INTO notices (cohort_id, title, content, author_id, author_name, is_favorite, priority, created_at, updated_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s, now(), now()) RETURNING id""",
+                """INSERT INTO notices (cohort_id, title, content, author_id, author_name, is_favorite, priority, vector_chunk_count, created_at, updated_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,0, now(), now()) RETURNING id""",
                 [
                     cohort_id,
                     title,
@@ -328,7 +320,7 @@ def create_notice(request, body: LooseBody):
 
 
 @api.patch("/notices/{pk}")
-def patch_notice(request, pk: int, body: LooseBody):
+def patch_notice(request, pk: int, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
     data = _data(body)
     with transaction.atomic():
@@ -384,7 +376,7 @@ def delete_notice(request, pk: int):
 
 
 @api.post("/mileage/adjust")
-def mileage_adjust(request, body: LooseBody):
+def mileage_adjust(request, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
     data = _data(body)
     if user["role"] != "admin":
@@ -437,7 +429,7 @@ def qual_exams(request, year: str = ""):
 
 
 @api.post("/scheduled-notices")
-def create_scheduled(request, body: LooseBody):
+def create_scheduled(request, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
     status, result = _run_op(
         "upsertScheduledNotice", user, {**_data(body), "action": "insert"}
@@ -446,7 +438,7 @@ def create_scheduled(request, body: LooseBody):
 
 
 @api.patch("/scheduled-notices/{pk}")
-def patch_scheduled(request, pk: int, body: LooseBody):
+def patch_scheduled(request, pk: int, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
     status, result = _run_op(
         "upsertScheduledNotice", user, {**_data(body), "id": pk, "action": "update"}
@@ -464,7 +456,7 @@ def delete_scheduled(request, pk: int):
 
 
 @api.post("/scheduled-notices/publish")
-def publish_scheduled(request, body: LooseBody):
+def publish_scheduled(request, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
     if user["role"] not in ("admin", "instructor"):
         return Response({"detail": "forbidden"}, status=403)
@@ -475,14 +467,14 @@ def publish_scheduled(request, body: LooseBody):
 
 
 @api.post("/alert-popups")
-def create_alert(request, body: LooseBody):
+def create_alert(request, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
     status, result = _run_op("upsertAlertPopup", user, {**_data(body), "action": "insert"})
     return Response(result, status=status)
 
 
 @api.patch("/alert-popups/{pk}")
-def patch_alert(request, pk: int, body: LooseBody):
+def patch_alert(request, pk: int, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
     status, result = _run_op(
         "upsertAlertPopup", user, {**_data(body), "id": pk, "action": "update"}
@@ -500,7 +492,7 @@ def delete_alert(request, pk: int):
 
 
 @api.post("/alert-popups/{pk}/dismiss")
-def dismiss_alert(request, pk: int, body: LooseBody = None):
+def dismiss_alert(request, pk: int, body: dict[str, Any] | None = Body(None)):
     user = _require_user(request)
     status, result = _run_op(
         "dismissAlertPopup", user, {**_data(body), "popupId": pk}

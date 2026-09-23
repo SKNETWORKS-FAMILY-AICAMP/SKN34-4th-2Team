@@ -169,8 +169,8 @@ def op_create_notice(cur, user, p):
     cur.execute("SELECT code FROM cohorts WHERE id = %s", [cohort_id])
     code = cur.fetchone()[0]
     cur.execute(
-        """INSERT INTO notices (cohort_id, title, content, author_id, author_name, is_favorite, priority, created_at, updated_at)
-           VALUES (%s,%s,%s,%s,%s,%s,%s, now(), now()) RETURNING id""",
+        """INSERT INTO notices (cohort_id, title, content, author_id, author_name, is_favorite, priority, vector_chunk_count, created_at, updated_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,0, now(), now()) RETURNING id""",
         [cohort_id, p.get("title") or "", p.get("content") or "", user["id"],
          p.get("authorName") or user["display_name"], bool(p.get("isFavorite")), int(p.get("priority") or 0)],
     )
@@ -294,6 +294,60 @@ def _prepare_row(cur, user, table: str, payload: dict, columns: set[str]) -> dic
     return data
 
 
+def _validate_resume_write(cur, user, data: dict, row: dict | None) -> None:
+    owner_id = row["user_id"] if row else data.get("user_id") or user["id"]
+    if user["role"] != "admin" and owner_id != user["id"]:
+        raise PermissionError("resume owner only")
+    if row and "user_id" in data and data["user_id"] != owner_id:
+        raise ValueError("resume owner cannot be changed")
+    if row and "cohort_id" in data and data["cohort_id"] != row["cohort_id"]:
+        raise ValueError("resume cohort cannot be changed")
+    if not row and user["role"] != "admin":
+        data["user_id"] = user["id"]
+        data["cohort_id"] = user["cohort_id"]
+
+    base_id = data.get("base_resume_id", row.get("base_resume_id") if row else None)
+    is_base = data.get("is_base_resume", row.get("is_base_resume") if row else False)
+    if is_base and base_id:
+        raise ValueError("base resume cannot have a parent")
+    if base_id:
+        parent = resolve_row(cur, "resumes", base_id)
+        if not parent or not parent["is_base_resume"] or parent["user_id"] != owner_id:
+            raise ValueError("base resume must belong to the same user")
+        if row and parent["id"] == row["id"]:
+            raise ValueError("resume cannot reference itself")
+        data["base_resume_id"] = parent["id"]
+
+    job_id = data.get("linked_job_id")
+    if job_id:
+        cur.execute("SELECT 1 FROM jobs.jobs WHERE job_id = %s", [str(job_id)])
+        if not cur.fetchone():
+            raise ValueError("linked job does not exist")
+
+
+def _validate_record_submission_write(user, data: dict, row: dict | None) -> None:
+    cohort_id = row["cohort_id"] if row else data.get("cohort_id") or user.get("cohort_id")
+    if cohort_id is None:
+        raise ValueError("submission cohort required")
+    if user["role"] != "admin" and not can_access_cohort(user, cohort_id):
+        raise PermissionError("cohort only")
+    if row and "user_id" in data and data["user_id"] != row["user_id"]:
+        raise ValueError("submission owner cannot be changed")
+    if row and "cohort_id" in data and data["cohort_id"] != row["cohort_id"]:
+        raise ValueError("submission cohort cannot be changed")
+    if user["role"] == "student":
+        owner_id = row["user_id"] if row else data.get("user_id") or user["id"]
+        if owner_id != user["id"]:
+            raise PermissionError("submission owner only")
+        if any(key in data for key in ("reviewed_by", "reviewed_at")):
+            raise PermissionError("review fields are staff only")
+        if "status" in data and data["status"] not in ("draft", "submitted"):
+            raise PermissionError("review status is staff only")
+        if not row:
+            data["user_id"] = user["id"]
+            data["cohort_id"] = user["cohort_id"]
+
+
 def op_upsert_sql(cur, user, p):
     """Allowlisted 테이블 INSERT/UPDATE/DELETE."""
     table = p["table"]
@@ -311,14 +365,34 @@ def op_upsert_sql(cur, user, p):
     }
     if table not in allowed:
         raise ValueError("table not allowed")
+    if table == "cohorts":
+        _require_admin(user)
+    elif table in {
+        "scheduled_notices", "alert_popups", "inflearn_packages",
+        "youtube_recommendations", "assessments", "assessment_questions",
+        "curriculum_sheets", "submission_tasks", "mileage_settings",
+        "mileage_products", "mileage_transactions", "cohort_seating",
+        "project_teams", "curriculum_pdfs", "materials", "schedules",
+        "seat_presences", "student_intakes", "attendances",
+        "resume_feedback", "study_sources",
+    }:
+        _require_staff(user)
     if table in ("mileage_transactions", "assessment_submissions", "study_notes", "attendances") and user["role"] not in ("admin", "instructor"):
         if p.get("action") not in ("insert",) or table not in ("assessment_submissions", "attendances"):
             if user["role"] != "admin":
                 raise PermissionError("server-only write")
     action = p.get("action")
     if action == "delete":
-        _require_staff(user)
         row = resolve_row(cur, table, p["id"])
+        if table == "resumes":
+            if row and user["role"] != "admin" and row["user_id"] != user["id"]:
+                raise PermissionError("resume owner only")
+        elif table == "record_submissions":
+            _require_staff(user)
+            if row and user["role"] != "admin" and not can_access_cohort(user, row["cohort_id"]):
+                raise PermissionError("cohort only")
+        else:
+            _require_staff(user)
         if row:
             cur.execute(f"DELETE FROM {table} WHERE id = %s", [row["id"]])
         return {"ok": True}
@@ -337,6 +411,10 @@ def op_upsert_sql(cur, user, p):
         row = resolve_row(cur, table, row_id)
         if not row:
             raise KeyError(table)
+        if table == "resumes":
+            _validate_resume_write(cur, user, data, row)
+        elif table == "record_submissions":
+            _validate_record_submission_write(user, data, row)
         if not data:
             return {"id": str(row["id"])}
         if "updated_at" in columns:
@@ -353,6 +431,10 @@ def op_upsert_sql(cur, user, p):
         cur.execute(f"UPDATE {table} SET {', '.join(assignments)} WHERE id = %s", args)
         return {"id": str(row["id"])}
 
+    if table == "resumes":
+        _validate_resume_write(cur, user, data, None)
+    elif table == "record_submissions":
+        _validate_record_submission_write(user, data, None)
     if "created_at" in columns:
         data.pop("created_at", None)
     if "updated_at" in columns:

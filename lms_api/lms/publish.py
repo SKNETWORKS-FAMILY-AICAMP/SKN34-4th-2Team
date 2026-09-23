@@ -96,8 +96,8 @@ def publish_scheduled_notices(*, ids: list | None = None, now: datetime | None =
                 cur.execute(
                     """INSERT INTO notices
                        (cohort_id, title, content, author_id, author_name, is_favorite,
-                        source, scheduled_notice_id, created_at, updated_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,'scheduled',%s, now(), now()) RETURNING id""",
+                        priority, vector_chunk_count, source, scheduled_notice_id, created_at, updated_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,0,0,'scheduled',%s, now(), now()) RETURNING id""",
                     [
                         row["cohort_id"],
                         row.get("title") or "",

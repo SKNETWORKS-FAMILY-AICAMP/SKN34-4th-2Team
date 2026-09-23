@@ -25,7 +25,7 @@ import type {
   Todo,
   User,
 } from '../domain/types';
-import { emptyDb, getDb, mutate, nextId, subscribe, type Database } from './store';
+import { getDb, mutate, nextId, subscribe, type Database } from './store';
 import { dateKeyOf } from './seed';
 import { http, readApiError } from './http';
 import { fetchBootstrap, lastBootstrapSession } from './bootstrap';

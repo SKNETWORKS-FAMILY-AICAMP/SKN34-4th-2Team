@@ -433,7 +433,9 @@ S3 migration               = binary object migration
   `author_id`는 NULL로 둔다.
 - 이미 발행된 예약 공지 8건은 `source=scheduled`를 유지하되,
   예약 작업 자체는 자동 활성화하지 않는다. 운영 관리자 계정 확정 후 별도 설정한다.
-- 이미지 참조가 있는 공지 2건은 S3 객체 복사와 키 검증이 끝나야 화면에서 표시할 수 있다.
+- 이미지 참조가 있는 공지 2건은 2026-09-23 검증 DB의 `image_storage_key`와 같은 key로
+  Firebase Storage에서 S3로 선별 복사했고, S3 HEAD 크기 대조를 통과했다.
+  운영 화면의 이미지 접근 방식과 운영 DB 적재는 별도로 검증한다.
 - 정책·FAQ는 현재 `vectordb/data/policy_*` 원본 파일 및 공개 Notion에서
   Pinecone으로 직접 적재된다. 이 경로에는 PostgreSQL 원본이 없으므로
   **운영 이전 완료가 아니다.** source identity, 원문 파일의 S3 key 또는 외부 URL,
@@ -442,7 +444,7 @@ S3 migration               = binary object migration
   명시한 파일/Notion 원본을 PostgreSQL revision으로 저장한다.
   `project_policy_index`는 PostgreSQL의 최신 revision을 읽고, 기존
   `policy`가 아닌 `policy_postgres` Pinecone 스테이징 namespace로 투영한다.
-  검증용 DB의 정책 1건에서 13개 chunk 미리보기만 확인했으며, 실제 embedding과
+  검증용 DB의 로컬 Markdown·CSV 7건에서 56개 chunk 미리보기만 확인했으며, 실제 embedding과
   Pinecone 쓰기, PDF/Notion/S3 전체 검증은 아직 하지 않았다. 기존 Pinecone
   직접 적재와 읽기 경로는 전체 corpus 검증 후에만 전환한다.
 - 채용공고는 Firestore ETL 대상이 아니다. `jobs` schema는

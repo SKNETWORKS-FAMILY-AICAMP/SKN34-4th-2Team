@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from collections import Counter
 from pathlib import Path
 
 from django.conf import settings
@@ -53,6 +54,8 @@ class Command(BaseCommand):
             raise CommandError("Duplicate Pinecone vector IDs in projection")
 
         self.stdout.write(f"documents={len(documents)} chunks={len(records)} namespace={STAGING_NAMESPACE}")
+        categories = Counter(record.metadata["type"] for record in records)
+        self.stdout.write("categories=" + ", ".join(f"{name}:{count}" for name, count in sorted(categories.items())))
         if not options["apply"]:
             self.stdout.write("preview only; Pinecone unchanged")
             return

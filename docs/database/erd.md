@@ -1,5 +1,8 @@
 # PostgreSQL Logical ERD
 
+실제 검증 DB의 80개 테이블·123개 FK를 모두 확인하려면 [Physical ERD](erd-physical.md)를 본다.
+이 문서는 핵심 업무 관계만 추린 논리도다.
+
 ```mermaid
 erDiagram
     COHORTS ||--o{ USERS : current_members
@@ -49,8 +52,6 @@ erDiagram
     RESUMES ||--o{ RESUME_FEEDBACK : receives
     RESUMES ||--o{ RESUME_REVISIONS : versions
 
-    JOBS o|--o{ RESUMES : targets
-
     USERS ||--o{ USER_SKILLS : has
     SKILLS ||--o{ USER_SKILLS : describes
     USERS ||--|| USER_JOB_PREFERENCES : configures
@@ -58,6 +59,9 @@ erDiagram
     PROJECT_TEAMS ||--o{ PROJECT_TEAM_MEMBERS : contains
     USERS ||--o{ PROJECT_TEAM_MEMBERS : joins
 ```
+
+`resumes.linked_job_id`는 채용공고의 stable ID를 저장하지만 현재 PostgreSQL FK가
+아니다. 물리 ERD에서 `jobs.jobs`와 `resumes` 사이에 FK 선을 그리지 않는다.
 
 ## Career projection
 ```text
