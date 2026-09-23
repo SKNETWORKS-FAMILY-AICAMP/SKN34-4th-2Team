@@ -15,7 +15,9 @@ services:
       JOBS_URL: http://ai:8000
     depends_on:
       - redis
-    command: gunicorn lms_server.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60
+    command: >
+      gunicorn lms_server.wsgi:application --bind 0.0.0.0:8000
+      --workers 3 --threads 4 --timeout 120
 
   # 챗봇 · 공부방 노트 · 이력서 첨삭 · 공고 추천 (deploy/ai.Dockerfile)
   # Django 와 상자를 나눈다 — 무거운 AI 의존성을 섞지 않고, 여기가 죽어도 LMS 는 산다.
