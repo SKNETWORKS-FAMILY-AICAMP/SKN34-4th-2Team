@@ -42,6 +42,11 @@ xlrd>=2
 firebase-admin>=7,<8
 pypdf>=5,<7
 
+# 학생 챗봇의 TO-BE 문맥 조회 (PostgreSQL / Redis / S3)
+psycopg[binary]>=3.1
+redis>=5.0,<6
+boto3>=1.35,<2
+
 # 첨삭 API 설정 및 .env 로딩
 pydantic-settings>=2.7,<3
 python-dotenv>=1.0,<2

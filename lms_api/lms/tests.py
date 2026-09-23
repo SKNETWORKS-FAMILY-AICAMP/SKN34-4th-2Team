@@ -1,11 +1,12 @@
 """Small API-contract checks that do not require a database connection."""
 
+import os
 from collections import namedtuple
 
 from django.test import SimpleTestCase
 from unittest.mock import Mock, patch
 
-from lms.api import _data, api
+from lms.api import ChatIn, _data, api, chat
 from lms.bootstrap_service import _dicts
 from lms.commands import (
     _validate_record_submission_write, _validate_resume_write, op_add_todo,
@@ -33,6 +34,27 @@ class JsonBodyContractTests(SimpleTestCase):
                 operation = paths[path][method]
                 self.assertIn("requestBody", operation)
                 self.assertFalse(any(p["name"] == "body" for p in operation.get("parameters", [])))
+
+
+class AiProxyContractTests(SimpleTestCase):
+    def test_missing_internal_token_does_not_call_ai_service(self):
+        request = Mock(auth={"role": "student", "firebase_uid": "student-a"})
+        with patch.dict(os.environ, {"CHATBOT_URL": "http://ai:8001", "LMS_AI_SHARED_TOKEN": ""}), \
+             patch("lms.api.urllib.request.urlopen") as urlopen:
+            response = chat(request, ChatIn(message="hello"))
+        self.assertEqual(response.status_code, 503)
+        urlopen.assert_not_called()
+
+    def test_internal_token_is_sent_in_header_not_body(self):
+        request = Mock(auth={"role": "student", "firebase_uid": "student-a"})
+        with patch.dict(os.environ, {"CHATBOT_URL": "http://ai:8001", "LMS_AI_SHARED_TOKEN": "private-test-token"}), \
+             patch("lms.api.urllib.request.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = b'{"answer":"ok"}'
+            response = chat(request, ChatIn(message="hello"))
+            sent = urlopen.call_args.args[0]
+        self.assertEqual(response["answer"], "ok")
+        self.assertEqual(sent.get_header("X-lms-ai-token"), "private-test-token")
+        self.assertNotIn(b"private-test-token", sent.data)
 
 
 class ResumeWriteValidationTests(SimpleTestCase):

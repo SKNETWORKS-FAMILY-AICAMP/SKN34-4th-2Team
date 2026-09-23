@@ -25,6 +25,8 @@ from psycopg.rows import dict_row
 from psycopg.sql import SQL, Identifier
 from psycopg.types.json import Jsonb
 
+from chatbot.database import connect as connect_postgres
+
 from job_matching_bot.config import now
 from job_matching_bot.ingestion.job_store import (
     REQUIRED_FIELDS,
@@ -299,11 +301,15 @@ class SqliteJobStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if not self.path.exists():
             self.path.touch()
-        url = os.environ.get("DATABASE_URL") or os.environ.get("JOBS_DATABASE_URL")
-        if not url:
-            raise RuntimeError("DATABASE_URL 이 필요합니다 (jobs 스키마)")
         self.schema = _schema_for_path(self.path)
-        raw = psycopg.connect(url, row_factory=dict_row, autocommit=False)
+        # The managed production jobs schema follows Django's DB_* priority.
+        # Isolated test schemas keep their explicit local URL even when .env has RDS.
+        raw = connect_postgres(
+            fallback_url=os.environ.get("JOBS_DATABASE_URL"),
+            use_db_host=self.schema == "jobs",
+            row_factory=dict_row,
+            autocommit=False,
+        )
         try:
             if self.schema != "jobs":
                 # Test stores use isolated schemas and may bootstrap them locally.

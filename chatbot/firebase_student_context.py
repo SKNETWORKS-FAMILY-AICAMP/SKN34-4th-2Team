@@ -9,9 +9,9 @@ from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 from typing import Any, Callable
 
-import psycopg
 from psycopg.rows import dict_row
 
+from chatbot.database import connect
 from chatbot.unit_period import calculate_unit_period_context
 
 KST = timezone(timedelta(hours=9), name="Asia/Seoul")
@@ -40,7 +40,9 @@ MAX_FILE_TEXT = 8_000
 
 
 def _connect():
-    return psycopg.connect(os.environ["DATABASE_URL"], row_factory=dict_row)
+    # Read-only context queries are independent; one missing legacy table must
+    # not leave the transaction aborted for every later scope.
+    return connect(row_factory=dict_row, autocommit=True)
 
 
 def _redis():
@@ -119,10 +121,10 @@ def load_unit_period_context(session: dict[str, Any], today: date | None = None)
         attendance: dict[date, str] = {}
         if user_id:
             for row in cur.execute(
-                "SELECT date_key, status FROM attendances WHERE cohort_id = %s AND user_id = %s",
+                "SELECT attendance_date, status FROM attendances WHERE cohort_id = %s AND user_id = %s",
                 (cid, user_id),
             ):
-                day = row["date_key"]
+                day = row["attendance_date"]
                 if isinstance(day, datetime):
                     day = day.date()
                 status = str(row.get("status") or "")
@@ -215,13 +217,6 @@ def _student_private(cur, cid: int, uid: str, user_id: int | None) -> dict[str, 
             ))),
         )
         _put(
-            result, errors, "user_progress",
-            lambda: _row(cur.execute(
-                "SELECT * FROM weekly_progress WHERE cohort_id = %s AND user_id = %s",
-                (cid, user_id),
-            ).fetchone(), "user_id"),
-        )
-        _put(
             result, errors, "mission_progress",
             lambda: _row(cur.execute(
                 "SELECT * FROM mission_progress WHERE cohort_id = %s AND user_id = %s",
@@ -239,20 +234,12 @@ def _student_private(cur, cid: int, uid: str, user_id: int | None) -> dict[str, 
         _put(
             result, errors, "form_responses",
             lambda: _rows(list(cur.execute(
-                """SELECT fr.*, ft.legacy_id AS task_id FROM form_responses fr
-                   JOIN form_tasks ft ON ft.id = fr.task_id
-                   WHERE ft.cohort_id = %s AND fr.user_id = %s LIMIT %s""",
+                """SELECT sr.*, st.legacy_id AS task_legacy_id FROM submission_responses sr
+                   JOIN submission_tasks st ON st.id = sr.task_id
+                   JOIN submission_task_cohorts sc ON sc.task_id = st.id
+                   WHERE sc.cohort_id = %s AND sr.user_id = %s LIMIT %s""",
                 (cid, user_id, MAX_DOCS + 1),
-            )), id_key="task_id"),
-        )
-        _put(
-            result, errors, "assignment_submissions",
-            lambda: _rows(list(cur.execute(
-                """SELECT asub.*, a.legacy_id AS assignment_id FROM assignment_submissions asub
-                   JOIN assignments a ON a.id = asub.assignment_id
-                   WHERE a.cohort_id = %s AND asub.user_id = %s LIMIT %s""",
-                (cid, user_id, MAX_DOCS + 1),
-            )), id_key="assignment_id"),
+            )), id_key="task_legacy_id"),
         )
         _put(
             result, errors, "resumes",
@@ -327,9 +314,7 @@ def _cohort_shared(cur, cid: int, code: str) -> dict[str, Any]:
         "schedules": "SELECT * FROM schedules WHERE cohort_id = %s LIMIT %s",
         "alert_popups": "SELECT * FROM alert_popups WHERE cohort_id = %s LIMIT %s",
         "materials": "SELECT * FROM materials WHERE cohort_id = %s LIMIT %s",
-        "assignments": "SELECT * FROM assignments WHERE cohort_id = %s LIMIT %s",
         "mileage_products": "SELECT * FROM mileage_products WHERE cohort_id = %s LIMIT %s",
-        "weekly_tasks": "SELECT * FROM weekly_tasks WHERE cohort_id = %s LIMIT %s",
         "inflearn_packages": "SELECT * FROM inflearn_packages WHERE cohort_id = %s LIMIT %s",
         "youtube_recommendations": "SELECT * FROM youtube_recommendations WHERE cohort_id = %s LIMIT %s",
     }
@@ -340,14 +325,16 @@ def _cohort_shared(cur, cid: int, code: str) -> dict[str, Any]:
     _put(
         result, errors, "form_tasks",
         lambda: _rows(list(cur.execute(
-            "SELECT * FROM form_tasks WHERE cohort_id = %s AND published = true LIMIT %s",
+            """SELECT st.* FROM submission_tasks st
+               JOIN submission_task_cohorts sc ON sc.task_id = st.id
+               WHERE sc.cohort_id = %s AND st.published = true LIMIT %s""",
             (cid, MAX_DOCS + 1),
         ))),
     )
     _put(
         result, errors, "assessments",
         lambda: _rows(list(cur.execute(
-            "SELECT id, legacy_id, cohort_id, title, tags, max_score, start_at, end_at, thumbnail_url, published, created_at, updated_at "
+            "SELECT id, legacy_id, cohort_id, title, tags, max_score, start_at, end_at, thumbnail_storage_key, published, created_at, updated_at "
             "FROM assessments WHERE cohort_id = %s AND published = true LIMIT %s",
             (cid, MAX_DOCS + 1),
         ))),
@@ -378,25 +365,15 @@ def _cohort_shared(cur, cid: int, code: str) -> dict[str, Any]:
 
 
 def _seating(cur, cid: int) -> dict[str, Any]:
-    cohort = cur.execute(
-        "SELECT published_seating_room_id FROM cohorts WHERE id = %s", (cid,)
-    ).fetchone() or {}
-    room_id = cohort.get("published_seating_room_id")
-    if not room_id:
-        return {"meta": None, "room": None, "assignment": None}
-    assignment = cur.execute(
-        "SELECT * FROM seating_assignments WHERE room_id = %s", (room_id,)
+    row = cur.execute(
+        "SELECT layout FROM cohort_seating WHERE cohort_id = %s AND published = true", (cid,)
     ).fetchone()
-    if not assignment or assignment.get("status") != "published":
-        return {"meta": {"publishedRoomId": None}, "room": None, "assignment": None}
-    room = cur.execute("SELECT * FROM seating_rooms WHERE id = %s", (room_id,)).fetchone()
-    cells = list(cur.execute("SELECT * FROM seating_cells WHERE room_id = %s", (room_id,)))
-    seats = list(cur.execute("SELECT * FROM seat_assignments WHERE room_id = %s", (room_id,)))
-    return {
-        "meta": {"publishedRoomId": str(room_id), "published_seating_room_id": room_id},
-        "room": {**(_row(room) or {}), "cells": [_row(c) for c in cells]},
-        "assignment": {**(_row(assignment, "room_id") or {}), "seats": [_row(s, "cell_id") for s in seats]},
-    }
+    if not row:
+        return {"published": False, "layout": None}
+    layout = row["layout"]
+    if isinstance(layout, str):
+        layout = json.loads(layout)
+    return {"published": True, "layout": _safe(layout)}
 
 
 def _file_text(name: str, data: bytes) -> str:
@@ -415,13 +392,16 @@ def _file_text(name: str, data: bytes) -> str:
 
 
 def _s3_files(prefix: str, query: str, uid: str = "") -> dict[str, Any]:
-    bucket = os.environ.get("S3_BUCKET", "skn34-4th-2team-lms")
+    bucket = os.environ.get("AWS_S3_BUCKET") or os.environ.get("S3_BUCKET")
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+    if not bucket or not region:
+        return {"items": [], "truncated": False, "unavailable_reason": "S3 configuration missing"}
     try:
         import boto3
 
         client = boto3.client(
             "s3",
-            region_name=os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "ap-northeast-2",
+            region_name=region,
         )
     except Exception as exc:
         return {"items": [], "truncated": False, "unavailable_reason": type(exc).__name__}

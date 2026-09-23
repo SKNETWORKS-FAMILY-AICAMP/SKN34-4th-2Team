@@ -235,6 +235,9 @@ def chat(request, body: ChatIn):
         return {
             "answer": "학습 도우미 서버가 연결되어 있지 않습니다. 관리자에게 문의하세요.",
         }
+    internal_token = os.environ.get("LMS_AI_SHARED_TOKEN") or ""
+    if not internal_token:
+        return Response({"detail": "AI 서비스 내부 인증이 설정되지 않았습니다"}, status=503)
     payload = json.dumps(
         {"message": message, "uid": user["firebase_uid"], "thread_id": "web"},
         ensure_ascii=False,
@@ -242,7 +245,7 @@ def chat(request, body: ChatIn):
     req = urllib.request.Request(
         f"{base}/api/v1/student-chatbot/chat",
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "X-LMS-AI-Token": internal_token},
         method="POST",
     )
     try:

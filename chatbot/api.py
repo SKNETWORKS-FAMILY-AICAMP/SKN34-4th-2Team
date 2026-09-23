@@ -1,4 +1,4 @@
-"""Firebase 학생 정보로 LMS 챗봇을 초기화하고 NDJSON으로 스트리밍한다."""
+"""LMS student chatbot endpoints and the authenticated Django proxy."""
 
 from __future__ import annotations
 
@@ -11,12 +11,13 @@ from functools import lru_cache
 from typing import Any, Iterator
 
 import firebase_admin
-import psycopg
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from firebase_admin import auth, credentials
 from pydantic import BaseModel, Field
 
+from chatbot.database import connect
+from chatbot.proxy_auth import valid_proxy_token
 from chatbot.firebase_student_context import (
     load_student_context,
     load_unit_period_context,
@@ -42,7 +43,7 @@ class ChatRequest(InitRequest):
 
 
 class ProxyChatRequest(BaseModel):
-    """Django LMS API 프록시용. Firebase 토큰 대신 uid 로 학생을 확인한다."""
+    """Django가 인증한 학생 UID를 내부 공유 토큰과 함께 전달한다."""
 
     message: str = Field(default="", max_length=2000)
     question: str = Field(default="", max_length=2000)
@@ -51,7 +52,7 @@ class ProxyChatRequest(BaseModel):
 
 
 def _session_from_uid(uid: str) -> dict[str, Any]:
-    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+    with connect() as conn:
         row = conn.execute(
             """SELECT u.role, u.is_active, c.code
                FROM users u LEFT JOIN cohorts c ON c.id = u.cohort_id
@@ -89,7 +90,7 @@ def _student_session(authorization: str | None = Header(default=None)) -> dict[s
         uid = auth.verify_id_token(authorization[7:].strip(), app=app).get("uid")
         if not isinstance(uid, str) or not uid:
             raise ValueError("missing uid")
-        with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        with connect() as conn:
             row = conn.execute(
                 """SELECT u.role, u.is_active, c.code
                    FROM users u LEFT JOIN cohorts c ON c.id = u.cohort_id
@@ -208,8 +209,13 @@ def stream_chat(
 
 
 @router.post("/chat")
-def proxy_chat(request: ProxyChatRequest) -> dict[str, Any]:
+def proxy_chat(
+    request: ProxyChatRequest,
+    internal_token: str | None = Header(default=None, alias="X-LMS-AI-Token"),
+) -> dict[str, Any]:
     """React → Django → 여기. 스트리밍을 모아 { answer } JSON 으로 돌려준다."""
+    if not valid_proxy_token(internal_token):
+        raise HTTPException(status_code=401, detail="Django proxy authentication required")
     question = (request.question or request.message or "").strip()
     if not question:
         raise HTTPException(status_code=400, detail="message required")
