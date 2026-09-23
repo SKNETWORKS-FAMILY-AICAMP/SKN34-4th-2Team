@@ -699,7 +699,9 @@ def op_publish_scheduled(cur, user, p):
     from lms.publish import publish_scheduled_notices
 
     ids = p.get("ids") or p.get("scheduledIds")
-    count = publish_scheduled_notices(ids=ids)
+    count = publish_scheduled_notices(
+        ids=ids, cohort_id=None if user["role"] == "admin" else user.get("cohort_id") or -1,
+    )
     return {"ok": True, "published": count}
 
 

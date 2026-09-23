@@ -440,6 +440,19 @@ def create_scheduled(request, body: dict[str, Any] = Body(...)):
     return Response(result, status=status)
 
 
+@api.post("/scheduled-notices/publish")
+def publish_scheduled(request, body: dict[str, Any] = Body(...)):
+    user = _require_user(request)
+    if user["role"] not in ("admin", "instructor"):
+        return Response({"detail": "forbidden"}, status=403)
+    data = _data(body)
+    ids = data.get("ids") or data.get("scheduledIds")
+    count = publish_scheduled_notices(
+        ids=ids, cohort_id=None if user["role"] == "admin" else user.get("cohort_id") or -1,
+    )
+    return {"ok": True, "published": count}
+
+
 @api.patch("/scheduled-notices/{pk}")
 def patch_scheduled(request, pk: int, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
@@ -456,17 +469,6 @@ def delete_scheduled(request, pk: int):
         "upsert", user, {"table": "scheduled_notices", "id": pk, "action": "delete"}
     )
     return Response(result, status=status)
-
-
-@api.post("/scheduled-notices/publish")
-def publish_scheduled(request, body: dict[str, Any] = Body(...)):
-    user = _require_user(request)
-    if user["role"] not in ("admin", "instructor"):
-        return Response({"detail": "forbidden"}, status=403)
-    data = _data(body)
-    ids = data.get("ids") or data.get("scheduledIds")
-    count = publish_scheduled_notices(ids=ids)
-    return {"ok": True, "published": count}
 
 
 @api.post("/alert-popups")
