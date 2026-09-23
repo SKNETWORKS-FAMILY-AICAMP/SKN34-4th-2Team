@@ -138,7 +138,12 @@ def op_update_profile(cur, user, p):
 
 
 def op_add_todo(cur, user, p):
-    uid = resolve_user(cur, p.get("uid") or user["firebase_uid"])
+    requested_uid = p.get("uid") or user["firebase_uid"]
+    if user["role"] != "admin" and requested_uid != user["firebase_uid"]:
+        raise PermissionError("todo owner only")
+    uid = resolve_user(cur, requested_uid)
+    if uid is None:
+        raise KeyError("user")
     cur.execute(
         "INSERT INTO todos (legacy_id, user_id, title, is_completed, created_at) VALUES (%s,%s,%s,false, now()) RETURNING id",
         [None, uid, p.get("title") or ""],
@@ -152,12 +157,16 @@ def op_toggle_todo(cur, user, p):
     row = resolve_row(cur, "todos", p["todoId"])
     if not row:
         raise KeyError("todo")
+    if user["role"] != "admin" and row["user_id"] != user["id"]:
+        raise PermissionError("todo owner only")
     cur.execute("UPDATE todos SET is_completed = NOT is_completed WHERE id = %s", [row["id"]])
 
 
 def op_delete_todo(cur, user, p):
     row = resolve_row(cur, "todos", p["todoId"])
     if row:
+        if user["role"] != "admin" and row["user_id"] != user["id"]:
+            raise PermissionError("todo owner only")
         cur.execute("DELETE FROM todos WHERE id = %s", [row["id"]])
 
 
@@ -339,7 +348,7 @@ def _validate_record_submission_write(user, data: dict, row: dict | None) -> Non
         owner_id = row["user_id"] if row else data.get("user_id") or user["id"]
         if owner_id != user["id"]:
             raise PermissionError("submission owner only")
-        if any(key in data for key in ("reviewed_by", "reviewed_at")):
+        if any(key in data for key in ("reviewed_by", "reviewed_at", "review_comment")):
             raise PermissionError("review fields are staff only")
         if "status" in data and data["status"] not in ("draft", "submitted"):
             raise PermissionError("review status is staff only")
@@ -365,6 +374,13 @@ def op_upsert_sql(cur, user, p):
     }
     if table not in allowed:
         raise ValueError("table not allowed")
+    # The generic writer accepts every matching DB column. Until per-domain
+    # validation exists, students must not submit scores, prices, approval
+    # states or another user's IDs through it.
+    if user["role"] == "student" and table not in {
+        "record_submissions", "resumes", "alert_popup_dismissals",
+    }:
+        raise PermissionError("student write requires a dedicated command")
     if table == "cohorts":
         _require_admin(user)
     elif table in {

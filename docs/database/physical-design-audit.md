@@ -103,7 +103,32 @@ bootstrap이 500을 내는 문제를 수정했다. 브라우저 화면 및 관�
 객체로 변환해 이력서 `content`가 React 기대 타입인 객체로 도착함을 확인했다.
 단위 테스트 12건과 Django check가 통과했다.
 
+후속 API 권한 감사에서 Todo 명령이 전달받은 UID/ID만으로 다른 학생의 항목을
+생성·수정·삭제할 수 있음을 확인해 본인 소유권을 검사하도록 수정했다. 또한 범용
+`upsert`는 DB 컬럼을 그대로 받기 때문에 학생이 평가 점수·구매 처리 상태·타인
+`user_id`를 보낼 수 있었다. 학생의 범용 쓰기는 이미 소유권 검사를 갖춘 이력서·
+기록실 제출물과 본인 팝업 닫기로 제한했다. 기록실 검토 의견도 학생이 보낼 수 없게
+했다. DB 연결 없는 권한 회귀 테스트 18건과 Django check는 통과했다. 평가 응시,
+행정 제출, 장바구니·구매 요청 등은 이 제한에 맞춰 별도 명령/API와 도메인 검증을
+구현해야 하며, 해당 기능이 완성됐다는 의미는 아니다. 실제 HTTP/RDS 회귀도 남아 있다.
+
 ## Freeze 전 필수 게이트
+
+### Fresh DB 재현 (2026-09-23)
+
+기존 검증 DB와 운영 DB를 건드리지 않고 새 RDS 데이터베이스
+`lms_migration_replay_20260923`을 생성했다. 빈 DB에 Django `migrate`를 적용해
+`lms.0001`~`0004`와 전체 migration 22건이 성공했고, `public` 73개·`jobs` 7개
+base table을 확인했다. Firestore 원본 공지 15건(이미지 2건, 예약 발행 이력 8건)을
+미리보기로 대조한 뒤 선별 importer로 적재했다. 로컬 Markdown·CSV 정책 원본 7건도
+PostgreSQL 문서·revision 각 7건으로 적재했다. Pinecone은 변경하지 않았다.
+
+검증 결과: 기수 1건, 공지 15건, 이미지 key 2건, 고아 공지 0건, 중복 공지
+legacy ID 0건, revision 없는 정책 문서 0건. 이미지 key 2건은 S3 HEAD에서 각각
+97,446/95,892 bytes로 확인했다. `migrate --plan`은 미적용 작업 0건,
+`manage.py check`는 0 issues다. 이는 **선별 운영 데이터의 fresh DB 재현**이며,
+전체 Firestore ETL의 실패 항목 0건이나 운영 DB 이전 완료를 뜻하지 않는다.
+
 
 1. `jobs` schema의 migration 편입과 운영 수집기 DDL 제거는 검증 DB에서 확인했다.
    기존 데이터가 있는 운영 DB 적용 전에는 schema 호환성 검사·백업이 필요하다.

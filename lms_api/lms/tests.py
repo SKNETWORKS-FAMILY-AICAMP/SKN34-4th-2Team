@@ -7,7 +7,10 @@ from unittest.mock import Mock, patch
 
 from lms.api import _data, api
 from lms.bootstrap_service import _dicts
-from lms.commands import _validate_record_submission_write, _validate_resume_write, op_upsert_sql
+from lms.commands import (
+    _validate_record_submission_write, _validate_resume_write, op_add_todo,
+    op_delete_todo, op_toggle_todo, op_upsert_sql,
+)
 
 
 class JsonBodyContractTests(SimpleTestCase):
@@ -72,6 +75,15 @@ class UpsertRoleTests(SimpleTestCase):
         with self.assertRaises(PermissionError):
             op_upsert_sql(Mock(), {"id": 2, "role": "instructor"}, {"table": "cohorts", "action": "insert"})
 
+    def test_student_cannot_write_unvalidated_scores_or_purchase_state(self):
+        student = {"id": 1, "role": "student"}
+        for table in (
+            "assessment_submissions", "submission_responses", "purchase_requests",
+            "mileage_cart_items", "mission_progress", "recommendation_events",
+        ):
+            with self.subTest(table=table), self.assertRaises(PermissionError):
+                op_upsert_sql(Mock(), student, {"table": table, "action": "insert", "userId": 2})
+
 
 class RecordSubmissionValidationTests(SimpleTestCase):
     def setUp(self):
@@ -87,11 +99,46 @@ class RecordSubmissionValidationTests(SimpleTestCase):
         with self.assertRaises(PermissionError):
             _validate_record_submission_write(self.actor, {"status": "approved"}, None)
 
+    def test_student_cannot_forge_review_comment(self):
+        with self.assertRaises(PermissionError):
+            _validate_record_submission_write(self.actor, {"review_comment": "approved"}, None)
+
     def test_student_insert_uses_own_identity(self):
         data = {"status": "submitted"}
         _validate_record_submission_write(self.actor, data, None)
         self.assertEqual(data["user_id"], 1)
         self.assertEqual(data["cohort_id"], 34)
+
+
+class TodoAuthorizationTests(SimpleTestCase):
+    def setUp(self):
+        self.actor = {"id": 1, "role": "student", "firebase_uid": "student-a"}
+
+    @patch("lms.commands.resolve_user")
+    def test_student_cannot_add_todo_for_another_user(self, resolve):
+        with self.assertRaises(PermissionError):
+            op_add_todo(Mock(), self.actor, {"uid": "student-b", "title": "wrong"})
+        resolve.assert_not_called()
+
+    @patch("lms.commands.resolve_row", return_value={"id": 3, "user_id": 2})
+    def test_student_cannot_toggle_another_users_todo(self, _resolve):
+        cur = Mock()
+        with self.assertRaises(PermissionError):
+            op_toggle_todo(cur, self.actor, {"todoId": "3"})
+        cur.execute.assert_not_called()
+
+    @patch("lms.commands.resolve_row", return_value={"id": 3, "user_id": 2})
+    def test_student_cannot_delete_another_users_todo(self, _resolve):
+        cur = Mock()
+        with self.assertRaises(PermissionError):
+            op_delete_todo(cur, self.actor, {"todoId": "3"})
+        cur.execute.assert_not_called()
+
+    @patch("lms.commands.resolve_row", return_value={"id": 3, "user_id": 1})
+    def test_student_can_toggle_own_todo(self, _resolve):
+        cur = Mock()
+        op_toggle_todo(cur, self.actor, {"todoId": "3"})
+        cur.execute.assert_called_once()
 
 
 class BootstrapJsonTests(SimpleTestCase):
