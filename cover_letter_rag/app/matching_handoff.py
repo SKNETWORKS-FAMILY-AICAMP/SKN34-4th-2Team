@@ -1,10 +1,10 @@
 """Read a selected matching job from the authoritative store, never a client excerpt."""
-import sqlite3
 from datetime import datetime, time, timezone, timedelta
 from pathlib import Path
 
 from job_matching_bot.ingestion.detail_quality import is_image_only_detail
 from job_matching_bot.ingestion.company_name import clean_company_name
+from job_matching_bot.ingestion.sqlite_store import SqliteJobStore
 
 from app.review_workflow import ReviewConflict, ReviewInputError, digest, job_role_title
 
@@ -14,18 +14,16 @@ class JobStoreUnavailable(RuntimeError):
 
 
 def load_selected_job(path: Path, job_id: str) -> dict:
-    path = Path(path).resolve()
-    if not path.is_file():
-        raise JobStoreUnavailable('matching_job_store_unavailable')
+    """공고 한 건을 저장소에서 읽는다.
+
+    예전에는 sqlite 파일을 직접 열었다. 공고 저장소가 Postgres `jobs` 스키마로 옮겨 간 뒤로는
+    추천(job_matching_bot)과 **같은 저장소**를 봐야 한다. 안 그러면 추천 목록에 뜬 공고를
+    첨삭이 "찾을 수 없다"고 한다. `path` 는 이제 어느 스키마를 쓸지 고르는 이름으로만 쓰인다.
+    """
     try:
-        # mode=ro avoids accidentally creating/upgrading the crawler's database.
-        connection = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)
-        connection.row_factory = sqlite3.Row
-        try:
-            row = connection.execute('SELECT * FROM jobs WHERE job_id = ?', (job_id,)).fetchone()
-        finally:
-            connection.close()
-    except sqlite3.Error as exc:
+        store = SqliteJobStore(Path(path))
+        row = store.conn.execute('SELECT * FROM jobs WHERE job_id = ?', (job_id,)).fetchone()
+    except Exception as exc:
         raise JobStoreUnavailable('matching_job_store_unavailable') from exc
     if row is None:
         raise ReviewInputError('selected_job_not_found')

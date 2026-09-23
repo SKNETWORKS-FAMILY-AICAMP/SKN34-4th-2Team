@@ -1,12 +1,16 @@
-import sqlite3
+from contextlib import contextmanager
 from copy import deepcopy
+from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings, get_settings
 from app.main import app, get_context_gateway, get_resume_review_service
-from app.matching_handoff import load_selected_job, JobStoreUnavailable
+from app.matching_handoff import load_selected_job
+from job_matching_bot.env import ensure_loaded
+from job_matching_bot.ingestion.sqlite_store import SqliteJobStore
 from app.models import FirestoreResumeReviewRequest, ResumeReviewGeneration, ReviewQuestion, SentenceReview
 from app.resume_review import ResumeReviewService
 from app.review_workflow import ReviewConflict, ReviewInputError, apply_selected_job_identity_revisions, digest, job_role_title
@@ -15,25 +19,42 @@ from test_resume_review import FakeFirebase, SAMPLE_CONTENT
 
 @pytest.fixture
 def store(tmp_path):
+    # 경로마다 다른 스키마가 잡혀 테스트끼리 섞이지 않는다(sqlite_store._schema_for_path)
+    ensure_loaded()
     path = tmp_path / 'jobs.sqlite'
-    with sqlite3.connect(path) as db:
-        db.execute('CREATE TABLE jobs (job_id TEXT PRIMARY KEY, status TEXT, description TEXT, company TEXT, title TEXT, deadline TEXT, body_is_image INTEGER, content_hash TEXT, source_url TEXT)')
-        db.execute('INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                   ('saramin:1', 'OPEN', 'Python API 개발 경험\n' + '공고 원문 전체 ' * 250,
-                    '테스트 회사', '백엔드', None, 0, 'hash1', 'https://example.com/job'))
+    with open_store(path) as db:
+        db.execute('DELETE FROM jobs')
+        # first_seen_at · last_seen_at 은 Postgres 표에서 필수다(수집 시각)
+        seen = datetime.now(timezone.utc)
+        db.execute(
+            '''INSERT INTO jobs (job_id, status, description, company, title, deadline,
+                   body_is_image, content_hash, source_url, first_seen_at, last_seen_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            ('saramin:1', 'OPEN', 'Python API 개발 경험\n' + '공고 원문 전체 ' * 250,
+             '테스트 회사', '백엔드', None, False, 'hash1', 'https://example.com/job', seen, seen))
     return path
 
 
-def test_reads_full_text_and_does_not_create_missing_store(store, tmp_path):
+@contextmanager
+def open_store(path):
+    """임시 경로에 딸린 격리 스키마를 열어 준다. 예전 `sqlite3.connect(path)` 자리."""
+    store = SqliteJobStore(Path(path))
+    try:
+        yield store.conn
+    finally:
+        store.close()
+
+
+def test_reads_full_text_and_rejects_unknown_job(store, tmp_path):
     assert len(load_selected_job(store, 'saramin:1')['text']) > 1200
-    missing = tmp_path / 'missing.sqlite'
-    with pytest.raises(JobStoreUnavailable): load_selected_job(missing, 'id')
-    assert not missing.exists()
+    # 저장소가 비어 있거나 그 공고가 없으면 「못 찾았다」로 막는다. 예전에는 sqlite 파일이
+    # 없다는 뜻이었지만, 이제 저장소는 Postgres 스키마라 파일 유무가 조건이 아니다.
+    with pytest.raises(ReviewInputError): load_selected_job(tmp_path / 'other.sqlite', 'saramin:1')
     with pytest.raises(ReviewInputError): load_selected_job(store, "' OR 1=1 --")
 
 
 def test_legacy_company_ui_noise_is_not_handed_to_review(store):
-    with sqlite3.connect(store) as db:
+    with open_store(store) as db:
         db.execute("UPDATE jobs SET company = ?", ("(주)엣지크로스 관심기업 등록",))
     selected = load_selected_job(store, 'saramin:1')
     assert selected['source']['company'] == '(주)엣지크로스'
@@ -46,20 +67,20 @@ def test_legacy_company_ui_noise_is_not_handed_to_review(store):
     ('deadline', '알 수 없음', ReviewInputError), ('description', '', ReviewInputError),
 ])
 def test_unusable_jobs_fail_closed(store, field, value, error):
-    with sqlite3.connect(store) as db: db.execute(f'UPDATE jobs SET {field} = ?', (value,))
+    with open_store(store) as db: db.execute(f'UPDATE jobs SET {field} = ?', (value,))
     with pytest.raises(error): load_selected_job(store, 'saramin:1')
 
 
 def test_legacy_image_flag_with_text_detail_is_reviewable(store):
     """본문이 충분히 저장된 구 레코드는 이미지 플래그를 보정한다."""
-    with sqlite3.connect(store) as db:
-        db.execute('UPDATE jobs SET body_is_image = 1')
+    with open_store(store) as db:
+        db.execute('UPDATE jobs SET body_is_image = true')
     assert 'Python API 개발 경험' in load_selected_job(store, 'saramin:1')['text']
 
 
 def test_image_only_detail_still_fails_closed(store):
-    with sqlite3.connect(store) as db:
-        db.execute('UPDATE jobs SET description = ?, body_is_image = 1', ('상세요강 자격요건',))
+    with open_store(store) as db:
+        db.execute('UPDATE jobs SET description = ?, body_is_image = true', ('상세요강 자격요건',))
     with pytest.raises(ReviewInputError):
         load_selected_job(store, 'saramin:1')
 
@@ -85,7 +106,7 @@ def test_handoff_auth_versions_and_full_source(store):
         service.review('valid-token', request.model_copy(update={'expected_input_hash': 'stale'}))
     with pytest.raises(ReviewInputError):
         service.review('valid-token', request.model_copy(update={'job_posting_text': 'client fake'}))
-    with sqlite3.connect(store) as connection:
+    with open_store(store) as connection:
         connection.execute("UPDATE jobs SET description = '수정된 공고'")
     with pytest.raises(ReviewConflict):
         service.review('valid-token', request)

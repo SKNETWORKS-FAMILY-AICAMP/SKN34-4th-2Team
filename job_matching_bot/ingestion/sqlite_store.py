@@ -303,7 +303,13 @@ class SqliteJobStore:
         if not url:
             raise RuntimeError("DATABASE_URL 이 필요합니다 (jobs 스키마)")
         self.schema = _schema_for_path(self.path)
-        raw = psycopg.connect(url, row_factory=dict_row, autocommit=False)
+        # autocommit=True 로 연다. False 로 두면 첫 조회가 트랜잭션을 먼저 열어 버리고,
+        # 그 뒤의 `with self.conn:` 은 진짜 트랜잭션이 아니라 세이브포인트가 된다. 블록을
+        # 빠져나와도 바깥 트랜잭션이 남아 close() 에서 통째로 되돌아간다 — 2026-09-22 밤
+        # 상세 적재가 "신규 1,778" 이라 찍히고도 한 건도 안 남은 이유다.
+        # True 면 `with self.conn:` 마다 진짜 트랜잭션이 열리고 나올 때 커밋된다.
+        # 블록 밖 한 문장은 그 자리에서 커밋되는데, 원래 SQLite 동작과 같다.
+        raw = psycopg.connect(url, row_factory=dict_row, autocommit=True)
         raw.execute(SQL("CREATE SCHEMA IF NOT EXISTS {}").format(Identifier(self.schema)))
         raw.execute(SQL("SET search_path TO {}").format(Identifier(self.schema)))
         for stmt in _sql_statements(_JOBS_SCHEMA_PATH.read_text(encoding="utf-8")):
