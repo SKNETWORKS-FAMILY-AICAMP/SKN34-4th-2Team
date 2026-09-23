@@ -17,6 +17,30 @@ from lms.commands import (
 from lms.services import sync_notice_vector
 
 
+class AttendanceUpsertTests(TestCase):
+    @patch("lms.commands._prepare_row", return_value={
+        "user_id": 9, "cohort_id": 2, "attendance_date": "2026-09-24",
+        "status": "late", "data_source": "manual",
+    })
+    @patch("lms.commands._table_columns", return_value={
+        "id", "user_id", "cohort_id", "attendance_date", "status", "data_source",
+        "created_at", "updated_at",
+    })
+    def test_repeated_daily_insert_updates_existing_row(self, _columns, _prepare):
+        cur = Mock()
+        cur.fetchone.return_value = (17,)
+        result = op_upsert_sql(cur, {"role": "admin", "id": 1}, {
+            "table": "attendances", "action": "insert", "userId": "student-uid",
+            "dateKey": "2026-09-24", "status": "late",
+        })
+        sql, values = cur.execute.call_args.args
+        self.assertEqual(result, {"id": "17"})
+        self.assertIn("ON CONFLICT (user_id, attendance_date) DO UPDATE SET", sql)
+        self.assertIn("status = EXCLUDED.status", sql)
+        self.assertNotIn("user_id = EXCLUDED.user_id", sql)
+        self.assertEqual(values, [9, 2, "2026-09-24", "late", "manual"])
+
+
 class NoticeVectorCountTests(TestCase):
     @patch("lms.services.connection.cursor")
     @patch("lms.services.notice_vectors.upsert_notice_vectors", return_value=2)

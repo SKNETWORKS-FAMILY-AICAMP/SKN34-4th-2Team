@@ -466,8 +466,20 @@ def op_upsert_sql(cur, user, p):
         extra_vals.append("now()")
     all_cols = cols + extras
     placeholders = ["%s"] * len(cols) + extra_vals
+    conflict_clause = ""
+    if table == "attendances" and action == "insert":
+        # The attendance screen sends an insert for each status change. Keep
+        # the same daily row instead of violating uq_attendance_user_date.
+        mutable = [col for col in cols if col not in ("user_id", "attendance_date")]
+        updates = [f"{col} = EXCLUDED.{col}" for col in mutable]
+        updates.append("updated_at = now()")
+        conflict_clause = (
+            " ON CONFLICT (user_id, attendance_date) DO UPDATE SET "
+            + ", ".join(updates)
+        )
     cur.execute(
-        f"INSERT INTO {table} ({', '.join(all_cols)}) VALUES ({', '.join(placeholders)}) RETURNING id",
+        f"INSERT INTO {table} ({', '.join(all_cols)}) VALUES ({', '.join(placeholders)})"
+        f"{conflict_clause} RETURNING id",
         [data[c] for c in cols],
     )
     fetched = cur.fetchone()
