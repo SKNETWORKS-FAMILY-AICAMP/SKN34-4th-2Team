@@ -14,7 +14,7 @@ import type { Notebook } from './useNotebook';
 /**
  * 노트북 도구 줄.
  *
- * 한 번에 보이는 건 다섯 개다 — 모두 실행 · 셀 추가 · 연습 문제 · 입력값 · 「···」.
+ * 한 번에 보이는 건 여섯 개다 — 모두 실행 · 셀 추가 · 연습 문제 · 문제 만들기 · 입력값 · 「···」.
  * 예전에는 단추 아홉 개에 예시 칩 여섯 개까지 한 줄에 다 나와 있었다. 자주 누르는 것만
  * 남기고, 셀 종류와 예시는 「셀 추가」 안으로, 가끔 쓰는 것(변수 초기화 · 파일 · 단축키)은
  * 「···」 안으로 넣었다. 셀 추가는 노트북 맨 아래 줄에도 있다.
@@ -62,6 +62,18 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
 
         <ProblemPicker nb={nb} />
 
+        {/* 연습장의 주 기능이라 「···」 안에 두지 않는다 — 지금 셀(불러온 파일 포함)로 AI 가 복습 문제를 만든다 */}
+        <button
+          type="button"
+          className={`btn btn--outline btn--sm${making ? ' py-toolbar__on' : ''}`}
+          onClick={() => setMaking((v) => !v)}
+          aria-expanded={making}
+          title="지금 셀로 복습 문제 6개를 만들어요 · 나만 봐요"
+        >
+          <Icon name="auto_awesome" size={18} />
+          문제 만들기
+        </button>
+
         <span className="py-grow" />
 
         <button
@@ -79,7 +91,6 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
           items={[
             { key: 'reset', icon: 'restart_alt', label: '변수 초기화', hint: '모든 변수를 비우고 실행 번호를 1부터', onSelect: nb.resetKernel },
             { key: 'open', icon: 'upload_file', label: '불러오기…', hint: '.ipynb · .py 파일', divider: true, onSelect: file.openPicker },
-            { key: 'make', icon: 'auto_awesome', label: '이 노트북으로 문제 만들기', hint: '지금 셀로 복습 문제 6개 · 나만 봐요', onSelect: () => setMaking(true) },
             { key: 'ipynb', icon: 'download', label: '내려받기 · .ipynb', hint: 'Jupyter 노트북 · 출력 포함', onSelect: () => file.download('ipynb') },
             { key: 'py', icon: 'download', label: '내려받기 · .py', hint: '# %% 로 셀 구분', onSelect: () => file.download('py') },
             { key: 'keys', icon: 'keyboard_command_key', label: showKeys ? '단축키 닫기' : '단축키', divider: true, onSelect: () => setShowKeys((v) => !v) },
