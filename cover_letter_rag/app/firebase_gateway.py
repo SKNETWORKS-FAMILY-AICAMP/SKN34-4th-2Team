@@ -161,18 +161,8 @@ class FirebaseGateway:
                 (legacy,),
             ).fetchone()
             if existing:
-                existing_sections = dict(existing[3] or {})
-                meta = dict(existing_sections.get("_tailored") or {})
-                if not meta.get("jobSnapshotHash"):
-                    # Firestore 에서 옮겨 온 맞춤본은 _tailored 정보가 비어 있다. 같은 공고 · 스냅샷으로 만든
-                    # 이름(tailored_id)이므로 지금 스냅샷을 채워 넣고 이어 쓴다. 없으면 매번 404 였다.
-                    meta = {**sections["_tailored"], **meta, "jobSnapshotHash": snapshot_hash}
-                    existing_sections["_tailored"] = meta
-                    conn.execute(
-                        "UPDATE resumes SET sections=%s, linked_job_id=COALESCE(linked_job_id, %s), updated_at=now() WHERE id=%s",
-                        (Jsonb(existing_sections), job_id, existing[0]),
-                    )
-                    conn.commit()
+                # 같은 공고 · 스냅샷으로 만든 이름(tailored_id)이므로 옛 맞춤본이면 정보를 채워 이어 쓴다
+                meta = self._adopt_legacy_meta(conn, existing[0], existing[3], sections["_tailored"], job_id)
                 if meta.get("jobSnapshotHash") != snapshot_hash:
                     raise ResumeNotFoundError("tailored resume not found")
                 if title and existing[1] != title:
@@ -197,6 +187,54 @@ class FirebaseGateway:
 
     def _tailored_meta(self, sections) -> dict:
         return dict((sections or {}).get("_tailored") or {})
+
+    def _adopt_legacy_meta(self, conn, row_id, sections, fresh_meta: dict, job_id: str) -> dict:
+        """Firestore 에서 옮겨 온 맞춤본은 _tailored 정보(공고 스냅샷 · 대화)가 비어 있다.
+
+        그대로 두면 사본 만들기는 404, 스냅샷 확인은 tailored_resume_job_changed 로 매번 막혔다.
+        지금 공고 스냅샷을 채워 넣고 이어 쓴다. 이미 정보가 있으면 건드리지 않는다.
+        """
+        from psycopg.types.json import Jsonb
+
+        sections = dict(sections or {})
+        meta = dict(sections.get("_tailored") or {})
+        if meta.get("jobSnapshotHash"):
+            return meta
+        meta = {**fresh_meta, **{k: v for k, v in meta.items() if v}}
+        sections["_tailored"] = meta
+        conn.execute(
+            "UPDATE resumes SET sections=%s, linked_job_id=COALESCE(linked_job_id, %s), updated_at=now() WHERE id=%s",
+            (Jsonb(sections), job_id, row_id),
+        )
+        conn.commit()
+        return meta
+
+    def adopt_legacy_tailored(self, cohort_id, resume_id, tailored_resume_id, uid, job_source: dict[str, Any]) -> None:
+        """옛 맞춤본을 목록에서 이어 열 때(재첨삭). 연결된 공고가 같을 때만 지금 스냅샷을 채운다."""
+        base = self.get_owned_resume(cohort_id, resume_id, uid)
+        job_id = str(job_source.get("job_id") or "")
+        snapshot_hash = str(job_source.get("snapshot_hash") or "")
+        if not job_id or not snapshot_hash:
+            return
+        legacy = f"{resume_id}/tailored/{tailored_resume_id}"
+        with self._pg() as conn:
+            row = conn.execute(
+                "SELECT id, sections, linked_job_id FROM resumes WHERE legacy_id = %s",
+                (legacy,),
+            ).fetchone()
+            if not row or (row[2] and row[2] != job_id):
+                return
+            source_hash = hashlib.sha256(
+                json.dumps(base.get("content") or {}, ensure_ascii=False, sort_keys=True).encode()
+            ).hexdigest()
+            fresh = {
+                "companyName": str(job_source.get("company") or "").strip(),
+                "jobTitle": str(job_source.get("title") or ""),
+                "jobSnapshotHash": snapshot_hash,
+                "sourceResumeHash": source_hash,
+                "reviewSession": {},
+            }
+            self._adopt_legacy_meta(conn, row[0], row[1], fresh, job_id)
 
     def list_tailored_resumes(self, cohort_id: str, resume_id: str, uid: str) -> list[dict[str, Any]]:
         base = self.get_owned_resume(cohort_id, resume_id, uid)

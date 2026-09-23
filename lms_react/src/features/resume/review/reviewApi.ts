@@ -46,6 +46,9 @@ function failureMessage(status: number, detail: string | undefined): string {
       return '이 문장은 앞서 적용한 수정안으로 이미 바뀌어 이 수정안은 적용할 수 없어요. 건너뛰고 다음으로 넘어가 주세요.';
     case '409:resume_item_changed':
       return '이력서 항목 구성이 바뀌어 새 프로젝트를 추가할 수 없어요. 최신 이력서로 첨삭을 다시 시작해 주세요.';
+    // 원본 표에 없던 것. 빈 이력서를 첨삭하면 아래 일반 422 문구(공고 원문 · 수정안)가 떠서 까닭을 알 수 없었다
+    case '422:resume is empty':
+      return '이력서 내용이 비어 있어 첨삭할 수 없어요. 이력서를 먼저 채운 뒤 다시 시도해 주세요.';
   }
   switch (status) {
     case 401:

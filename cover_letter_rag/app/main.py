@@ -95,6 +95,9 @@ def _review_context(resolve_uid, cohort_id, resume_id, job_id, tailored_resume_i
         uid = resolve_uid()
         job = load_selected_job(settings.matching_job_store_path, job_id) if job_id else None
         if tailored_resume_id:
+            if job:
+                # 옛 맞춤본은 공고 스냅샷 정보가 비어 있다. 이어 열 때 채워 둔다(있으면 그대로)
+                gateway.adopt_legacy_tailored(cohort_id, resume_id, tailored_resume_id, uid, job['source'])
             resume = gateway.get_owned_tailored_resume(cohort_id, resume_id, tailored_resume_id, uid)
             if job and resume.get('jobId') != job_id:
                 raise ReviewConflict('tailored_resume_job_mismatch')

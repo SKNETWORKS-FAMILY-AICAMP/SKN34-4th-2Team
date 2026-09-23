@@ -3,8 +3,10 @@ import { useEffect, useState } from 'react';
 import { http } from '../../data/http';
 import { Icon } from '../../ui/Icon';
 import type { Resume } from '../../domain/types';
+import { careerLabel, jobPostingPath } from '../jobs/JobPostingScreen';
 import { JobRecommendationLoading } from './JobRecommendationLoading';
 import { useReviewDock } from './review/ReviewDock';
+import { reviewApi } from './review/reviewApi';
 
 /**
  * 공고 추천 — 단계가 하나씩 켜지다 마지막에 로봇이 손을 놓는다.
@@ -72,10 +74,10 @@ function requestJobs(resumeId: string): Promise<JobResult> {
 
 /**
  * 맞춤 이력서에 연결된 공고 하나 — 원본 _showLinkedJob. 새로 점수를 매긴 추천이 아니라서
- * 근거 · 적합도는 없고, 서버 공고 카드로 보여 「재첨삭」을 단다.
+ * 근거 · 적합도는 없고, 서버 공고 카드로 보여 「재첨삭」을 단다. 수집해 둔 공고 표에서 바로 읽는다.
  */
 function requestLinkedJob(jobId: string): Promise<JobResult> {
-  return http.post<Record<string, unknown>>('/jobs/linked', { jobId }).then(({ data }) => ({
+  return http.get<Record<string, unknown>>(`/postings/${encodeURIComponent(jobId)}`).then(({ data }) => ({
     jobs: [
       {
         jobId: String(data.job_id ?? jobId),
@@ -88,13 +90,13 @@ function requestLinkedJob(jobId: string): Promise<JobResult> {
         conditions: {
           region: String(data.region ?? ''),
           employmentType: (data.employment_type ?? null) as string | null,
-          career: String(data.career ?? ''),
-          education: '',
+          career: careerLabel(String(data.career_type ?? ''), data.min_career_years as number | null),
+          education: String(data.education ?? ''),
           deadline: (data.deadline ?? null) as string | null,
         },
         filterStatus: 'PASS',
         unknownConditions: [],
-        bodyIsImage: false,
+        bodyIsImage: Boolean(data.body_is_image),
       },
     ],
     searchQuery: '',
@@ -159,12 +161,15 @@ function JobCard({
   job,
   onReview,
   reviewLabel,
+  showReasons = true,
 }: {
   index: number;
   job: JobPick;
   onReview?(job: JobPick): void;
   /** 맞춤 이력서에 연결된 공고면 「재첨삭」 */
   reviewLabel?: string;
+  /** 연결된 공고는 새로 추천한 것이 아니라 근거가 없다. 공고만 보이고 「추천 근거 보기」를 달지 않는다 */
+  showReasons?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   // 원본 _reviewButton — 접었을 때는 근거 보기 옆, 펼치면 근거 위 오른쪽에 둔다
@@ -183,7 +188,8 @@ function JobCard({
   const summary = [job.conditions.region, job.conditions.employmentType, job.conditions.career]
     .filter((v) => v !== null && v !== undefined && v !== '')
     .join(' · ');
-  const link = job.sourceUrl.startsWith('http') ? job.sourceUrl : '';
+  // 채용 사이트로 바로 보내지 않고 수집해 둔 원문을 새 탭에 연다. 첨삭하던 화면을 잃지 않는다
+  const link = job.jobId === '' ? '' : jobPostingPath(job.jobId);
 
   return (
     <div className="job-card">
@@ -200,7 +206,7 @@ function JobCard({
           <span className="job-card__company">{job.company}</span>
         </div>
         {link !== '' && (
-          <a className="job-card__open" href={link} target="_blank" rel="noreferrer" aria-label="공고 열기">
+          <a className="job-card__open" href={link} target="_blank" rel="noreferrer" aria-label="공고 원문 새 탭에서 열기" title="공고 원문 새 탭에서 열기">
             <Icon name="open_in_new" size={14} />
           </a>
         )}
@@ -271,10 +277,14 @@ function JobCard({
       )}
 
       <div className="job-card__foot">
-        <button type="button" className="job-card__toggle" onClick={() => setOpen((v) => !v)}>
-          {open ? '근거 접기' : '추천 근거 보기'}
-          <Icon name={open ? 'expand_less' : 'expand_more'} size={14} />
-        </button>
+        {showReasons ? (
+          <button type="button" className="job-card__toggle" onClick={() => setOpen((v) => !v)}>
+            {open ? '근거 접기' : '추천 근거 보기'}
+            <Icon name={open ? 'expand_less' : 'expand_more'} size={14} />
+          </button>
+        ) : (
+          <span />
+        )}
         {!open && reviewButton}
       </div>
     </div>
@@ -290,17 +300,32 @@ export function JobRecommendationRun({ resume }: { resume: Resume }) {
   const { openReview } = useReviewDock();
   // 공고 맞춤 이력서(편집기로 옮긴 사본)는 연결된 공고를 보여 주고 「재첨삭」을 단다 — 원본 _hasLinkedJob
   const linkedJobId = resume.linkedJobId ?? '';
-  // 첨삭 작업본(「원본/tailored/…」)은 편집기 밖의 사본이라 여기서 다시 뜨지 않는다
-  const canTailor = !resume.id.includes('/');
+  // 첨삭 작업본(「원본/tailored/사본」)이면 새로 뜨지 않고 그 사본의 대화를 이어서 연다
+  const workCopy = /^(?<base>[^/]+)\/tailored\/(?<tailored>[^/]+)$/.exec(resume.id)?.groups;
 
-  const reviewJob = (job: JobPick) =>
-    openReview(`job-review-${resume.id}-${job.jobId}`, {
-      resumeId: resume.id,
-      generalReview: false,
-      jobId: job.jobId,
-      jobCompany: job.company,
-      jobTitle: job.title,
+  const reviewJob = async (job: JobPick) => {
+    const options = { generalReview: false, jobId: job.jobId, jobCompany: job.company, jobTitle: job.title };
+    if (workCopy === undefined) {
+      openReview(`job-review-${resume.id}-${job.jobId}`, { ...options, resumeId: resume.id });
+      return;
+    }
+    // 원본 _restoreSession — 저장된 대화가 있으면 이어 간다. 못 읽어도 창은 열고, 첨삭이 사본을 다시 읽는다
+    let session: Record<string, unknown> = {};
+    try {
+      const saved = await reviewApi.tailored(workCopy.base, workCopy.tailored);
+      if (saved.review_session !== null && typeof saved.review_session === 'object') {
+        session = saved.review_session as Record<string, unknown>;
+      }
+    } catch {
+      // 대화 없이 연다
+    }
+    openReview(`job-review-${workCopy.base}-${job.jobId}`, {
+      ...options,
+      resumeId: workCopy.base,
+      tailoredResumeId: workCopy.tailored,
+      initialReviewSession: session,
     });
+  };
 
   useEffect(() => {
     if (result !== null || error !== null) return;
@@ -409,8 +434,9 @@ export function JobRecommendationRun({ resume }: { resume: Resume }) {
                 key={job.jobId}
                 index={index + 1}
                 job={job}
-                onReview={canTailor ? reviewJob : undefined}
+                onReview={(job) => void reviewJob(job)}
                 reviewLabel={linkedJobId !== '' ? '재첨삭' : undefined}
+                showReasons={linkedJobId === ''}
               />
             ))}
           </div>

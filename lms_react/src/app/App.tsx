@@ -8,6 +8,7 @@ import { Shell } from './Shell';
 import { BootstrapQuery } from '../data/BootstrapQuery';
 import { queryClient } from '../data/queryClient';
 import { CartProvider } from '../features/mileage/cart';
+import { JobPostingScreen } from '../features/jobs/JobPostingScreen';
 import { ReviewDockHost } from '../features/resume/review/ReviewDock';
 import { SessionProvider, useSession } from '../features/auth/session';
 import { LoginScreen } from '../features/auth/LoginScreen';
@@ -94,6 +95,8 @@ export function App() {
             <ReviewDockHost>
             <Routes>
               <Route path={RoutePaths.login} element={<LoginScreen />} />
+              {/* 새 탭은 로그인 정보를 넘겨받지 못한다. 공개된 공고라 로그인 밖에 둔다 */}
+              <Route path="/jobs/:jobId" element={<JobPostingScreen />} />
               <Route element={<Protected />}>
                 <Route path={RoutePaths.changePassword} element={<ChangePasswordScreen />} />
                 {fullScreenRoutes.map((route) => (

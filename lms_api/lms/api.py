@@ -764,32 +764,28 @@ def jobs_recommend(request, body: JobRecommendIn):
         return Response({"detail": "공고 추천 서버에 연결하지 못했습니다."}, status=503)
 
 
-class LinkedJobIn(Schema):
-    jobId: str
+@api.get("/postings/{job_id}", auth=None)
+def job_posting(request, job_id: str):
+    """공고 원문 한 건 — 추천 카드에서 새 탭으로 여는 화면이 읽는다.
 
-
-@api.post("/jobs/linked")
-def jobs_linked(request, body: LinkedJobIn):
-    """공고 맞춤 이력서에 연결된 공고 하나 — 새로 추천하지 않고 그 공고만 읽는다(ai_job_coach_panel._showLinkedJob)."""
-    _require_user(request)
-    base = (os.environ.get("JOBS_URL") or "").rstrip("/")
-    if not base:
-        return Response({"detail": "공고 서버가 연결되어 있지 않습니다(JOBS_URL)."}, status=503)
-    req = urllib.request.Request(
-        f"{base}/api/v1/jobs/chat",
-        data=json.dumps({"message": "이 공고 정보", "job_id": body.jobId}, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            jobs = json.loads(resp.read().decode("utf-8")).get("jobs") or []
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-        return Response({"detail": "연결된 맞춤 공고를 불러올 수 없습니다."}, status=503)
-    job = next((j for j in jobs if j.get("job_id") == body.jobId), None)
-    if job is None:
-        return Response({"detail": "연결된 공고가 현재 공고 저장소에 없습니다."}, status=404)
-    return job
+    채용 사이트에 공개된 공고를 수집해 둔 것이라 로그인 없이 준다. 새 탭은 로그인 정보
+    (sessionStorage)를 넘겨받지 못한다. 마감돼 사이트에서 내려간 공고도 수집본으로 읽힌다.
+    """
+    with connection.cursor() as cur:
+        cur.execute(
+            """SELECT job_id, source, source_url, company, title, description, region,
+                      career_type, min_career_years, employment_type, education, deadline, status,
+                      required_skills, preferred_skills, body_is_image
+               FROM jobs.jobs WHERE job_id = %s""",
+            [job_id],
+        )
+        row = _one(cur)
+    if not row:
+        return Response({"detail": "공고를 찾을 수 없습니다."}, status=404)
+    for key in ("required_skills", "preferred_skills"):
+        if isinstance(row[key], str):
+            row[key] = json.loads(row[key] or "[]")
+    return row
 
 
 @api.get("/bootstrap")

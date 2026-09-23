@@ -1,0 +1,208 @@
+/* 공고 원문 — 추천 카드에서 새 탭으로 여는 화면 */
+
+.posting {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  box-sizing: border-box;
+  width: min(900px, 100%);
+  margin: 0 auto;
+  padding: 32px 40px 40px;
+  color: var(--text-primary);
+}
+
+.posting--state {
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.posting__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.posting__heading {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.posting__source {
+  align-self: flex-start;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.posting__heading h1 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.3;
+}
+
+.posting__heading p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.posting__head .btn,
+.posting__foot .btn {
+  flex: none;
+  text-decoration: none;
+}
+
+.posting__closed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warning) 14%, var(--surface));
+  font-size: 13px;
+}
+
+.posting__facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-variant);
+}
+
+.posting__facts dt {
+  margin-bottom: 3px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.posting__facts dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.posting__skills {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.posting__label {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.posting__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.posting__tag {
+  padding: 4px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+.posting__tag.is-required {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.posting__body {
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+/* 소제목 — 주요업무 · 자격요건 · 우대사항 … */
+.posting__body h2 {
+  margin: 22px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.posting__body h2:first-child {
+  margin-top: 0;
+}
+
+.posting__body h3 {
+  margin: 14px 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.posting__body p {
+  margin: 0 0 6px;
+}
+
+.posting__body ul {
+  margin: 0 0 6px;
+  padding-left: 20px;
+}
+
+.posting__body li {
+  margin: 3px 0;
+}
+
+.posting__body li::marker {
+  color: var(--text-hint);
+}
+
+.posting__body--empty {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.posting__foot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.posting__foot span {
+  flex: 1;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  .posting {
+    padding: 20px 16px 32px;
+  }
+
+  .posting__head,
+  .posting__foot {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .posting__facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
