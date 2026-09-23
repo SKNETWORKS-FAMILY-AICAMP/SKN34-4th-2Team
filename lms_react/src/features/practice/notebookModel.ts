@@ -1,4 +1,4 @@
-import type { PracticeSet } from '../../domain/types';
+import type { PracticeProblem, PracticeSet } from '../../domain/types';
 import type { TableData } from './pythonProtocol';
 import { FIRST_CELLS } from './notebookExamples';
 import { canPromptInput } from './pythonRunner';
@@ -65,6 +65,13 @@ export function newCell(code = '', type: CellType = 'code', problemIndex: number
 
 export const CLEAR_OUTPUT = { lines: [], value: null, table: null, images: [], count: null, state: 'idle' as CellState, ms: null };
 
+/** 처음부터 문제는 뼈대 없이 연다 — 뼈대(starterCode)는 문제 셀의 「뼈대 받기」로만 */
+export const SCRATCH_START = '# 문제에 적힌 함수를 여기에 처음부터 작성하세요\n';
+
+function startCode(problem: PracticeProblem): string {
+  return problem.kind === 'code_scratch' ? SCRATCH_START : problem.starterCode;
+}
+
 /** 세트를 처음 열 때의 셀 — 안내 · 문제 셀들 · 자유 셀 */
 export function cellsForSet(set: PracticeSet): Cell[] {
   if (set.id === RETRY_SET_ID) {
@@ -74,7 +81,7 @@ export function cellsForSet(set: PracticeSet): Cell[] {
           '막히면 그날 공부방 노트를 다시 보고 오세요.',
         'markdown',
       ),
-      ...set.problems.map((p, i) => newCell(p.starterCode, 'problem', i)),
+      ...set.problems.map((p, i) => newCell(startCode(p), 'problem', i)),
       newCell('# 자유롭게 시험해 보는 칸\n'),
     ];
   }
@@ -85,7 +92,7 @@ export function cellsForSet(set: PracticeSet): Cell[] {
         '**채점**은 숨긴 테스트와 함께 새 공간에서 따로 돌립니다.',
       'markdown',
     ),
-    ...set.problems.map((p, i) => newCell(p.starterCode, 'problem', i)),
+    ...set.problems.map((p, i) => newCell(startCode(p), 'problem', i)),
     newCell('# 자유롭게 시험해 보는 칸 — 위 문제 셀에서 실행한 함수를 불러 써 보세요\n'),
   ];
 }

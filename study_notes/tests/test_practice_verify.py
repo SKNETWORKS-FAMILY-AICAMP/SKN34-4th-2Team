@@ -48,6 +48,24 @@ def write_problem() -> PracticeProblem:
     )
 
 
+def scratch_problem(**over: str) -> PracticeProblem:
+    fields = dict(
+        kind="code_scratch",
+        prompt="`count_words(text)` 를 처음부터 작성하세요. 예: count_words('a b a') → {'a': 2, 'b': 1}",
+        starter_code='def count_words(text):\n    """단어별 횟수"""\n    pass',
+        reference_solution=(
+            "def count_words(text):\n    counts = {}\n    for w in text.split():\n"
+            "        counts[w] = counts.get(w, 0) + 1\n    return counts"
+        ),
+        hidden_tests=(
+            "assert count_words('a b a') == {'a': 2, 'b': 1}\nassert count_words('') == {}\n"
+            "assert count_words('x') == {'x': 1}"
+        ),
+    )
+    fields.update(over)
+    return PracticeProblem(**fields)
+
+
 class ParseDraftTests(unittest.TestCase):
     def test_concept_needs_valid_answer_index(self) -> None:
         raw = {"kind": "concept", "prompt": "q", "choices": ["a", "b", "c", "d"], "answerIndex": 4}
@@ -153,6 +171,34 @@ class VerifyRuleTests(unittest.TestCase):
         [verdict] = verify_problems([write_problem()], FakeRunner(starter=fail(), reference=fail()))
         self.assertFalse(verdict.passed)
         self.assertIn("모범답안", verdict.reason)
+
+    def test_code_scratch_runs_like_code_write(self) -> None:
+        runner = FakeRunner(starter=fail("NameError"), reference=ok())
+        [verdict] = verify_problems([scratch_problem()], runner)
+        self.assertTrue(verdict.passed, verdict.reason)
+        self.assertEqual([j.id for j in runner.jobs], ["p0:starter", "p0:reference"])
+
+    def test_code_scratch_needs_function_name_in_prompt(self) -> None:
+        runner = FakeRunner()
+        [verdict] = verify_problems([scratch_problem(prompt="단어 수를 세는 함수를 만드세요")], runner)
+        self.assertFalse(verdict.passed)
+        self.assertIn("count_words", verdict.reason)
+        self.assertEqual(runner.jobs, [])
+
+    def test_code_scratch_rejects_one_liner_and_few_tests(self) -> None:
+        short = scratch_problem(reference_solution="def count_words(text):\n    return {}")
+        few = scratch_problem(hidden_tests="assert count_words('') == {}\nassert count_words('a') == {'a': 1}")
+        verdicts = verify_problems([short, few], FakeRunner())
+        self.assertIn("짧음", verdicts[0].reason)
+        self.assertIn("3개 미만", verdicts[1].reason)
+
+    def test_code_scratch_parses_like_code_write(self) -> None:
+        problem, reason = parse_draft({
+            "kind": "code_scratch", "prompt": "`f()`", "starterCode": "def f():\n    pass",
+            "referenceSolution": "def f():\n    return 1", "hiddenTests": "assert f() == 1\nassert f()",
+        })
+        self.assertEqual(reason, "")
+        self.assertEqual(problem.kind, "code_scratch")
 
     def test_static_failure_skips_execution(self) -> None:
         runner = FakeRunner()

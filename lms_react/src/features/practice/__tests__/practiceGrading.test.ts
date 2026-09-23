@@ -51,6 +51,16 @@ describe('실습 채점', () => {
     expect(r.detail).toContain('NameError');
   });
 
+  it('테스트가 부르는 함수가 없으면 이름을 확인하라고 한다 — 처음부터 문제에서 흔하다', () => {
+    const r = gradeReport(
+      splitTests(TESTS),
+      result({ error: { type: 'NameError', message: "name 'extract_frame_no' is not defined", step: 1, line: 2 } }),
+    );
+    expect(r.statuses).toEqual(['fail', 'skip', 'skip']);
+    expect(r.headline).toBe('테스트 1번이 부르는 이름을 찾지 못했어요');
+    expect(r.detail).toContain('문제에 적힌 이름');
+  });
+
   it('시간 제한', () => {
     expect(gradeReport(splitTests(TESTS), result({ timedOut: true })).headline).toBe('시간 제한에 걸렸어요');
   });

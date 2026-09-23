@@ -78,6 +78,15 @@ export function gradeReport(tests: TestCase[], result: RunResult): GradeReport {
     return i === failAt ? 'fail' : 'skip';
   });
   if (failAt < 0) return { passed: false, statuses, headline: '테스트 준비 중에 멈췄어요', detail: message };
+  // 처음부터 문제에서 흔하다 — 함수를 안 만들었거나 이름을 다르게 지었다
+  if (e.type === 'NameError') {
+    return {
+      passed: false,
+      statuses,
+      headline: `테스트 ${failAt + 1}번이 부르는 이름을 찾지 못했어요`,
+      detail: `${message} — 문제에 적힌 이름 그대로 만들었는지 확인하세요.`,
+    };
+  }
   const assertion = e.type === 'AssertionError';
   return {
     passed: false,

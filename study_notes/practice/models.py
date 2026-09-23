@@ -11,9 +11,10 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-Kind = Literal["concept", "code_output", "code_blank", "code_fix", "code_write"]
-KINDS: tuple[Kind, ...] = ("concept", "code_output", "code_blank", "code_fix", "code_write")
-RUNNABLE: tuple[Kind, ...] = ("code_output", "code_blank", "code_fix", "code_write")
+# code_scratch — 뼈대 없이 빈 에디터에서 함수를 처음부터 짠다. starter_code 는 「뼈대 받기」를 눌렀을 때만 보이는 뼈대
+Kind = Literal["concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch"]
+KINDS: tuple[Kind, ...] = ("concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch")
+RUNNABLE: tuple[Kind, ...] = ("code_output", "code_blank", "code_fix", "code_write", "code_scratch")
 
 # 빈칸 표시. `__1__`은 올바른 파이썬 이름이라 빈칸이 남은 채로도 ast로 읽힌다.
 BLANK_RE = re.compile(r"__(\d)__")

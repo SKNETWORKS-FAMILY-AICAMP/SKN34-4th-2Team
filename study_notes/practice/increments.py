@@ -26,18 +26,25 @@ from study_notes.pipeline import MAX_CHARS_PER_FILE, Material
 SIMILAR_RATIO = 0.9
 MIN_NEW_CHARS = 200
 MIN_PER_FILE = 1
-MAX_PER_FILE = 4
+# 그날 수업 파일이 하나뿐이어도 8문제는 낸다
+MAX_PER_FILE = 8
 SUMMARY_CHARS = 600
 
 # 하루 문제 구성 — 연습장에서 돌려 보는 코드 문제를 중심으로(개념 확인은 성취도평가도 한다)
-KIND_MIX: dict[str, int] = {"concept": 2, "code_output": 2, "code_blank": 2, "code_fix": 1, "code_write": 1}
-DAY_QUOTA = sum(KIND_MIX.values())  # 8
-# 남은 개수가 8보다 적을 때(같은 날 늦은 커밋 추가분) 이 순서로 채운다 — 가벼운 코드 문제부터
-_FILL_ORDER = ["code_output", "code_blank", "concept", "code_fix", "code_write", "code_output", "code_blank", "concept"]
+KIND_MIX: dict[str, int] = {
+    "concept": 2, "code_output": 3, "code_blank": 2, "code_fix": 2, "code_write": 2, "code_scratch": 1,
+}
+DAY_QUOTA = sum(KIND_MIX.values())  # 12
+# 남은 개수가 12보다 적을 때(파일이 하나뿐이거나 같은 날 늦은 커밋 추가분) 이 순서로 채운다 — 가벼운 코드 문제부터.
+# 처음부터 문제는 7번째 — 파일 하나짜리 날(8문제)에도 하나는 들어간다
+_FILL_ORDER = [
+    "code_output", "code_blank", "concept", "code_fix", "code_write", "code_output",
+    "code_scratch", "code_blank", "concept", "code_fix", "code_write", "code_output",
+]
 
 
 def kind_mix(total: int) -> dict[str, int]:
-    """문제 total 개의 종류별 개수. total 이 하루 구성(8)이면 KIND_MIX 그대로."""
+    """문제 total 개의 종류별 개수. total 이 하루 구성(12)이면 KIND_MIX 그대로."""
     if total >= DAY_QUOTA:
         return dict(KIND_MIX)
     mix: dict[str, int] = {}

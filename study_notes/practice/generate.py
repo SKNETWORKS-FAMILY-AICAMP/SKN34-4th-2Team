@@ -50,13 +50,18 @@ KIND_GUIDE = (
     "  starterCode는 버그가 있는 코드, referenceSolution은 고친 전체 코드, hiddenTests는 assert 문 2~4개\n"
     "- code_write: 함수를 직접 작성하는 문제. starterCode는 함수 이름·인자·docstring과 pass만 있는 코드,\n"
     "  referenceSolution은 완성한 함수, hiddenTests는 assert 문 2~4개 (경계값 하나 포함)\n"
+    "- code_scratch: 빈 에디터에서 함수 전체를 처음부터 짜는 문제. 학생은 뼈대를 보지 못하므로 prompt에\n"
+    "  함수 이름과 인자(예: `max_pool2x2(matrix)`), 예시 입력과 그 결과를 한 쌍 이상 반드시 적는다.\n"
+    "  수업 코드의 핵심 흐름(반복·조건·자료 구조 다루기)을 학생이 직접 구현하게 한다.\n"
+    "  starterCode는 학생이 「뼈대 받기」를 눌렀을 때만 보이는 함수 이름·인자·docstring과 pass만 있는 코드,\n"
+    "  referenceSolution은 5~20줄의 완성 함수, hiddenTests는 assert 문 3~5개 (prompt의 예시 하나, 경계값 하나 포함)\n"
     "hiddenTests는 starterCode·referenceSolution 뒤에 같은 변수 공간에서 이어서 실행된다.\n"
     "hiddenTests에 정답 코드를 다시 쓰지 않는다.\n"
 )
 
 SCHEMA = (
     '{{"problems": [{{\n'
-    '  "kind": "concept | code_output | code_blank | code_fix | code_write",\n'
+    '  "kind": "concept | code_output | code_blank | code_fix | code_write | code_scratch",\n'
     '  "topic": "짧은 주제 (예: 딕셔너리 컴프리헨션)",\n'
     '  "sourceFiles": ["근거가 된 수업 파일 경로"],\n'
     '  "prompt": "학생에게 보일 문제 문장",\n'
@@ -131,7 +136,8 @@ def _llm() -> ChatOpenAI:
     return ChatOpenAI(
         model=practice_model_name(),
         max_retries=1,
-        timeout=120,
+        # 하루 12문제를 한 번에 받는다 — 8문제 때의 120초로는 빠듯하다
+        timeout=240,
         model_kwargs={"response_format": {"type": "json_object"}},
     )
 
@@ -165,7 +171,7 @@ def generate_drafts(
     kind_counts: str = "",
 ) -> DraftBatch:
     """focus_note — 파일 단위 출제(increments.DayPlan.focus_note)의 「새 부분에서만 · 파일별 개수」 지시
-    kind_counts — 종류별 개수 글. 비우면 하루 구성(KIND_MIX: 개념 2 + 코드 6)"""
+    kind_counts — 종류별 개수 글. 비우면 하루 구성(KIND_MIX: 개념 2 + 코드 10)"""
     if not materials:
         raise ValueError("출제할 수업 자료가 없습니다.")
     response = (GENERATE_PROMPT | _llm()).invoke({

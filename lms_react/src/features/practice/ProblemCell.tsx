@@ -22,6 +22,7 @@ const KIND_HINT: Partial<Record<PracticeKind, string>> = {
   code_blank: '`__1__` 자리를 알맞은 식으로 바꾸고 채점하세요. 같은 결과를 내는 다른 식도 정답입니다.',
   code_fix: '먼저 실행해서 증상을 보고, 한 곳을 고친 뒤 채점하세요.',
   code_write: '함수를 완성하고 채점하세요. 실행해 보거나 아래 빈 셀에서 불러 시험해 봐도 됩니다.',
+  code_scratch: '문제에 적힌 함수를 빈 칸에서부터 작성하세요. 이름이 같아야 채점됩니다. 막히면 「뼈대 받기」로 이름·인자를 받을 수 있어요.',
 };
 
 /** 이만큼 틀리면 모범답안을 볼 수 있게 한다 */
@@ -82,7 +83,8 @@ export function ProblemCell({
   const passed = attempt?.passed ?? false;
   const tries = attempt?.tries ?? 0;
   const canReveal = problem.referenceSolution !== '' && (passed || tries >= REVEAL_AFTER_TRIES);
-  const isCode = problem.kind === 'code_blank' || problem.kind === 'code_fix' || problem.kind === 'code_write';
+  const isCode =
+    problem.kind === 'code_blank' || problem.kind === 'code_fix' || problem.kind === 'code_write' || problem.kind === 'code_scratch';
 
   const run = async () => {
     if (working) return;
@@ -289,7 +291,7 @@ export function ProblemCell({
               className="btn btn--text btn--sm"
               onClick={() => { onCodeChange(problem.starterCode); setReport(null); setLines([]); setValue(null); }}
             >
-              처음 코드로
+              {problem.kind === 'code_scratch' ? '뼈대 받기' : '처음 코드로'}
             </button>
             {canReveal && (
               <button type="button" className="btn btn--text btn--sm" onClick={() => setShowSolution((v) => !v)}>

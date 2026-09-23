@@ -87,7 +87,8 @@ class PlanTests(unittest.TestCase):
         plan = plan_day("d", [("big.ipynb", "c", big), ("mid.ipynb", "c", mid), ("small.ipynb", "c", small)], {})
         quotas = {f.path: f.quota for f in plan.targets}
         self.assertEqual(sum(quotas.values()), DAY_QUOTA)
-        self.assertEqual(quotas, {"big.ipynb": 4, "mid.ipynb": 3, "small.ipynb": 1})
+        # 새 내용 4 : 2 : 1 — 큰 파일이 파일당 상한(8)까지 받는다
+        self.assertEqual(quotas, {"big.ipynb": 8, "mid.ipynb": 3, "small.ipynb": 1})
         self.assertTrue(all(1 <= q <= MAX_PER_FILE for q in quotas.values()))
 
     def test_one_file_caps_at_max(self) -> None:
@@ -117,21 +118,29 @@ class PlanTests(unittest.TestCase):
 
 
 class QuotaTests(unittest.TestCase):
-    def test_day_mix_is_two_concepts_and_six_code(self) -> None:
-        self.assertEqual(DAY_QUOTA, 8)
-        self.assertEqual(kind_mix(8), KIND_MIX)
+    def test_day_mix_is_two_concepts_and_ten_code(self) -> None:
+        self.assertEqual(DAY_QUOTA, 12)
+        self.assertEqual(kind_mix(12), KIND_MIX)
         self.assertEqual(KIND_MIX["concept"], 2)
-        self.assertEqual(sum(n for k, n in KIND_MIX.items() if k != "concept"), 6)
+        self.assertEqual(KIND_MIX["code_scratch"], 1)
+        self.assertEqual(sum(n for k, n in KIND_MIX.items() if k != "concept"), 10)
 
     def test_smaller_mix_fills_light_code_first(self) -> None:
         self.assertEqual(kind_mix(3), {"code_output": 1, "code_blank": 1, "concept": 1})
         self.assertEqual(kind_mix(0), {})
 
+    def test_fill_order_adds_up_to_day_mix(self) -> None:
+        # 채우는 순서를 끝까지 가면 하루 구성과 같아야 한다 — 둘을 따로 고치다 어긋나지 않게
+        from study_notes.practice.increments import _FILL_ORDER
+        self.assertEqual(len(_FILL_ORDER), DAY_QUOTA)
+        self.assertEqual({k: _FILL_ORDER.count(k) for k in set(_FILL_ORDER)}, KIND_MIX)
+
     def test_plan_kind_counts_match_total(self) -> None:
-        # 파일 하나면 파일당 상한(4)에 걸려 4문제 — 구성도 4개짜리
+        # 파일 하나면 파일당 상한(8)에 걸려 8문제 — 구성도 8개짜리, 처음부터 문제가 하나 들어간다
         plan = plan_day("d", [("only.ipynb", "c", notebook(("code", LONG)))], {})
         self.assertEqual(plan.total, MAX_PER_FILE)
         self.assertEqual(sum(kind_mix(plan.total).values()), plan.total)
+        self.assertEqual(kind_mix(plan.total).get("code_scratch"), 1)
 
     def test_late_commit_uses_only_what_is_left(self) -> None:
         files = [(f"f{i}.ipynb", "c", notebook(("code", LONG))) for i in range(4)]

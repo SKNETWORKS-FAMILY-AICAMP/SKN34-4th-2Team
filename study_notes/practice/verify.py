@@ -6,6 +6,8 @@
   code_blank   빈칸을 None으로 채우면 테스트 실패, 모범 답으로 채우면 통과
   code_fix     버그 코드 + 테스트는 실패, 모범답안 + 테스트는 통과
   code_write   빈 함수 + 테스트는 실패, 모범답안 + 테스트는 통과
+  code_scratch code_write 와 같고, 더해서 — 학생은 뼈대를 못 보므로 문제 문장에 함수 이름이 있어야 하고,
+               테스트는 3개 이상, 모범답안은 한두 줄로 끝나지 않는 함수여야 한다
   concept      실행하지 않는다 (models.parse_draft 가 모양만 본다)
 
 실행 전에 ast로 한 번 거른다. 파일·네트워크·입력·현재 시각을 쓰는 코드는 브라우저에서
@@ -39,6 +41,9 @@ MAX_OUTPUT_LINES = 4
 MAX_OUTPUT_CHARS = 160
 LONG_DECIMAL = re.compile(r"\d\.\d{4,}")
 RUN_TIMEOUT_MS = 3000
+# 처음부터 문제 — 이보다 짧은 모범답안은 함수 작성(code_write)으로 충분하다
+SCRATCH_MIN_LINES = 4
+SCRATCH_MIN_TESTS = 3
 
 
 @dataclass
@@ -79,6 +84,22 @@ def static_check(code: str) -> tuple[list[str], str]:
                     and func.attr != "read_json":
                 return [], f"파일을 읽는 호출: .{func.attr}()"
     return sorted(packages), ""
+
+
+def scratch_check(problem: PracticeProblem) -> str:
+    """처음부터 문제만의 규칙. 문제 이유, 비어 있으면 통과. static_check 를 통과한 코드라 문법은 맞다."""
+    names = [n.name for n in ast.parse(problem.starter_code).body if isinstance(n, ast.FunctionDef)]
+    if not names:
+        return "뼈대에 함수 정의가 없음"
+    missing = [n for n in names if n not in problem.prompt]
+    if missing:
+        return f"문제 문장에 함수 이름이 없음: {', '.join(missing)} (학생은 뼈대를 못 봄)"
+    body = [line for line in problem.reference_solution.splitlines() if line.strip() and not line.strip().startswith("#")]
+    if len(body) < SCRATCH_MIN_LINES:
+        return f"모범답안이 {len(body)}줄로 짧음 (처음부터 짤 거리가 아님)"
+    if problem.hidden_tests.count("assert") < SCRATCH_MIN_TESTS:
+        return f"테스트가 assert {SCRATCH_MIN_TESTS}개 미만"
+    return ""
 
 
 def _clean_stdout(stdout: str) -> str:
@@ -161,6 +182,11 @@ def verify_problems(problems: list[PracticeProblem], runner: Runner) -> list[Ver
         if problem.kind != "code_output" and problem.hidden_tests.count("assert") < 2:
             verdicts[i] = Verdict(problem, False, "테스트가 assert 2개 미만")
             continue
+        if problem.kind == "code_scratch":
+            reason = scratch_check(problem)
+            if reason:
+                verdicts[i] = Verdict(problem, False, f"실행 전 거름 — {reason}")
+                continue
         problem.packages = sorted(packages)
         jobs += _jobs_for(i, problem)
 

@@ -16,6 +16,7 @@ const MINUTES: Record<PracticeKind, number> = {
   code_blank: 2,
   code_fix: 2.5,
   code_write: 3,
+  code_scratch: 5,
 };
 
 export function estimateMinutes(set: PracticeSet): number {

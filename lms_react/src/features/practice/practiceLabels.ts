@@ -7,4 +7,5 @@ export const KIND_LABEL: Record<PracticeKind, string> = {
   code_blank: '빈칸 채우기',
   code_fix: '디버깅',
   code_write: '함수 작성',
+  code_scratch: '처음부터',
 };
