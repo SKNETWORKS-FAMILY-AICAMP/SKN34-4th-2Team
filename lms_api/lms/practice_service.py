@@ -63,7 +63,16 @@ def practice_snapshot(cur, user: dict, cohort_codes: list[str]) -> dict:
     uid = user.get("firebase_uid") or ""
     staff = user.get("role") in ("admin", "instructor")
 
-    sets = _rows(cur, "SELECT * FROM practice.sets WHERE cohort_code = ANY(%s) ORDER BY lesson_date", [cohort_codes])
+    # 학생이 자기 노트 · 연습장 파일로 만든 세트(owner_uid)는 만든 학생에게만 — 강사 · 관리자에게도 안 보인다
+    if sets_have_owner(cur):
+        sets = _rows(
+            cur,
+            """SELECT * FROM practice.sets WHERE cohort_code = ANY(%s) AND (owner_uid IS NULL OR owner_uid = %s)
+               ORDER BY lesson_date, id""",
+            [cohort_codes, uid],
+        )
+    else:
+        sets = _rows(cur, "SELECT * FROM practice.sets WHERE cohort_code = ANY(%s) ORDER BY lesson_date", [cohort_codes])
     set_ids = [s["id"] for s in sets] or [-1]
     problems = _rows(cur, "SELECT * FROM practice.problems WHERE set_id = ANY(%s) ORDER BY set_id, idx", [set_ids])
     key_of = {s["id"]: s["legacy_id"] for s in sets}
@@ -81,6 +90,8 @@ def practice_snapshot(cur, user: dict, cohort_codes: list[str]) -> dict:
             "title": s["title"],
             "files": _j(s["files"]),
             "model": s["model"],
+            # lesson(수업 · 반 전체) · note · file(학생이 만든 것 — 만든 학생에게만 온다)
+            "origin": s.get("origin") or "lesson",
             "problems": [
                 {
                     "kind": p["kind"], "topic": p["topic"], "prompt": p["prompt"], "sourceFiles": _j(p["source_files"]),
@@ -130,6 +141,15 @@ def practice_snapshot(cur, user: dict, cohort_codes: list[str]) -> dict:
             for v in reviews
         ],
     }
+
+
+def sets_have_owner(cur) -> bool:
+    """practice_schema.sql 을 다시 돌리기 전 DB 에는 owner_uid 칸이 없다"""
+    cur.execute(
+        """SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'practice' AND table_name = 'sets' AND column_name = 'owner_uid'"""
+    )
+    return cur.fetchone() is not None
 
 
 def _problem_id(cur, user: dict, set_key, index) -> int:

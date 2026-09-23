@@ -25,7 +25,7 @@ from lms.permissions import can_access_cohort
 from lms.publish import publish_scheduled_notices
 from lms.resume_text import build_profile, build_resume_text
 from lms.services import schedule_notice_vector
-from lms import practice_auto, study_note_service, study_source_service
+from lms import practice_auto, practice_custom, study_note_service, study_source_service
 
 
 class LmsAuth(HttpBearer):
@@ -465,6 +465,38 @@ def practice_auto_run(request, source_id: str, body: PracticeRunIn | None = None
     user = _require_user(request)
     dates = body.dates if body else []
     return _sources(lambda: practice_auto.run_now(user, source_id, dates))
+
+
+class PracticeFileIn(Schema):
+    name: str = ""
+    content: str = ""
+
+
+@api.get("/practice-custom")
+def practice_custom_remaining(request):
+    """학생이 만드는 복습 문제 — 오늘 남은 횟수"""
+    user = _require_user(request)
+    return _sources(lambda: practice_custom.remaining(user))
+
+
+@api.post("/practice-custom/note/{note_id}")
+def practice_custom_note(request, note_id: str):
+    """내 노트로 복습 문제 만들기 — 몇 분 걸려서 일(job)을 먼저 돌려준다. 만든 세트는 나만 본다"""
+    user = _require_user(request)
+    return _sources(lambda: practice_custom.from_note(user, note_id))
+
+
+@api.post("/practice-custom/file")
+def practice_custom_file(request, body: PracticeFileIn):
+    """연습장에서 연 .py · .ipynb 로 복습 문제 만들기"""
+    user = _require_user(request)
+    return _sources(lambda: practice_custom.from_file(user, body.name, body.content))
+
+
+@api.get("/practice-custom/{job_id}")
+def practice_custom_job(request, job_id: str):
+    user = _require_user(request)
+    return _sources(lambda: practice_custom.get_job(user, job_id))
 
 
 class ResumeReviewApplyIn(Schema):

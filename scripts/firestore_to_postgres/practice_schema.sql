@@ -94,6 +94,11 @@ CREATE TABLE IF NOT EXISTS practice.coverage (
     PRIMARY KEY (cohort_code, source_title)
 );
 
+-- 학생이 자기 노트 · 연습장 파일로 만든 문제 — 만든 학생에게만 보인다. 수업 세트는 owner_uid 가 비어 있다.
+ALTER TABLE practice.sets ADD COLUMN IF NOT EXISTS owner_uid varchar;                         -- users.firebase_uid
+ALTER TABLE practice.sets ADD COLUMN IF NOT EXISTS origin varchar NOT NULL DEFAULT 'lesson';  -- lesson · note · file
+CREATE INDEX IF NOT EXISTS sets_owner ON practice.sets (owner_uid) WHERE owner_uid IS NOT NULL;
+
 -- 이미 만든 DB 에 새 문제 종류를 허용한다 — code_scratch(뼈대 없이 처음부터 짜는 문제). 여러 번 돌려도 된다.
 ALTER TABLE practice.problems DROP CONSTRAINT IF EXISTS problems_kind_check;
 ALTER TABLE practice.problems ADD CONSTRAINT problems_kind_check

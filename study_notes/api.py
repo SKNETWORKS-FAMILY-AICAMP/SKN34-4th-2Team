@@ -71,6 +71,26 @@ class ProxyPracticeRequest(ProxyTreeRequest):
     dates: list[str] | None = Field(default=None, max_length=10)
 
 
+class ProxyNoteFile(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
+    commit: str = Field(min_length=1, max_length=64)
+
+
+class ProxyUpload(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    content: str = Field(max_length=200_000)
+
+
+class ProxyCustomPracticeRequest(BaseModel):
+    """학생 자료로 문제 — 노트면 저장소 · 파일(커밋까지), 연습장이면 올린 글"""
+    scopeLabel: str = Field(min_length=1, max_length=200)
+    count: int = Field(default=6, ge=1, le=12)
+    cohortId: str | None = Field(default=None, max_length=80)
+    source: ProxySource | None = None
+    files: list[ProxyNoteFile] = Field(default_factory=list, max_length=8)
+    uploads: list[ProxyUpload] = Field(default_factory=list, max_length=3)
+
+
 class Session:
     def __init__(self, caller: Caller, db: Any) -> None:
         self.caller = caller
@@ -165,3 +185,27 @@ def proxy_practice(request: ProxyPracticeRequest) -> dict[str, Any]:
         )
     except GitToolError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/proxy/practice/custom")
+def proxy_practice_custom(request: ProxyCustomPracticeRequest) -> dict[str, Any]:
+    """학생이 고른 자료(자기 노트 · 연습장 파일)로 복습 문제. 수 분 걸린다 — Django 가 뒤에서 기다린다."""
+    from study_notes.practice.custom import make_problems, upload_materials
+    from study_notes.practice.runner import VERIFIER_DIR, PyodideRunner
+
+    if not (VERIFIER_DIR / "node_modules" / "pyodide").exists():
+        raise HTTPException(status_code=503, detail="문제 검증기(practice_verifier)가 설치되어 있지 않습니다. npm install 이 필요합니다.")
+    try:
+        materials = upload_materials([u.model_dump() for u in request.uploads])
+        if request.files:
+            if not request.source or not request.cohortId:
+                raise HTTPException(status_code=422, detail="노트의 저장소 정보가 없습니다.")
+            source = service.source_from_payload(request.source.model_dump())
+            cache = service.repo_cache(request.cohortId, source)
+            cache.sync()
+            materials += service._load_materials(cache, [f.model_dump() for f in request.files])
+        return make_problems(materials, scope_label=request.scopeLabel, count=request.count, runner=PyodideRunner())
+    except GitToolError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

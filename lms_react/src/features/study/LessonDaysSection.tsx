@@ -4,7 +4,7 @@ import { RoutePaths, studyRoomNoteSourcePath } from '../../app/routePaths';
 import { useMyPracticeAttempts, usePracticeSets, useStudyNotes, useStudySources } from '../../data/repository';
 import type { PracticeAttempt, PracticeSet } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
-import { RETRY_SET_ID, retryDates, retryItems, retryTopics } from '../practice/review';
+import { isLessonSet, RETRY_SET_ID, retryDates, retryItems, retryTopics } from '../practice/review';
 import { useIsHidden } from '../practice/useIsHidden';
 import { reviewBoard, type Subject, type SubjectDay } from './lessonDays';
 import { noteLabel } from './noteScope';
@@ -57,7 +57,9 @@ export function LessonDaysSection({ cohortId, uid }: { cohortId: string; uid: st
   const attempts = useMyPracticeAttempts(uid);
   const isHidden = useIsHidden();
   const retries = retryItems(sets, attempts).filter((i) => !isHidden(i.set.id, i.index));
-  const board = reviewBoard(sources, sets, notes);
+  // 수업 세트만 과목 목록 · 오늘 복습에 — 내가 노트 · 파일로 만든 세트는 맨 아래 따로
+  const board = reviewBoard(sources, sets.filter(isLessonSet), notes);
+  const mine = sets.filter((s) => !isLessonSet(s)).reverse();
   const progressOf = (set: PracticeSet) => setProgress(set, attempts, isHidden);
 
   return (
@@ -102,6 +104,43 @@ export function LessonDaysSection({ cohortId, uid }: { cohortId: string; uid: st
           />
         ))}
       </div>
+
+      {mine.length > 0 && (
+        <>
+          <header className="study-section__head">
+            <h2 className="study-section__title">내가 만든 문제</h2>
+          </header>
+          <p className="study-section__desc">내 노트나 연습장에서 연 파일로 만든 문제예요. 나만 봐요.</p>
+          <ul className="review-mine">
+            {mine.map((set) => {
+              const p = progressOf(set);
+              return (
+                <li key={set.id} className="review-day review-mine__row">
+                  <span className="review-mine__origin">
+                    <Icon name={set.origin === 'note' ? 'description' : 'upload_file'} size={16} />
+                    {set.origin === 'note' ? '노트' : '파일'}
+                  </span>
+                  <span className="review-day__title">
+                    {set.title}
+                    <span className="hint"> · {set.files.map((f) => f.split('/').pop()).join(', ')}</span>
+                  </span>
+                  <span className="review-day__progress">
+                    <ProgressBar progress={p} />
+                    <span>
+                      {p.passed}/{p.total}
+                    </span>
+                  </span>
+                  <span className="review-day__actions">
+                    <Link className="btn btn--outline btn--sm" to={practicePath(set.id)}>
+                      {actionText(p)}
+                    </Link>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
     </section>
   );
 }

@@ -19,6 +19,11 @@ const MINUTES: Record<PracticeKind, number> = {
   code_scratch: 5,
 };
 
+/** 수업 세트인지 — 학생이 만든 세트(note · file)는 「오늘 복습」 · 과목 목록에 넣지 않고 「내가 만든 문제」로 따로 */
+export function isLessonSet(set: PracticeSet): boolean {
+  return (set.origin ?? 'lesson') === 'lesson';
+}
+
 export function estimateMinutes(set: PracticeSet): number {
   const total = set.problems.reduce((sum, p) => sum + MINUTES[p.kind], 0);
   return Math.max(5, Math.round(total / 5) * 5);

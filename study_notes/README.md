@@ -240,3 +240,17 @@ Celery beat 18:30(Asia/Seoul) — lms_api/lms/practice_auto.py
 실행 기록은 `study.practice_runs`, 저장소별 켜짐은 `study.practice_settings`(`scripts/firestore_to_postgres/study_schema.sql`).
 검증기(practice_verifier, node)가 AI 서버에 있어야 한다 — 배포 이미지(`deploy/ai.Dockerfile`)에 들어 있다.
 
+### 학생이 만드는 문제 (자기 노트 · 연습장 파일)
+
+수업 세트와 따로, 학생이 원할 때 만든다. **만든 학생만 본다**(`practice.sets.owner_uid`, `origin` = note · file).
+18:30 자동 출제 · 오늘 복습 · 과목 목록에는 섞이지 않고 공부방 「내가 만든 문제」에 모인다.
+
+| 어디서 | 자료 |
+|---|---|
+| 노트 화면 「이 노트로 문제 만들기」 | 노트가 정리한 수업 파일(저장소 · 커밋 그대로) — AI 서버가 다시 읽는다 |
+| 연습장 더 보기 「이 노트북으로 문제 만들기」 | 지금 열린 노트북 셀(.py 글) — 불러온 .ipynb · .py 포함 |
+
+한 번에 6문제, 학생마다 하루 5번(`lms_api/lms/practice_custom.py` 의 COUNT · DAILY_LIMIT). 출제 범위는 기억하지 않는다 —
+같은 자료로 다시 만들면 새 문제가 나온다. 몇 분 걸려 `study.practice_jobs` 줄을 먼저 돌려주고 화면이 5초마다 묻는다.
+AI 서버 창구는 `POST /api/v1/study-notes/proxy/practice/custom`(`practice/custom.py`).
+

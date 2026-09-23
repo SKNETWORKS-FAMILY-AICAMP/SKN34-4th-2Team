@@ -20,6 +20,7 @@ from typing import Any
 from django.db import connection, transaction
 from django.utils import timezone
 
+from lms.practice_service import sets_have_owner
 from lms.study_note_service import StudyNoteError, _call, _dicts, _one, _source_payload
 from lms.study_source_service import StudySourceError, _check_schema, _cohort, _repo_key
 
@@ -84,13 +85,33 @@ def _finish_run(run_id: int, status: str, *, problems: int = 0, dates: list[str]
         )
 
 
+def insert_problems(cur, set_id: int, problems: list[dict]) -> int:
+    """세트 뒤에 문제를 붙인다(idx 는 이어서). 넣은 수."""
+    cur.execute("SELECT COALESCE(max(idx) + 1, 0) FROM practice.problems WHERE set_id = %s", [set_id])
+    start = cur.fetchone()[0]
+    for offset, p in enumerate(problems):
+        cur.execute(
+            """INSERT INTO practice.problems (set_id, idx, kind, topic, prompt, source_files, explanation, choices,
+                 answer_index, starter_code, expected_stdout, blank_answers, reference_solution, hidden_tests, packages)
+               VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb, %s, %s, %s, %s::jsonb, %s, %s, %s::jsonb)""",
+            [set_id, start + offset, p["kind"], p.get("topic", ""), p.get("prompt", ""),
+             json.dumps(p.get("sourceFiles") or [], ensure_ascii=False), p.get("explanation", ""),
+             json.dumps(p.get("choices") or [], ensure_ascii=False), p.get("answerIndex"),
+             p.get("starterCode", ""), p.get("expectedStdout", ""),
+             json.dumps(p.get("blankAnswers") or [], ensure_ascii=False), p.get("referenceSolution", ""),
+             p.get("hiddenTests", ""), json.dumps(p.get("packages") or [], ensure_ascii=False)],
+        )
+    return len(problems)
+
+
 def _save_sets(cur, cohort_code: str, name: str, sets: list[dict]) -> int:
-    """같은 날짜 세트가 있으면 뒤에 붙이고, 없으면 새로 만든다. 넣은 문제 수."""
+    """같은 날짜 세트가 있으면 뒤에 붙이고, 없으면 새로 만든다. 넣은 문제 수. 학생이 만든 세트는 건드리지 않는다."""
     added = 0
+    personal = "AND owner_uid IS NULL" if sets_have_owner(cur) else ""
     for s in sets:
         cur.execute(
-            """SELECT id, files, title FROM practice.sets WHERE cohort_code = %s AND source_title = %s AND lesson_date = %s
-               ORDER BY id LIMIT 1""",
+            f"""SELECT id, files, title FROM practice.sets WHERE cohort_code = %s AND source_title = %s AND lesson_date = %s
+                {personal} ORDER BY id LIMIT 1""",
             [cohort_code, name, s["lessonDate"]],
         )
         row = _one(cur)
@@ -110,21 +131,7 @@ def _save_sets(cur, cohort_code: str, name: str, sets: list[dict]) -> int:
                  json.dumps(s["files"], ensure_ascii=False), s["model"]],
             )
             set_id = cur.fetchone()[0]
-        cur.execute("SELECT COALESCE(max(idx) + 1, 0) FROM practice.problems WHERE set_id = %s", [set_id])
-        start = cur.fetchone()[0]
-        for offset, p in enumerate(s["problems"]):
-            cur.execute(
-                """INSERT INTO practice.problems (set_id, idx, kind, topic, prompt, source_files, explanation, choices,
-                     answer_index, starter_code, expected_stdout, blank_answers, reference_solution, hidden_tests, packages)
-                   VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb, %s, %s, %s, %s::jsonb, %s, %s, %s::jsonb)""",
-                [set_id, start + offset, p["kind"], p.get("topic", ""), p.get("prompt", ""),
-                 json.dumps(p.get("sourceFiles") or [], ensure_ascii=False), p.get("explanation", ""),
-                 json.dumps(p.get("choices") or [], ensure_ascii=False), p.get("answerIndex"),
-                 p.get("starterCode", ""), p.get("expectedStdout", ""),
-                 json.dumps(p.get("blankAnswers") or [], ensure_ascii=False), p.get("referenceSolution", ""),
-                 p.get("hiddenTests", ""), json.dumps(p.get("packages") or [], ensure_ascii=False)],
-            )
-            added += 1
+        added += insert_problems(cur, set_id, s["problems"])
     return added
 
 

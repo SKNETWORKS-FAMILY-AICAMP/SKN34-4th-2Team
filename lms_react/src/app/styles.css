@@ -10052,3 +10052,77 @@ a.link {
   .review-day__progress { grid-area: progress; }
   .review-day__actions { grid-area: actions; }
 }
+
+/* 학생이 만드는 복습 문제 (MakeProblems) — 노트 화면 · 연습장 */
+.make-problems {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border: 1px dashed color-mix(in srgb, var(--primary) 40%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+  font-size: 13.5px;
+}
+
+.make-problems > .icon {
+  color: var(--primary);
+  flex: none;
+}
+
+.make-problems__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.make-problems__body .hint {
+  margin: 0;
+}
+
+.make-problems__error {
+  color: var(--error);
+}
+
+.py-make {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.py-make .make-problems {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+/* 공부방 「내가 만든 문제」 */
+.review-mine {
+  list-style: none;
+  margin: 0;
+  padding: 4px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.review-mine .review-mine__row:first-child {
+  border-top: 0;
+}
+
+.review-mine__origin {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 720px) {
+  .make-problems {
+    flex-wrap: wrap;
+  }
+}

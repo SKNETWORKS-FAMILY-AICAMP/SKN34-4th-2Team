@@ -542,6 +542,8 @@ export interface PracticeSet {
   files: string[];
   model: string;
   problems: PracticeProblem[];
+  /** lesson — 수업 세트(반 전체) · note · file — 학생이 자기 노트 · 연습장 파일로 만든 것(만든 학생에게만 온다) */
+  origin?: 'lesson' | 'note' | 'file';
 }
 
 export interface PracticeAttempt {

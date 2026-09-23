@@ -7,6 +7,7 @@ import {
   fetchStudySourceTree,
   refreshStudyNote,
   requestStudyNote,
+  startPracticeFromNote,
   useInflearnPackages,
   useMyPracticeAttempts,
   usePracticeSets,
@@ -29,6 +30,7 @@ import {
 } from '../../ui/components';
 import { formatDate } from '../../utils/format';
 import { retryItems } from '../practice/review';
+import { MakeProblems } from '../practice/MakeProblems';
 import { useIsHidden } from '../practice/useIsHidden';
 import { useCurrentUser } from '../auth/session';
 import { LessonDaysSection, practicePath, setProgress } from './LessonDaysSection';
@@ -543,6 +545,12 @@ export function StudyNoteSourceScreen() {
                 </Link>
               </div>
             )}
+            <MakeProblems
+              key={note.id}
+              start={() => startPracticeFromNote(note.id)}
+              idleLabel="이 노트로 문제 만들기"
+              hint="이 노트가 정리한 수업 파일로 복습 문제 6개를 만들어요. 만든 문제는 나만 봐요."
+            />
             <Tabs
               items={[
                 { id: 'report', label: '요약' },

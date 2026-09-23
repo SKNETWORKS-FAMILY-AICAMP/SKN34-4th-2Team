@@ -11,6 +11,7 @@ import { useIsHidden } from './useIsHidden';
 import {
   dueRetries,
   lessonFileLabel,
+  isLessonSet,
   pickTodayReview,
   RETRY_SET_ID,
   retryDates,
@@ -30,7 +31,7 @@ export function TodayReviewCard() {
   const sets = usePracticeSets(user.cohortId);
   const attempts = useMyPracticeAttempts(user.uid);
   const today = todayKey();
-  const review = pickTodayReview(sets, attempts, today);
+  const review = pickTodayReview(sets.filter(isLessonSet), attempts, today);
   if (!review) return null;
   // 오늘 틀린 문제는 빼고, 하루 이상 지난 것만 다시 보여 준다
   const isHidden = useIsHidden();

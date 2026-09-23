@@ -1259,6 +1259,52 @@ export async function runPracticeNow(sourceId: string, dates: string[] = []): Pr
   await http.post(`/practice-auto/${encodeURIComponent(sourceId)}/run`, { dates });
 }
 
+// ── 학생이 만드는 복습 문제 — 자기 노트 · 연습장 파일로. 만든 세트는 나만 본다 ─────────
+
+export interface PracticeJob {
+  id: string;
+  origin: 'note' | 'file';
+  label: string;
+  status: 'running' | 'done' | 'failed';
+  /** 다 만들면 새 세트 id — 연습장 ?set= 으로 연다 */
+  setId: string | null;
+  message: string;
+}
+
+export interface PracticeQuota {
+  used: number;
+  limit: number;
+  /** 한 번에 만드는 문제 수 */
+  count: number;
+}
+
+const DEMO_ONLY = '데모에서는 문제를 만들 수 없어요 — 서버에 연결된 앱에서 써 주세요.';
+
+export async function fetchPracticeQuota(): Promise<PracticeQuota> {
+  if (isTestMode()) return { used: 0, limit: 5, count: 6 };
+  const { data } = await http.get<PracticeQuota>('/practice-custom');
+  return data;
+}
+
+/** 내 노트로 — 노트가 정리한 수업 파일로 문제를 만든다(몇 분). 끝났는지는 fetchPracticeJob */
+export async function startPracticeFromNote(noteId: string): Promise<PracticeJob> {
+  if (isTestMode()) throw new Error(DEMO_ONLY);
+  const { data } = await http.post<PracticeJob>(`/practice-custom/note/${encodeURIComponent(noteId)}`);
+  return data;
+}
+
+/** 연습장에서 연 노트북으로 — 셀을 .py 글로 보낸다 */
+export async function startPracticeFromFile(name: string, content: string): Promise<PracticeJob> {
+  if (isTestMode()) throw new Error(DEMO_ONLY);
+  const { data } = await http.post<PracticeJob>('/practice-custom/file', { name, content });
+  return data;
+}
+
+export async function fetchPracticeJob(id: string): Promise<PracticeJob> {
+  const { data } = await http.get<PracticeJob>(`/practice-custom/${encodeURIComponent(id)}`);
+  return data;
+}
+
 /** 새 복습 세트가 생겼을 때 — 강사 화면의 신고 · 세트 목록이 새 세트를 보게 */
 export async function refreshAfterPractice(): Promise<void> {
   if (!isTestMode()) await invalidateBootstrap();

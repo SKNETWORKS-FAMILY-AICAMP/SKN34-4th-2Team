@@ -3,7 +3,10 @@ import { useState } from 'react';
 import type { PracticeSet } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { MoreMenu } from '../../ui/MoreMenu';
+import { startPracticeFromFile } from '../../data/repository';
+import { MakeProblems } from './MakeProblems';
 import { useNotebookFile } from './NotebookFileMenu';
+import { toPy } from './notebookFile';
 import { EXAMPLES, MINI_HEADING, MINI_LEVELS, MINI_PROBLEMS } from './notebookExamples';
 import { canPromptInput } from './pythonRunner';
 import type { Notebook } from './useNotebook';
@@ -20,6 +23,7 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
   const [showStdin, setShowStdin] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   const file = useNotebookFile(nb, set);
+  const [making, setMaking] = useState(false);
 
   return (
     <>
@@ -75,6 +79,7 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
           items={[
             { key: 'reset', icon: 'restart_alt', label: '변수 초기화', hint: '모든 변수를 비우고 실행 번호를 1부터', onSelect: nb.resetKernel },
             { key: 'open', icon: 'upload_file', label: '불러오기…', hint: '.ipynb · .py 파일', divider: true, onSelect: file.openPicker },
+            { key: 'make', icon: 'auto_awesome', label: '이 노트북으로 문제 만들기', hint: '지금 셀로 복습 문제 6개 · 나만 봐요', onSelect: () => setMaking(true) },
             { key: 'ipynb', icon: 'download', label: '내려받기 · .ipynb', hint: 'Jupyter 노트북 · 출력 포함', onSelect: () => file.download('ipynb') },
             { key: 'py', icon: 'download', label: '내려받기 · .py', hint: '# %% 로 셀 구분', onSelect: () => file.download('py') },
             { key: 'keys', icon: 'keyboard_command_key', label: showKeys ? '단축키 닫기' : '단축키', divider: true, onSelect: () => setShowKeys((v) => !v) },
@@ -84,6 +89,19 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
         {file.input}
         {file.panel}
       </div>
+
+      {making && (
+        <div className="py-make">
+          <MakeProblems
+            start={() => startPracticeFromFile(nb.fileName ?? (set ? `review-${set.lessonDate}.py` : 'playground.py'), toPy(nb.cells, set))}
+            idleLabel="이 노트북으로 만들기"
+            hint={`지금 열린 노트북${nb.fileName ? `(${nb.fileName})` : ''}의 셀로 복습 문제 6개를 만들어요. 만든 문제는 나만 봐요.`}
+          />
+          <button type="button" className="icon-btn" aria-label="닫기" onClick={() => setMaking(false)}>
+            <Icon name="close" size={18} />
+          </button>
+        </div>
+      )}
 
       {showStdin && (
         <section className="py-stdin">

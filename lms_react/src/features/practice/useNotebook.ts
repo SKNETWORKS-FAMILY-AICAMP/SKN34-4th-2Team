@@ -48,6 +48,8 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
   const [activeId, setActiveId] = useState(initial.current.cells[0]?.id ?? '');
   const [focus, setFocus] = useState<{ id: string; n: number }>({ id: '', n: 0 });
   const [kernelNote, setKernelNote] = useState('');
+  /** 「이 파일로 바꾸기」로 연 파일 이름 — 이 노트북으로 문제를 만들 때 세트 이름이 된다 */
+  const [fileName, setFileName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const cellsRef = useRef(cells);
@@ -319,6 +321,7 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
     const made = list.map((c) => newCell(c.source, c.type));
     if (made.length === 0) return;
     if (how === 'replace') {
+      setFileName(title);
       if (busy) runner.stop();
       runner.reset(SESSION);
       counter.current = 0;
@@ -369,6 +372,7 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
     addExample,
     addMiniProblem,
     importCells,
+    fileName,
     runProblemInSession,
     gradeProblem,
     answerInput,
