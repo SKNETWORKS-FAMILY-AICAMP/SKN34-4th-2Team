@@ -4,7 +4,6 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { RoutePaths } from '../../app/routePaths';
 import { Icon } from '../../ui/Icon';
 import { NotebookCellView } from './NotebookCellView';
-import { EXAMPLES } from './notebookExamples';
 import { NotebookToolbar } from './NotebookToolbar';
 import { PYODIDE_VERSION } from './pythonProtocol';
 import { usePythonRunner, type RunnerStatus } from './pythonRunner';
@@ -72,15 +71,6 @@ function Playground({ setId, focusProblem }: { setId: string | null; focusProble
       </header>
 
       <NotebookToolbar nb={nb} set={mode.set} />
-
-      <section className="py-examples" aria-label="예시 셀 추가">
-        <span className="py-examples__label">예시 셀 추가</span>
-        {EXAMPLES.map((e) => (
-          <button key={e.id} type="button" className="chip" onClick={() => nb.addExample(e.code, e.type)} title={e.source}>
-            {e.label}
-          </button>
-        ))}
-      </section>
 
       {setId && !mode.set && (
         <div className="py-kernel-note" role="status">

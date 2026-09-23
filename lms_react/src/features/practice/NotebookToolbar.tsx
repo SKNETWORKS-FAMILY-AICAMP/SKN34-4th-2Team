@@ -2,40 +2,64 @@ import { useState } from 'react';
 
 import type { PracticeSet } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
-import { NotebookFileMenu } from './NotebookFileMenu';
-import { MINI_PROBLEMS } from './notebookExamples';
+import { MoreMenu } from '../../ui/MoreMenu';
+import { useNotebookFile } from './NotebookFileMenu';
+import { EXAMPLES, MINI_PROBLEMS } from './notebookExamples';
 import { canPromptInput } from './pythonRunner';
 import type { Notebook } from './useNotebook';
 
-/** 노트북 도구 줄 — 모두 실행 · 중단 · 변수 초기화 · 셀 추가 · 입력값 · 파일 · 단축키 */
+/**
+ * 노트북 도구 줄.
+ *
+ * 한 번에 보이는 건 다섯 개다 — 모두 실행 · 셀 추가 · 연습 문제 · 입력값 · 「···」.
+ * 예전에는 단추 아홉 개에 예시 칩 여섯 개까지 한 줄에 다 나와 있었다. 자주 누르는 것만
+ * 남기고, 셀 종류와 예시는 「셀 추가」 안으로, 가끔 쓰는 것(변수 초기화 · 파일 · 단축키)은
+ * 「···」 안으로 넣었다. 셀 추가는 노트북 맨 아래 줄에도 있다.
+ */
 export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | undefined }) {
   const [showStdin, setShowStdin] = useState(false);
+  const [showKeys, setShowKeys] = useState(false);
+  const file = useNotebookFile(nb, set);
+
   return (
     <>
       <div className="py-toolbar">
-        <button type="button" className="btn btn--filled btn--sm" onClick={nb.runAll} disabled={nb.busy}>
-          <Icon name="fast_forward" size={18} />
-          모두 실행
-        </button>
-        {nb.busy && (
-          <button type="button" className="btn btn--danger btn--sm" onClick={nb.stop}>
-            <Icon name="stop" size={18} />
-            중단
+        <span className="py-toolbar__run">
+          <button type="button" className="btn btn--filled btn--sm" onClick={nb.runAll} disabled={nb.busy}>
+            <Icon name="fast_forward" size={18} />
+            모두 실행
           </button>
-        )}
-        <button type="button" className="btn btn--outline btn--sm" onClick={nb.resetKernel} title="모든 변수를 비우고 실행 번호를 1부터 다시 셉니다">
-          <Icon name="restart_alt" size={18} />
-          변수 초기화
-        </button>
-        <button type="button" className="btn btn--outline btn--sm" onClick={() => nb.addCellAfter(nb.activeId)}>
-          <Icon name="add" size={18} />
-          코드
-        </button>
-        <button type="button" className="btn btn--outline btn--sm" onClick={() => nb.addCellAfter(nb.activeId, 'markdown')}>
-          <Icon name="notes" size={18} />
-          마크다운
-        </button>
+          {nb.busy && (
+            <button type="button" className="btn btn--danger btn--sm" onClick={nb.stop}>
+              <Icon name="stop" size={18} />
+              중단
+            </button>
+          )}
+        </span>
+
+        <MoreMenu
+          label="셀 추가"
+          icon="add"
+          align="left"
+          className="btn btn--outline btn--sm"
+          items={[
+            { key: 'code', icon: 'code', label: '코드 셀', onSelect: () => nb.addCellAfter(nb.activeId) },
+            { key: 'markdown', icon: 'notes', label: '마크다운 셀', onSelect: () => nb.addCellAfter(nb.activeId, 'markdown') },
+            ...EXAMPLES.map((e, i) => ({
+              key: e.id,
+              icon: e.type === 'markdown' ? 'notes' : 'code',
+              label: e.label,
+              hint: e.source,
+              divider: i === 0,
+              onSelect: () => nb.addExample(e.code, e.type),
+            })),
+          ]}
+        />
+
         <ProblemPicker nb={nb} />
+
+        <span className="py-grow" />
+
         <button
           type="button"
           className={`btn btn--outline btn--sm${showStdin ? ' py-toolbar__on' : ''}`}
@@ -45,9 +69,20 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
           <Icon name="keyboard" size={18} />
           입력값{nb.stdinLines ? ` · ${nb.stdinLines}줄` : ''}
         </button>
-        <span className="py-grow" />
-        <NotebookFileMenu nb={nb} set={set} />
-        <ShortcutHelp />
+
+        <MoreMenu
+          label="더 보기"
+          items={[
+            { key: 'reset', icon: 'restart_alt', label: '변수 초기화', hint: '모든 변수를 비우고 실행 번호를 1부터', onSelect: nb.resetKernel },
+            { key: 'open', icon: 'upload_file', label: '불러오기…', hint: '.ipynb · .py 파일', divider: true, onSelect: file.openPicker },
+            { key: 'ipynb', icon: 'download', label: '내려받기 · .ipynb', hint: 'Jupyter 노트북 · 출력 포함', onSelect: () => file.download('ipynb') },
+            { key: 'py', icon: 'download', label: '내려받기 · .py', hint: '# %% 로 셀 구분', onSelect: () => file.download('py') },
+            { key: 'keys', icon: 'keyboard_command_key', label: showKeys ? '단축키 닫기' : '단축키', divider: true, onSelect: () => setShowKeys((v) => !v) },
+          ]}
+        />
+
+        {file.input}
+        {file.panel}
       </div>
 
       {showStdin && (
@@ -66,46 +101,47 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
           <textarea id="py-stdin" value={nb.stdin} onChange={(e) => nb.setStdin(e.target.value)} rows={3} spellCheck={false} />
         </section>
       )}
+
+      {showKeys && <ShortcutHelp onClose={() => setShowKeys(false)} />}
     </>
   );
 }
 
-/** 연습 문제 넣기 — 목록에서 고르거나 아무거나 하나 */
+/** 연습 문제 넣기 — 누르면 아무거나 하나, 화살표로는 골라서 */
 function ProblemPicker({ nb }: { nb: Notebook }) {
-  const [open, setOpen] = useState(false);
   const pick = (id?: string) => {
     const p = id ? MINI_PROBLEMS.find((m) => m.id === id) : MINI_PROBLEMS[Math.floor(Math.random() * MINI_PROBLEMS.length)];
     if (p) nb.addMiniProblem(p);
-    setOpen(false);
   };
   return (
     <span className="py-picker">
-      <button type="button" className="btn btn--filled btn--sm py-picker__main" onClick={() => pick()} title="연습 문제 하나를 아래에 넣습니다">
+      <button type="button" className="btn btn--outline btn--sm py-picker__main" onClick={() => pick()} title="연습 문제 하나를 아래에 넣습니다">
         <Icon name="fitness_center" size={18} />
         연습 문제 풀기
       </button>
-      <button type="button" className="btn btn--filled btn--sm py-picker__more" onClick={() => setOpen((v) => !v)} aria-label="문제 고르기" aria-expanded={open}>
+      <MoreMenu
+        label="문제 고르기"
+        align="left"
+        className="btn btn--outline btn--sm py-picker__more"
+        items={MINI_PROBLEMS.map((m) => ({ key: m.id, label: m.title, onSelect: () => pick(m.id) }))}
+      >
         <Icon name="expand_more" size={18} />
-      </button>
-      {open && (
-        <ul className="py-picker__menu" role="menu">
-          {MINI_PROBLEMS.map((m) => (
-            <li key={m.id}>
-              <button type="button" role="menuitem" onClick={() => pick(m.id)}>
-                {m.title}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      </MoreMenu>
     </span>
   );
 }
 
-function ShortcutHelp() {
+function ShortcutHelp({ onClose }: { onClose(): void }) {
   return (
-    <details className="py-keys">
-      <summary>단축키</summary>
+    <section className="py-keys" aria-label="단축키">
+      <div className="py-keys__head">
+        <Icon name="keyboard_command_key" size={18} />
+        <span>단축키</span>
+        <span className="py-grow" />
+        <button type="button" className="icon-btn" onClick={onClose} aria-label="단축키 닫기">
+          <Icon name="close" size={18} />
+        </button>
+      </div>
       <dl>
         <dt>Shift + Enter</dt>
         <dd>실행하고 다음 셀로</dd>
@@ -122,6 +158,6 @@ function ShortcutHelp() {
         <dt>두 번 누르기</dt>
         <dd>마크다운 셀 편집</dd>
       </dl>
-    </details>
+    </section>
   );
 }

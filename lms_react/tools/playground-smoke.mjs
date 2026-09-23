@@ -67,7 +67,12 @@ try {
   say('A 셀2 출력', await cells().nth(2).locator('.py-nb-out').innerText());
   say('A 실행 번호', [await cells().nth(1).locator('.py-nb-cell__prompt').innerText(), await cells().nth(2).locator('.py-nb-cell__prompt').innerText()]);
 
-  await page.getByRole('button', { name: 'DataFrame 표' }).click();
+  // 예시는 「셀 추가」 메뉴 안에 있다
+  const addExample = async (name) => {
+    await page.locator('.py-toolbar').getByRole('button', { name: '셀 추가' }).click();
+    await page.getByRole('menuitem', { name: new RegExp(name) }).click();
+  };
+  await addExample('DataFrame 표');
   await page.waitForTimeout(300);
   await page.keyboard.press('Shift+Enter');
   await page.locator('.py-nb-table').waitFor({ timeout: 90000 });
@@ -75,7 +80,7 @@ try {
   say('A Shift+Enter 뒤 셀 수', await cells().count());
 
   await page.getByRole('button', { name: /입력값/ }).click();
-  await page.getByRole('button', { name: 'input() 써 보기' }).click();
+  await addExample('input\\(\\) 써 보기');
   await page.waitForTimeout(300);
   await page.keyboard.press('Control+Enter');
   // COOP/COEP 가 켜진 미리보기에서는 input() 이 셀 아래 입력칸으로 묻는다. 없으면 입력값 칸(민지 · 3)을 읽는다
@@ -90,7 +95,7 @@ try {
   await page.getByText('민지 3번째 프레임').waitFor({ timeout: 30000 });
   say('A input', 'ok');
 
-  await page.getByRole('button', { name: '끝나지 않는 반복문' }).click();
+  await addExample('끝나지 않는 반복문');
   await page.waitForTimeout(300);
   await page.keyboard.press('Control+Enter');
   await page.waitForTimeout(1200);

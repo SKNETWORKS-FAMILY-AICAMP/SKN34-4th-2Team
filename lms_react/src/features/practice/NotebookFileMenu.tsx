@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 
 import type { PracticeSet } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
@@ -21,10 +21,15 @@ interface Pending {
 /**
  * 파일 — 수업 노트북(.ipynb)·스크립트(.py)를 올려 돌리고, 지금 노트북을 파일로 가져간다.
  * 파일은 이 브라우저 안에서만 읽는다. 서버로 가지 않는다.
+ *
+ * 단추는 그리지 않는다. 도구 줄의 「···」 메뉴가 `openPicker`·`download` 를 부르고,
+ * 숨은 파일 입력(`input`)과 불러온 파일을 확인하는 띠(`panel`)만 도구 줄에 놓는다.
  */
-export function NotebookFileMenu({ nb, set }: { nb: Notebook; set: PracticeSet | undefined }) {
+export function useNotebookFile(
+  nb: Notebook,
+  set: PracticeSet | undefined,
+): { openPicker(): void; download(ext: 'ipynb' | 'py'): void; input: ReactNode; panel: ReactNode } {
   const input = useRef<HTMLInputElement>(null);
-  const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
   const [error, setError] = useState('');
 
@@ -39,7 +44,6 @@ export function NotebookFileMenu({ nb, set }: { nb: Notebook; set: PracticeSet |
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setOpen(false);
   };
 
   const pick = async (f: File | undefined) => {
@@ -65,75 +69,59 @@ export function NotebookFileMenu({ nb, set }: { nb: Notebook; set: PracticeSet |
 
   const codeCells = pending?.file.cells.filter((c) => c.type === 'code').length ?? 0;
 
-  return (
-    <>
-      <span className="py-picker py-file">
-        <button type="button" className="btn btn--outline btn--sm" onClick={() => input.current?.click()} title=".ipynb · .py 파일을 불러옵니다">
-          <Icon name="upload_file" size={18} />
-          불러오기
-        </button>
-        <button type="button" className="btn btn--outline btn--sm" onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-haspopup="menu">
-          <Icon name="download" size={18} />
-          내려받기
-        </button>
-        {open && (
-          <ul className="py-picker__menu" role="menu">
-            <li>
-              <button type="button" role="menuitem" onClick={() => download('ipynb')}>
-                Jupyter 노트북 (.ipynb) · 출력 포함
-              </button>
-            </li>
-            <li>
-              <button type="button" role="menuitem" onClick={() => download('py')}>
-                파이썬 파일 (.py) · # %% 셀 구분
-              </button>
-            </li>
-          </ul>
-        )}
-        <input
-          ref={input}
-          type="file"
-          accept=".ipynb,.py,application/x-ipynb+json,text/x-python"
-          hidden
-          onChange={(e) => void pick(e.target.files?.[0])}
-          aria-label="노트북 파일 고르기"
-        />
-      </span>
-
-      {(pending || error) && (
-        <div className={`py-import${error ? ' py-import--error' : ''}`} role="status">
-          <Icon name={error ? 'error' : 'description'} size={18} />
-          {error ? (
-            <span className="py-import__text">{error}</span>
-          ) : (
-            pending && (
-              <span className="py-import__text">
-                <span>
-                  <strong>{pending.name}</strong> · 셀 {pending.file.cells.length}개 (코드 {codeCells})
-                </span>
-                {pending.file.notes.map((n) => (
-                  <small key={n}>{n}</small>
-                ))}
-                <small>출력은 가져오지 않아요. 불러온 뒤 「모두 실행」하면 다시 나옵니다.</small>
-              </span>
-            )
-          )}
-          <span className="py-grow" />
-          {pending && !set && (
-            <button type="button" className="btn btn--filled btn--sm" onClick={() => apply('replace')}>
-              이 파일로 바꾸기
-            </button>
-          )}
-          {pending && (
-            <button type="button" className={`btn btn--${set ? 'filled' : 'outline'} btn--sm`} onClick={() => apply('append')}>
-              끝에 붙이기
-            </button>
-          )}
-          <button type="button" className="btn btn--text btn--sm" onClick={() => { setPending(null); setError(''); }}>
-            {error ? '닫기' : '취소'}
-          </button>
-        </div>
-      )}
-    </>
+  const inputNode = (
+    <input
+      ref={input}
+      type="file"
+      accept=".ipynb,.py,application/x-ipynb+json,text/x-python"
+      hidden
+      onChange={(e) => void pick(e.target.files?.[0])}
+      aria-label="노트북 파일 고르기"
+    />
   );
+
+  const panel =
+    pending || error ? (
+      <div className={`py-import${error ? ' py-import--error' : ''}`} role="status">
+        <Icon name={error ? 'error' : 'description'} size={18} />
+        {error ? (
+          <span className="py-import__text">{error}</span>
+        ) : (
+          pending && (
+            <span className="py-import__text">
+              <span>
+                <strong>{pending.name}</strong> · 셀 {pending.file.cells.length}개 (코드 {codeCells})
+              </span>
+              {pending.file.notes.map((n) => (
+                <small key={n}>{n}</small>
+              ))}
+              <small>출력은 가져오지 않아요. 불러온 뒤 「모두 실행」하면 다시 나옵니다.</small>
+            </span>
+          )
+        )}
+        <span className="py-grow" />
+        {pending && !set && (
+          <button type="button" className="btn btn--filled btn--sm" onClick={() => apply('replace')}>
+            이 파일로 바꾸기
+          </button>
+        )}
+        {pending && (
+          <button type="button" className={`btn btn--${set ? 'filled' : 'outline'} btn--sm`} onClick={() => apply('append')}>
+            끝에 붙이기
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn btn--text btn--sm"
+          onClick={() => {
+            setPending(null);
+            setError('');
+          }}
+        >
+          {error ? '닫기' : '취소'}
+        </button>
+      </div>
+    ) : null;
+
+  return { openPicker: () => input.current?.click(), download, input: inputNode, panel };
 }
