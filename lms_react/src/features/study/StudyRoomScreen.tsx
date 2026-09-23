@@ -506,6 +506,9 @@ export function StudyNoteSourceScreen() {
               />
               {tree === null && treeError === '' && <p className="hint">저장소를 읽는 중…</p>}
               {treeError !== '' && <div className="callout callout--error">저장소 목록을 불러오지 못했어요 — {treeError}</div>}
+              {scopeMode === 'date' && tree !== null && dateChoices.length === 0 && (
+                <p className="hint">이 저장소에는 수업 파일을 올린 날짜가 없어요. 폴더나 파일로 골라 주세요.</p>
+              )}
               <div className="study-scope-options">
                 {scopeMode === 'date' && dateChoices.map((date) => (
                   <button key={date} type="button" className={`chip${scopeValue === date ? ' chip--on' : ''}`} onClick={() => setScopeValue(date)}>{date}</button>

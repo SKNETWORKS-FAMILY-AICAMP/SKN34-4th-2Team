@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 import threading
@@ -22,7 +23,9 @@ from pathlib import Path
 # KST는 DST가 없어 고정 오프셋으로 충분하다. (Windows는 tzdata가 없어 ZoneInfo가 실패한다)
 SEOUL = timezone(timedelta(hours=9), name="Asia/Seoul")
 ALLOWED_SUFFIXES = (".ipynb", ".py", ".md")
-RECENT_DAYS = 30
+# 날짜 목록은 기간으로 자르지 않고 수업이 있던 날을 최근부터 이만큼 — 끝난 과목(예: 7월 DL)도 복습하게.
+# 예전엔 최근 30일만 보여 줘서, 지난 과목은 날짜가 하나도 안 나왔다.
+MAX_LESSON_DATES = 120
 MAX_TREE_ENTRIES = 400
 GIT_TIMEOUT_SEC = 180
 
@@ -101,6 +104,18 @@ def _safe_segment(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", value)[:80] or "_"
 
 
+def _remove_tree(path: Path) -> None:
+    """캐시 폴더를 지운다. git 은 pack 파일을 읽기 전용으로 받는데, 윈도에서는 그대로는 못 지운다.
+    예전엔 ignore_errors=True 로 조용히 넘어가서 objects 만 남은 폴더가 생겼고, 그 뒤 clone 이
+    「destination path already exists」로 매번 실패했다(받다 끊긴 캐시가 스스로 낫지 않았다)."""
+
+    def unlock(func, target, _exc) -> None:
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+
+    shutil.rmtree(path, onexc=unlock)
+
+
 def _lock_for(key: str) -> threading.Lock:
     with _locks_guard:
         lock = _locks.get(key)
@@ -134,6 +149,8 @@ def run_git(args: list[str], cwd: Path | None = None) -> str:
 
 
 def _friendly_git_error(stderr: str) -> str:
+    # clone 은 「Cloning into '…'」 진행 줄을 먼저 찍는다 — 그대로 두면 200자 안에 진짜 이유가 잘려 나간다
+    stderr = "\n".join(line for line in stderr.splitlines() if not line.startswith("Cloning into")).strip()
     lower = stderr.lower()
     if "could not read username" in lower or "authentication failed" in lower:
         return "비공개 저장소입니다. 서버 PC에서 GitHub 로그인이 필요합니다."
@@ -162,7 +179,7 @@ class RepoCache:
     def _clone(self) -> None:
         self.dir.parent.mkdir(parents=True, exist_ok=True)
         if self.dir.exists():
-            shutil.rmtree(self.dir, ignore_errors=True)
+            _remove_tree(self.dir)
         run_git(
             [
                 "clone",
@@ -254,9 +271,8 @@ class RepoCache:
         return commits
 
     def recent_lesson_dates(self, prefixes: list[str]) -> list[str]:
-        since = (datetime.now(SEOUL) - timedelta(days=RECENT_DAYS)).isoformat()
         dates: set[str] = set()
-        for _sha, iso, files in self._log_with_files([f"--since={since}"]):
+        for _sha, iso, files in self._log_with_files([]):
             if not any(is_learning_file(p) and path_allowed(p, prefixes) for p in files):
                 continue
             try:
@@ -264,7 +280,7 @@ class RepoCache:
             except ValueError:
                 continue
             dates.add(when.strftime("%Y-%m-%d"))
-        return sorted(dates, reverse=True)
+        return sorted(dates, reverse=True)[:MAX_LESSON_DATES]
 
     def changed_files_on(self, date: str, prefixes: list[str]) -> tuple[list[str], list[ChangedFile]]:
         """해당 날짜(KST)의 커밋 목록과, 파일별 가장 최신 커밋."""
