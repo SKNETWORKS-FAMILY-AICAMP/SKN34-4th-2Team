@@ -455,11 +455,16 @@ def practice_auto_toggle(request, source_id: str, body: PracticeAutoPatch):
     return _sources(lambda: practice_auto.set_enabled(user, source_id, body.enabled))
 
 
+class PracticeRunIn(Schema):
+    dates: list[str] = []
+
+
 @api.post("/practice-auto/{source_id}/run")
-def practice_auto_run(request, source_id: str):
-    """「지금 만들기」 — 몇 분 걸려서 바로 돌려주고 뒤에서 출제한다"""
+def practice_auto_run(request, source_id: str, body: PracticeRunIn | None = None):
+    """「지금 만들기」 — 고른 수업 날짜로(없으면 자동과 같은 규칙). 몇 분 걸려서 바로 돌려주고 뒤에서 출제한다"""
     user = _require_user(request)
-    return _sources(lambda: practice_auto.run_now(user, source_id))
+    dates = body.dates if body else []
+    return _sources(lambda: practice_auto.run_now(user, source_id, dates))
 
 
 class ResumeReviewApplyIn(Schema):

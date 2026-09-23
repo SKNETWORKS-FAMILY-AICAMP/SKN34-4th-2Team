@@ -67,6 +67,8 @@ class ProxyReposRequest(BaseModel):
 class ProxyPracticeRequest(ProxyTreeRequest):
     coverage: dict[str, Any] | None = None  # practice.coverage.data — 처음이면 없음
     today: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    # 강사가 고른 수업 날짜 — 없으면 자동(최근 14일 안에서 마지막으로 출제한 날부터)
+    dates: list[str] | None = Field(default=None, max_length=10)
 
 
 class Session:
@@ -159,6 +161,7 @@ def proxy_practice(request: ProxyPracticeRequest) -> dict[str, Any]:
             coverage=request.coverage,
             today=request.today,
             runner=PyodideRunner(),
+            dates=request.dates,
         )
     except GitToolError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

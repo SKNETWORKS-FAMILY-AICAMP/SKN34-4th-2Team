@@ -2806,6 +2806,29 @@ a.link {
   color: var(--error);
 }
 
+.source-practice__pick {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-basis: 100%;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+
+.source-practice__dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.source-practice__made {
+  margin-left: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
 /* ── 커리큘럼 ─────────────────────────────────────────── */
 .curri-page {
   position: relative;

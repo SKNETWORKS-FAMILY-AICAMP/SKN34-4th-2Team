@@ -49,14 +49,27 @@ def coverage_to_json(files: dict[str, FileCoverage], days: dict[str, int]) -> di
 
 
 def dates_to_run(lesson_dates: list[str], days: dict[str, int], today: str) -> list[str]:
-    """출제할 수업 날짜(오래된 날부터). lesson_dates 는 커밋이 있던 날 전부."""
-    done = sorted(days)
-    if done:
-        start = done[-1]  # 마지막 날도 다시 — 늦은 커밋
-        return [d for d in sorted(set(lesson_dates)) if start <= d <= today]
+    """자동 출제할 수업 날짜(오래된 날부터). lesson_dates 는 커밋이 있던 날 전부.
+
+    언제나 최근 FIRST_RUN_DAYS 일 안에서만 — 강사가 지난 날짜를 골라 만든 뒤에도(run_source 의 dates)
+    자동 출제가 그 날부터 오늘까지 과목 전체를 메우지 않게."""
     since = (Date.fromisoformat(today) - timedelta(days=FIRST_RUN_DAYS - 1)).isoformat()
     recent = [d for d in sorted(set(lesson_dates)) if since <= d <= today]
+    done = [d for d in sorted(days) if d <= today]
+    if done:
+        return [d for d in recent if d >= done[-1]]  # 마지막 날도 다시 — 늦은 커밋
     return recent[-1:]
+
+
+def nothing_to_do(lesson_dates: list[str], today: str) -> str:
+    """자동 출제할 날이 없을 때 강사에게 보일 이유"""
+    past = [d for d in lesson_dates if d <= today]
+    if not past:
+        return "아직 수업 파일(.ipynb · .py · .md)이 올라온 날이 없어요."
+    return (
+        f"최근 {FIRST_RUN_DAYS}일 안에 수업이 없어 자동 출제 대상이 아니에요(마지막 수업 {past[-1]}). "
+        "「지금 만들기」에서 날짜를 골라 만들 수 있어요."
+    )
 
 
 def set_title(problems: list[dict[str, Any]]) -> str:
@@ -76,14 +89,23 @@ def run_source(
     coverage: dict[str, Any] | None,
     today: str,
     runner: Runner,
+    dates: list[str] | None = None,
 ) -> dict[str, Any]:
-    """저장소 하나 — {sets: [{lessonDate, dayLabel, title, files, model, problems}], coverage, error}"""
+    """저장소 하나 — {sets: [{lessonDate, dayLabel, title, files, model, problems}], coverage, error, note}
+
+    dates — 강사가 「지금 만들기」에서 고른 날짜. 없으면 자동(dates_to_run). 고른 날짜도 이미 출제한 셀은 다시 내지 않는다."""
     repo.sync()
     files_cov, days = coverage_from_json(coverage)
     lesson_dates = sorted(repo.recent_lesson_dates(prefixes))
     sets: list[dict[str, Any]] = []
     error = ""
-    for day in dates_to_run(lesson_dates, days, today):
+    if dates:
+        todo = [d for d in sorted(set(dates)) if d in lesson_dates and d <= today]
+        note = "" if todo else "고른 날짜에 수업 파일이 없어요."
+    else:
+        todo = dates_to_run(lesson_dates, days, today)
+        note = "" if todo else nothing_to_do(lesson_dates, today)
+    for day in todo:
         already = days.get(day, 0)
         _shas, changed = repo.changed_files_on(day, prefixes)
         files = [(f.path, f.commit, repo.read_file(f.commit, f.path)) for f in changed]
@@ -117,4 +139,6 @@ def run_source(
         elif day not in days:
             days[day] = already
         files_cov = plan.coverage_after(files_cov)
-    return {"sets": sets, "coverage": coverage_to_json(files_cov, days), "error": error}
+    if todo and not sets and not error:
+        note = "고른 날짜의 수업 내용은 이미 출제했어요." if dates else "새로 올라온 수업 내용이 없었어요."
+    return {"sets": sets, "coverage": coverage_to_json(files_cov, days), "error": error, "note": note}

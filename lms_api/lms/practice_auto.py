@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 from datetime import timedelta
 from typing import Any
@@ -127,8 +128,9 @@ def _save_sets(cur, cohort_code: str, name: str, sets: list[dict]) -> int:
     return added
 
 
-def run_source(source: dict, *, trigger: str = "schedule", today: str | None = None) -> dict:
-    """저장소 하나를 출제한다. {status, problems, dates, message}. 이미 돌고 있으면 status=busy."""
+def run_source(source: dict, *, trigger: str = "schedule", today: str | None = None, dates: list[str] | None = None) -> dict:
+    """저장소 하나를 출제한다. {status, problems, dates, message}. 이미 돌고 있으면 status=busy.
+    dates — 강사가 고른 수업 날짜(「지금 만들기」). 없으면 자동: 최근 14일 안에서 마지막으로 출제한 날부터."""
     run_id = _claim_run(source, trigger)
     if run_id is None:
         return {"status": "busy", "problems": 0, "dates": [], "message": "이미 출제 중입니다."}
@@ -144,7 +146,7 @@ def run_source(source: dict, *, trigger: str = "schedule", today: str | None = N
         result = _call(
             "/proxy/practice",
             {"cohortId": code, "source": payload, "coverage": coverage,
-             "today": today or timezone.localdate().isoformat()},
+             "today": today or timezone.localdate().isoformat(), "dates": dates or None},
             PRACTICE_TIMEOUT,
         )
         with transaction.atomic(), connection.cursor() as cur:
@@ -154,10 +156,12 @@ def run_source(source: dict, *, trigger: str = "schedule", today: str | None = N
                    ON CONFLICT (cohort_code, source_title) DO UPDATE SET data = EXCLUDED.data, updated_at = now()""",
                 [code, name, json.dumps(result.get("coverage") or {}, ensure_ascii=False)],
             )
-        dates = [s["lessonDate"] for s in result.get("sets") or []]
+        made = [s["lessonDate"] for s in result.get("sets") or []]
         error = str(result.get("error") or "")
-        _finish_run(run_id, "failed" if error and not added else "done", problems=added, dates=dates, message=error)
-        return {"status": "done", "problems": added, "dates": dates, "message": error}
+        # 새로 낸 문제가 없으면 왜 없는지(끝난 과목 · 이미 출제함 · 새 내용 없음)를 남긴다 — 강사 화면이 그대로 보여 준다
+        message = error or str(result.get("note") or "")
+        _finish_run(run_id, "failed" if error and not added else "done", problems=added, dates=made, message=message)
+        return {"status": "done", "problems": added, "dates": made, "message": message}
     except StudyNoteError as exc:
         _finish_run(run_id, "failed", message=exc.detail)
         return {"status": "failed", "problems": 0, "dates": [], "message": exc.detail}
@@ -262,8 +266,17 @@ def _spawn(work) -> None:
     threading.Thread(target=work, name="practice-auto", daemon=True).start()
 
 
-def run_now(user: dict, source_key: str) -> dict:
-    """「지금 만들기」 — 몇 분 걸려서 바로 돌려주고 뒤에서 돈다. 화면은 status 로 끝났는지 본다."""
+MAX_PICK = 5  # 한 번에 고를 수 있는 날짜 — 날짜마다 LLM 을 부른다
+
+
+def run_now(user: dict, source_key: str, dates: list[str] | None = None) -> dict:
+    """「지금 만들기」 — 몇 분 걸려서 바로 돌려주고 뒤에서 돈다. 화면은 status 로 끝났는지 본다.
+    dates 를 주면 그 수업 날짜들로(지난 과목도), 없으면 자동과 같은 규칙으로."""
+    picked = sorted({str(d) for d in dates or []})
+    if any(not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d) for d in picked):
+        raise StudySourceError(422, "날짜는 YYYY-MM-DD 형식이어야 합니다.")
+    if len(picked) > MAX_PICK:
+        raise StudySourceError(422, f"한 번에 {MAX_PICK}일까지 고를 수 있어요.")
     with connection.cursor() as cur:
         _check_schema(cur)
         if not _practice_ready(cur):
@@ -274,7 +287,7 @@ def run_now(user: dict, source_key: str) -> dict:
 
     def work() -> None:
         try:
-            run_source(source, trigger="manual")
+            run_source(source, trigger="manual", dates=picked or None)
         except Exception:  # noqa: BLE001 — run_source 가 기록을 남겼다
             pass
         finally:

@@ -5,12 +5,14 @@ import {
   addGithubOwner,
   fetchGithubOwners,
   fetchPracticeAuto,
+  fetchStudySourceTree,
   refreshAfterPractice,
   removeGithubOwner,
   runPracticeNow,
   setPracticeAuto,
   setStudySourceActive,
   syncStudySources,
+  usePracticeSets,
   useStudySources,
   type GithubOwner,
   type PracticeAutoRun,
@@ -197,6 +199,9 @@ export function StudySourcesPanel({ cohortId }: { cohortId: string }) {
                   {src.allowedPrefixes.length > 0 && ` · ${src.allowedPrefixes.join(', ')}`}
                 </span>
                 <PracticeLine
+                  sourceId={src.id}
+                  repoName={repoName(src.repoUrl)}
+                  cohortId={cohortId}
                   enabled={practice?.sources[src.id]?.enabled ?? true}
                   lastRun={practice?.sources[src.id]?.lastRun ?? null}
                   disabled={busy || !src.isActive || practice === null}
@@ -206,9 +211,9 @@ export function StudySourcesPanel({ cohortId }: { cohortId: string }) {
                       await loadPractice();
                     })
                   }
-                  onRunNow={() =>
+                  onRunNow={(dates) =>
                     void run(async () => {
-                      await runPracticeNow(src.id);
+                      await runPracticeNow(src.id, dates);
                       await loadPractice();
                     })
                   }
@@ -228,28 +233,99 @@ export function StudySourcesPanel({ cohortId }: { cohortId: string }) {
   );
 }
 
-/** 저장소 한 줄 아래 — 자동 출제 켜기 · 마지막 출제 · 지금 만들기 */
+/** 복습 세트의 저장소 이름 — 서버가 세트 · 출제 기록을 저장소 이름(소문자)으로 묶는다(practice_auto._repo_name) */
+function repoName(url: string): string {
+  return url.replace(/\/+$/, '').replace(/\.git$/, '').split('/').pop()!.toLowerCase();
+}
+
+/** 한 번에 고를 수 있는 날짜 — 날짜마다 LLM 을 부른다(서버도 5일로 막는다) */
+const MAX_PICK = 5;
+
+/** 저장소 한 줄 아래 — 자동 출제 켜기 · 마지막 출제 · 지금 만들기(날짜 골라서) */
 function PracticeLine({
+  sourceId,
+  repoName: name,
+  cohortId,
   enabled,
   lastRun,
   disabled,
   onToggle,
   onRunNow,
 }: {
+  sourceId: string;
+  repoName: string;
+  cohortId: string;
   enabled: boolean;
   lastRun: PracticeAutoRun | null;
   disabled: boolean;
   onToggle(next: boolean): void;
-  onRunNow(): void;
+  onRunNow(dates: string[]): void;
 }) {
   const running = lastRun?.status === 'running';
+  const sets = usePracticeSets(cohortId).filter((s) => s.sourceTitle.toLowerCase() === name);
+  const [dates, setDates] = useState<string[] | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [loadError, setLoadError] = useState('');
+  const madeOn = (date: string) => sets.find((s) => s.lessonDate === date)?.problems.length ?? 0;
+
+  const open = () => {
+    setDates([]);
+    setLoadError('');
+    fetchStudySourceTree(sourceId)
+      .then((tree) => {
+        setDates(tree.dates);
+        // 아직 문제가 없는 가장 최근 수업을 미리 골라 둔다
+        const first = tree.dates.find((d) => madeOn(d) === 0);
+        setPicked(first ? [first] : []);
+      })
+      .catch(async (e) => {
+        setLoadError(await readApiError(e));
+      });
+  };
+
+  const toggle = (date: string) =>
+    setPicked((cur) => (cur.includes(date) ? cur.filter((d) => d !== date) : cur.length < MAX_PICK ? [...cur, date] : cur));
+
   return (
     <span className="source-practice">
       <Toggle checked={enabled} label="복습 문제 자동 출제" onChange={(next) => !disabled && onToggle(next)} />
       <span className={`hint${lastRun?.status === 'failed' ? ' source-practice__error' : ''}`}>{runText(lastRun)}</span>
-      <button type="button" className="btn btn--text btn--sm" disabled={disabled || running} onClick={onRunNow}>
-        {running ? '출제 중…' : '지금 만들기'}
-      </button>
+      {dates === null ? (
+        <button type="button" className="btn btn--text btn--sm" disabled={disabled || running} onClick={open}>
+          {running ? '출제 중…' : '지금 만들기'}
+        </button>
+      ) : (
+        <span className="source-practice__pick">
+          <span className="hint">
+            출제할 수업 날짜를 골라 주세요(한 번에 {MAX_PICK}일까지). 이미 낸 날짜는 새로 올라온 부분만 더 내요.
+          </span>
+          {loadError !== '' && <span className="hint source-practice__error">{loadError}</span>}
+          {dates.length === 0 && loadError === '' && <span className="hint">수업 날짜를 불러오는 중…</span>}
+          <span className="source-practice__dates">
+            {dates.map((d) => (
+              <button key={d} type="button" className={`chip${picked.includes(d) ? ' chip--on' : ''}`} onClick={() => toggle(d)}>
+                {d.slice(2).replace(/-/g, '.')}
+                {madeOn(d) > 0 && <span className="source-practice__made">{madeOn(d)}문제</span>}
+              </button>
+            ))}
+          </span>
+          <Row gap={6}>
+            <Button
+              size="sm"
+              disabled={disabled || running || picked.length === 0}
+              onClick={() => {
+                onRunNow(picked);
+                setDates(null);
+              }}
+            >
+              {picked.length ? `${picked.length}일 출제하기` : '날짜를 고르세요'}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setDates(null)}>
+              닫기
+            </Button>
+          </Row>
+        </span>
+      )}
     </span>
   );
 }
@@ -259,7 +335,8 @@ function runText(run: PracticeAutoRun | null): string {
   if (run.status === 'running') return '출제 중이에요 — 몇 분 걸려요';
   const when = run.finishedAt ? formatRelative(new Date(run.finishedAt)) : '';
   if (run.status === 'failed') return `출제 실패 ${when} — ${run.message || '이유를 알 수 없어요'}`;
-  if (run.problems === 0) return `마지막 확인 ${when} · 새로 올라온 수업 내용이 없었어요`;
+  // 서버가 이유를 남긴다 — 끝난 과목 · 이미 출제함 · 새 내용 없음
+  if (run.problems === 0) return `마지막 확인 ${when} · ${run.message || '새로 올라온 수업 내용이 없었어요'}`;
   const days = run.dates.map((d) => d.slice(5).replace('-', '/')).join(', ');
   return `마지막 출제 ${when} · ${days} 수업 ${run.problems}문제`;
 }

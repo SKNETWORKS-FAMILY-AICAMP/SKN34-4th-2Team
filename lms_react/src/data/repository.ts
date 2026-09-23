@@ -1250,10 +1250,13 @@ export async function setPracticeAuto(sourceId: string, enabled: boolean): Promi
   await http.patch(`/practice-auto/${encodeURIComponent(sourceId)}`, { enabled });
 }
 
-/** 「지금 만들기」 — 서버는 바로 돌려주고 뒤에서 출제한다(몇 분). 끝났는지는 fetchPracticeAuto 로 본다 */
-export async function runPracticeNow(sourceId: string): Promise<void> {
+/**
+ * 「지금 만들기」 — 고른 수업 날짜로(지난 과목도, 한 번에 5일까지). 날짜가 없으면 자동과 같은 규칙.
+ * 서버는 바로 돌려주고 뒤에서 출제한다(몇 분). 끝났는지는 fetchPracticeAuto 로 본다
+ */
+export async function runPracticeNow(sourceId: string, dates: string[] = []): Promise<void> {
   if (isTestMode()) return;
-  await http.post(`/practice-auto/${encodeURIComponent(sourceId)}/run`);
+  await http.post(`/practice-auto/${encodeURIComponent(sourceId)}/run`, { dates });
 }
 
 /** 새 복습 세트가 생겼을 때 — 강사 화면의 신고 · 세트 목록이 새 세트를 보게 */

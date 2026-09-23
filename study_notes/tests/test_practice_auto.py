@@ -67,6 +67,15 @@ class DatesToRunTests(unittest.TestCase):
     def test_never_future(self) -> None:
         self.assertEqual(auto.dates_to_run(["2026-09-25"], {}, "2026-09-24"), [])
 
+    def test_auto_never_backfills_old_course_after_manual_pick(self) -> None:
+        # 강사가 6/18 을 골라 만든 뒤에도 18:30 자동 출제는 최근 14일만 본다(6/19 ~ 6/23 을 메우지 않는다)
+        lessons = ["2026-06-18", "2026-06-19", "2026-06-22", "2026-06-23", "2026-09-21"]
+        self.assertEqual(auto.dates_to_run(lessons, {"2026-06-18": 12}, "2026-09-24"), ["2026-09-21"])
+
+    def test_ended_course_explains_why(self) -> None:
+        self.assertIn("마지막 수업 2026-06-23", auto.nothing_to_do(["2026-06-18", "2026-06-23"], "2026-09-24"))
+        self.assertIn("올라온 날이 없어요", auto.nothing_to_do([], "2026-09-24"))
+
 
 class RunSourceTests(unittest.TestCase):
     def run_source(self, repo: FakeRepo, coverage=None, today="2026-09-23", results=None):
@@ -114,6 +123,30 @@ class RunSourceTests(unittest.TestCase):
         self.assertNotIn("x = 1\nx = 1", content.split("[새로 진행한 부분]")[1])
         self.assertEqual([s["lessonDate"] for s in again["sets"]], ["2026-09-22"])
         self.assertEqual(again["coverage"]["days"]["2026-09-22"], 5)
+
+    def test_picked_old_date_is_made_and_ended_course_says_why(self) -> None:
+        repo = FakeRepo({
+            "2026-06-18": {"01_variables.ipynb": notebook(LONG)},
+            "2026-06-23": {"05_class.ipynb": notebook(LONG + "k = 1\n" * 30)},
+        })
+        auto_run, fake = self.run_source(repo, today="2026-09-24")
+        fake.assert_not_called()
+        self.assertEqual(auto_run["sets"], [])
+        self.assertIn("최근 14일 안에 수업이 없어", auto_run["note"])
+
+        with mock.patch.object(auto, "build_practice_set", return_value=built("변수")) as fake:
+            picked = auto.run_source(repo, source_title="python_basic", prefixes=[], coverage=None,
+                                     today="2026-09-24", runner=object(), dates=["2026-06-18", "2026-12-01"])
+        self.assertEqual(fake.call_count, 1)  # 없는 날(12/1)은 뺀다
+        self.assertEqual([(s["lessonDate"], s["dayLabel"]) for s in picked["sets"]], [("2026-06-18", "python_basic 1일차")])
+        self.assertEqual(picked["note"], "")
+
+        # 같은 날을 또 고르면 이미 낸 셀이라 다시 내지 않는다
+        with mock.patch.object(auto, "build_practice_set") as fake:
+            again = auto.run_source(repo, source_title="python_basic", prefixes=[], coverage=picked["coverage"],
+                                    today="2026-09-24", runner=object(), dates=["2026-06-18"])
+        fake.assert_not_called()
+        self.assertEqual(again["note"], "고른 날짜의 수업 내용은 이미 출제했어요.")
 
     def test_failure_stops_and_keeps_earlier_days(self) -> None:
         repo = FakeRepo({
