@@ -1,14 +1,18 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import type { PracticeSet } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { MoreMenu } from '../../ui/MoreMenu';
-import { startPracticeFromFile } from '../../data/repository';
+import { startPracticeFromFile, useMyPracticeAttempts, usePracticeSets } from '../../data/repository';
+import { useCurrentUser } from '../auth/session';
+import { practicePath } from '../study/LessonDaysSection';
 import { MakeProblems } from './MakeProblems';
 import { useNotebookFile } from './NotebookFileMenu';
 import { toPy } from './notebookFile';
 import { EXAMPLES, MINI_HEADING, MINI_LEVELS, MINI_PROBLEMS } from './notebookExamples';
 import { canPromptInput } from './pythonRunner';
+import { isLessonSet } from './review';
 import type { Notebook } from './useNotebook';
 
 /**
@@ -153,6 +157,12 @@ function ProblemPicker({ nb }: { nb: Notebook }) {
     const p = id ? MINI_PROBLEMS.find((m) => m.id === id) : next;
     if (p) nb.addMiniProblem(p);
   };
+  // 내 노트 · 연습장 파일로 만든 문제 — 공부방까지 가지 않고 여기서 연다(최근 것부터)
+  const user = useCurrentUser();
+  const attempts = useMyPracticeAttempts(user.uid);
+  const mine = usePracticeSets(user.cohortId).filter((s) => !isLessonSet(s)).reverse();
+  const navigate = useNavigate();
+  const passedIn = (set: PracticeSet) => attempts.filter((a) => a.setId === set.id && a.passed).length;
   return (
     <span className="py-picker">
       <button
@@ -168,14 +178,25 @@ function ProblemPicker({ nb }: { nb: Notebook }) {
         label="문제 고르기"
         align="left"
         className="btn btn--outline btn--sm py-picker__more"
-        items={MINI_PROBLEMS.map((m, i) => ({
-          key: m.id,
-          label: m.title,
-          heading: i === 0 || MINI_PROBLEMS[i - 1].level !== m.level ? MINI_LEVELS[m.level] : undefined,
-          divider: i > 0 && MINI_PROBLEMS[i - 1].level !== m.level,
-          done: done.has(m.title),
-          onSelect: () => pick(m.id),
-        }))}
+        items={[
+          ...mine.map((set, i) => ({
+            key: `mine-${set.id}`,
+            icon: set.origin === 'note' ? 'description' : 'upload_file',
+            label: set.title,
+            hint: `${set.origin === 'note' ? '노트' : '파일'} · 통과 ${passedIn(set)} / ${set.problems.length}`,
+            heading: i === 0 ? '내가 만든 문제' : undefined,
+            done: set.problems.length > 0 && passedIn(set) === set.problems.length,
+            onSelect: () => navigate(practicePath(set.id)),
+          })),
+          ...MINI_PROBLEMS.map((m, i) => ({
+            key: m.id,
+            label: m.title,
+            heading: i === 0 || MINI_PROBLEMS[i - 1].level !== m.level ? MINI_LEVELS[m.level] : undefined,
+            divider: (i === 0 && mine.length > 0) || (i > 0 && MINI_PROBLEMS[i - 1].level !== m.level),
+            done: done.has(m.title),
+            onSelect: () => pick(m.id),
+          })),
+        ]}
       >
         <Icon name="expand_more" size={18} />
       </MoreMenu>
