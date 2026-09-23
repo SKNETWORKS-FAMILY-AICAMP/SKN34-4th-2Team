@@ -110,6 +110,8 @@ CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 CELERY_BROKER_TRANSPORT_OPTIONS = {"protocol": 2, "health_check_interval": 30}
 CELERY_RESULT_BACKEND_TRANSPORT_OPTIONS = {"protocol": 2, "health_check_interval": 30}
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+from celery.schedules import crontab  # noqa: E402
+
 CELERY_BEAT_SCHEDULE = {
     "publish-scheduled-notices": {
         "task": "lms.tasks.publish_due_notices",
@@ -120,7 +122,14 @@ CELERY_BEAT_SCHEDULE = {
         "task": "lms.tasks.sync_study_sources",
         "schedule": 3600.0,
     },
+    # 복습 문제 자동 출제 — 수업이 끝나는 18:30 에 한 번(lms/practice_auto.py)
+    "practice-auto-daily": {
+        "task": "lms.tasks.run_practice_auto",
+        "schedule": crontab(hour=18, minute=30),
+    },
 }
+# beat 의 crontab 시각을 한국 시간으로 — 없으면 UTC 라 18:30 이 새벽 3:30 이 된다
+CELERY_TIMEZONE = TIME_ZONE
 # DEBUG면 Celery 없이도 60초마다 예약 공지 발행. 끄려면 LMS_INLINE_PUBLISH=0
 LMS_INLINE_PUBLISH = os.environ.get("LMS_INLINE_PUBLISH", "1" if DEBUG else "0")
 

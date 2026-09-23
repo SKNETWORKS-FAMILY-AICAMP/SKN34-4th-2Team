@@ -12,10 +12,25 @@
 #
 # 만들기(저장소 루트에서):
 #   docker build -f deploy/ai.Dockerfile -t lms-ai .
+
+# 복습 문제 검증기 — 학생 브라우저와 같은 Pyodide 로 문제를 돌려 본다(study_notes/practice/runner.py)
+FROM node:20-slim AS verifier
+WORKDIR /verifier
+COPY practice_verifier/package.json practice_verifier/package-lock.json ./
+RUN npm ci --omit=dev
+COPY practice_verifier/ ./
+
 FROM python:3.12-slim
 
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app
+
+# 공부방 노트 · 복습 문제가 수업 저장소를 git 으로 읽는다. 비공개 저장소는 환경변수 GITHUB_TOKEN
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+# 검증기를 돌릴 node — 같은 데비안(bookworm)이라 바이너리만 옮겨도 돈다
+COPY --from=verifier /usr/local/bin/node /usr/local/bin/node
+COPY --from=verifier /verifier /app/practice_verifier
 
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt

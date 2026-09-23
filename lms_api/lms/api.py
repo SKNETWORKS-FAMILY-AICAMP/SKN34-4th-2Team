@@ -25,7 +25,7 @@ from lms.permissions import can_access_cohort
 from lms.publish import publish_scheduled_notices
 from lms.resume_text import build_profile, build_resume_text
 from lms.services import schedule_notice_vector
-from lms import study_note_service, study_source_service
+from lms import practice_auto, study_note_service, study_source_service
 
 
 class LmsAuth(HttpBearer):
@@ -429,6 +429,30 @@ def study_sources_update(request, source_id: str, body: StudySourcePatch):
     """공개 · 숨김, 이름 바꾸기"""
     user = _require_user(request)
     return _sources(lambda: study_source_service.update_source(user, source_id, is_active=body.isActive, title=body.title))
+
+
+class PracticeAutoPatch(Schema):
+    enabled: bool
+
+
+@api.get("/practice-auto")
+def practice_auto_status(request, cohortId: str = ""):
+    """저장소마다 복습 문제 자동 출제(매일 18:30) 켜짐 여부와 마지막 출제"""
+    user = _require_user(request)
+    return _sources(lambda: practice_auto.status(user, cohortId))
+
+
+@api.patch("/practice-auto/{source_id}")
+def practice_auto_toggle(request, source_id: str, body: PracticeAutoPatch):
+    user = _require_user(request)
+    return _sources(lambda: practice_auto.set_enabled(user, source_id, body.enabled))
+
+
+@api.post("/practice-auto/{source_id}/run")
+def practice_auto_run(request, source_id: str):
+    """「지금 만들기」 — 몇 분 걸려서 바로 돌려주고 뒤에서 출제한다"""
+    user = _require_user(request)
+    return _sources(lambda: practice_auto.run_now(user, source_id))
 
 
 class ResumeReviewApplyIn(Schema):

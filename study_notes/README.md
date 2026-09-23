@@ -77,8 +77,8 @@ flowchart LR
 | `GET /api/study-notes/{id}` (Django) | | 노트 행 — 화면이 5초마다 물어 끝났는지 본다 |
 | `POST /api/v1/study-notes/proxy/tree` (여기) | `{cohortId, source: {id, title, repoUrl, branch, allowedPrefixes}}` | `dates`, `entries` |
 | `POST /api/v1/study-notes/proxy/generate` (여기) | 위 + `{scopeType, scopeValue}` | `ready` 면 노트 내용, `too_broad` 면 파일 목록. 저장하지 않는다 |
-
 | `POST /api/v1/study-notes/proxy/repos` (여기) | `{owner}` | GitHub 조직·계정의 저장소 `repos` — Django 가 공부방에 자동으로 올릴 때 |
+| `POST /api/v1/study-notes/proxy/practice` (여기) | 소스 + `{coverage, today}` | 새로 낸 복습 세트 `sets`, 새 출제 범위 기록 `coverage` — 매일 18:30 자동 출제 |
 
 `/proxy/*` 는 이력서 첨삭의 `/proxy` 처럼 인증이 없다 — 바깥에 열지 않고 Django 만 부른다.
 
@@ -159,6 +159,7 @@ python -m uvicorn app.integrated:app --app-dir cover_letter_rag --host 127.0.0.1
 | `code_blank` | 빈칸(`__1__`)을 `None`으로 채우면 테스트 실패, 모범 답으로 채우면 통과. 학생 답도 글자 비교가 아니라 테스트로 채점 |
 | `code_fix` | 버그 코드 + 테스트는 실패(시간 초과 포함), 모범답안 + 테스트는 통과 |
 | `code_write` | 빈 함수 + 테스트는 실패, 모범답안 + 테스트는 통과 |
+| `code_scratch` | `code_write` 와 같고, 학생이 뼈대를 못 보므로 문제 문장에 함수 이름 · 테스트 3개 이상 · 모범답안 4줄 이상 |
 
 실행 전에 버리는 코드: 파일 읽기(`open`, `read_csv` …), 네트워크, `input()`, `os`·`sys`, 현재 시각,
 표준 라이브러리 일부·numpy·pandas 외의 패키지.
@@ -214,3 +215,27 @@ python -m study_notes.practice.daily --repo ... --dates 2026-09-16 --coverage co
 
 9/14 → 9/15 로 돌려 보면 위 노트북은 9/15 에 「새 셀 10개 · 이미 출제한 셀 10개 → 1문제 · 이어짐」이 되고,
 9/14 에는 OpenCV 소개로, 9/15 에는 새로 붙은 프레임 추출(`frame_interval`)로 문제가 나왔다.
+
+### 자동 출제 (매일 18:30)
+
+강사가 수업 저장소에 올린 내용으로 LMS 가 알아서 문제를 낸다. 노트는 지금처럼 학생이 필요할 때 만든다.
+
+```
+Celery beat 18:30(Asia/Seoul) — lms_api/lms/practice_auto.py
+  공개된 수업 저장소 중 자동 출제가 켜진 것마다(켜짐이 기본, 강사 「수업 저장소」 화면에서 끈다)
+    practice.coverage 의 기록 → AI 서버 POST /api/v1/study-notes/proxy/practice (practice/auto.py)
+      마지막으로 출제한 날부터 오늘까지, 새로 생긴 셀로만 출제 → 검증 → 고치기
+    ← 세트 · 새 기록 → practice.sets · problems 에 넣고 기록을 이어 쓴다
+```
+
+| 경우 | 처리 |
+|---|---|
+| 처음 보는 저장소 | 최근 3일만. 연결하자마자 지난 과목 전체를 출제하지 않는다 |
+| 저녁 늦게 올린 커밋 | 다음 날 18:30 에 그 날짜로 하루 몫(12문제)에서 남은 만큼만 채운다 |
+| 같은 날짜 세트가 이미 있음(손으로 넣은 세트 포함) | 새 세트를 만들지 않고 그 뒤에 문제를 붙인다 |
+| 한 날짜가 실패 | 거기서 멈추고 앞날까지만 기록 — 다음 실행이 실패한 날부터 다시 |
+| 수업이 일찍 끝남 | 강사 「지금 만들기」(뒤에서 돌고 화면이 10초마다 끝났는지 본다) |
+
+실행 기록은 `study.practice_runs`, 저장소별 켜짐은 `study.practice_settings`(`scripts/firestore_to_postgres/study_schema.sql`).
+검증기(practice_verifier, node)가 AI 서버에 있어야 한다 — 배포 이미지(`deploy/ai.Dockerfile`)에 들어 있다.
+

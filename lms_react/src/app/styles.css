@@ -2788,6 +2788,24 @@ a.link {
   opacity: 1;
 }
 
+/* 저장소 한 줄 아래 — 복습 문제 자동 출제 */
+.source-practice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.source-practice .toggle__label {
+  font-size: 13px;
+}
+
+.source-practice__error {
+  color: var(--error);
+}
+
 /* ── 커리큘럼 ─────────────────────────────────────────── */
 .curri-page {
   position: relative;

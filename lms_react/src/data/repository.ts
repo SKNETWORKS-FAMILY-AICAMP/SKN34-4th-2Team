@@ -1216,6 +1216,51 @@ export async function removeGithubOwner(id: string): Promise<GithubOwner[]> {
   return data.owners;
 }
 
+/** 복습 문제 자동 출제(매일 18:30) — 마지막으로 돌린 결과 */
+export interface PracticeAutoRun {
+  status: 'running' | 'done' | 'failed';
+  /** 이번에 새로 낸 문제 수 — 새 내용이 없으면 0 */
+  problems: number;
+  dates: string[];
+  message: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface PracticeAutoStatus {
+  /** practice 스키마가 있는지 — 없으면 출제해도 넣을 곳이 없다 */
+  practiceReady: boolean;
+  /** 저장소 id → 자동 출제 켜짐(기본 켜짐) · 마지막 출제 */
+  sources: Record<string, { enabled: boolean; lastRun: PracticeAutoRun | null }>;
+}
+
+let demoPracticeAuto: PracticeAutoStatus['sources'] = {};
+
+export async function fetchPracticeAuto(cohortId: string): Promise<PracticeAutoStatus> {
+  if (isTestMode()) return { practiceReady: true, sources: demoPracticeAuto };
+  const { data } = await http.get<PracticeAutoStatus>('/practice-auto', { params: { cohortId } });
+  return data;
+}
+
+export async function setPracticeAuto(sourceId: string, enabled: boolean): Promise<void> {
+  if (isTestMode()) {
+    demoPracticeAuto = { ...demoPracticeAuto, [sourceId]: { lastRun: demoPracticeAuto[sourceId]?.lastRun ?? null, enabled } };
+    return;
+  }
+  await http.patch(`/practice-auto/${encodeURIComponent(sourceId)}`, { enabled });
+}
+
+/** 「지금 만들기」 — 서버는 바로 돌려주고 뒤에서 출제한다(몇 분). 끝났는지는 fetchPracticeAuto 로 본다 */
+export async function runPracticeNow(sourceId: string): Promise<void> {
+  if (isTestMode()) return;
+  await http.post(`/practice-auto/${encodeURIComponent(sourceId)}/run`);
+}
+
+/** 새 복습 세트가 생겼을 때 — 강사 화면의 신고 · 세트 목록이 새 세트를 보게 */
+export async function refreshAfterPractice(): Promise<void> {
+  if (!isTestMode()) await invalidateBootstrap();
+}
+
 /** 공개 · 숨김. 숨긴 저장소는 학생 공부방에서 빠지고, 다시 찾아도 숨긴 채로 남는다 */
 export async function setStudySourceActive(sourceId: string, isActive: boolean): Promise<void> {
   mutate((db) => ({ studySources: db.studySources.map((s) => (s.id === sourceId ? { ...s, isActive } : s)) }));

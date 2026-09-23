@@ -21,3 +21,11 @@ def sync_study_sources():
     from lms.study_source_service import sync_all
 
     return sync_all()
+
+
+@shared_task
+def run_practice_auto():
+    """매일 18:30 — 공개된 수업 저장소마다 그날 새로 올라온 내용으로 복습 문제를 낸다"""
+    from lms.practice_auto import run_daily
+
+    return run_daily()

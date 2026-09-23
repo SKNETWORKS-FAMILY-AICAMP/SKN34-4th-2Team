@@ -3,7 +3,7 @@
 두 갈래다.
 - /tree · /generate · /get — Flutter 앱. Firebase ID 토큰(Authorization: Bearer)으로 학생을 확인하고
   Firestore 에서 저장소를 읽고 노트를 저장한다. 학생·강사는 자기 기수만, 관리자는 모든 기수.
-- /proxy/tree · /proxy/generate — LMS(Django). Django 가 JWT 로 학생을 확인하고 DB 에서 저장소 정보를
+- /proxy/tree · /proxy/generate · /proxy/repos · /proxy/practice — LMS(Django). Django 가 JWT 로 학생을 확인하고 DB 에서 저장소 정보를
   읽어 넘긴다. 여기서는 저장소를 읽어 노트를 만들어 돌려주기만 하고, 잠금·저장은 Django 가 한다.
   이력서 첨삭의 /proxy 와 같이 바깥에 열지 않는다(Django 만 부른다).
 """
@@ -62,6 +62,11 @@ class ProxyGenerateRequest(ProxyTreeRequest):
 
 class ProxyReposRequest(BaseModel):
     owner: str = Field(min_length=1, max_length=39)
+
+
+class ProxyPracticeRequest(ProxyTreeRequest):
+    coverage: dict[str, Any] | None = None  # practice.coverage.data — 처음이면 없음
+    today: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
 
 
 class Session:
@@ -132,5 +137,28 @@ def proxy_repos(request: ProxyReposRequest) -> dict[str, Any]:
     """GitHub 계정·조직의 수업 저장소 목록 — LMS 가 새 저장소를 공부방에 자동으로 올릴 때 쓴다."""
     try:
         return {"repos": github.list_owner_repos(request.owner)}
+    except GitToolError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/proxy/practice")
+def proxy_practice(request: ProxyPracticeRequest) -> dict[str, Any]:
+    """복습 문제 자동 출제 — 저장소 하나. 수 분 걸린다(LLM + 검증). Django 가 매일 18:30 에 부른다."""
+    from study_notes.practice.auto import run_source
+    from study_notes.practice.runner import VERIFIER_DIR, PyodideRunner
+
+    # LLM 을 부르기 전에 — 검증기가 없으면 만든 문제를 다 버리게 된다
+    if not (VERIFIER_DIR / "node_modules" / "pyodide").exists():
+        raise HTTPException(status_code=503, detail="문제 검증기(practice_verifier)가 설치되어 있지 않습니다. npm install 이 필요합니다.")
+    source = service.source_from_payload(request.source.model_dump())
+    try:
+        return run_source(
+            service.repo_cache(request.cohortId, source),
+            source_title=source.title or source.id,
+            prefixes=source.allowed_prefixes,
+            coverage=request.coverage,
+            today=request.today,
+            runner=PyodideRunner(),
+        )
     except GitToolError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
