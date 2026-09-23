@@ -65,7 +65,14 @@ function Playground({ setId, focusProblem }: { setId: string | null; focusProble
   }, []);
   const lastId = nb.cells[nb.cells.length - 1]?.id ?? '';
 
-  const tutorOpen = Boolean(useTutor()?.target);
+  const tutor = useTutor();
+  const tutorOpen = Boolean(tutor?.target);
+
+  // 튜터가 열려 있으면 고른 셀을 따라간다
+  const follow = tutor?.follow;
+  useEffect(() => {
+    follow?.(nb.activeId);
+  }, [follow, nb.activeId]);
 
   // 튜터가 열려 있으면 오른쪽 아래 로봇(학습 도우미)을 숨긴다 — 패널 입력칸을 가린다. 패널의 「학습 도우미」 탭으로 연다
   useEffect(() => {

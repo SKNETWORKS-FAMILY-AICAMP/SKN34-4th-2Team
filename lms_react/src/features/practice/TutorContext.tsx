@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import type { TutorMode } from '../../data/repository';
 
@@ -28,6 +28,12 @@ interface Tutor {
   /** 튜터 답이 가리킨 줄 — 그 셀 편집기에만 칠한다 */
   marked: { cellId: string; lines: number[] } | null;
   mark: (cellId: string, lines: number[]) => void;
+  /** 셀이 「나한테 물으려면 이렇게」를 올려 둔다 — 도구 줄 「튜터」와 셀 따라가기가 쓴다 */
+  register: (cellId: string, build: () => TutorTarget) => () => void;
+  /** ids 순서대로(지금 셀 먼저) 튜터를 물을 수 있는 첫 셀로 연다. 열 셀이 없으면 false */
+  openFor: (ids: string[]) => boolean;
+  /** 열려 있으면 고른 셀로 옮겨 간다. 마크다운처럼 못 묻는 셀이면 그대로 */
+  follow: (cellId: string) => void;
 }
 
 const TutorContext = createContext<Tutor | null>(null);
@@ -47,13 +53,53 @@ export function TutorProvider({ children }: { children: ReactNode }) {
   }, []);
   const mark = useCallback((cellId: string, lines: number[]) => setMarked(lines.length ? { cellId, lines } : null), []);
 
-  const value = useMemo(() => ({ target, open, close, marked, mark }), [target, open, close, marked, mark]);
+  const cells = useRef(new Map<string, () => TutorTarget>());
+  const register = useCallback((cellId: string, build: () => TutorTarget) => {
+    cells.current.set(cellId, build);
+    return () => {
+      if (cells.current.get(cellId) === build) cells.current.delete(cellId);
+    };
+  }, []);
+  const openFor = useCallback(
+    (ids: string[]) => {
+      const id = ids.find((i) => cells.current.has(i));
+      if (!id) return false;
+      open(cells.current.get(id)!());
+      return true;
+    },
+    [open],
+  );
+  const follow = useCallback(
+    (cellId: string) => {
+      const build = cells.current.get(cellId);
+      if (build) setTarget((t) => (t && t.cellId !== cellId ? build() : t));
+    },
+    [],
+  );
+
+  const value = useMemo(
+    () => ({ target, open, close, marked, mark, register, openFor, follow }),
+    [target, open, close, marked, mark, register, openFor, follow],
+  );
   return <TutorContext.Provider value={value}>{children}</TutorContext.Provider>;
 }
 
 /** 튜터 밖(테스트 · 다른 화면)에서는 null — 버튼을 그리지 않는다 */
 export function useTutor(): Tutor | null {
   return useContext(TutorContext);
+}
+
+/** 셀이 튜터에 자기를 올려 둔다. build 는 부를 때마다 최신 값을 읽어야 한다(ref) */
+export function useTutorCell(cellId: string, build: (() => TutorTarget) | null) {
+  const tutor = useContext(TutorContext);
+  const latest = useRef(build);
+  latest.current = build;
+  const on = Boolean(build);
+  const register = tutor?.register;
+  useEffect(() => {
+    if (!register || !on) return;
+    return register(cellId, () => latest.current!());
+  }, [register, cellId, on]);
 }
 
 /** 이 셀 편집기에 칠할 줄 */

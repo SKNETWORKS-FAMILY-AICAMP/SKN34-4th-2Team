@@ -6,7 +6,7 @@ import type { Cell, CellType } from './notebookModel';
 import { NotebookMarkdown } from './NotebookMarkdown';
 import { ProblemCell } from './ProblemCell';
 import type { TableData } from './pythonProtocol';
-import { useTutor, useTutorMarks } from './TutorContext';
+import { useTutor, useTutorCell, useTutorMarks, type TutorSnapshot, type TutorTarget } from './TutorContext';
 import type { Notebook } from './useNotebook';
 import type { PracticeSetMode } from './usePracticeSetMode';
 
@@ -35,6 +35,18 @@ function ProblemCellRow({ cell, nb, mode }: { cell: Cell; nb: Notebook; mode: Pr
   const tutor = useTutor();
   const marked = useTutorMarks(cell.id);
   const origin = mode.originOf(index);
+  const reader = useRef<(() => TutorSnapshot) | null>(null);
+  const target: (() => TutorTarget) | null =
+    problem && origin && !mode.hiddenOf(index)
+      ? () => ({
+          cellId: cell.id,
+          mode: 'problem',
+          ...origin,
+          label: `문제 ${index + 1} · ${problem.topic}`,
+          read: () => reader.current?.() ?? { code: cell.code, run: '', grade: '' },
+        })
+      : null;
+  useTutorCell(cell.id, target);
   if (!problem) return null;
   const number = index + 1;
   if (mode.hiddenOf(index)) {
@@ -78,11 +90,12 @@ function ProblemCellRow({ cell, nb, mode }: { cell: Cell; nb: Notebook; mode: Pr
           focusSignal={nb.focusSignalOf(cell.id)}
           onRunAndNext={() => nb.focusNext(cell.id)}
           markedLines={marked}
+          tutorReader={reader}
           onAskTutor={
-            tutor && origin
-              ? (read) => {
+            tutor && target
+              ? () => {
                   nb.setActiveId(cell.id);
-                  tutor.open({ cellId: cell.id, mode: 'problem', ...origin, label: `문제 ${number} · ${problem.topic}`, read });
+                  tutor.open(target());
                 }
               : undefined
           }
@@ -112,6 +125,10 @@ function CodeOrMarkdownCell({ cell, index, total, nb }: { cell: Cell; index: num
   // 튜터는 물을 때 읽는다 — 그 사이 다시 돌린 출력이 가야 한다
   const live = useRef(cell);
   live.current = cell;
+  const target: (() => TutorTarget) | null = isMarkdown
+    ? null
+    : () => ({ cellId: cell.id, mode: 'cell', label: `셀 ${index + 1}`, read: () => cellSnapshot(live.current) });
+  useTutorCell(cell.id, target);
   return (
     <article
       className={`py-nb-cell py-nb-cell--${cell.type} py-nb-cell--${cell.state}${cell.id === nb.activeId ? ' py-nb-cell--active' : ''}`}
@@ -147,9 +164,7 @@ function CodeOrMarkdownCell({ cell, index, total, nb }: { cell: Cell; index: num
             <button
               type="button"
               className={`py-icon-btn py-icon-btn--tutor${tutor.target?.cellId === cell.id ? ' is-on' : ''}`}
-              onClick={() =>
-                tutor.open({ cellId: cell.id, mode: 'cell', label: `셀 ${index + 1}`, read: () => cellSnapshot(live.current) })
-              }
+              onClick={() => target && tutor.open(target())}
               aria-label="튜터에게 묻기"
               title="튜터에게 이 코드 · 오류 묻기"
             >

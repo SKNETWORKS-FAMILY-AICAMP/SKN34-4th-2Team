@@ -63,10 +63,13 @@ export function TutorPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
+  // 처음 열 때만 입력칸으로 — 열린 채 셀을 옮겨 다닐 땐(따라가기) 편집기 포커스를 뺏지 않는다
+  const isOpen = Boolean(target);
   useEffect(() => {
+    if (!isOpen) return;
     setTab('tutor');
-    if (target) inputRef.current?.focus();
-  }, [target]);
+    inputRef.current?.focus();
+  }, [isOpen]);
 
   useEffect(() => {
     bodyRef.current?.scrollTo?.({ top: bodyRef.current.scrollHeight, behavior: 'smooth' });

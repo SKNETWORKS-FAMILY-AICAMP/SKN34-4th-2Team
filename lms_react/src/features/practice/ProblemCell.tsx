@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 
 import type { PracticeAttempt, PracticeKind, PracticeProblem, PracticeReport, PracticeReportReason } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
@@ -53,6 +53,7 @@ export function ProblemCell({
   focusSignal,
   onRunAndNext,
   onAskTutor,
+  tutorReader,
   markedLines,
 }: {
   problem: PracticeProblem;
@@ -71,8 +72,10 @@ export function ProblemCell({
   onFocus: () => void;
   focusSignal: number;
   onRunAndNext: () => void;
-  /** 튜터 패널을 이 문제로 연다. 넘기는 함수는 물을 때마다 지금 코드 · 출력 · 채점을 읽는다 */
-  onAskTutor?: (read: () => TutorSnapshot) => void;
+  /** 튜터 패널을 이 문제로 연다 */
+  onAskTutor?: () => void;
+  /** 튜터가 물을 때 읽을 지금 코드 · 출력 · 채점 — 여기서 채워 둔다 */
+  tutorReader?: MutableRefObject<(() => TutorSnapshot) | null>;
   /** 튜터가 가리킨 줄 */
   markedLines?: number[];
 }) {
@@ -104,6 +107,7 @@ export function ProblemCell({
         ? `${submitted ? '정답' : '오답'} · 학생 답: ${problem.kind === 'concept' ? 'ABCD'[pick ?? 0] : answer}`
         : '',
   };
+  if (tutorReader) tutorReader.current = () => snapshot.current;
 
   const run = async () => {
     if (working) return;
@@ -172,7 +176,7 @@ export function ProblemCell({
           <span className="pb__state pb__state--no">{tries}번 시도</span>
         ) : null}
         {onAskTutor && (
-          <button type="button" className="pb__tutor" onClick={() => onAskTutor(() => snapshot.current)} title="힌트를 한 단계씩 받아요">
+          <button type="button" className="pb__tutor" onClick={onAskTutor} title="힌트를 한 단계씩 받아요">
             <Icon name="school" size={15} />
             튜터에게 묻기
           </button>

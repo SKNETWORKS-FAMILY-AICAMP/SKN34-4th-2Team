@@ -13,12 +13,13 @@ import { toPy } from './notebookFile';
 import { EXAMPLES, MINI_HEADING, MINI_LEVELS, MINI_PROBLEMS } from './notebookExamples';
 import { canPromptInput } from './pythonRunner';
 import { isLessonSet } from './review';
+import { useTutor } from './TutorContext';
 import type { Notebook } from './useNotebook';
 
 /**
  * 노트북 도구 줄.
  *
- * 한 번에 보이는 건 여섯 개다 — 모두 실행 · 셀 추가 · 연습 문제 · 문제 만들기 · 입력값 · 「···」.
+ * 한 번에 보이는 건 일곱 개다 — 모두 실행 · 셀 추가 · 연습 문제 · 문제 만들기 · 튜터 · 입력값 · 「···」.
  * 예전에는 단추 아홉 개에 예시 칩 여섯 개까지 한 줄에 다 나와 있었다. 자주 누르는 것만
  * 남기고, 셀 종류와 예시는 「셀 추가」 안으로, 가끔 쓰는 것(변수 초기화 · 파일 · 단축키)은
  * 「···」 안으로 넣었다. 셀 추가는 노트북 맨 아래 줄에도 있다.
@@ -28,6 +29,8 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
   const [showKeys, setShowKeys] = useState(false);
   const file = useNotebookFile(nb, set);
   const [making, setMaking] = useState(false);
+  const tutor = useTutor();
+  const tutorOn = Boolean(tutor?.target);
 
   return (
     <>
@@ -77,6 +80,19 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
           <Icon name="auto_awesome" size={18} />
           문제 만들기
         </button>
+
+        {tutor && (
+          <button
+            type="button"
+            className={`btn btn--outline btn--sm${tutorOn ? ' py-toolbar__on' : ''}`}
+            onClick={() => (tutorOn ? tutor.close() : tutor.openFor([nb.activeId, ...nb.cells.map((c) => c.id)]))}
+            aria-expanded={tutorOn}
+            title="지금 고른 셀(문제)을 튜터에게 물어요 · 셀을 옮기면 튜터도 따라가요"
+          >
+            <Icon name="school" size={18} />
+            튜터
+          </button>
+        )}
 
         <span className="py-grow" />
 

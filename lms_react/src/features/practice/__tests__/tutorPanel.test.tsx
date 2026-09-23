@@ -2,7 +2,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it } from 'vitest';
 
-import { TutorProvider, useTutor, useTutorMarks, type TutorTarget } from '../TutorContext';
+import { TutorProvider, useTutor, useTutorCell, useTutorMarks, type TutorTarget } from '../TutorContext';
 import { TutorPanel } from '../TutorPanel';
 
 const PROBLEM: TutorTarget = {
@@ -68,6 +68,35 @@ describe('연습장 튜터', () => {
     await click(byText(host, '정답 알려 줘'));
     expect(host.querySelector('.tutor__msg--muted')?.textContent).toContain('모범답안 보기');
     expect(host.querySelectorAll('.tutor__ladder .on')).toHaveLength(2);
+  });
+
+  it('도구 줄처럼 지금 셀부터 열고, 열린 채 다른 셀을 고르면 따라간다', async () => {
+    const host = document.createElement('div');
+    let api: ReturnType<typeof useTutor> = null;
+    function Cells() {
+      api = useTutor();
+      useTutorCell('md', null);
+      useTutorCell('c1', () => ({ cellId: 'c1', mode: 'cell', label: '셀 1', read: () => ({ code: 'x = 1', run: '', grade: '' }) }));
+      useTutorCell('p1', () => PROBLEM);
+      return null;
+    }
+    act(() =>
+      createRoot(host).render(
+        <TutorProvider>
+          <Cells />
+          <TutorPanel />
+        </TutorProvider>,
+      ),
+    );
+    await act(async () => void api!.openFor(['md', 'c1', 'p1']));
+    expect(host.querySelector('.tutor__target')?.textContent).toContain('셀 1');
+    await act(async () => api!.follow('md'));
+    expect(host.querySelector('.tutor__target')?.textContent).toContain('셀 1');
+    await act(async () => api!.follow('p1'));
+    expect(host.querySelector('.tutor__target')?.textContent).toContain('문제 1 · 맥스 풀링');
+    await act(async () => api!.close());
+    await act(async () => api!.follow('c1'));
+    expect(host.querySelector('.tutor')).toBeNull(); // 닫혀 있으면 따라가지 않는다
   });
 
   it('일반 셀은 힌트 단계 없이 오류 설명 칩을 보인다', async () => {
