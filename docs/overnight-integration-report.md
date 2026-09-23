@@ -30,7 +30,7 @@ React 데모 모드 테스트만 통과한 항목은 사용자 E2E가 아니다.
 | 17 | AI 이력서 첨삭 | PARTIAL | PostgreSQL 중심 AI 코드 존재. 실제 첨삭 E2E 미검증; 실행 경로의 Firebase 인증/Firestore helper 구분 필요. |
 | 18 | 맞춤 이력서 | CODE EXISTS / NOT VERIFIED | DB·화면 코드가 있으나 공고 연결·저장·재조회 E2E 미검증. |
 | 19 | 첨삭 적용/undo | CODE EXISTS / NOT VERIFIED | 기존 로직 유지. 실제 적용/되돌리기 E2E 미검증. |
-| 20 | 채용공고 PostgreSQL 저장 | BLOCKED | 기준 DB `public`에 `jobs` 테이블이 보이지 않음. 별도 스키마/연결인지 크롤링 담당자와 경로 확인 필요. 기존 데이터·스키마를 추측해 변경하지 않음. |
+| 20 | 채용공고 PostgreSQL 저장 | PARTIAL | 기준 DB에 `jobs.jobs`를 포함한 `jobs` 스키마 테이블 8개가 있음. `jobs.jobs`·`jobs.runs`는 현재 0건. 스키마 존재만 확인했으며 크롤러 저장·React 조회·추천 E2E는 미검증. |
 | 21 | 채용공고 수집 | PARTIAL | 수집 코드 존재. 전체 크롤링은 비용/시간 및 담당자 검토 때문에 실행하지 않음. 공유 파일 라우팅 변경은 미커밋 초안으로 유지. |
 | 22 | 채용 추천 | CODE EXISTS / NOT VERIFIED | AI 코드 존재. 실제 공고 저장 상태가 불명확해 추천 E2E 미검증. |
 | 23 | 정책/공지/프로젝트 RAG | PARTIAL | Pinecone `smoke_search('cohort_34')` 실제 3개 결과 확인; 공지 projection은 별도 검증. 정책·프로젝트 전체 답변 E2E 미검증. |
@@ -63,8 +63,9 @@ React 데모 모드 테스트만 통과한 항목은 사용자 E2E가 아니다.
 
 1. 기준 DB에 실제 사용자·학생·학습자료가 없어 역할별 화면과 AI 콘텐츠의
    사용자 E2E는 합성 데이터 또는 실제 데이터 준비 뒤 확인해야 한다.
-2. 채용공고 저장소의 실제 PostgreSQL 스키마/DB 연결과 크롤러 공유 파일 소비자는
-   크롤링 담당자가 확인해야 한다. 기존 수집 코드는 되돌리지 않았다.
+2. 채용공고 저장소는 별도 `jobs` 스키마에 있으며 기준 DB의 `jobs.jobs`는 0건이다.
+   크롤러 적재 경로와 공유 파일 소비자는 크롤링 담당자가 확인해야 한다. 기존
+   수집 코드는 되돌리지 않았다.
 3. 학생 챗봇 직접 AI 경로의 Firebase ID token, 이력서 AI의 실제 실행 경로에
    남은 Firebase Auth/Firestore helper를 구별해 최소 교체해야 한다.
    `users.firebase_uid`는 legacy identifier이므로 제거 대상이 아니다.
