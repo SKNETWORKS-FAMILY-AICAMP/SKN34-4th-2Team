@@ -2,6 +2,7 @@ import type {
   AlertPopup,
   Assessment,
   AssessmentQuestion,
+  AssessmentAnswerEntry,
   AssessmentSubmission,
   Attendance,
   Cohort,
@@ -9,6 +10,7 @@ import type {
   FormResponse,
   FormTask,
   InflearnPackage,
+  MileageCartItem,
   MileageProduct,
   MileageSettings,
   MileageTransaction,
@@ -23,6 +25,7 @@ import type {
   SeatingAssignment,
   SeatingCellType,
   SeatingRoom,
+  SeatPresence,
   Submission,
   Todo,
   User,
@@ -158,6 +161,10 @@ export function mapCohort(row: Record<string, unknown>): Cohort {
     cohortId: String(row.cohortId ?? row.code ?? ''),
     name: String(row.name ?? ''),
     description: row.description ? String(row.description) : undefined,
+    startDate: asDate(row.startDate ?? row.start_date),
+    endDate: asDate(row.endDate ?? row.end_date),
+    termNumber: row.termNumber == null && row.term_number == null ? undefined : Number(row.termNumber ?? row.term_number),
+    classroomName: row.classroomName || row.classroom_name ? String(row.classroomName ?? row.classroom_name) : undefined,
     isActive: Boolean(row.isActive ?? row.is_active ?? true),
     status: (row.status as Cohort['status']) || 'active',
     studentCount: Number(row.studentCount ?? row.student_count ?? 0),
@@ -427,6 +434,48 @@ function mapYoutube(row: Record<string, unknown>): YoutubeRecommendation {
   };
 }
 
+function mapCurriculumRow(row: Record<string, unknown>): CurriculumSheet['rows'][number] {
+  return {
+    dayIndex: Number(row.dayIndex ?? row.day_index ?? 0),
+    dateLabel: String(row.dateLabel ?? row.date_label ?? ''),
+    subject: String(row.subject ?? ''),
+    topic: String(row.topic ?? ''),
+    detail: String(row.detail ?? ''),
+    order: Number(row.order ?? 0),
+  };
+}
+
+function mapCartItem(row: Record<string, unknown>): MileageCartItem {
+  return {
+    productId: String(row.productId ?? row.product_id ?? ''),
+    productName: String(row.productName ?? row.product_name ?? ''),
+    category: String(row.category ?? ''),
+    pricingType: (row.pricingType as MileageCartItem['pricingType']) || 'fixed',
+    unitPrice: Number(row.unitPrice ?? row.unit_price ?? 0),
+    quantity: Number(row.quantity ?? 1),
+    purchaseLink: row.purchaseLink ? String(row.purchaseLink) : undefined,
+  };
+}
+
+/** 자리 확인 — roll_calls(날짜 · 교시) 밑에 학생별 상태가 달려 온다 */
+function mapSeatPresence(payload: Record<string, unknown>): SeatPresence[] {
+  const calls = rowsOf(payload, 'rollCalls');
+  const entries = rowsOf(payload, 'rollCallEntries');
+  const callByPk = new Map(calls.map((c) => [String(c.pk ?? c.id ?? ''), c]));
+  const out: SeatPresence[] = [];
+  for (const e of entries) {
+    const call = callByPk.get(String(e.rollCallId ?? e.roll_call_id ?? ''));
+    if (call === undefined) continue;
+    out.push({
+      dateKey: String(call.dateKey ?? call.date_key ?? '').slice(0, 10),
+      period: Number(call.periodId ?? call.period_id ?? 0),
+      userId: String(e.userId ?? e.user_id ?? ''),
+      state: String(e.state ?? 'none') as SeatPresence['state'],
+    });
+  }
+  return out;
+}
+
 function mapSheet(row: Record<string, unknown>): CurriculumSheet {
   return {
     id: String(row.id ?? row.pk ?? ''),
@@ -516,9 +565,15 @@ function mapSeating(
     };
   });
 
+  const seatingMeta: Database['seatingMeta'] = {};
+  const byCohort = (payload.publishedSeatingRooms ?? {}) as Record<string, unknown>;
+  for (const [cohortId, pk] of Object.entries(byCohort)) {
+    seatingMeta[cohortId] = { publishedRoomId: roomIdByPk.get(String(pk)) ?? String(pk) };
+  }
   const publishedPk = payload.publishedSeatingRoomId;
-  const publishedRoomId = publishedPk == null ? undefined : roomIdByPk.get(String(publishedPk)) ?? String(publishedPk);
-  const seatingMeta: Database['seatingMeta'] = publishedRoomId ? { [fallbackCohort]: { publishedRoomId } } : {};
+  if (publishedPk != null && seatingMeta[fallbackCohort] === undefined) {
+    seatingMeta[fallbackCohort] = { publishedRoomId: roomIdByPk.get(String(publishedPk)) ?? String(publishedPk) };
+  }
   return { seatingRooms, seatingAssignments, seatingMeta };
 }
 
@@ -555,6 +610,29 @@ function mapQualExams(payload: Record<string, unknown>): QualExamSchedule[] {
   return out;
 }
 
+/**
+ * 서버는 목록에 사람 **이름**을 넣어 보내지 않는다(칸이 없다). 화면은 이름으로 그리므로
+ * 받은 명단에서 채운다. 이걸 안 하면 이력서 · 기록실 · 마일리지에 계정 id 가 그대로 보인다.
+ */
+function withNames<T extends { userId: string; userDisplayName?: string }>(
+  rows: T[],
+  nameOf: Map<string, string>,
+): T[] {
+  return rows.map((r) => (r.userDisplayName ? r : { ...r, userDisplayName: nameOf.get(r.userId) ?? '' }));
+}
+
+/** 딸린 표를 열쇠별로 묶는다 — 커리큘럼 행 · 구매 상품 · 답안을 붙일 때 */
+function groupBy<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
+  const out = new Map<string, T[]>();
+  for (const row of rows) {
+    const k = key(row);
+    const list = out.get(k);
+    if (list) list.push(row);
+    else out.set(k, [row]);
+  }
+  return out;
+}
+
 export function mapBootstrap(payload: Record<string, unknown>): Database {
   const me = parseJsonb((payload.me ?? {}) as Record<string, unknown>);
   const users = rowsOf(payload, 'users').map(mapUser);
@@ -578,21 +656,70 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
     grouped[question.assessmentId] = list;
   }
   const settingsRow = rowsOf(payload, 'mileageSettings')[0];
+  const nameOf = new Map(users.map((u) => [u.uid, u.displayName]));
+  const studentsOf = new Map<string, number>();
+  for (const u of users) {
+    if (u.role === 'student' && u.isActive) studentsOf.set(u.cohortId, (studentsOf.get(u.cohortId) ?? 0) + 1);
+  }
+
+  // 커리큘럼 행 — 표(curriculum_rows)로 따로 온다
+  const rowsBySheet = groupBy(rowsOf(payload, 'curriculumRows'), (r) => String(r.sheetId ?? r.sheet_id ?? ''));
+  const sheets = rowsOf(payload, 'curriculumSheets').map((s) => {
+    const sheet = mapSheet(s);
+    const rows = rowsBySheet.get(String(s.pk ?? s.id ?? '')) ?? [];
+    return sheet.rows.length > 0 ? sheet : { ...sheet, rows: rows.map(mapCurriculumRow) };
+  });
+
+  // 구매 요청에 담긴 상품
+  const itemsByRequest = groupBy(
+    rowsOf(payload, 'purchaseRequestItems'),
+    (r) => String(r.requestId ?? r.request_id ?? ''),
+  );
+  const purchases = rowsOf(payload, 'purchaseRequests').map((r) => {
+    const request = mapPurchase(r);
+    const items = itemsByRequest.get(String(r.pk ?? r.id ?? '')) ?? [];
+    return request.items.length > 0 ? request : { ...request, items: items.map(mapCartItem) };
+  });
+
+  // 평가 답안 — 문항 번호를 화면 id 로 되돌려 묶는다
+  const answersBySubmission = groupBy(
+    rowsOf(payload, 'assessmentAnswers'),
+    (r) => String(r.submissionId ?? r.submission_id ?? ''),
+  );
+  const questionIdByPk = new Map(
+    rowsOf(payload, 'assessmentQuestions').map((q) => [String(q.pk ?? q.id ?? ''), String(q.id ?? q.pk ?? '')]),
+  );
+  const assessmentSubmissions = rowsOf(payload, 'assessmentSubmissions').map((row) => {
+    const submission = mapAssessmentSubmission(row);
+    if (Object.keys(submission.answers).length > 0) return submission;
+    const answers: AssessmentSubmission['answers'] = {};
+    for (const a of answersBySubmission.get(String(row.pk ?? row.id ?? '')) ?? []) {
+      const key = questionIdByPk.get(String(a.questionId ?? a.question_id ?? '')) ?? String(a.questionId ?? '');
+      answers[key] = {
+        value: (a.value ?? null) as AssessmentAnswerEntry['value'],
+        autoScore: Number(a.autoScore ?? a.auto_score ?? 0),
+        finalScore: Number(a.finalScore ?? a.final_score ?? 0),
+        isCorrect: Boolean(a.isCorrect ?? a.is_correct),
+      };
+    }
+    return { ...submission, answers };
+  });
+
   return {
     ...emptyDb(),
     users,
-    cohorts,
+    cohorts: cohorts.map((c) => (c.studentCount > 0 ? c : { ...c, studentCount: studentsOf.get(c.cohortId) ?? 0 })),
     notices: rowsOf(payload, 'notices').map(mapNotice),
     scheduledNotices: rowsOf(payload, 'scheduledNotices').map(mapScheduled),
     alertPopups: rowsOf(payload, 'alertPopups').map(mapAlert),
     todos: rowsOf(payload, 'todos').map(mapTodo),
-    submissions: rowsOf(payload, 'submissions').map(mapSubmission),
+    submissions: withNames(rowsOf(payload, 'submissions').map(mapSubmission), nameOf),
     attendances: rowsOf(payload, 'attendances').map(mapAttendance),
-    resumes: mapResumes(rowsOf(payload, 'resumes')),
+    resumes: withNames(mapResumes(rowsOf(payload, 'resumes')), nameOf),
     resumeFeedbacks: rowsOf(payload, 'resumeFeedbacks').map(mapResumeFeedback),
     assessments: rowsOf(payload, 'assessments').map(mapAssessment),
     assessmentQuestions: grouped,
-    assessmentSubmissions: rowsOf(payload, 'assessmentSubmissions').map(mapAssessmentSubmission),
+    assessmentSubmissions: withNames(assessmentSubmissions, nameOf),
     inflearnPackages: rowsOf(payload, 'inflearnPackages').map(mapInflearn),
     youtubeRecommendations: rowsOf(payload, 'youtubeRecommendations').map(mapYoutube),
     studySources: rowsOf(payload, 'studySources').map((row) => ({
@@ -622,12 +749,12 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
       files: Array.isArray(row.files) ? (row.files as { path: string; commit: string }[]) : [],
       createdAt: asDate(row.createdAt ?? row.created_at),
     })),
-    curriculumSheets: rowsOf(payload, 'curriculumSheets').map(mapSheet),
+    curriculumSheets: sheets,
     formTasks: rowsOf(payload, 'formTasks').map(mapFormTask),
-    formResponses: rowsOf(payload, 'formResponses').map(mapFormResponse),
+    formResponses: withNames(rowsOf(payload, 'formResponses').map(mapFormResponse), nameOf),
     mileageProducts: rowsOf(payload, 'mileageProducts').map(mapProduct),
-    mileageTransactions: rowsOf(payload, 'mileageTransactions').map(mapTx),
-    purchaseRequests: rowsOf(payload, 'purchaseRequests').map(mapPurchase),
+    mileageTransactions: withNames(rowsOf(payload, 'mileageTransactions').map(mapTx), nameOf),
+    purchaseRequests: withNames(purchases, nameOf),
     mileageSettings: mapMileageSettings(settingsRow),
     ...mapSeating(payload, users, sessionCohort),
     projectTeams: mapTeams(payload, sessionCohort),
@@ -656,6 +783,7 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
       status: (row.status as 'success' | 'error') || 'success',
       createdAt: asDate(row.createdAt ?? row.created_at),
     })),
+    seatPresence: mapSeatPresence(payload),
     alertDismissals: dismissals,
   };
 }

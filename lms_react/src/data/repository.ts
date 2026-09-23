@@ -494,6 +494,7 @@ export function reviewSubmission(
         : s,
     ),
   }));
+  if (!isTestMode()) void runCommand('reviewRecord', { id, status, reviewComment });
 }
 
 // ── 출결 ──────────────────────────────────────────────
@@ -619,6 +620,9 @@ export function setSeatPresence(
     );
     return { seatPresence: [...rest, { dateKey, period, userId, state }] };
   });
+  if (!isTestMode()) {
+    void runCommand('setSeatPresence', { dateKey, period, uid: userId, state, cohortId: apiCohortId() });
+  }
 }
 
 // ── 좌석 배치 ──────────────────────────────────────────
@@ -921,12 +925,24 @@ export function deleteResume(id: string): void {
 export function addResumeFeedback(
   feedback: Omit<ResumeFeedback, 'id' | 'createdAt'>,
 ): void {
+  const id = nextId('fb');
   mutate((db) => ({
-    resumeFeedbacks: [...db.resumeFeedbacks, { ...feedback, id: nextId('fb'), createdAt: new Date() }],
+    resumeFeedbacks: [...db.resumeFeedbacks, { ...feedback, id, createdAt: new Date() }],
     resumes: db.resumes.map((r) =>
       r.id === feedback.resumeId ? { ...r, feedbackCount: r.feedbackCount + 1 } : r,
     ),
   }));
+  if (!isTestMode()) {
+    void runCommand('upsert', {
+      table: 'resume_feedback',
+      action: 'insert',
+      id,
+      resumeId: feedback.resumeId,
+      parentId: feedback.parentId,
+      sectionKey: feedback.sectionKey,
+      content: feedback.content,
+    });
+  }
 }
 
 // ── 성취도 평가 ────────────────────────────────────────
@@ -961,6 +977,20 @@ export function useMyAssessmentSubmission(
 }
 
 export function upsertAssessment(assessment: Assessment, questions: AssessmentQuestion[]): void {
+  if (!isTestMode()) {
+    void runCommand('saveAssessment', {
+      id: assessment.id,
+      cohortId: apiCohortId(),
+      title: assessment.title,
+      tags: assessment.tags,
+      maxScore: assessment.maxScore,
+      startAt: assessment.startAt?.toISOString(),
+      endAt: assessment.endAt?.toISOString(),
+      thumbnailUrl: assessment.thumbnailUrl,
+      published: assessment.published,
+      questions,
+    });
+  }
   mutate((db) => {
     const exists = db.assessments.some((a) => a.id === assessment.id);
     return {
@@ -974,12 +1004,14 @@ export function upsertAssessment(assessment: Assessment, questions: AssessmentQu
 
 export function deleteAssessment(id: string): void {
   mutate((db) => ({ assessments: db.assessments.filter((a) => a.id !== id) }));
+  if (!isTestMode()) void runCommand('upsert', { table: 'assessments', id, action: 'delete' });
 }
 
 export function setAssessmentPublished(id: string, published: boolean): void {
   mutate((db) => ({
     assessments: db.assessments.map((a) => (a.id === id ? { ...a, published } : a)),
   }));
+  if (!isTestMode()) void runCommand('upsert', { table: 'assessments', id, action: 'update', published });
 }
 
 /** 객관식·단답은 제출 즉시 자동 채점한다. Flutter도 같은 규칙이다. */
@@ -1020,6 +1052,15 @@ export function submitAssessment(
       submission,
     ],
   }));
+  if (!isTestMode()) {
+    void runCommand('submitAssessment', {
+      id: submission.id,
+      assessmentId: assessment.id,
+      answers,
+      autoTotalScore: total,
+      totalScore: total,
+    });
+  }
   return submission;
 }
 
@@ -1040,6 +1081,9 @@ export function gradeAssessmentAnswer(
       return { ...s, answers, totalScore, gradedAt: new Date() };
     }),
   }));
+  if (!isTestMode()) {
+    void runCommand('gradeAssessmentAnswer', { submissionId, questionId, score: finalScore });
+  }
 }
 
 // ── 학습실 · 커리큘럼 ──────────────────────────────────
@@ -1096,6 +1140,21 @@ export function useCurriculumSheets() {
 }
 
 export function upsertInflearnPackage(pkg: import('../domain/types').InflearnPackage): void {
+  if (!isTestMode()) {
+    void runCommand('upsert', {
+      table: 'inflearn_packages',
+      id: pkg.id || undefined,
+      cohortId: apiCohortId(),
+      title: pkg.title,
+      subject: pkg.subject,
+      type: pkg.type,
+      summary: pkg.summary,
+      units: pkg.units,
+      courses: pkg.courses,
+      isPublished: pkg.isPublished,
+      sortOrder: pkg.sortOrder,
+    });
+  }
   mutate((db) => {
     const exists = db.inflearnPackages.some((p) => p.id === pkg.id);
     return {
@@ -1108,10 +1167,20 @@ export function upsertInflearnPackage(pkg: import('../domain/types').InflearnPac
 
 export function deleteInflearnPackage(id: string): void {
   mutate((db) => ({ inflearnPackages: db.inflearnPackages.filter((p) => p.id !== id) }));
+  if (!isTestMode()) void runCommand('upsert', { table: 'inflearn_packages', id, action: 'delete' });
 }
 
 export function replaceCurriculumSheet(sheet: import('../domain/types').CurriculumSheet): void {
   mutate(() => ({ curriculumSheets: [sheet] }));
+  if (!isTestMode()) {
+    void runCommand('replaceCurriculumSheet', {
+      id: sheet.id,
+      cohortId: apiCohortId(),
+      title: sheet.title,
+      fileName: sheet.fileName,
+      rows: sheet.rows,
+    });
+  }
 }
 
 // ── 설문 · 제출 ────────────────────────────────────────
@@ -1127,6 +1196,19 @@ export function useFormResponses(taskId?: string) {
 }
 
 export function upsertFormTask(task: FormTask): void {
+  if (!isTestMode()) {
+    void runCommand('upsert', {
+      table: 'form_tasks',
+      id: task.id || undefined,
+      cohortId: apiCohortId(),
+      title: task.title,
+      description: task.description,
+      formUrl: task.formUrl,
+      notionGuideUrl: task.notionGuideUrl,
+      dueAt: task.dueAt?.toISOString(),
+      published: task.published,
+    });
+  }
   mutate((db) => {
     const exists = db.formTasks.some((t) => t.id === task.id);
     return {
@@ -1139,6 +1221,7 @@ export function upsertFormTask(task: FormTask): void {
 
 export function deleteFormTask(id: string): void {
   mutate((db) => ({ formTasks: db.formTasks.filter((t) => t.id !== id) }));
+  if (!isTestMode()) void runCommand('upsert', { table: 'form_tasks', id, action: 'delete' });
 }
 
 export function markFormResponded(taskId: string, user: User): void {
@@ -1159,6 +1242,7 @@ export function markFormResponded(taskId: string, user: User): void {
       t.id === taskId ? { ...t, responseCount: t.responseCount + 1 } : t,
     ),
   }));
+  if (!isTestMode()) void runCommand('markFormResponded', { taskId, uid: user.uid, source: 'manual' });
 }
 
 // ── 마일리지 ───────────────────────────────────────────
@@ -1184,6 +1268,21 @@ export function useMileageSettings() {
 }
 
 export function upsertMileageProduct(product: MileageProduct): void {
+  if (!isTestMode()) {
+    void runCommand('upsert', {
+      table: 'mileage_products',
+      id: product.id || undefined,
+      cohortId: apiCohortId(),
+      name: product.name,
+      description: product.description,
+      imageUrl: product.imageUrl,
+      category: product.category,
+      pricingType: product.pricingType,
+      fixedPrice: product.fixedPrice ?? null,
+      isActive: product.isActive,
+      sortOrder: product.sortOrder,
+    });
+  }
   mutate((db) => {
     const exists = db.mileageProducts.some((p) => p.id === product.id);
     return {
@@ -1196,6 +1295,7 @@ export function upsertMileageProduct(product: MileageProduct): void {
 
 export function deleteMileageProduct(id: string): void {
   mutate((db) => ({ mileageProducts: db.mileageProducts.filter((p) => p.id !== id) }));
+  if (!isTestMode()) void runCommand('upsert', { table: 'mileage_products', id, action: 'delete' });
 }
 
 export function createPurchaseRequest(request: Omit<PurchaseRequest, 'id' | 'createdAt'>): string {
@@ -1203,6 +1303,15 @@ export function createPurchaseRequest(request: Omit<PurchaseRequest, 'id' | 'cre
   mutate((db) => ({
     purchaseRequests: [{ ...request, id, createdAt: new Date() }, ...db.purchaseRequests],
   }));
+  if (!isTestMode()) {
+    void runCommand('savePurchaseRequest', {
+      id,
+      cohortId: apiCohortId(),
+      items: request.items,
+      totalAmount: request.totalAmount,
+      status: request.status,
+    });
+  }
   return id;
 }
 
@@ -1244,6 +1353,7 @@ export function reviewPurchaseRequest(
         : db.mileageTransactions,
     };
   });
+  if (!isTestMode()) void runCommand('reviewPurchaseRequest', { id, status, managerMemo: reviewComment });
 }
 
 export function adjustMileage(
@@ -1282,6 +1392,13 @@ export function updateMileageSettings(patch: Partial<import('../domain/types').M
   mutate((db) => ({
     mileageSettings: { ...db.mileageSettings, ...patch, updatedAt: new Date() },
   }));
+  if (isTestMode()) return;
+  const next = currentDb().mileageSettings;
+  void runCommand('saveMileageSettings', {
+    cohortId: apiCohortId(),
+    categoryLimits: next.categoryLimits,
+    accrualRules: next.accrualRules,
+  });
 }
 
 // ── 자격 시험 ──────────────────────────────────────────

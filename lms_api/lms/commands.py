@@ -211,9 +211,36 @@ def _table_columns(cur, table: str) -> set[str]:
     return {r[0] for r in cur.fetchall()}
 
 
+def _array_columns(cur, table: str) -> set[str]:
+    """text[] 같은 배열 칸 — 목록을 JSON 글자로 바꾸면 안 되고 그대로 넣어야 한다."""
+    cur.execute(
+        """SELECT column_name FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = %s AND data_type = 'ARRAY'""",
+        [table],
+    )
+    return {r[0] for r in cur.fetchall()}
+
+
+# 화면 id(legacy_id)로 오는 관계 칸 → 그 표의 번호. parent_id 는 같은 표를 가리킨다.
+_REF_TABLES = {
+    "resume_id": "resumes",
+    "assessment_id": "assessments",
+    "submission_id": "assessment_submissions",
+    "question_id": "assessment_questions",
+    "request_id": "purchase_requests",
+    "product_id": "mileage_products",
+    "task_id": "form_tasks",
+    "source_id": "study_sources",
+    "sheet_id": "curriculum_sheets",
+    "room_id": "seating_rooms",
+    "parent_id": "",
+}
+
+
 def _prepare_row(cur, user, table: str, payload: dict, columns: set[str]) -> dict:
     import json
 
+    arrays = _array_columns(cur, table)
     data = {}
     skip = {"id", "pk", "legacy_id"}
     for key, value in payload.items():
@@ -232,6 +259,11 @@ def _prepare_row(cur, user, table: str, payload: dict, columns: set[str]) -> dic
                 if resolved:
                     data[col] = resolved
                     continue
+        if col in _REF_TABLES and value not in (None, "") and not str(value).isdigit():
+            ref = resolve_row(cur, _REF_TABLES[col] if col != "parent_id" else table, value)
+            if ref:
+                data[col] = ref["id"]
+            continue
         if col == "cohort_id" and value not in (None, ""):
             resolved = resolve_cohort(cur, value, user)
             if resolved:
@@ -239,7 +271,9 @@ def _prepare_row(cur, user, table: str, payload: dict, columns: set[str]) -> dic
                 continue
         if col not in columns or col in skip:
             continue
-        if isinstance(value, (dict, list)):
+        if isinstance(value, list) and col in arrays:
+            data[col] = value
+        elif isinstance(value, (dict, list)):
             data[col] = json.dumps(value)
         else:
             data[col] = value
@@ -295,12 +329,14 @@ def op_upsert_sql(cur, user, p):
     data = _prepare_row(cur, user, table, p, columns)
     row_id = p.get("id")
     updating = bool(row_id) and action != "insert"
+    row = resolve_row(cur, table, row_id) if updating else None
+    if updating and not row:
+        updating = False
     if updating:
-        row = resolve_row(cur, table, row_id)
         if not row:
             raise KeyError(table)
         if not data:
-            return {"id": str(row["id"])}
+            return {"id": str(row.get("legacy_id") or row["id"])}
         if "updated_at" in columns:
             data["updated_at"] = None
         assignments = []
@@ -313,7 +349,8 @@ def op_upsert_sql(cur, user, p):
                 args.append(value)
         args.append(row["id"])
         cur.execute(f"UPDATE {table} SET {', '.join(assignments)} WHERE id = %s", args)
-        return {"id": str(row["id"])}
+        # 화면이 쥔 id 를 그대로 돌려준다(번호를 돌려주면 화면이 다른 행으로 본다)
+        return {"id": str(row.get("legacy_id") or row["id"])}
 
     if "created_at" in columns:
         data.pop("created_at", None)
@@ -649,3 +686,8 @@ OPS.update(SEATING_OPS)
 from lms.practice_service import PRACTICE_OPS  # noqa: E402
 
 OPS.update(PRACTICE_OPS)
+
+# 기록실 · 평가 · 설문 · 마일리지 · 학습실 · 자리 확인 쓰기 — 여러 표를 함께 고치는 것들
+from lms.content_commands import CONTENT_OPS  # noqa: E402
+
+OPS.update(CONTENT_OPS)

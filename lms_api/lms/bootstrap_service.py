@@ -99,12 +99,20 @@ def build_bootstrap(user: dict) -> dict:
         products = q("SELECT * FROM mileage_products WHERE cohort_id = ANY(%s)", [cohort_ids])
         txs = q("SELECT * FROM mileage_transactions WHERE cohort_id = ANY(%s)", [cohort_ids])
         purchases = q("SELECT * FROM purchase_requests WHERE cohort_id = ANY(%s)", [cohort_ids])
+        purchase_items = q(
+            "SELECT * FROM purchase_request_items WHERE request_id = ANY(%s)",
+            [[r["id"] for r in purchases] or [-1]],
+        )
         forms = q("SELECT * FROM form_tasks WHERE cohort_id = ANY(%s)", [cohort_ids])
         inflearn = q("SELECT * FROM inflearn_packages WHERE cohort_id = ANY(%s)", [cohort_ids])
         youtube = q("SELECT * FROM youtube_recommendations WHERE cohort_id = ANY(%s)", [cohort_ids])
         sources = q("SELECT * FROM study_sources WHERE cohort_id = ANY(%s)", [cohort_ids])
         notes = q("SELECT * FROM study_notes WHERE user_id = %s", [user["id"]])
         sheets = q("SELECT * FROM curriculum_sheets WHERE cohort_id = ANY(%s)", [cohort_ids])
+        sheet_ids = [s["id"] for s in sheets] or [-1]
+        curriculum_rows = q(
+            'SELECT * FROM curriculum_rows WHERE sheet_id = ANY(%s) ORDER BY "order"', [sheet_ids]
+        )
         mileage_settings = q("SELECT * FROM mileage_settings WHERE cohort_id = ANY(%s)", [cohort_ids])
         cache = q("SELECT * FROM system_cache")
         rooms = q("SELECT * FROM seating_rooms WHERE cohort_id = ANY(%s)", [cohort_ids])
@@ -134,11 +142,20 @@ def build_bootstrap(user: dict) -> dict:
             "SELECT * FROM form_responses WHERE task_id IN (SELECT id FROM form_tasks WHERE cohort_id = ANY(%s))",
             [cohort_ids],
         )
+        roll_calls = q("SELECT * FROM roll_calls WHERE cohort_id = ANY(%s)", [cohort_ids])
+        roll_entries = q(
+            "SELECT * FROM roll_call_entries WHERE roll_call_id = ANY(%s)",
+            [[r["id"] for r in roll_calls] or [-1]],
+        )
         assess_subs = q(
             """SELECT s.* FROM assessment_submissions s
                JOIN assessments a ON a.id = s.assessment_id
                WHERE a.cohort_id = ANY(%s)""",
             [cohort_ids],
+        )
+        assess_answers = q(
+            "SELECT * FROM assessment_answers WHERE submission_id = ANY(%s)",
+            [[s["id"] for s in assess_subs] or [-1]],
         )
         logs = (
             q("SELECT * FROM ai_generation_logs WHERE cohort_id = ANY(%s)", [cohort_ids])
@@ -147,8 +164,16 @@ def build_bootstrap(user: dict) -> dict:
         )
         published = None
         seating = None
-        if cohorts:
-            room_id = cohorts[0].get("published_seating_room_id")
+        published_by_cohort = {
+            c["code"]: str(c["published_seating_room_id"])
+            for c in cohorts
+            if c.get("published_seating_room_id")
+        }
+        mine = next((c for c in cohorts if c["id"] == user.get("cohort_id")), None) or (
+            cohorts[0] if cohorts else None
+        )
+        if mine:
+            room_id = mine.get("published_seating_room_id")
             if room_id:
                 assignment = next((a for a in assignments if a["room_id"] == room_id), None)
                 if user["role"] in ("admin", "instructor") or (
@@ -186,9 +211,11 @@ def build_bootstrap(user: dict) -> dict:
         "assessments": pub(assessments),
         "assessmentQuestions": pub(questions),
         "assessmentSubmissions": pub(assess_subs),
+        "assessmentAnswers": pub(assess_answers),
         "mileageProducts": pub(products),
         "mileageTransactions": pub(txs),
         "purchaseRequests": pub(purchases),
+        "purchaseRequestItems": pub(purchase_items),
         "formTasks": pub(forms),
         "formResponses": pub(form_responses),
         "inflearnPackages": pub(inflearn),
@@ -196,6 +223,7 @@ def build_bootstrap(user: dict) -> dict:
         "studySources": pub(sources),
         "studyNotes": pub(notes),
         "curriculumSheets": pub(sheets),
+        "curriculumRows": pub(curriculum_rows),
         "curriculumPdfs": pub(pdfs),
         "mileageSettings": pub(mileage_settings),
         "mileageCartItems": pub(cart),
@@ -216,6 +244,9 @@ def build_bootstrap(user: dict) -> dict:
         "weeklyProgress": pub(progress),
         "missionProgress": pub(missions),
         "aiGenerationLogs": pub(logs),
+        "rollCalls": pub(roll_calls),
+        "rollCallEntries": pub(roll_entries),
         "publishedSeatingRoomId": published,
+        "publishedSeatingRooms": published_by_cohort,
         "seating": seating,
     }
