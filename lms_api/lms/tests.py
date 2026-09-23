@@ -4,6 +4,7 @@ import os
 from collections import namedtuple
 
 from django.test import SimpleTestCase
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 from lms.api import ChatIn, _data, api, chat
@@ -12,6 +13,26 @@ from lms.commands import (
     _validate_record_submission_write, _validate_resume_write, op_add_todo,
     op_delete_todo, op_toggle_todo, op_upsert_sql,
 )
+from lms.services import sync_notice_vector
+
+
+class NoticeVectorCountTests(TestCase):
+    @patch("lms.services.connection.cursor")
+    @patch("lms.services.notice_vectors.upsert_notice_vectors", return_value=2)
+    def test_upsert_persists_chunk_count(self, upsert, cursor):
+        count = sync_notice_vector("cohort_34", 17, {"title": "Test", "content": "Text"})
+        self.assertEqual(count, 2)
+        upsert.assert_called_once()
+        cursor.return_value.__enter__.return_value.execute.assert_called_once_with(
+            "UPDATE notices SET vector_chunk_count = %s WHERE id = %s", [2, 17]
+        )
+
+    @patch("lms.services.connection.cursor")
+    @patch("lms.services.notice_vectors.delete_notice_vectors")
+    def test_delete_only_removes_existing_vectors(self, delete, cursor):
+        sync_notice_vector("cohort_34", 17, None, previous_chunk_count=2)
+        delete.assert_called_once_with("cohort_34", 17, 2)
+        cursor.assert_not_called()
 
 
 class JsonBodyContractTests(SimpleTestCase):
