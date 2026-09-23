@@ -86,9 +86,10 @@ def _llm() -> ChatOpenAI:
                       model_kwargs={"response_format": {"type": "json_object"}})
 
 
-def _invoke(system: str, human: str) -> str:
-    """테스트가 바꿔 끼운다"""
-    return response_text(_llm().invoke([SystemMessage(content=system), HumanMessage(content=human)]))
+def _invoke(system: str, human: str, tags: list[str] | None = None) -> str:
+    """테스트가 바꿔 끼운다. LangSmith 에는 practice_tutor 로 찍힌다 — tags 로 셀 종류 · 힌트 단계를 골라 본다"""
+    config = {"run_name": "practice_tutor", "tags": tags or []}
+    return response_text(_llm().invoke([SystemMessage(content=system), HumanMessage(content=human)], config=config))
 
 
 def is_trivial(question: str) -> bool:
@@ -153,7 +154,7 @@ def ask(payload: dict[str, Any]) -> dict[str, Any]:
         or "(없음)",
         question=question,
     )
-    raw = _invoke(system, human)
+    raw = _invoke(system, human, tags=[mode, f"hint{level}"] if mode == "problem" else [mode])
     try:
         data = json.loads(raw)
         if not isinstance(data, dict):
