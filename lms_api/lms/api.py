@@ -800,13 +800,25 @@ def job_posting(request, job_id: str):
         cur.execute(
             """SELECT job_id, source, source_url, company, title, description, region,
                       career_type, min_career_years, employment_type, education, deadline, status,
-                      required_skills, preferred_skills, body_is_image
+                      required_skills, preferred_skills, body_is_image, group_key
                FROM jobs.jobs WHERE job_id = %s""",
             [job_id],
         )
         row = _one(cur)
+        if row and row["group_key"]:
+            # 같은 공고가 사람인 · 잡코리아에 함께 올라오면 수집기가 group_key 로 묶어 둔다.
+            # 사이트마다 원문 링크를 준다. 사이트에서 내려간(REMOVED) 쪽은 링크가 죽어 뺀다
+            cur.execute(
+                """SELECT job_id, source, source_url, status FROM jobs.jobs
+                   WHERE group_key = %s AND status <> 'REMOVED'
+                   ORDER BY (job_id = %s) DESC, (status = 'OPEN') DESC, source""",
+                [row["group_key"], job_id],
+            )
+            row["links"] = _dicts(cur)
     if not row:
         return Response({"detail": "공고를 찾을 수 없습니다."}, status=404)
+    row.setdefault("links", [{k: row[k] for k in ("job_id", "source", "source_url", "status")}])
+    del row["group_key"]
     for key in ("required_skills", "preferred_skills"):
         if isinstance(row[key], str):
             row[key] = json.loads(row[key] or "[]")

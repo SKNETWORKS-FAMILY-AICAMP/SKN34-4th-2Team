@@ -57,10 +57,24 @@
   font-size: 14px;
 }
 
-.posting__head .btn,
-.posting__foot .btn {
+/* 사이트마다 원문 링크 — 같은 공고가 사람인 · 잡코리아에 함께 있으면 둘 */
+.posting__links {
+  display: flex;
   flex: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.posting__links .btn {
   text-decoration: none;
+}
+
+.posting__link-closed {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning) 20%, transparent);
+  font-size: 11px;
 }
 
 .posting__closed {
@@ -178,15 +192,8 @@
 }
 
 .posting__foot {
-  display: flex;
-  align-items: center;
-  gap: 16px;
   padding-top: 20px;
   border-top: 1px solid var(--border);
-}
-
-.posting__foot span {
-  flex: 1;
   color: var(--text-secondary);
   font-size: 12px;
 }
@@ -196,8 +203,7 @@
     padding: 20px 16px 32px;
   }
 
-  .posting__head,
-  .posting__foot {
+  .posting__head {
     flex-direction: column;
     align-items: stretch;
   }

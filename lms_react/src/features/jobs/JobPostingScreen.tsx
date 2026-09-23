@@ -33,6 +33,8 @@ interface Posting {
   required_skills: string[];
   preferred_skills: string[];
   body_is_image: boolean;
+  /** 같은 공고가 여러 사이트에 올라온 경우 사이트마다 하나. 지금 공고가 맨 앞 */
+  links: { job_id: string; source: string; source_url: string; status: string }[];
 }
 
 const SOURCE_LABEL: Record<string, string> = { SARAMIN_POC: '사람인', JOBKOREA_POC: '잡코리아' };
@@ -95,14 +97,10 @@ export function JobPostingScreen() {
   }
 
   const source = SOURCE_LABEL[posting.source] ?? posting.source;
-  const link = posting.source_url.startsWith('http') ? posting.source_url : '';
   const closed = posting.status !== 'OPEN';
-  const openLink = link !== '' && (
-    <a className="btn btn--filled btn--md" href={link} target="_blank" rel="noreferrer">
-      <Icon name="open_in_new" size={16} />
-      원문 링크 열기
-    </a>
-  );
+  // 같은 공고가 사람인 · 잡코리아에 함께 있으면 사이트마다 버튼을 둔다. 지금 공고의 사이트가 앞
+  const links = (posting.links ?? []).filter((l) => l.source_url.startsWith('http'));
+  const sources = [...new Set(links.map((l) => SOURCE_LABEL[l.source] ?? l.source))];
 
   return (
     <main className="posting">
@@ -112,7 +110,23 @@ export function JobPostingScreen() {
           <h1>{posting.title}</h1>
           <p>{[posting.company, posting.region].filter((v) => v !== '').join(' · ')}</p>
         </div>
-        {openLink}
+        {links.length > 0 && (
+          <div className="posting__links">
+            {links.map((l, i) => (
+              <a
+                key={l.job_id}
+                className={`btn btn--md ${i === 0 ? 'btn--filled' : 'btn--outline'}`}
+                href={l.source_url}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Icon name="open_in_new" size={16} />
+                {links.length === 1 ? '원문 링크 열기' : `${SOURCE_LABEL[l.source] ?? l.source}에서 열기`}
+                {l.status !== 'OPEN' && <span className="posting__link-closed">마감</span>}
+              </a>
+            ))}
+          </div>
+        )}
       </header>
 
       {closed && (
@@ -179,8 +193,7 @@ export function JobPostingScreen() {
       )}
 
       <footer className="posting__foot">
-        <span>{source}에서 수집한 원문입니다. 지원은 원문 링크에서 진행해 주세요.</span>
-        {openLink}
+        {(sources.length > 0 ? sources : [source]).join(' · ')}에서 수집한 원문입니다. 지원은 위의 원문 링크에서 진행해 주세요.
       </footer>
     </main>
   );
