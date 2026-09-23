@@ -32,7 +32,7 @@ React 데모 모드 테스트만 통과한 항목은 사용자 E2E가 아니다.
 | 19 | 첨삭 적용/undo | CODE EXISTS / NOT VERIFIED | 기존 로직 유지. 실제 적용/되돌리기 E2E 미검증. |
 | 20 | 채용공고 PostgreSQL 저장 | PARTIAL | 기준 DB에 `jobs.jobs`를 포함한 `jobs` 스키마 테이블 8개가 있음. `jobs.jobs`·`jobs.runs`는 현재 0건. 스키마 존재만 확인했으며 크롤러 저장·React 조회·추천 E2E는 미검증. |
 | 21 | 채용공고 수집 | PARTIAL | 수집 코드 존재. 전체 크롤링은 비용/시간 및 담당자 검토 때문에 실행하지 않음. 공유 파일 라우팅 변경은 미커밋 초안으로 유지. |
-| 22 | 채용 추천 | CODE EXISTS / NOT VERIFIED | AI 코드 존재. 실제 공고 저장 상태가 불명확해 추천 E2E 미검증. |
+| 22 | 채용 추천 | CODE EXISTS / NOT VERIFIED | React `JobRecommendationRun`은 현재 실제 API 대신 고정된 가상 공고 3건을 표시한다. AI `/api/v1/jobs/recommend`는 별도 존재하지만 React→Django 라우트가 없고 기준 DB `jobs.jobs`는 0건. 실제 추천 E2E 미검증이며 현재 화면 결과를 서비스 추천으로 취급하면 안 된다. |
 | 23 | 정책/공지/프로젝트 RAG | PARTIAL | Pinecone `smoke_search('cohort_34')` 실제 3개 결과 확인; 공지 projection은 별도 검증. 정책·프로젝트 전체 답변 E2E 미검증. |
 | 24 | 연습/복습 문제 | CODE EXISTS / NOT VERIFIED | `practice_*` Django 테이블 존재. 생성→풀이→신고·검토 E2E 미검증. |
 | 25 | React 화면과 Django API 실제 연결 | PARTIAL | 실제 Chrome에서 관리자 및 임시 학생 각각 React 로그인→Django API 200→RDS bootstrap 200→역할별 대시보드 표시. 전체 화면 계약은 미검증. |
@@ -60,6 +60,10 @@ React 데모 모드 테스트만 통과한 항목은 사용자 E2E가 아니다.
   값으로 돌아가면서 저장 완료를 조기 표시했다. 이력서별 쓰기 순서를 보장하고
   저장 API 응답 뒤에만 완료를 표시하도록 수정했다. 실제 브라우저와 RDS에서
   제목·수정 횟수를 확인했고 임시 데이터는 삭제했다.
+- AI 통합 서버는 전용 `.venv-ai`에서 실행해 `/health` 200을 확인했다. 같은
+  AI 환경의 PostgreSQL 드라이버로 기준 RDS의 `current_database()`와
+  `jobs.jobs` 0건도 읽기 전용으로 확인했다. 헬스·DB 연결만으로 챗봇이나
+  채용 추천의 실제 응답을 검증했다고 보지 않는다. 서버는 확인 후 종료했다.
 - FastAPI AI 개별 생성·첨삭·추천 요청은 이번 범위에서 실제 성공 확인이 없다.
   이전의 proxy 단위 테스트와 실제 AI E2E를 혼동하지 않는다.
 
@@ -70,6 +74,8 @@ React 데모 모드 테스트만 통과한 항목은 사용자 E2E가 아니다.
 2. 채용공고 저장소는 별도 `jobs` 스키마에 있으며 기준 DB의 `jobs.jobs`는 0건이다.
    크롤러 적재 경로와 공유 파일 소비자는 크롤링 담당자가 확인해야 한다. 기존
    수집 코드는 되돌리지 않았다.
+   React 추천 패널은 고정된 가상 공고 3건을 반환하므로 실서비스 노출 전
+   Django proxy→기존 FastAPI 추천 API 연결 및 실공고 적재 검증이 필요하다.
 3. 학생 챗봇 직접 AI 경로의 Firebase ID token, 이력서 AI의 실제 실행 경로에
    남은 Firebase Auth/Firestore helper를 구별해 최소 교체해야 한다.
    `users.firebase_uid`는 legacy identifier이므로 제거 대상이 아니다.
