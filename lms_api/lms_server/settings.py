@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from urllib.parse import urlparse
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPO_DIR = BASE_DIR.parent
 
@@ -59,17 +61,35 @@ TEMPLATES = [
 ]
 WSGI_APPLICATION = "lms_server.wsgi.application"
 
-_url = urlparse(os.environ.get("DATABASE_URL", "postgresql://postgres@127.0.0.1:5432/lms"))
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": (_url.path or "/lms").lstrip("/"),
-        "USER": _url.username or "postgres",
-        "PASSWORD": _url.password or "",
-        "HOST": _url.hostname or "127.0.0.1",
-        "PORT": str(_url.port or 5432),
+if os.environ.get("DB_HOST"):
+    # DB_HOST opts in to discrete DB_* settings; never mix partial RDS settings
+    # with the local DATABASE_URL fallback.
+    missing = [key for key in ("DB_NAME", "DB_USER", "DB_PASSWORD") if not os.environ.get(key)]
+    if missing:
+        raise ImproperlyConfigured(f"DB_HOST is set, but these settings are missing: {', '.join(missing)}")
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ["DB_NAME"],
+            "USER": os.environ["DB_USER"],
+            "PASSWORD": os.environ["DB_PASSWORD"],
+            "HOST": os.environ["DB_HOST"],
+            "PORT": os.environ.get("DB_PORT", "5432"),
+            "OPTIONS": {"sslmode": os.environ.get("DB_SSLMODE", "require")},
+        }
     }
-}
+else:
+    _url = urlparse(os.environ.get("DATABASE_URL", "postgresql://postgres@127.0.0.1:5432/lms"))
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": (_url.path or "/lms").lstrip("/"),
+            "USER": _url.username or "postgres",
+            "PASSWORD": _url.password or "",
+            "HOST": _url.hostname or "127.0.0.1",
+            "PORT": str(_url.port or 5432),
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = []
 LANGUAGE_CODE = "ko-kr"
