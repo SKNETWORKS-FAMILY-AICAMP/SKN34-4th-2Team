@@ -831,3 +831,78 @@ button.chip {
   background: color-mix(in srgb, var(--primary) 8%, transparent);
   font-size: 13px;
 }
+
+/* ── 기록 종류 고르기 · 블로그 주차 ── */
+.type-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.type-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+}
+
+.type-row:hover {
+  border-color: var(--primary);
+}
+
+.type-row__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+
+.type-row__text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.week-picker {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.week-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 0 0 auto;
+  width: 104px;
+  padding: 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.week-chip--on {
+  border: 1.5px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.week-chip:disabled {
+  background: var(--surface-variant);
+  color: var(--text-hint);
+  cursor: not-allowed;
+}

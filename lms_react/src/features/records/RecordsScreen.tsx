@@ -5,6 +5,7 @@ import { RoutePaths } from '../../app/routePaths';
 import {
   createSubmission,
   reviewSubmission,
+  useCohorts,
   useMySubmissions,
   useSubmissions,
 } from '../../data/repository';
@@ -380,8 +381,22 @@ function SubmissionDetailDialog({
 }
 
 /** 기록 종류 고르기 — record_type_select_screen.dart */
+/**
+ * 기록 종류 고르기 — record_type_select_screen.dart
+ *
+ * 원본 순서 그대로: 학습인증 · 프리코스 퀴즈 · 자격증 · 스터디 · 블로그.
+ * 종류마다 아이콘이 붙고, 맨 밑에 「이전」이 있다.
+ */
+const RECORD_TYPE_ORDER: { type: RecordType; icon: string }[] = [
+  { type: 'studyCert', icon: 'menu_book' },
+  { type: 'precourseQuiz', icon: 'quiz' },
+  { type: 'certification', icon: 'workspace_premium' },
+  { type: 'study', icon: 'groups' },
+  { type: 'blog', icon: 'article' },
+];
+
 export function RecordTypeSelectScreen() {
-  const types: RecordType[] = ['certification', 'study', 'blog', 'studyCert', 'precourseQuiz'];
+  const navigate = useNavigate();
   const paths: Record<RecordType, string> = {
     certification: RoutePaths.recordsCreateCert,
     study: RoutePaths.recordsCreateStudy,
@@ -392,68 +407,179 @@ export function RecordTypeSelectScreen() {
 
   return (
     <div className="screen__inner">
-      <PageHeader title="기록 제출" description="제출할 기록의 종류를 고르세요." />
-      <div className="grid grid--2">
-        {types.map((type) => (
-          <Link key={type} to={paths[type]} className="type-card">
-            <strong>{RecordTypeLabels[type]}</strong>
-            <p className="muted">{RecordTypeDescriptions[type]}</p>
+      <PageHeader title="새로운 기록 추가" description="제출할 기록의 종류를 고르세요." />
+      <div className="type-list">
+        {RECORD_TYPE_ORDER.map(({ type, icon }) => (
+          <Link key={type} to={paths[type]} className="type-row">
+            <span className="type-row__icon">
+              <Icon name={icon} />
+            </span>
+            <span className="type-row__text">
+              <strong>{RecordTypeLabels[type]}</strong>
+              <span className="muted">{RecordTypeDescriptions[type]}</span>
+            </span>
+            <Icon name="chevron_right" />
           </Link>
         ))}
       </div>
+      <Row>
+        <Spacer />
+        <Button variant="outline" onClick={() => navigate(RoutePaths.records)}>
+          이전
+        </Button>
+      </Row>
     </div>
   );
+}
+
+/** 블로그 주차 — generateBlogWeeks(record_types.dart). 기수 시작일부터 7일씩 12주 */
+interface BlogWeek {
+  weekNumber: number;
+  label: string;
+}
+
+function blogWeeks(campStart: Date | undefined, count = 12): BlogWeek[] {
+  const start = campStart ?? new Date(new Date().getFullYear(), 5, 1);
+  return Array.from({ length: count }, (_, i) => {
+    const from = new Date(start);
+    from.setDate(from.getDate() + i * 7);
+    const to = new Date(from);
+    to.setDate(to.getDate() + 6);
+    return {
+      weekNumber: i + 1,
+      label: `${i + 1}주차 ${from.getMonth() + 1}/${from.getDate()}~${to.getMonth() + 1}/${to.getDate()}`,
+    };
+  });
 }
 
 /**
  * 기록 제출 폼 — record_*_form_screen.dart 다섯 화면.
  *
- * Dart에서는 화면 파일이 다섯이었지만 채우는 칸만 달랐다. 종류별 칸만 갈아
- * 끼우고 제출 흐름은 한 곳에 둔다.
+ * Dart 에서는 화면 파일이 다섯이었다. 종류마다 받는 칸과 지키는 규칙이 다르므로
+ * 그 칸 · 규칙을 그대로 옮긴다(공통 제목 한 칸으로 뭉뚱그리지 않는다).
  */
 export function RecordFormScreen({ type }: { type: RecordType }) {
   const user = useCurrentUser();
   const navigate = useNavigate();
+  const cohort = useCohorts().find((c) => c.cohortId === user.cohortId);
+  const myRecords = useMySubmissions(user.uid);
+
   const [title, setTitle] = useState('');
   const [certType, setCertType] = useState<string>(CertKinds[0]);
   const [link, setLink] = useState('');
-  const [weekNumber, setWeekNumber] = useState(1);
+  const [weekNumber, setWeekNumber] = useState<number | undefined>(undefined);
   const [isTeamStudy, setTeamStudy] = useState(true);
+  const [learningDate, setLearningDate] = useState('');
   const [learningContent, setLearningContent] = useState('');
+  const [startAt, setStartAt] = useState('');
+  const [endAt, setEndAt] = useState('');
   const [quizScore, setQuizScore] = useState('');
   const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  const weeks = blogWeeks(cohort?.startDate);
+  // 승인된 주차는 다시 낼 수 없다
+  const approvedWeeks = new Set(
+    myRecords.filter((s) => s.type === 'blog' && s.status === 'approved' && s.weekNumber !== undefined).map((s) => s.weekNumber),
+  );
+  const fileUrls = () => evidenceFiles.map((file) => `demo://${encodeURIComponent(file.name)}`);
+
   const submit = () => {
-    if (title.trim() === '') {
-      setError('제목을 입력해 주세요.');
-      return;
-    }
-    if (type === 'blog' && link.trim() === '') {
-      setError('블로그 링크를 입력해 주세요.');
-      return;
-    }
-    createSubmission({
+    const base = {
       userId: user.uid,
       userDisplayName: user.displayName,
-      title: title.trim(),
       type,
-      status: 'pending',
-      certType: type === 'certification' ? certType : undefined,
-      link: type === 'blog' ? link.trim() : undefined,
-      weekNumber: type === 'blog' || type === 'study' ? weekNumber : undefined,
-      weekLabel: type === 'blog' || type === 'study' ? `${weekNumber}주차` : undefined,
-      isTeamStudy: type === 'study' ? isTeamStudy : undefined,
-      learningContent: type === 'studyCert' ? learningContent.trim() : undefined,
-      learningDate: type === 'studyCert' ? new Date() : undefined,
-      quizScore: type === 'precourseQuiz' ? Number(quizScore) : undefined,
-      // 실제 Storage 연결 전까지 파일명만 데모 URL로 보존한다.
-      fileUrls: evidenceFiles.map((file) => `demo://${encodeURIComponent(file.name)}`),
+      status: 'pending' as const,
       mileageGranted: false,
       mileageAmount: 0,
-    });
+    };
+
+    if (type === 'studyCert') {
+      if (learningDate === '') return setError('학습일자를 선택해 주세요.');
+      if (learningContent.trim() === '') return setError('학습한 내용을 입력해 주세요.');
+      if (evidenceFiles.length === 0) return setError('날짜·시간이 보이는 인증 사진을 첨부해 주세요.');
+      createSubmission({
+        ...base,
+        title: `학습인증 ${learningDate}`,
+        learningDate: new Date(learningDate),
+        learningContent: learningContent.trim(),
+        fileUrls: fileUrls(),
+      });
+    } else if (type === 'precourseQuiz') {
+      const score = Number(quizScore.trim());
+      if (title.trim() === '') return setError('회차 / 제목을 입력해 주세요.');
+      if (!Number.isFinite(score) || score < 0 || score > 100) return setError('점수는 0~100 사이로 입력해 주세요.');
+      if (evidenceFiles.length === 0) return setError('점수 화면 캡처 등 증빙을 첨부해 주세요.');
+      createSubmission({ ...base, title: title.trim(), quizScore: score, fileUrls: fileUrls() });
+    } else if (type === 'certification') {
+      if (title.trim() === '') return setError('자격증 제목을 입력해 주세요.');
+      if (evidenceFiles.length === 0) return setError('증빙 이미지를 첨부해 주세요.');
+      createSubmission({ ...base, title: title.trim(), certType, fileUrls: fileUrls() });
+    } else if (type === 'study') {
+      if (title.trim() === '') return setError('스터디 제목을 입력해 주세요.');
+      if (startAt === '' || endAt === '') return setError('시작일과 종료일을 선택해 주세요.');
+      if (evidenceFiles.length === 0) return setError('증빙 이미지를 1개 이상 첨부해 주세요.');
+      if (!isTeamStudy) return setError('개인 스터디는 마일리지 미션 대상이 아닙니다. 팀 스터디만 인정됩니다.');
+      createSubmission({
+        ...base,
+        title: title.trim(),
+        startAt: new Date(startAt),
+        endAt: new Date(endAt),
+        isTeamStudy: true,
+        fileUrls: fileUrls(),
+      });
+    } else {
+      const week = weeks.find((w) => w.weekNumber === weekNumber);
+      if (week === undefined) return setError('주차를 선택해 주세요.');
+      const url = link.trim();
+      if (url === '') return setError('블로그 URL을 입력해 주세요.');
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        return setError('http:// 또는 https:// 로 시작하는 URL을 입력해 주세요.');
+      }
+      createSubmission({
+        ...base,
+        title: `${week.label} 블로그`,
+        weekNumber: week.weekNumber,
+        weekLabel: week.label,
+        link: url,
+        fileUrls: [],
+      });
+    }
     navigate(RoutePaths.records);
   };
+
+  const fileField = (label: string, hint: string, multiple: boolean) => (
+    <Field label={label} hint={hint}>
+      <TextInput
+        type="file"
+        accept="image/*,.pdf"
+        multiple={multiple}
+        onChange={(e) => {
+          const selected = Array.from(e.target.files ?? []);
+          setEvidenceFiles((current) => (multiple ? [...current, ...selected].slice(0, 5) : selected.slice(0, 1)));
+          e.target.value = '';
+        }}
+      />
+      {evidenceFiles.length > 0 && (
+        <div className="evidence-files" aria-label="선택한 증빙 파일">
+          {evidenceFiles.map((file, index) => (
+            <span key={`${file.name}-${file.lastModified}`} className="evidence-file">
+              <Icon name={file.type === 'application/pdf' ? 'picture_as_pdf' : 'image'} size={17} />
+              <span>{file.name}</span>
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label={`${file.name} 제거`}
+                onClick={() => setEvidenceFiles((files) => files.filter((_, i) => i !== index))}
+              >
+                <Icon name="close" size={15} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </Field>
+  );
 
   return (
     <div className="screen__inner">
@@ -461,102 +587,112 @@ export function RecordFormScreen({ type }: { type: RecordType }) {
       <Card>
         <div className="callout">{RecordTypeDescriptions[type]}</div>
 
-        <Field label="제목">
-          <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예) PCCP Lv.2 취득" />
-        </Field>
-
-        {type === 'certification' && (
-          <Field label="자격증 종류">
-            <Select value={certType} onChange={(e) => setCertType(e.target.value)}>
-              {CertKinds.map((kind) => (
-                <option key={kind} value={kind}>
-                  {kind}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        )}
-
-        {type === 'blog' && (
-          <Field label="블로그 링크">
-            <TextInput value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://velog.io/@..." />
-          </Field>
-        )}
-
-        {(type === 'blog' || type === 'study') && (
-          <Field label="주차">
-            <Select value={weekNumber} onChange={(e) => setWeekNumber(Number(e.target.value))}>
-              {Array.from({ length: 12 }, (_, i) => i + 1).map((w) => (
-                <option key={w} value={w}>
-                  {w}주차
-                </option>
-              ))}
-            </Select>
-          </Field>
-        )}
-
-        {type === 'study' && (
-          <Checkbox checked={isTeamStudy} onChange={setTeamStudy} label="팀 스터디입니다 (개인 스터디는 인정되지 않습니다)" />
-        )}
-
         {type === 'studyCert' && (
-          <Field label="학습 내용">
-            <TextArea
-              value={learningContent}
-              onChange={(e) => setLearningContent(e.target.value)}
-              placeholder="무엇을 공부했는지 적어 주세요."
-            />
-          </Field>
+          <>
+            <Field label="학습일자">
+              <TextInput type="date" value={learningDate} onChange={(e) => setLearningDate(e.target.value)} />
+            </Field>
+            <Field label="학습한 내용">
+              <TextArea
+                value={learningContent}
+                onChange={(e) => setLearningContent(e.target.value)}
+                placeholder="오늘 학습한 주제 및 키워드"
+              />
+            </Field>
+            {fileField('학습 인증 사진', '날짜·시간이 보이도록 교재/화면/필기 사진 첨부', true)}
+          </>
         )}
 
         {type === 'precourseQuiz' && (
-          <Field label="퀴즈 점수" hint="60점 이상만 적립됩니다.">
-            <TextInput
-              type="number"
-              value={quizScore}
-              onChange={(e) => setQuizScore(e.target.value)}
-              placeholder="85"
-            />
-          </Field>
+          <>
+            <Field label="회차 / 제목">
+              <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: 프리코스 1차 쪽지시험" />
+            </Field>
+            <Field label="점수 (0~100)">
+              <TextInput type="number" value={quizScore} onChange={(e) => setQuizScore(e.target.value)} placeholder="예: 80" />
+            </Field>
+            {fileField('증빙', '점수 화면 캡처 등을 첨부해 주세요', true)}
+          </>
         )}
 
-        <Field label="증빙 파일" hint="이미지 또는 PDF를 최대 5개까지 선택할 수 있습니다.">
-          <TextInput
-            type="file"
-            accept="image/*,.pdf"
-            multiple
-            onChange={(e) => {
-              const selected = Array.from(e.target.files ?? []);
-              setEvidenceFiles((current) => [...current, ...selected].slice(0, 5));
-              e.target.value = '';
-            }}
-          />
-          {evidenceFiles.length > 0 && (
-            <div className="evidence-files" aria-label="선택한 증빙 파일">
-              {evidenceFiles.map((file, index) => (
-                <span key={`${file.name}-${file.lastModified}`} className="evidence-file">
-                  <Icon name={file.type === 'application/pdf' ? 'picture_as_pdf' : 'image'} size={17} />
-                  <span>{file.name}</span>
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    aria-label={`${file.name} 제거`}
-                    onClick={() => setEvidenceFiles((files) => files.filter((_, i) => i !== index))}
-                  >
-                    <Icon name="close" size={15} />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-        </Field>
+        {type === 'certification' && (
+          <>
+            <Field label="자격증 종류">
+              <Select value={certType} onChange={(e) => setCertType(e.target.value)}>
+                {CertKinds.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {kind}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="제목">
+              <TextInput
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="예: Python Certified Entry Programmer"
+              />
+            </Field>
+            {fileField('증빙 이미지', '합격 화면 · 자격증 사진을 첨부해 주세요', false)}
+          </>
+        )}
+
+        {type === 'study' && (
+          <>
+            <Checkbox
+              checked={isTeamStudy}
+              onChange={setTeamStudy}
+              label="팀 스터디입니다 (개인 스터디는 미션 적립 대상이 아닙니다)"
+            />
+            <Field label="스터디 제목">
+              <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: 알고리즘 스터디" />
+            </Field>
+            <Row>
+              <Field label="시작일">
+                <TextInput type="date" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
+              </Field>
+              <Field label="종료일">
+                <TextInput type="date" value={endAt} min={startAt} onChange={(e) => setEndAt(e.target.value)} />
+              </Field>
+            </Row>
+            {fileField('증빙 이미지', '오프라인 스터디 사진(날짜·시간 확인 가능)을 첨부해 주세요', true)}
+          </>
+        )}
+
+        {type === 'blog' && (
+          <>
+            <Field label="주차 선택" hint="승인된 주차는 다시 작성할 수 없습니다.">
+              <div className="week-picker">
+                {weeks.map((w) => {
+                  const done = approvedWeeks.has(w.weekNumber);
+                  return (
+                    <button
+                      key={w.weekNumber}
+                      type="button"
+                      className={`week-chip${weekNumber === w.weekNumber ? ' week-chip--on' : ''}`}
+                      disabled={done}
+                      onClick={() => setWeekNumber(w.weekNumber)}
+                    >
+                      <strong>{w.weekNumber}주차</strong>
+                      <span className="muted">{w.label.replace(`${w.weekNumber}주차 `, '')}</span>
+                      {done && <span className="muted">승인됨</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+            <Field label="링크">
+              <TextInput value={link} onChange={(e) => setLink(e.target.value)} placeholder="URL" />
+            </Field>
+          </>
+        )}
 
         {error !== null && <span className="field__error">{error}</span>}
 
         <Row>
           <Spacer />
-          <Button variant="outline" onClick={() => navigate(RoutePaths.records)}>
-            취소
+          <Button variant="outline" onClick={() => navigate(RoutePaths.recordsCreate)}>
+            이전
           </Button>
           <Button onClick={submit}>제출</Button>
         </Row>

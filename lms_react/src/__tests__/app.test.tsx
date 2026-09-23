@@ -226,22 +226,22 @@ describe('데이터가 실제로 흐른다', () => {
     await loginAs('학생');
     await render('/records/create/blog');
 
-    const inputs = container.querySelectorAll('input');
+    // 원본(record_blog_form_screen.dart)처럼 주차를 고르고 링크만 넣는다
+    const week = container.querySelectorAll('.week-chip')[1] as HTMLButtonElement;
+    act(() => week.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await flush();
+    const link = container.querySelector('input[placeholder="URL"]') as HTMLInputElement;
     act(() => {
-      const setValue = (el: HTMLInputElement, value: string) => {
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-        setter?.call(el, value);
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-      };
-      setValue(inputs[0] as HTMLInputElement, '2주차 회고');
-      setValue(inputs[1] as HTMLInputElement, 'https://velog.io/@demo/week2');
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(link, 'https://velog.io/@demo/week2');
+      link.dispatchEvent(new Event('input', { bubbles: true }));
     });
     click('제출');
     await flush();
 
     const after = getDb().submissions.filter((s) => s.status === 'pending');
     expect(after.length).toBe(before + 1);
-    expect(after.some((s) => s.title === '2주차 회고')).toBe(true);
+    expect(after.some((s) => s.weekNumber === 2 && s.link === 'https://velog.io/@demo/week2')).toBe(true);
   });
 
   it('소통 피드 게시글에 댓글을 등록한다', async () => {
