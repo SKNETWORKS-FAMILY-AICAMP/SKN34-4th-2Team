@@ -25,7 +25,7 @@ from lms.permissions import can_access_cohort
 from lms.publish import publish_scheduled_notices
 from lms.resume_text import build_profile, build_resume_text
 from lms.services import schedule_notice_vector
-from lms import practice_auto, practice_custom, study_note_service, study_source_service
+from lms import practice_auto, practice_custom, practice_tutor, study_note_service, study_source_service
 
 
 class LmsAuth(HttpBearer):
@@ -497,6 +497,31 @@ def practice_custom_file(request, body: PracticeFileIn):
 def practice_custom_job(request, job_id: str):
     user = _require_user(request)
     return _sources(lambda: practice_custom.get_job(user, job_id))
+
+
+class TutorIn(Schema):
+    mode: str = "cell"  # problem · cell
+    action: str = "ask"  # ask · more(힌트 더) · answer(정답 알려 줘)
+    question: str = ""
+    setId: str = ""
+    index: int = 0
+    code: str = ""
+    run: str = ""
+    grade: str = ""
+
+
+@api.post("/practice-tutor")
+def practice_tutor_ask(request, body: TutorIn):
+    """연습장 튜터 — 문제 셀엔 3단계 힌트(단계는 서버가 정한다), 일반 셀엔 코드 · 오류 설명"""
+    user = _require_user(request)
+    return _sources(lambda: practice_tutor.ask(user, body.model_dump()))
+
+
+@api.get("/practice-tutor")
+def practice_tutor_thread(request, mode: str = "cell", setId: str = "", index: int = 0):
+    """튜터 창을 다시 열 때 — 그 문제(또는 일반 셀)의 지난 대화와 힌트 단계"""
+    user = _require_user(request)
+    return _sources(lambda: practice_tutor.thread(user, mode, setId or None, index))
 
 
 class ResumeReviewApplyIn(Schema):

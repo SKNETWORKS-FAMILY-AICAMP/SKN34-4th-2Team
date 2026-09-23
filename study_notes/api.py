@@ -91,6 +91,18 @@ class ProxyCustomPracticeRequest(BaseModel):
     uploads: list[ProxyUpload] = Field(default_factory=list, max_length=3)
 
 
+class ProxyTutorRequest(BaseModel):
+    """튜터 한 번 — Django 가 문제(모범답안 · 숨긴 테스트 포함) · 힌트 단계 · 지난 대화를 붙여 보낸다"""
+    mode: str = Field(pattern="^(problem|cell)$")
+    question: str = Field(max_length=2000)
+    code: str = Field(default="", max_length=20000)
+    run: str = Field(default="", max_length=4000)
+    grade: str = Field(default="", max_length=4000)
+    hintLevel: int = Field(default=1, ge=1, le=3)
+    problem: dict[str, Any] | None = None
+    history: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+
+
 class Session:
     def __init__(self, caller: Caller, db: Any) -> None:
         self.caller = caller
@@ -209,3 +221,11 @@ def proxy_practice_custom(request: ProxyCustomPracticeRequest) -> dict[str, Any]
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/proxy/tutor")
+def proxy_tutor(request: ProxyTutorRequest) -> dict[str, Any]:
+    """연습장 튜터 — 문제 셀엔 3단계 힌트, 일반 셀엔 코드 · 오류 설명. 잡담은 LLM 없이 돌려보낸다."""
+    from study_notes.practice.tutor import ask
+
+    return ask(request.model_dump())
