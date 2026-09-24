@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Resume } from '../../../domain/types';
-import { groupResumes, resumeStatusFromServer, resumeStatusToServer } from '../resumeGroups';
+import { groupResumes, resumeStatusFromServer, resumeStatusToServer, reviewWorkCopy } from '../resumeGroups';
 
 const r = (id: string, extra: Partial<Resume> = {}): Resume => ({
   id, userId: 'u', title: id, status: 'draft', sections: {}, content: {} as Resume['content'], isBaseResume: false,
@@ -45,5 +45,18 @@ describe('공고 맞춤 이력서 묶음', () => {
     const g = groupResumes(chain, base);
     expect(g.baseTailored.map((x) => x.id)).toEqual(['m1', 'w1']);
     expect(g.rows.map((row) => [row.resume.id, row.children.map((c) => c.id)])).toEqual([['other', ['m2', 'w2']]]);
+  });
+});
+
+describe('재첨삭이 이어 갈 첨삭 작업본', () => {
+  it('원본에 이어진 작업본은 원본 · 사본 id 로 이어 간다', () => {
+    expect(reviewWorkCopy(r('BASE/tailored/tailored_a', { baseResumeId: 'BASE' }))).toEqual({ base: 'BASE', tailored: 'tailored_a' });
+  });
+  it('원본이 지워져 연결이 끊긴 작업본은 일반 이력서처럼 새로 뜬다', () => {
+    expect(reviewWorkCopy(r('BASE/tailored/tailored_a'))).toBeUndefined();
+  });
+  it('작업본이 아닌 이력서(편집용 사본 포함)는 새로 뜬다', () => {
+    expect(reviewWorkCopy(r('matched_x', { baseResumeId: 'BASE' }))).toBeUndefined();
+    expect(reviewWorkCopy(r('42'))).toBeUndefined();
   });
 });

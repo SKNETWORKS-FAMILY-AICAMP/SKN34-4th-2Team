@@ -24,6 +24,16 @@ export function isTailored(resume: Resume): boolean {
   return Boolean(resume.baseResumeId) && !resume.isBaseResume;
 }
 
+/**
+ * 첨삭 작업본(「원본/tailored/사본」)이면 원본 id 와 사본 id — 재첨삭이 새로 뜨지 않고 그 사본의 대화를 이어 간다.
+ * 원본이 지워져 연결(baseResumeId)이 끊긴 작업본은 이어 갈 원본이 없다. undefined 를 돌려 일반 이력서처럼 새 사본을 뜨게 한다.
+ */
+export function reviewWorkCopy(resume: Resume): { base: string; tailored: string } | undefined {
+  const parts = /^(?<base>[^/]+)\/tailored\/(?<tailored>[^/]+)$/.exec(resume.id)?.groups;
+  if (parts === undefined || resume.baseResumeId !== parts.base) return undefined;
+  return { base: parts.base, tailored: parts.tailored };
+}
+
 export interface ResumeRow {
   resume: Resume;
   /** 이 이력서를 원본으로 만든 공고 맞춤 이력서 — 줄을 누르면 밑으로 펼친다 */
