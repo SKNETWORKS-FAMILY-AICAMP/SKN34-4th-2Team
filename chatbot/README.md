@@ -1,5 +1,11 @@
 # 학생 LMS 챗봇
 
+> **4차 이주 상태 (2026-09-23):** Django `/api/chat` → AI `/api/v1/student-chatbot/chat`
+> 프록시의 내부 토큰 인증과 학생 문맥의 PostgreSQL/Redis/S3 조회 코드를 연결했다.
+> 검증용 RDS 스키마에서 문맥 SQL을 읽기 전용으로 확인했다. AI 서버 실행·실제
+> 학생 질문·Pinecone 검색·React 종단 간 시험은 아직 완료되지 않았다.
+> 아래 Firestore/Flutter 설명은 3차 동작을 기록한 부분이며 4차 운영 상태를 뜻하지 않는다.
+
 로그인한 학생의 질문에 **LMS 정책·FAQ, 기수 공지, 전 기수 프로젝트 레퍼런스, 본인 LMS 데이터**를
 근거로 답한다. LangGraph로 질문을 분류하고, 필요한 곳만 골라 검색한 뒤 답을 스트리밍한다.
 
@@ -19,7 +25,7 @@
 flowchart LR
   START((START)) --> SV["supervisor<br>분류 · tasks · 질문 재작성"]
   SV -->|greeting · blocked| END((END))
-  SV -->|학생 데이터| ST["student_tools<br>Firestore · Storage"]
+  SV -->|학생 데이터| ST["student_tools<br>PostgreSQL · Redis · S3"]
   SV -->|정책 · 공지| PN["policy_notice_retrieve"]
   SV -->|프로젝트| PR["project_retrieve"]
   SV -->|조회 불필요| AN["answer<br>근거 답변 · 스트리밍"]
@@ -72,7 +78,7 @@ LLM이 구조화 출력(`SupervisorDecision`)으로 다음 필드를 정한다.
 - `(namespace, doc_id)`가 같은 문서는 한 번만 문맥에 넣는다.
 - 프로젝트 기수·차수는 질문에서 규칙으로 추출한다. “25기”·“cohort_25” → `cohort="25"`, “3차” → `project_round="3"`, “최종/졸업/capstone” → `final`. 여러 기수·범위 요청은 해당 범위를 나누어 검색해 사례가 한 기수에만 몰리지 않게 한다.
 - 본인 소속 기수와 프로젝트 레퍼런스 대상 기수는 구분한다. 첨부 테스트의 레퍼런스 범위는 1~28기이며, 등록 기수 34의 프로젝트가 존재한다고 가정하지 않는다.
-- 공지 필터는 클라이언트가 보낸 값이 아니라 **서버가 Firestore에서 읽은 학생 기수**다. 다른 기수 공지는 검색되지 않는다.
+- 공지 필터는 클라이언트가 보낸 값이 아니라 **서버가 PostgreSQL 사용자 레코드에서 확인한 학생 기수**다. 다른 기수 공지는 검색되지 않는다. 다만 Pinecone 공지 적재 경로의 Firestore 의존은 별도로 이주해야 한다.
 
 ### 3) student_tools — 본인 LMS 데이터
 

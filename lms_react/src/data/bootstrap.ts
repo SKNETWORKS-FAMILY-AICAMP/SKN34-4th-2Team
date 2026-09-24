@@ -25,7 +25,6 @@ import type {
   SeatingAssignment,
   SeatingCellType,
   SeatingRoom,
-  SeatPresence,
   StudyNote,
   Submission,
   Todo,
@@ -134,7 +133,7 @@ export function mapUser(row: Record<string, unknown>): User {
 
 export function mapNotice(row: Record<string, unknown>): Notice {
   return {
-    id: String(row.id ?? row.pk ?? ''),
+    id: String(row.pk ?? row.id ?? ''),
     title: String(row.title ?? ''),
     content: String(row.content ?? ''),
     authorName: String(row.authorName ?? row.author_name ?? ''),
@@ -152,7 +151,7 @@ export function mapNotice(row: Record<string, unknown>): Notice {
 export function mapScheduled(row: Record<string, unknown>): ScheduledNotice {
   const repeat = String(row.repeatType ?? row.repeat_type ?? 'once');
   return {
-    id: String(row.id ?? row.pk ?? ''),
+    id: String(row.pk ?? row.id ?? ''),
     title: String(row.title ?? ''),
     content: String(row.content ?? ''),
     authorName: String(row.authorName ?? row.author_name ?? ''),
@@ -170,7 +169,7 @@ export function mapScheduled(row: Record<string, unknown>): ScheduledNotice {
 
 export function mapAlert(row: Record<string, unknown>): AlertPopup {
   return {
-    id: String(row.id ?? row.pk ?? ''),
+    id: String(row.pk ?? row.id ?? ''),
     title: String(row.title ?? ''),
     content: String(row.content ?? ''),
     authorName: String(row.authorName ?? row.author_name ?? ''),
@@ -484,25 +483,6 @@ function mapCartItem(row: Record<string, unknown>): MileageCartItem {
   };
 }
 
-/** 자리 확인 — roll_calls(날짜 · 교시) 밑에 학생별 상태가 달려 온다 */
-function mapSeatPresence(payload: Record<string, unknown>): SeatPresence[] {
-  const calls = rowsOf(payload, 'rollCalls');
-  const entries = rowsOf(payload, 'rollCallEntries');
-  const callByPk = new Map(calls.map((c) => [String(c.pk ?? c.id ?? ''), c]));
-  const out: SeatPresence[] = [];
-  for (const e of entries) {
-    const call = callByPk.get(String(e.rollCallId ?? e.roll_call_id ?? ''));
-    if (call === undefined) continue;
-    out.push({
-      dateKey: String(call.dateKey ?? call.date_key ?? '').slice(0, 10),
-      period: Number(call.periodId ?? call.period_id ?? 0),
-      userId: String(e.userId ?? e.user_id ?? ''),
-      state: String(e.state ?? 'none') as SeatPresence['state'],
-    });
-  }
-  return out;
-}
-
 function mapSheet(row: Record<string, unknown>): CurriculumSheet {
   return {
     id: String(row.id ?? row.pk ?? ''),
@@ -742,6 +722,12 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
     todos: rowsOf(payload, 'todos').map(mapTodo),
     submissions: withNames(rowsOf(payload, 'submissions').map(mapSubmission), nameOf),
     attendances: rowsOf(payload, 'attendances').map(mapAttendance),
+    seatPresence: rowsOf(payload, 'seatPresences').map((row) => ({
+      dateKey: String(row.presenceDate ?? row.presence_date ?? '').slice(0, 10),
+      period: Number(row.period),
+      userId: String(row.userId ?? row.user_id ?? ''),
+      state: row.state === 'confirmed' || row.state === 'held' ? row.state : 'unknown',
+    })),
     resumes: withNames(mapResumes(rowsOf(payload, 'resumes')), nameOf),
     resumeFeedbacks: rowsOf(payload, 'resumeFeedbacks').map(mapResumeFeedback),
     assessments: rowsOf(payload, 'assessments').map(mapAssessment),
@@ -794,7 +780,6 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
       status: (row.status as 'success' | 'error') || 'success',
       createdAt: asDate(row.createdAt ?? row.created_at),
     })),
-    seatPresence: mapSeatPresence(payload),
     alertDismissals: dismissals,
   };
 }

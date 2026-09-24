@@ -8,6 +8,8 @@ on:
 jobs:
   web:
     runs-on: ubuntu-latest
+    env:
+      AWS_ROLE_CONFIGURED: ${{ secrets.AWS_ROLE_ARN != '' }}
     defaults:
       run:
         working-directory: lms_react
@@ -24,11 +26,14 @@ jobs:
           VITE_API_BASE: ${{ vars.VITE_API_BASE != '' && vars.VITE_API_BASE || '/api' }}
         run: npm run build
       - name: Upload web dist
-        if: ${{ secrets.AWS_ROLE_ARN != '' }}
+        if: ${{ env.AWS_ROLE_CONFIGURED == 'true' }}
         run: echo "Configure AWS_ROLE_ARN, WEB_S3_BUCKET, CLOUDFRONT_ID to enable s3 sync"
 
   api:
     runs-on: ubuntu-latest
+    env:
+      AWS_ROLE_CONFIGURED: ${{ secrets.AWS_ROLE_ARN != '' }}
+      EC2_HOST_CONFIGURED: ${{ secrets.EC2_HOST != '' }}
     steps:
       - uses: actions/checkout@v4
       - name: Build image
@@ -37,8 +42,8 @@ jobs:
       - name: Build AI image
         run: docker build -f deploy/ai.Dockerfile -t lms-ai .
       - name: Push ECR
-        if: ${{ secrets.AWS_ROLE_ARN != '' }}
+        if: ${{ env.AWS_ROLE_CONFIGURED == 'true' }}
         run: echo "Configure AWS_ROLE_ARN and ECR_REPOSITORY to enable push (lms-api, lms-ai 둘 다)"
       - name: Deploy EC2
-        if: ${{ secrets.EC2_HOST != '' }}
+        if: ${{ env.EC2_HOST_CONFIGURED == 'true' }}
         run: echo "Configure EC2_HOST to docker compose -f docker-compose.prod.yml pull && up -d"

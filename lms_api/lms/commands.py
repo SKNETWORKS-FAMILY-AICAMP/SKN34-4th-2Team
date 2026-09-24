@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import date
+
+from django.contrib.auth.hashers import make_password
 from django.db import connection, transaction
 
 from lms.permissions import can_access_cohort
+from lms.practice_service import PRACTICE_OPS
 from lms.services import schedule_notice_vector
 
 
@@ -85,21 +89,49 @@ def op_update_profile(cur, user, p):
     args = []
     mapping = {
         "motto": "motto",
-        "skills": "skills",
         "socialLinks": "social_links",
         "birthDate": "birth_date",
         "personalEmail": "personal_email",
-        "jobPreferences": "job_preferences",
-        "photoUrl": "photo_url",
-        "photoStoragePath": "photo_storage_path",
+        "photoStoragePath": "photo_storage_key",
         "mustChangePassword": "must_change_password",
-        "password": "password",
         "lastLoginAt": "last_login",
     }
     for src, col in mapping.items():
         if src in p:
             fields.append(f"{col} = %s")
             args.append(p[src])
+    if "password" in p:
+        fields.append("password = %s")
+        args.append(make_password(str(p["password"])))
+    target_user_id = resolve_user(cur, uid)
+    if target_user_id is None:
+        raise KeyError("user")
+    if "skills" in p:
+        cur.execute("DELETE FROM user_skills WHERE user_id = %s", [target_user_id])
+        for raw_skill in p.get("skills") or []:
+            name = " ".join(str(raw_skill).split()).casefold()
+            if not name:
+                continue
+            cur.execute(
+                """INSERT INTO skills (canonical_name,created_at) VALUES (%s,now())
+                   ON CONFLICT (canonical_name) DO UPDATE SET canonical_name=EXCLUDED.canonical_name
+                   RETURNING id""",
+                [name],
+            )
+            skill_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO user_skills (user_id,skill_id,source,updated_at)
+                   VALUES (%s,%s,'profile',now()) ON CONFLICT DO NOTHING""",
+                [target_user_id, skill_id],
+            )
+    if "jobPreferences" in p:
+        import json
+        cur.execute(
+            """INSERT INTO user_job_preferences (user_id,preferences,updated_at)
+               VALUES (%s,%s,now()) ON CONFLICT (user_id) DO UPDATE
+               SET preferences=EXCLUDED.preferences,updated_at=now()""",
+            [target_user_id, json.dumps(p.get("jobPreferences") or {})],
+        )
     if not fields:
         return {"ok": True}
     fields.append("updated_at = now()")
@@ -109,7 +141,12 @@ def op_update_profile(cur, user, p):
 
 
 def op_add_todo(cur, user, p):
-    uid = resolve_user(cur, p.get("uid") or user["firebase_uid"])
+    requested_uid = p.get("uid") or user["firebase_uid"]
+    if user["role"] != "admin" and requested_uid != user["firebase_uid"]:
+        raise PermissionError("todo owner only")
+    uid = resolve_user(cur, requested_uid)
+    if uid is None:
+        raise KeyError("user")
     cur.execute(
         "INSERT INTO todos (legacy_id, user_id, title, is_completed, created_at) VALUES (%s,%s,%s,false, now()) RETURNING id",
         [None, uid, p.get("title") or ""],
@@ -123,13 +160,53 @@ def op_toggle_todo(cur, user, p):
     row = resolve_row(cur, "todos", p["todoId"])
     if not row:
         raise KeyError("todo")
+    if user["role"] != "admin" and row["user_id"] != user["id"]:
+        raise PermissionError("todo owner only")
     cur.execute("UPDATE todos SET is_completed = NOT is_completed WHERE id = %s", [row["id"]])
 
 
 def op_delete_todo(cur, user, p):
     row = resolve_row(cur, "todos", p["todoId"])
     if row:
+        if user["role"] != "admin" and row["user_id"] != user["id"]:
+            raise PermissionError("todo owner only")
         cur.execute("DELETE FROM todos WHERE id = %s", [row["id"]])
+
+
+def op_set_seat_presence(cur, user, p):
+    _require_staff(user)
+    student_uid = str(p.get("userId") or "")
+    state = p.get("state")
+    if state not in ("confirmed", "held"):
+        raise ValueError("invalid seat presence state")
+    try:
+        presence_date = date.fromisoformat(str(p["dateKey"]))
+        period = int(p["period"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("invalid seat presence date or period") from exc
+    if period not in (9, 10, 11, 12, 14, 15, 16, 17):
+        raise ValueError("invalid seat presence period")
+    cur.execute(
+        "SELECT id, cohort_id FROM users WHERE firebase_uid = %s AND role = 'student' AND is_active = true",
+        [student_uid],
+    )
+    student = cur.fetchone()
+    if not student:
+        raise KeyError("student")
+    student_id, cohort_id = student
+    if not can_access_cohort(user, cohort_id):
+        raise PermissionError("cohort only")
+    cur.execute(
+        """INSERT INTO seat_presences
+               (cohort_id, user_id, presence_date, period, state, updated_by, updated_at)
+               VALUES (%s, %s, %s, %s, %s, %s, now())
+               ON CONFLICT (cohort_id, user_id, presence_date, period)
+               DO UPDATE SET state = EXCLUDED.state, updated_by = EXCLUDED.updated_by,
+                             updated_at = now()
+               RETURNING id""",
+        [cohort_id, student_id, presence_date, str(period), state, user["id"]],
+    )
+    return {"id": str(cur.fetchone()[0])}
 
 
 def op_create_notice(cur, user, p):
@@ -140,8 +217,8 @@ def op_create_notice(cur, user, p):
     cur.execute("SELECT code FROM cohorts WHERE id = %s", [cohort_id])
     code = cur.fetchone()[0]
     cur.execute(
-        """INSERT INTO notices (cohort_id, title, content, author_id, author_name, is_favorite, priority, created_at, updated_at)
-           VALUES (%s,%s,%s,%s,%s,%s,%s, now(), now()) RETURNING id""",
+        """INSERT INTO notices (cohort_id, title, content, author_id, author_name, is_favorite, priority, vector_chunk_count, created_at, updated_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,0, now(), now()) RETURNING id""",
         [cohort_id, p.get("title") or "", p.get("content") or "", user["id"],
          p.get("authorName") or user["display_name"], bool(p.get("isFavorite")), int(p.get("priority") or 0)],
     )
@@ -247,6 +324,8 @@ def _prepare_row(cur, user, table: str, payload: dict, columns: set[str]) -> dic
         if key in ("table", "action", "op"):
             continue
         col = _camel_to_snake(key)
+        if table == "attendances":
+            col = {"date_key": "attendance_date", "status_source": "data_source"}.get(col, col)
         if col in ("uid", "firebase_uid") and "user_id" in columns and "user_id" not in data:
             resolved = resolve_user(cur, str(value)) if value else None
             if resolved:
@@ -277,6 +356,14 @@ def _prepare_row(cur, user, table: str, payload: dict, columns: set[str]) -> dic
             data[col] = json.dumps(value)
         else:
             data[col] = value
+    if table == "resumes" and "sections" in payload:
+        current_content = payload.get("content")
+        if not isinstance(current_content, dict) and payload.get("id"):
+            existing = resolve_row(cur, "resumes", payload["id"])
+            current_content = (existing or {}).get("content")
+        merged_content = dict(current_content) if isinstance(current_content, dict) else {}
+        merged_content["section_status"] = payload.get("sections") or {}
+        data["content"] = json.dumps(merged_content)
     if "cohort_id" in columns and "cohort_id" not in data:
         resolved = resolve_cohort(cur, payload.get("cohortId"), user)
         if resolved:
@@ -289,32 +376,112 @@ def _prepare_row(cur, user, table: str, payload: dict, columns: set[str]) -> dic
     return data
 
 
+def _validate_resume_write(cur, user, data: dict, row: dict | None) -> None:
+    owner_id = row["user_id"] if row else data.get("user_id") or user["id"]
+    if user["role"] != "admin" and owner_id != user["id"]:
+        raise PermissionError("resume owner only")
+    if row and "user_id" in data and data["user_id"] != owner_id:
+        raise ValueError("resume owner cannot be changed")
+    if row and "cohort_id" in data and data["cohort_id"] != row["cohort_id"]:
+        raise ValueError("resume cohort cannot be changed")
+    if not row and user["role"] != "admin":
+        data["user_id"] = user["id"]
+        data["cohort_id"] = user["cohort_id"]
+
+    base_id = data.get("base_resume_id", row.get("base_resume_id") if row else None)
+    is_base = data.get("is_base_resume", row.get("is_base_resume") if row else False)
+    if is_base and base_id:
+        raise ValueError("base resume cannot have a parent")
+    if base_id:
+        parent = resolve_row(cur, "resumes", base_id)
+        if not parent or not parent["is_base_resume"] or parent["user_id"] != owner_id:
+            raise ValueError("base resume must belong to the same user")
+        if row and parent["id"] == row["id"]:
+            raise ValueError("resume cannot reference itself")
+        data["base_resume_id"] = parent["id"]
+
+    job_id = data.get("linked_job_id")
+    if job_id:
+        cur.execute("SELECT 1 FROM jobs.jobs WHERE job_id = %s", [str(job_id)])
+        if not cur.fetchone():
+            raise ValueError("linked job does not exist")
+
+
+def _validate_record_submission_write(user, data: dict, row: dict | None) -> None:
+    cohort_id = row["cohort_id"] if row else data.get("cohort_id") or user.get("cohort_id")
+    if cohort_id is None:
+        raise ValueError("submission cohort required")
+    if user["role"] != "admin" and not can_access_cohort(user, cohort_id):
+        raise PermissionError("cohort only")
+    if row and "user_id" in data and data["user_id"] != row["user_id"]:
+        raise ValueError("submission owner cannot be changed")
+    if row and "cohort_id" in data and data["cohort_id"] != row["cohort_id"]:
+        raise ValueError("submission cohort cannot be changed")
+    if user["role"] == "student":
+        owner_id = row["user_id"] if row else data.get("user_id") or user["id"]
+        if owner_id != user["id"]:
+            raise PermissionError("submission owner only")
+        if any(key in data for key in ("reviewed_by", "reviewed_at", "review_comment")):
+            raise PermissionError("review fields are staff only")
+        if "status" in data and data["status"] not in ("draft", "submitted"):
+            raise PermissionError("review status is staff only")
+        if not row:
+            data["user_id"] = user["id"]
+            data["cohort_id"] = user["cohort_id"]
+
+
 def op_upsert_sql(cur, user, p):
     """Allowlisted 테이블 INSERT/UPDATE/DELETE."""
     table = p["table"]
     allowed = {
         "scheduled_notices", "alert_popups", "alert_popup_dismissals",
         "record_submissions", "resumes", "resume_feedback", "attendances",
-        "roll_calls", "inflearn_packages", "study_sources", "study_notes",
+        "seat_presences", "inflearn_packages", "study_sources", "study_notes",
         "youtube_recommendations", "assessments", "assessment_questions",
-        "assessment_submissions", "curriculum_sheets", "form_tasks", "form_responses",
+        "assessment_submissions", "curriculum_sheets", "submission_tasks", "submission_responses",
         "mileage_settings", "mileage_products", "mileage_cart_items",
-        "purchase_requests", "mileage_transactions", "seating_rooms",
-        "seating_assignments", "seat_assignments", "seating_cells",
+        "purchase_requests", "mileage_transactions", "cohort_seating",
         "project_teams", "curriculum_pdfs", "student_intakes", "cohorts",
-        "assignments", "materials", "schedules", "weekly_tasks", "weekly_progress",
+        "materials", "schedules",
         "mission_progress", "recommendation_events",
     }
     if table not in allowed:
         raise ValueError("table not allowed")
+    # The generic writer accepts every matching DB column. Until per-domain
+    # validation exists, students must not submit scores, prices, approval
+    # states or another user's IDs through it.
+    if user["role"] == "student" and table not in {
+        "record_submissions", "resumes", "alert_popup_dismissals",
+    }:
+        raise PermissionError("student write requires a dedicated command")
+    if table == "cohorts":
+        _require_admin(user)
+    elif table in {
+        "scheduled_notices", "alert_popups", "inflearn_packages",
+        "youtube_recommendations", "assessments", "assessment_questions",
+        "curriculum_sheets", "submission_tasks", "mileage_settings",
+        "mileage_products", "mileage_transactions", "cohort_seating",
+        "project_teams", "curriculum_pdfs", "materials", "schedules",
+        "seat_presences", "student_intakes", "attendances",
+        "resume_feedback", "study_sources",
+    }:
+        _require_staff(user)
     if table in ("mileage_transactions", "assessment_submissions", "study_notes", "attendances") and user["role"] not in ("admin", "instructor"):
         if p.get("action") not in ("insert",) or table not in ("assessment_submissions", "attendances"):
             if user["role"] != "admin":
                 raise PermissionError("server-only write")
     action = p.get("action")
     if action == "delete":
-        _require_staff(user)
         row = resolve_row(cur, table, p["id"])
+        if table == "resumes":
+            if row and user["role"] != "admin" and row["user_id"] != user["id"]:
+                raise PermissionError("resume owner only")
+        elif table == "record_submissions":
+            _require_staff(user)
+            if row and user["role"] != "admin" and not can_access_cohort(user, row["cohort_id"]):
+                raise PermissionError("cohort only")
+        else:
+            _require_staff(user)
         if row:
             cur.execute(f"DELETE FROM {table} WHERE id = %s", [row["id"]])
         return {"ok": True}
@@ -335,6 +502,10 @@ def op_upsert_sql(cur, user, p):
     if updating:
         if not row:
             raise KeyError(table)
+        if table == "resumes":
+            _validate_resume_write(cur, user, data, row)
+        elif table == "record_submissions":
+            _validate_record_submission_write(user, data, row)
         if not data:
             return {"id": str(row.get("legacy_id") or row["id"])}
         if "updated_at" in columns:
@@ -352,6 +523,10 @@ def op_upsert_sql(cur, user, p):
         # 화면이 쥔 id 를 그대로 돌려준다(번호를 돌려주면 화면이 다른 행으로 본다)
         return {"id": str(row.get("legacy_id") or row["id"])}
 
+    if table == "resumes":
+        _validate_resume_write(cur, user, data, None)
+    elif table == "record_submissions":
+        _validate_record_submission_write(user, data, None)
     if "created_at" in columns:
         data.pop("created_at", None)
     if "updated_at" in columns:
@@ -371,8 +546,20 @@ def op_upsert_sql(cur, user, p):
         extra_vals.append("now()")
     all_cols = cols + extras
     placeholders = ["%s"] * len(cols) + extra_vals
+    conflict_clause = ""
+    if table == "attendances" and action == "insert":
+        # The attendance screen sends an insert for each status change. Keep
+        # the same daily row instead of violating uq_attendance_user_date.
+        mutable = [col for col in cols if col not in ("user_id", "attendance_date")]
+        updates = [f"{col} = EXCLUDED.{col}" for col in mutable]
+        updates.append("updated_at = now()")
+        conflict_clause = (
+            " ON CONFLICT (user_id, attendance_date) DO UPDATE SET "
+            + ", ".join(updates)
+        )
     cur.execute(
-        f"INSERT INTO {table} ({', '.join(all_cols)}) VALUES ({', '.join(placeholders)}) RETURNING id",
+        f"INSERT INTO {table} ({', '.join(all_cols)}) VALUES ({', '.join(placeholders)})"
+        f"{conflict_clause} RETURNING id",
         [data[c] for c in cols],
     )
     fetched = cur.fetchone()
@@ -394,14 +581,14 @@ def op_create_user(cur, user, p):
     import json
     cur.execute(
         """INSERT INTO users (firebase_uid, email, password, display_name, role, cohort_id,
-               seat_number, is_active, must_change_password, motto, skills, social_links,
-               job_preferences, mileage_balance, created_at, updated_at)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0, now(), now())
+               seat_number, is_active, must_change_password, motto, social_links,
+               mileage_balance, created_at, updated_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0, now(), now())
            RETURNING id""",
         [
             firebase_uid,
             (p.get("email") or "").strip().lower(),
-            p.get("password") or "",
+            make_password(p.get("password")) if p.get("password") else make_password(None),
             p.get("displayName") or "",
             p.get("role") or "student",
             cohort_id,
@@ -409,10 +596,28 @@ def op_create_user(cur, user, p):
             bool(p.get("isActive", True)),
             bool(p.get("mustChangePassword", True)),
             p.get("motto"),
-            json.dumps(p.get("skills") or []),
             json.dumps(p.get("socialLinks") or {}),
-            json.dumps(p.get("jobPreferences") or {"targetRoles": [], "regions": [], "employmentTypes": []}),
         ],
+    )
+    created_user_id = cur.fetchone()[0]
+    for raw_skill in p.get("skills") or []:
+        name = " ".join(str(raw_skill).split()).casefold()
+        if not name:
+            continue
+        cur.execute(
+            """INSERT INTO skills (canonical_name,created_at) VALUES (%s,now())
+               ON CONFLICT (canonical_name) DO UPDATE SET canonical_name=EXCLUDED.canonical_name RETURNING id""",
+            [name],
+        )
+        cur.execute(
+            """INSERT INTO user_skills (user_id,skill_id,source,updated_at)
+               VALUES (%s,%s,'profile',now()) ON CONFLICT DO NOTHING""",
+            [created_user_id, cur.fetchone()[0]],
+        )
+    import json
+    cur.execute(
+        """INSERT INTO user_job_preferences (user_id,preferences,updated_at) VALUES (%s,%s,now())""",
+        [created_user_id, json.dumps(p.get("jobPreferences") or {})],
     )
     return {"id": firebase_uid, "uid": firebase_uid}
 
@@ -587,7 +792,9 @@ def op_publish_scheduled(cur, user, p):
     from lms.publish import publish_scheduled_notices
 
     ids = p.get("ids") or p.get("scheduledIds")
-    count = publish_scheduled_notices(ids=ids)
+    count = publish_scheduled_notices(
+        ids=ids, cohort_id=None if user["role"] == "admin" else user.get("cohort_id") or -1,
+    )
     return {"ok": True, "published": count}
 
 
@@ -614,12 +821,12 @@ def op_save_curriculum_pdf(cur, user, p):
     _require_staff(user)
     cohort_id = resolve_cohort(cur, p.get("cohortId"), user)
     cur.execute(
-        """INSERT INTO curriculum_pdfs (cohort_id, full_pdf_url, full_pdf_file_name, published, updated_by, updated_at)
+        """INSERT INTO curriculum_pdfs (cohort_id, storage_key, original_filename, published, updated_by, updated_at)
            VALUES (%s,%s,%s,%s,%s, now())
-           ON CONFLICT (cohort_id) DO UPDATE SET full_pdf_url = EXCLUDED.full_pdf_url,
-             full_pdf_file_name = EXCLUDED.full_pdf_file_name, published = EXCLUDED.published,
-             updated_by = EXCLUDED.updated_by, updated_at = now()""",
-        [cohort_id, p.get("pdfUrl"), p.get("fileName"), True, user["id"]],
+           ON CONFLICT (cohort_id) DO UPDATE SET storage_key = EXCLUDED.storage_key,
+              original_filename = EXCLUDED.original_filename, published = EXCLUDED.published,
+              updated_by = EXCLUDED.updated_by, updated_at = now()""",
+        [cohort_id, p.get("storageKey"), p.get("fileName"), True, user["id"]],
     )
 
 
@@ -627,7 +834,7 @@ def op_clear_curriculum_pdf(cur, user, p):
     _require_staff(user)
     cohort_id = resolve_cohort(cur, p.get("cohortId"), user)
     cur.execute(
-        "UPDATE curriculum_pdfs SET full_pdf_url=NULL, full_pdf_file_name=NULL, published=false, updated_at=now() WHERE cohort_id=%s",
+        "UPDATE curriculum_pdfs SET storage_key=NULL, original_filename=NULL, published=false, updated_at=now() WHERE cohort_id=%s",
         [cohort_id],
     )
 
@@ -635,26 +842,16 @@ def op_clear_curriculum_pdf(cur, user, p):
 def op_publish_seating(cur, user, p):
     _require_staff(user)
     cohort_id = resolve_cohort(cur, p.get("cohortId"), user)
-    room = resolve_row(cur, "seating_rooms", p["roomId"])
-    if not room:
-        raise KeyError("room")
     cur.execute(
-        """UPDATE seating_assignments SET status = 'draft'
-           FROM seating_rooms r
-           WHERE seating_assignments.room_id = r.id AND r.cohort_id = %s AND seating_assignments.status = 'published'""",
-        [cohort_id],
+        "UPDATE cohort_seating SET published=true, updated_by=%s, updated_at=now() WHERE cohort_id=%s",
+        [user["id"], cohort_id],
     )
-    cur.execute(
-        """INSERT INTO seating_assignments (room_id, status, published_by, published_at, updated_by, updated_at)
-           VALUES (%s,'published',%s, now(), %s, now())
-           ON CONFLICT (room_id) DO UPDATE SET status='published', published_by=EXCLUDED.published_by,
-             published_at=now(), updated_by=EXCLUDED.updated_by, updated_at=now()""",
-        [room["id"], user["id"], user["id"]],
-    )
-    cur.execute("UPDATE cohorts SET published_seating_room_id = %s WHERE id = %s", [room["id"], cohort_id])
+    if cur.rowcount == 0:
+        raise KeyError("seating")
 
 
 OPS = {
+    **PRACTICE_OPS,
     "updateProfile": op_update_profile,
     "createUser": op_create_user,
     "createCohort": op_create_cohort,
@@ -662,6 +859,7 @@ OPS = {
     "addTodo": op_add_todo,
     "toggleTodo": op_toggle_todo,
     "deleteTodo": op_delete_todo,
+    "setSeatPresence": op_set_seat_presence,
     "createNotice": op_create_notice,
     "updateNotice": op_update_notice,
     "deleteNotice": op_delete_notice,

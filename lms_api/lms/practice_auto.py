@@ -1,11 +1,11 @@
 """복습 문제 자동 출제 — 매일 18:30(수업 끝) 공개된 수업 저장소마다 그날 새로 올라온 내용으로 문제를 낸다.
 
 - 언제: Celery beat 매일 18:30(Asia/Seoul) · 강사 「지금 만들기」.
-- 어느 저장소: 공개(study_sources.is_active)이고 자동 출제가 켜진 것. 켜짐이 기본이다(study.practice_settings 에 줄이 없으면 켜짐).
+- 어느 저장소: 공개(study_sources.is_active)이고 자동 출제가 켜진 것. 켜짐이 기본이다(study_practice_settings 에 줄이 없으면 켜짐).
 - 무엇을: AI 서버(/api/v1/study-notes/proxy/practice)가 마지막으로 출제한 날부터 오늘까지 새로 생긴 셀로만 출제·검증한다.
-  여기서는 그 결과를 practice.sets · problems 에 넣고, 출제 범위 기록(practice.coverage)을 이어 간다.
+  여기서는 그 결과를 practice_sets · practice_problems 에 넣고, 출제 범위 기록(practice_coverage)을 이어 간다.
 - 같은 날짜의 세트가 이미 있으면(손으로 넣은 세트 포함) 새 세트를 만들지 않고 그 세트 뒤에 문제를 붙인다.
-- 같은 저장소를 두 번 동시에 돌리지 않는다(study.practice_runs 의 running 줄 + 트랜잭션 잠금).
+- 같은 저장소를 두 번 동시에 돌리지 않는다(study_practice_runs 의 running 줄 + 트랜잭션 잠금).
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from typing import Any
 from django.db import connection, transaction
 from django.utils import timezone
 
-from lms.practice_service import sets_have_owner
+from lms.practice_service import get_coverage, insert_problems, save_coverage
 from lms.study_note_service import StudyNoteError, _call, _dicts, _one, _source_payload
 from lms.study_source_service import StudySourceError, _check_schema, _cohort, _repo_key
 
@@ -36,7 +36,7 @@ def _repo_name(url: str) -> str:
 
 
 def _practice_ready(cur) -> bool:
-    cur.execute("SELECT to_regclass('practice.sets') IS NOT NULL")
+    cur.execute("SELECT to_regclass('practice_sets') IS NOT NULL AND to_regclass('study_practice_runs') IS NOT NULL")
     return bool(cur.fetchone()[0])
 
 
@@ -45,8 +45,7 @@ def _sources(cur, cohort_code: str | None = None) -> list[dict]:
     cur.execute(
         f"""SELECT s.*, c.code AS cohort_code, COALESCE(ps.enabled, true) AS practice_enabled
             FROM study_sources s JOIN cohorts c ON c.id = s.cohort_id
-            LEFT JOIN study.practice_settings ps
-              ON ps.cohort_code = c.code AND ps.repo_key = lower(regexp_replace(rtrim(s.repo_url, '/'), '\\.git$', ''))
+            LEFT JOIN study_practice_settings ps ON ps.source_id = s.id
             WHERE s.is_active {'AND c.code = %s' if cohort_code else ''}
             ORDER BY c.code, s.sort_order NULLS LAST, s.id""",
         [cohort_code] if cohort_code else [],
@@ -59,19 +58,19 @@ def _sources(cur, cohort_code: str | None = None) -> list[dict]:
 
 def _claim_run(source: dict, trigger: str) -> int | None:
     """running 줄을 만든다. 이미 돌고 있으면 None."""
-    key = _repo_key(source["repo_url"])
     with transaction.atomic(), connection.cursor() as cur:
-        cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"practice_auto:{source['cohort_code']}:{key}"])
+        cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"practice_auto:{source['id']}"])
         cur.execute(
-            """SELECT id FROM study.practice_runs
-               WHERE cohort_code = %s AND repo_key = %s AND status = 'running' AND started_at > now() - %s""",
-            [source["cohort_code"], key, STALE_RUN],
+            """SELECT id FROM study_practice_runs
+               WHERE source_id = %s AND status = 'running' AND started_at > now() - %s""",
+            [source["id"], STALE_RUN],
         )
         if cur.fetchone():
             return None
         cur.execute(
-            """INSERT INTO study.practice_runs (cohort_code, repo_key, trigger) VALUES (%s, %s, %s) RETURNING id""",
-            [source["cohort_code"], key, trigger],
+            """INSERT INTO study_practice_runs (source_id, trigger, status, problems, dates, message, started_at)
+               VALUES (%s, %s, 'running', 0, '[]'::jsonb, '', now()) RETURNING id""",
+            [source["id"], trigger],
         )
         return cur.fetchone()[0]
 
@@ -79,56 +78,39 @@ def _claim_run(source: dict, trigger: str) -> int | None:
 def _finish_run(run_id: int, status: str, *, problems: int = 0, dates: list[str] | None = None, message: str = "") -> None:
     with connection.cursor() as cur:
         cur.execute(
-            """UPDATE study.practice_runs SET status = %s, problems = %s, dates = %s::jsonb, message = %s, finished_at = now()
+            """UPDATE study_practice_runs SET status = %s, problems = %s, dates = %s::jsonb, message = %s, finished_at = now()
                WHERE id = %s""",
             [status, problems, json.dumps(dates or []), message[:1000], run_id],
         )
 
 
-def insert_problems(cur, set_id: int, problems: list[dict]) -> int:
-    """세트 뒤에 문제를 붙인다(idx 는 이어서). 넣은 수."""
-    cur.execute("SELECT COALESCE(max(idx) + 1, 0) FROM practice.problems WHERE set_id = %s", [set_id])
-    start = cur.fetchone()[0]
-    for offset, p in enumerate(problems):
-        cur.execute(
-            """INSERT INTO practice.problems (set_id, idx, kind, topic, prompt, source_files, explanation, choices,
-                 answer_index, starter_code, expected_stdout, blank_answers, reference_solution, hidden_tests, packages)
-               VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb, %s, %s, %s, %s::jsonb, %s, %s, %s::jsonb)""",
-            [set_id, start + offset, p["kind"], p.get("topic", ""), p.get("prompt", ""),
-             json.dumps(p.get("sourceFiles") or [], ensure_ascii=False), p.get("explanation", ""),
-             json.dumps(p.get("choices") or [], ensure_ascii=False), p.get("answerIndex"),
-             p.get("starterCode", ""), p.get("expectedStdout", ""),
-             json.dumps(p.get("blankAnswers") or [], ensure_ascii=False), p.get("referenceSolution", ""),
-             p.get("hiddenTests", ""), json.dumps(p.get("packages") or [], ensure_ascii=False)],
-        )
-    return len(problems)
-
-
-def _save_sets(cur, cohort_code: str, name: str, sets: list[dict]) -> int:
+def _save_sets(cur, cohort_id: int, name: str, sets: list[dict]) -> int:
     """같은 날짜 세트가 있으면 뒤에 붙이고, 없으면 새로 만든다. 넣은 문제 수. 학생이 만든 세트는 건드리지 않는다."""
     added = 0
-    personal = "AND owner_uid IS NULL" if sets_have_owner(cur) else ""
     for s in sets:
         cur.execute(
-            f"""SELECT id, files, title FROM practice.sets WHERE cohort_code = %s AND source_title = %s AND lesson_date = %s
-                {personal} ORDER BY id LIMIT 1""",
-            [cohort_code, name, s["lessonDate"]],
+            """SELECT id, source_files, title FROM practice_sets
+               WHERE cohort_id = %s AND source_title = %s AND lesson_date = %s AND owner_id IS NULL
+               ORDER BY id LIMIT 1""",
+            [cohort_id, name, s["lessonDate"]],
         )
         row = _one(cur)
         if row:
             set_id = row["id"]
-            old_files = row["files"] if isinstance(row["files"], list) else json.loads(row["files"] or "[]")
+            old = row["source_files"]
+            old_files = old if isinstance(old, list) else json.loads(old or "[]")
             files = old_files + [f for f in s["files"] if f not in old_files]
             cur.execute(
-                "UPDATE practice.sets SET files = %s::jsonb, title = COALESCE(NULLIF(title, ''), %s) WHERE id = %s",
+                "UPDATE practice_sets SET source_files = %s::jsonb, title = COALESCE(NULLIF(title, ''), %s) WHERE id = %s",
                 [json.dumps(files, ensure_ascii=False), s["title"], set_id],
             )
         else:
             cur.execute(
-                """INSERT INTO practice.sets (legacy_id, cohort_code, source_title, lesson_date, day_label, title, files, model)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s) RETURNING id""",
-                [f"ps-{name}-{s['lessonDate']}", cohort_code, name, s["lessonDate"], s["dayLabel"], s["title"],
-                 json.dumps(s["files"], ensure_ascii=False), s["model"]],
+                """INSERT INTO practice_sets (legacy_id, cohort_id, owner_id, origin, source_title, lesson_date, day_label,
+                                             title, source_files, generation_model, created_at)
+                   VALUES (%s, %s, NULL, 'lesson', %s, %s, %s, %s, %s::jsonb, %s, now()) RETURNING id""",
+                [f"ps-{name}-{s['lessonDate']}", cohort_id, name, s["lessonDate"], s["dayLabel"] or "", s["title"] or "",
+                 json.dumps(s["files"], ensure_ascii=False), s["model"] or ""],
             )
             set_id = cur.fetchone()[0]
         added += insert_problems(cur, set_id, s["problems"])
@@ -145,9 +127,7 @@ def run_source(source: dict, *, trigger: str = "schedule", today: str | None = N
     code = source["cohort_code"]
     try:
         with connection.cursor() as cur:
-            cur.execute("SELECT data FROM practice.coverage WHERE cohort_code = %s AND source_title = %s", [code, name])
-            row = cur.fetchone()
-        coverage = (json.loads(row[0]) if isinstance(row[0], str) else row[0]) if row else None
+            coverage = get_coverage(cur, source["cohort_id"], name)
         payload = _source_payload(source)
         payload["title"] = source.get("title") or name
         result = _call(
@@ -157,12 +137,8 @@ def run_source(source: dict, *, trigger: str = "schedule", today: str | None = N
             PRACTICE_TIMEOUT,
         )
         with transaction.atomic(), connection.cursor() as cur:
-            added = _save_sets(cur, code, name, result.get("sets") or [])
-            cur.execute(
-                """INSERT INTO practice.coverage (cohort_code, source_title, data, updated_at) VALUES (%s, %s, %s::jsonb, now())
-                   ON CONFLICT (cohort_code, source_title) DO UPDATE SET data = EXCLUDED.data, updated_at = now()""",
-                [code, name, json.dumps(result.get("coverage") or {}, ensure_ascii=False)],
-            )
+            added = _save_sets(cur, source["cohort_id"], name, result.get("sets") or [])
+            save_coverage(cur, source["cohort_id"], name, result.get("coverage") or {})
         made = [s["lessonDate"] for s in result.get("sets") or []]
         error = str(result.get("error") or "")
         # 새로 낸 문제가 없으면 왜 없는지(끝난 과목 · 이미 출제함 · 새 내용 없음)를 남긴다 — 강사 화면이 그대로 보여 준다
@@ -181,8 +157,7 @@ def run_source(source: dict, *, trigger: str = "schedule", today: str | None = N
 def run_daily(today: str | None = None) -> dict:
     """Celery beat 18:30 — 모든 기수의 공개 · 자동 출제 켜진 저장소. 저장소 하나가 실패해도 나머지는 돈다."""
     with connection.cursor() as cur:
-        cur.execute("SELECT to_regnamespace('study') IS NOT NULL")
-        if not cur.fetchone()[0] or not _practice_ready(cur):
+        if not _practice_ready(cur):
             return {}
         sources = [s for s in _sources(cur) if s["practice_enabled"]]
     out: dict[str, Any] = {}
@@ -215,27 +190,22 @@ def status(user: dict, cohort_code: str) -> dict:
     with connection.cursor() as cur:
         _check_schema(cur)
         cohort = _cohort(cur, user, cohort_code)
-        cur.execute("SELECT to_regclass('study.practice_runs') IS NOT NULL")
-        if not cur.fetchone()[0]:
-            raise StudySourceError(503, "study 스키마가 오래됐습니다. study_schema.sql 을 다시 실행하세요.")
         cur.execute(
-            f"""SELECT s.id, s.legacy_id, COALESCE(ps.enabled, true) AS enabled,
-                       r.status, r.problems, r.dates, r.message, r.started_at, r.finished_at
-                FROM study_sources s
-                LEFT JOIN study.practice_settings ps
-                  ON ps.cohort_code = %s AND ps.repo_key = lower(regexp_replace(rtrim(s.repo_url, '/'), '\\.git$', ''))
-                LEFT JOIN LATERAL (
-                  SELECT * FROM study.practice_runs r
-                  WHERE r.cohort_code = %s AND r.repo_key = lower(regexp_replace(rtrim(s.repo_url, '/'), '\\.git$', ''))
-                  ORDER BY r.started_at DESC LIMIT 1) r ON true
-                WHERE s.cohort_id = %s""",
-            [cohort["code"], cohort["code"], cohort["id"]],
+            """SELECT s.id, s.legacy_id, COALESCE(ps.enabled, true) AS enabled,
+                      r.status, r.problems, r.dates, r.message, r.started_at, r.finished_at
+               FROM study_sources s
+               LEFT JOIN study_practice_settings ps ON ps.source_id = s.id
+               LEFT JOIN LATERAL (
+                 SELECT * FROM study_practice_runs r WHERE r.source_id = s.id
+                 ORDER BY r.started_at DESC LIMIT 1) r ON true
+               WHERE s.cohort_id = %s""",
+            [cohort["id"]],
         )
         rows = _dicts(cur)
         ready = _practice_ready(cur)
     return {
         "cohortId": cohort["code"],
-        # practice 스키마가 없으면 출제해도 넣을 곳이 없다 — 화면이 알려 준다
+        # 문제 표가 없으면 출제해도 넣을 곳이 없다 — 화면이 알려 준다
         "practiceReady": ready,
         "sources": {
             str(r["legacy_id"] or r["id"]): {
@@ -259,11 +229,11 @@ def set_enabled(user: dict, source_key: str, enabled: bool) -> dict:
         _check_schema(cur)
         source = _source_for(cur, user, source_key)
         cur.execute(
-            """INSERT INTO study.practice_settings (cohort_code, repo_key, enabled, updated_by_uid, updated_at)
-               VALUES (%s, %s, %s, %s, now())
-               ON CONFLICT (cohort_code, repo_key) DO UPDATE SET enabled = EXCLUDED.enabled,
-                 updated_by_uid = EXCLUDED.updated_by_uid, updated_at = now()""",
-            [source["cohort_code"], _repo_key(source["repo_url"]), enabled, user.get("firebase_uid") or ""],
+            """INSERT INTO study_practice_settings (source_id, enabled, updated_by_id, updated_at)
+               VALUES (%s, %s, %s, now())
+               ON CONFLICT (source_id) DO UPDATE SET enabled = EXCLUDED.enabled,
+                 updated_by_id = EXCLUDED.updated_by_id, updated_at = now()""",
+            [source["id"], enabled, user.get("id")],
         )
     return {"id": str(source["legacy_id"] or source["id"]), "enabled": enabled}
 
@@ -287,7 +257,7 @@ def run_now(user: dict, source_key: str, dates: list[str] | None = None) -> dict
     with connection.cursor() as cur:
         _check_schema(cur)
         if not _practice_ready(cur):
-            raise StudySourceError(503, "practice 스키마가 없습니다. practice_schema.sql 을 실행하세요.")
+            raise StudySourceError(503, "문제 표가 없습니다. manage.py migrate 로 lms.0006 까지 적용하세요.")
         source = _source_for(cur, user, source_key)
     if not source.get("is_active"):
         raise StudySourceError(409, "숨긴 저장소입니다. 공개한 뒤 출제하세요.")

@@ -501,7 +501,18 @@ def build_records(
             try:
                 if source.source_type == "file" and MARKDOWN_NOISE.search(source.section):
                     continue
-                policy_type = classify_policy(source.text, model)
+                if model is None:
+                    # A short subsection may omit the policy subject even when
+                    # the source filename clearly identifies a single topic.
+                    policy_type = (
+                        _local_policy_type(source.text)
+                        or _local_policy_type(f"{raw_source.source_name}\n{source.text}")
+                        or "생활 및 기타"
+                    )
+                    if policy_type == "생활 및 기타":
+                        log.warning("정책 타입이 모호해 '생활 및 기타'로 분류합니다: %s", source.key)
+                else:
+                    policy_type = classify_policy(source.text, model)
                 is_ot_pdf = source.source_type == "pdf" and re.search(
                     r"(?i)(?:^|[^a-z])ot(?:[^a-z]|$)", Path(source.source_name).stem,
                 )
@@ -591,6 +602,7 @@ def _index_ready(pc: Any, index_name: str) -> None:
 def upload_records(
     records: Sequence[ChunkRecord], state_path: Path = STATE_FILE,
     managed_source_types: set[str] | None = None,
+    namespace: str = "policy",
 ) -> dict[str, Any]:
     if not records:
         return {"upserted": 0, "stats": {}}
@@ -604,7 +616,6 @@ def upload_records(
     openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], max_retries=2)
     pc = Pinecone(api_key=os.environ["PINECONE_API_KEY2"])
     index_name = "student"
-    namespace = "policy"
     dimension = int(os.getenv("OPENAI_EMBEDDING_DIMENSION", "1536"))
     if index_name not in set(pc.list_indexes().names()):
         retry(lambda: pc.create_index(

@@ -46,9 +46,8 @@ class FirebaseGateway:
         return firestore.client(app=self._app)
 
     def _pg(self):
-        import os
-        import psycopg
-        return psycopg.connect(os.environ["DATABASE_URL"])
+        from chatbot.database import connect
+        return connect()
 
     def _cohort_user(self, conn, cohort_id: str, uid: str):
         row = conn.execute(

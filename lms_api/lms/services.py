@@ -1,4 +1,4 @@
-from django.db import transaction
+from django.db import connection, transaction
 
 from lms import notice_vectors
 
@@ -11,7 +11,13 @@ def sync_notice_vector(cohort_code: str, notice_id: int, data: dict, previous_ch
     old = int(previous_chunk_count or 0)
     if old:
         notice_vectors.delete_notice_vectors(cohort_code, notice_id, old)
-    return notice_vectors.upsert_notice_vectors(cohort_code, notice_id, data)
+    chunk_count = notice_vectors.upsert_notice_vectors(cohort_code, notice_id, data)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "UPDATE notices SET vector_chunk_count = %s WHERE id = %s",
+            [chunk_count, notice_id],
+        )
+    return chunk_count
 
 
 def schedule_notice_vector(*, cohort_code: str, notice_id: int, data: dict | None, previous_chunk_count: int = 0):

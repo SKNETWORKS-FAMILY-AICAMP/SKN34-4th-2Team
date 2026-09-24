@@ -141,14 +141,14 @@ def build_done_event(log_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 def write_generation_log(db: Any, payload: dict[str, Any]) -> str:
     """Postgres `ai_generation_logs`에 메타만 남긴다."""
-    import psycopg
+    from chatbot.database import connect
 
     del db
     clean = strip_forbidden(payload)
     assert_no_plaintext(clean)
     cohort_code = str(clean.get("cohortId") or "")
     created_by = str(clean.get("createdBy") or "")
-    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+    with connect() as conn:
         cohort_id = conn.execute(
             "SELECT id FROM cohorts WHERE code = %s OR CAST(id AS text) = %s",
             (cohort_code, cohort_code),

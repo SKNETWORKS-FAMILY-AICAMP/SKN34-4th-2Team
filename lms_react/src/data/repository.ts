@@ -620,16 +620,17 @@ export function setSeatPresence(
   period: number,
   userId: string,
   state: SeatPresenceState,
-): void {
+): Promise<void> {
+  if (!isTestMode()) {
+    return runCommand('setSeatPresence', { dateKey, period, userId, state }).then(() => undefined);
+  }
   mutate((db) => {
     const rest = db.seatPresence.filter(
       (p) => !(p.dateKey === dateKey && p.period === period && p.userId === userId),
     );
     return { seatPresence: [...rest, { dateKey, period, userId, state }] };
   });
-  if (!isTestMode()) {
-    void runCommand('setSeatPresence', { dateKey, period, uid: userId, state, cohortId: apiCohortId() });
-  }
+  return Promise.resolve();
 }
 
 // ── 좌석 배치 ──────────────────────────────────────────
@@ -884,20 +885,39 @@ function resumeForServer(resume: Partial<Resume>): Record<string, unknown> {
   return rest.status === undefined ? rest : { ...rest, status: resumeStatusToServer(rest.status) };
 }
 
-export function createResume(resume: Omit<Resume, 'id' | 'updatedAt'>): string {
+export async function createResume(resume: Omit<Resume, 'id' | 'updatedAt'>): Promise<string> {
+  if (!isTestMode()) {
+    const result = await runCommand('upsert', {
+      table: 'resumes', action: 'insert', ...resumeForServer(resume), cohortId: apiCohortId(),
+    });
+    return String(result.id);
+  }
   const id = nextId('r');
   mutate((db) => ({ resumes: [{ ...resume, id, updatedAt: new Date() }, ...db.resumes] }));
-  if (!isTestMode()) {
-    void runCommand('upsert', { table: 'resumes', action: 'insert', id, ...resumeForServer(resume), cohortId: apiCohortId() });
-  }
   return id;
 }
 
-export function updateResume(id: string, patch: Partial<Resume>): void {
-  mutate((db) => ({
+const pendingResumeWrites = new Map<string, Promise<unknown>>();
+
+export function updateResume(id: string, patch: Partial<Resume>): Promise<void> {
+  const update = (db: Database): Database => ({
+    ...db,
     resumes: db.resumes.map((r) => (r.id === id ? { ...r, ...patch, updatedAt: new Date() } : r)),
-  }));
-  if (!isTestMode()) void runCommand('upsert', { table: 'resumes', id, action: 'update', ...resumeForServer(patch) });
+  });
+  if (isTestMode()) {
+    mutate((db) => ({ resumes: update(db).resumes }));
+    return Promise.resolve();
+  }
+  queryClient.setQueryData<Database>(queryKeys.bootstrap, (db) => db && update(db));
+  const previous = pendingResumeWrites.get(id) ?? Promise.resolve();
+  const request = previous.catch(() => undefined).then(async () => {
+    await runCommand('upsert', { table: 'resumes', id, action: 'update', ...resumeForServer(patch) });
+  });
+  pendingResumeWrites.set(id, request);
+  void request.finally(() => {
+    if (pendingResumeWrites.get(id) === request) pendingResumeWrites.delete(id);
+  }).catch(() => undefined);
+  return request;
 }
 
 /**

@@ -65,6 +65,8 @@ practice_sets
 - id PK
 - legacy_id UNIQUE
 - cohort_id FK
+- owner_id FK NULL (개인 문제 세트 소유자; 수업 세트는 NULL)
+- origin CHECK(lesson, note, file)
 - source_title
 - lesson_date
 - day_label
@@ -77,7 +79,7 @@ practice_problems
 - id PK
 - set_id FK
 - position
-- kind CHECK(concept, code_output, code_blank, code_fix, code_write)
+- kind CHECK(concept, code_output, code_blank, code_fix, code_write, code_scratch)
 - topic
 - prompt
 - source_files JSONB
@@ -126,6 +128,42 @@ UNIQUE(cohort_id, source_title)
 
 `hidden_tests`와 `reference_solution`은 저장은 하되 학생용 serializer/schema에서 제외한다.
 학생 코드 실행은 별도 격리 runner의 책임이다.
+
+팀원 `practice`/`study` SQL은 별도 스키마로 실행하지 않는다. Django migration
+`0006_integrate_practice_study`가 기존 `public.practice_*` 6개에 위 필드를
+추가하고, 아래 다섯 `public.study_*` 테이블을 소유한다.
+
+```text
+study_github_owners
+- id PK
+- cohort_id FK, owner
+- added_by_id FK NULL, last_synced_at NULL, last_error, created_at
+UNIQUE(cohort_id, lower(owner))
+
+study_practice_settings
+- source_id PK/FK → study_sources.id
+- enabled, updated_by_id FK NULL, updated_at
+
+study_practice_runs
+- id PK, source_id FK → study_sources.id
+- trigger CHECK(schedule, manual), status CHECK(running, done, failed)
+- problems, dates JSONB, message, started_at, finished_at NULL
+
+study_practice_jobs
+- id PK, user_id FK, cohort_id FK, practice_set_id FK NULL
+- origin CHECK(note, file), label, status CHECK(running, done, failed)
+- message, created_at, finished_at NULL
+
+study_tutor_turns
+- id PK, user_id FK, problem_id FK NULL, thread_key
+- role CHECK(user, assistant), text, kind, hint_level NULL
+- lines JSONB, llm, created_at
+```
+
+API 경계에서는 팀원 payload의 `cohort_code`, `user_uid`, `repo_key`,
+`set_legacy_id`, `files`, `model`, `idx`를 각각 FK 또는
+`source_files`, `generation_model`, `position`에 매핑한다. 같은 개념을
+중복 컬럼/테이블로 저장하지 않는다.
 
 ## Mileage
 ```text
