@@ -49,6 +49,12 @@ class FirebaseGateway:
         from chatbot.database import connect
         return connect()
 
+    @staticmethod
+    def _json_object(value):
+        if isinstance(value, str):
+            value = json.loads(value)
+        return value if isinstance(value, dict) else {}
+
     def _cohort_user(self, conn, cohort_id: str, uid: str):
         row = conn.execute(
             """SELECT u.id, u.is_active, c.code, c.id AS cohort_pk
@@ -97,7 +103,7 @@ class FirebaseGateway:
             return {
                 "title": row[1],
                 "status": row[2],
-                "content": row[3] or {},
+                "content": self._json_object(row[3]),
                 "userId": row[5],
             }
 
@@ -125,15 +131,6 @@ class FirebaseGateway:
             f'{resume_id}:{job_id}:{snapshot_hash}'.encode()
         ).hexdigest()[:24]
         legacy = f"{resume_id}/tailored/{tailored_id}"
-        sections = {
-            "_tailored": {
-                "companyName": company_name,
-                "jobTitle": str(job_source.get('title') or ''),
-                "jobSnapshotHash": snapshot_hash,
-                "sourceResumeHash": source_hash,
-                "reviewSession": {},
-            }
-        }
         payload = {
             'userId': uid,
             'baseResumeId': resume_id,
@@ -156,27 +153,44 @@ class FirebaseGateway:
             if not parent:
                 raise ResumeNotFoundError("resume not found")
             existing = conn.execute(
-                "SELECT id, title, content, sections, status, linked_job_id FROM resumes WHERE legacy_id = %s",
-                (legacy,),
+                """SELECT r.id, r.title, t.job_snapshot_hash, t.review_session, t.source_resume_hash,
+                          t.company_name, t.job_title, r.status
+                   FROM resumes r LEFT JOIN resume_tailorings t ON t.resume_id = r.id
+                   WHERE r.legacy_id = %s AND r.cohort_id = %s AND r.user_id = %s""",
+                (legacy, ident["cohort_pk"], ident["user_pk"]),
             ).fetchone()
             if existing:
-                meta = (existing[3] or {}).get("_tailored") or {}
-                if meta.get("jobSnapshotHash") != snapshot_hash:
+                if existing[2] != snapshot_hash:
                     raise ResumeNotFoundError("tailored resume not found")
                 if title and existing[1] != title:
                     conn.execute("UPDATE resumes SET title=%s, updated_at=now() WHERE id=%s", (title, existing[0]))
-                    conn.commit()
-                return {"tailored_resume_id": tailored_id, **payload, "title": title or existing[1]}
+                conn.commit()
+                return {"tailored_resume_id": tailored_id, **payload,
+                        "title": title or existing[1], "status": existing[7],
+                        "companyName": existing[5], "jobTitle": existing[6],
+                        "sourceResumeHash": existing[4], "reviewSession": self._json_object(existing[3])}
+            created = conn.execute(
+                """INSERT INTO resumes (legacy_id, cohort_id, user_id, title, status, content,
+                   is_base_resume, base_resume_id, linked_job_id, revision_count, created_at, updated_at)
+                   VALUES (%s,%s,%s,%s,'draft',%s,false,%s,%s,0,now(),now()) RETURNING id""",
+                (legacy, ident["cohort_pk"], ident["user_pk"], title, Jsonb(payload["content"]), parent[0], job_id),
+            ).fetchone()
             conn.execute(
-                """INSERT INTO resumes (legacy_id, cohort_id, user_id, title, status, content, sections, is_base_resume, base_resume_id, linked_job_id, created_at, updated_at)
-                   VALUES (%s,%s,%s,%s,'draft',%s,%s,false,%s,%s, now(), now())""",
-                (legacy, ident["cohort_pk"], ident["user_pk"], title, Jsonb(payload["content"]), Jsonb(sections), parent[0], job_id),
+                """INSERT INTO resume_tailorings (resume_id, job_snapshot_hash, source_resume_hash,
+                   company_name, job_title, review_session, review_progress, created_at, updated_at)
+                   VALUES (%s,%s,%s,%s,%s,'{}'::jsonb,'not_started',now(),now())""",
+                (created[0], snapshot_hash, source_hash, company_name, payload['jobTitle']),
             )
             conn.commit()
         return {"tailored_resume_id": tailored_id, **payload}
 
-    def _tailored_meta(self, sections) -> dict:
-        return dict((sections or {}).get("_tailored") or {})
+    @staticmethod
+    def _tailored_meta(row) -> dict:
+        return {
+            "jobSnapshotHash": row[0], "sourceResumeHash": row[1],
+            "companyName": row[2], "jobTitle": row[3],
+            "reviewSession": FirebaseGateway._json_object(row[4]), "reviewProgress": row[5],
+        }
 
     def list_tailored_resumes(self, cohort_id: str, resume_id: str, uid: str) -> list[dict[str, Any]]:
         base = self.get_owned_resume(cohort_id, resume_id, uid)
@@ -190,11 +204,17 @@ class FirebaseGateway:
             if not parent:
                 return []
             rows = conn.execute(
-                "SELECT legacy_id, title, status, content, sections, linked_job_id FROM resumes WHERE base_resume_id = %s",
-                (parent[0],),
+                """SELECT r.legacy_id, r.title, r.status, r.content, r.linked_job_id,
+                          t.job_snapshot_hash, t.source_resume_hash, t.company_name,
+                          t.job_title, t.review_session, t.review_progress,
+                          (SELECT w.legacy_id FROM resumes w
+                           WHERE w.source_tailored_resume_id = r.id ORDER BY w.id LIMIT 1)
+                   FROM resumes r JOIN resume_tailorings t ON t.resume_id = r.id
+                   WHERE r.base_resume_id = %s AND r.user_id = %s ORDER BY r.created_at DESC, r.id DESC""",
+                (parent[0], ident["user_pk"]),
             ).fetchall()
-        for legacy, title, status, content, sections, job_id in rows:
-            meta = self._tailored_meta(sections)
+        for legacy, title, status, content, job_id, *tailoring in rows:
+            meta = self._tailored_meta(tailoring[:6])
             company = meta.get("companyName", "")
             wanted = tailored_resume_title(base, company)
             tid = str(legacy).rsplit("/", 1)[-1]
@@ -202,10 +222,11 @@ class FirebaseGateway:
                 "tailored_resume_id": tid,
                 "title": wanted or title,
                 "status": status,
-                "content": content or {},
+                "content": self._json_object(content),
                 "userId": uid,
                 "baseResumeId": resume_id,
                 "jobId": job_id or "",
+                "workspaceResumeId": tailoring[6] or "",
                 **meta,
             })
         return result
@@ -216,21 +237,27 @@ class FirebaseGateway:
         with self._pg() as conn:
             ident = self._cohort_user(conn, cohort_id, uid)
             row = conn.execute(
-                """SELECT r.title, r.status, r.content, r.sections, r.linked_job_id, u.firebase_uid, r.base_resume_id
-                   FROM resumes r JOIN users u ON u.id = r.user_id
-                   WHERE r.legacy_id = %s AND r.cohort_id = %s""",
-                (legacy, ident["cohort_pk"]),
+                """SELECT r.title, r.status, r.content, r.linked_job_id,
+                          t.job_snapshot_hash, t.source_resume_hash, t.company_name,
+                          t.job_title, t.review_session, t.review_progress,
+                          (SELECT w.legacy_id FROM resumes w
+                           WHERE w.source_tailored_resume_id = r.id ORDER BY w.id LIMIT 1)
+                   FROM resumes r JOIN resume_tailorings t ON t.resume_id = r.id
+                   WHERE r.legacy_id = %s AND r.cohort_id = %s AND r.user_id = %s
+                     AND r.base_resume_id = (SELECT id FROM resumes WHERE legacy_id = %s AND cohort_id = %s AND user_id = %s)""",
+                (legacy, ident["cohort_pk"], ident["user_pk"], resume_id, ident["cohort_pk"], ident["user_pk"]),
             ).fetchone()
-        if not row or row[5] != uid:
+        if not row:
             raise ResumeNotFoundError("tailored resume not found")
-        meta = self._tailored_meta(row[3])
+        meta = self._tailored_meta(row[4:10])
         return {
             "title": row[0],
             "status": row[1],
-            "content": row[2] or {},
+            "content": self._json_object(row[2]),
             "userId": uid,
             "baseResumeId": resume_id,
-            "jobId": row[4] or meta.get("jobId") or "",
+            "jobId": row[3] or "",
+            "workspaceResumeId": row[10] or "",
             **meta,
         }
 
@@ -239,13 +266,15 @@ class FirebaseGateway:
 
         self.get_owned_tailored_resume(cohort_id, resume_id, tailored_resume_id, uid)
         legacy = f"{resume_id}/tailored/{tailored_resume_id}"
+        progress = ('completed' if state.get('completed') is True else
+                    'in_progress' if state.get('result') else 'not_started')
         with self._pg() as conn:
-            row = conn.execute("SELECT sections FROM resumes WHERE legacy_id = %s", (legacy,)).fetchone()
-            sections = dict(row[0] or {})
-            meta = dict(sections.get("_tailored") or {})
-            meta["reviewSession"] = deepcopy(state)
-            sections["_tailored"] = meta
-            conn.execute("UPDATE resumes SET sections=%s, updated_at=now() WHERE legacy_id=%s", (Jsonb(sections), legacy))
+            ident = self._cohort_user(conn, cohort_id, uid)
+            conn.execute(
+                """UPDATE resume_tailorings SET review_session = %s, review_progress = %s, updated_at = now()
+                   WHERE resume_id = (SELECT id FROM resumes WHERE legacy_id = %s AND cohort_id = %s AND user_id = %s)""",
+                (Jsonb(deepcopy(state)), progress, legacy, ident['cohort_pk'], ident['user_pk']),
+            )
             conn.commit()
 
     def delete_tailored_resume(self, cohort_id, resume_id, tailored_resume_id, uid):
@@ -255,12 +284,31 @@ class FirebaseGateway:
             ident = self._cohort_user(conn, cohort_id, uid)
             workspace_id = str(tailored.get("workspaceResumeId") or "")
             if workspace_id:
-                conn.execute(
-                    "DELETE FROM resumes WHERE legacy_id = %s AND cohort_id = %s AND user_id = %s",
-                    (workspace_id, ident["cohort_pk"], ident["user_pk"]),
-                )
-            conn.execute("DELETE FROM resumes WHERE legacy_id = %s", (legacy,))
+                self._delete_owned_resume_row(conn, workspace_id, ident)
+            self._delete_owned_resume_row(conn, legacy, ident)
             conn.commit()
+
+    @staticmethod
+    def _delete_owned_resume_row(conn, legacy, ident):
+        row = conn.execute(
+            "SELECT id FROM resumes WHERE legacy_id = %s AND cohort_id = %s AND user_id = %s",
+            (legacy, ident["cohort_pk"], ident["user_pk"]),
+        ).fetchone()
+        if not row:
+            raise ResumeNotFoundError("resume not found")
+        resume_pk = row[0]
+        # Raw SQL does not invoke Django's on_delete=CASCADE collector.
+        conn.execute(
+            """DELETE FROM resume_feedback_reads WHERE resume_id = %s OR feedback_id IN
+               (SELECT id FROM resume_feedback WHERE resume_id = %s)""",
+            (resume_pk, resume_pk),
+        )
+        conn.execute("DELETE FROM resume_ai_applications WHERE resume_id = %s", (resume_pk,))
+        conn.execute("DELETE FROM resume_ai_reviews WHERE resume_id = %s", (resume_pk,))
+        conn.execute("DELETE FROM resume_feedback WHERE resume_id = %s", (resume_pk,))
+        conn.execute("DELETE FROM resume_revisions WHERE resume_id = %s", (resume_pk,))
+        conn.execute("DELETE FROM resume_tailorings WHERE resume_id = %s", (resume_pk,))
+        conn.execute("DELETE FROM resumes WHERE id = %s", (resume_pk,))
 
     def promote_tailored_resume(self, cohort_id, resume_id, tailored_resume_id, uid) -> str:
         from psycopg.types.json import Jsonb
@@ -274,23 +322,26 @@ class FirebaseGateway:
                 "SELECT id FROM resumes WHERE legacy_id = %s AND cohort_id = %s",
                 (resume_id, ident["cohort_pk"]),
             ).fetchone()
-            tailored_row = conn.execute("SELECT id, sections FROM resumes WHERE legacy_id = %s", (tailored_legacy,)).fetchone()
+            tailored_row = conn.execute(
+                "SELECT id FROM resumes WHERE legacy_id = %s AND cohort_id = %s AND user_id = %s",
+                (tailored_legacy, ident["cohort_pk"], ident["user_pk"]),
+            ).fetchone()
+            if not tailored_row:
+                raise ResumeNotFoundError("tailored resume not found")
             existing = conn.execute("SELECT id FROM resumes WHERE legacy_id = %s", (workspace_id,)).fetchone()
             if not existing:
                 conn.execute(
-                    """INSERT INTO resumes (legacy_id, cohort_id, user_id, title, status, content, sections, is_base_resume, base_resume_id, source_tailored_resume_id, linked_job_id, created_at, updated_at)
-                       VALUES (%s,%s,%s,%s,'writing',%s,'{}',false,%s,%s,%s, now(), now())""",
+                    """INSERT INTO resumes (legacy_id, cohort_id, user_id, title, status, content,
+                       is_base_resume, base_resume_id, source_tailored_resume_id, linked_job_id,
+                       revision_count, created_at, updated_at)
+                       VALUES (%s,%s,%s,%s,'writing',%s,false,%s,%s,%s,0,now(),now())""",
                     (workspace_id, ident["cohort_pk"], ident["user_pk"], tailored.get("title") or "맞춤 이력서",
                      Jsonb(deepcopy(tailored.get("content") or {})), parent[0] if parent else None,
-                     tailored_row[0] if tailored_row else None, tailored.get("jobId") or ""),
+                     tailored_row[0], tailored.get("jobId") or ""),
                 )
-            sections = dict((tailored_row[1] if tailored_row else {}) or {})
-            meta = dict(sections.get("_tailored") or {})
-            meta["workspaceResumeId"] = workspace_id
-            sections["_tailored"] = meta
             conn.execute(
-                "UPDATE resumes SET status='ready', sections=%s, updated_at=now() WHERE legacy_id=%s",
-                (Jsonb(sections), tailored_legacy),
+                "UPDATE resumes SET status='ready', updated_at=now() WHERE id=%s",
+                (tailored_row[0],),
             )
             conn.commit()
         return workspace_id
