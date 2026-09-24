@@ -49,8 +49,17 @@ export function careerLabel(careerType: string, minYears: number | null): string
 /** 마감은 날짜까지만. 시각 · 시간대는 지원 여부를 정하는 데 쓰이지 않는다 */
 const dateOnly = (value: string | null) => (value === null ? '' : (/^\d{4}-\d{2}-\d{2}/.exec(value)?.[0] ?? value));
 
+/** 새 탭으로 연 공고 원문 — 주소의 공고를 보여 준다 */
 export function JobPostingScreen() {
   const { jobId = '' } = useParams<{ jobId: string }>();
+  return <JobPostingView jobId={jobId} asPage />;
+}
+
+/**
+ * 공고 원문 본문. 새 탭 화면과 추천 카드에서 여는 창이 함께 쓴다.
+ * `asPage` 면 브라우저 탭 이름을 공고 제목으로 바꾼다.
+ */
+export function JobPostingView({ jobId, asPage = false }: { jobId: string; asPage?: boolean }) {
   const [posting, setPosting] = useState<Posting | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -58,6 +67,7 @@ export function JobPostingScreen() {
   useEffect(() => {
     let alive = true;
     setError(null);
+    setPosting(null);
     http
       .get<Posting>(`/postings/${encodeURIComponent(jobId)}`)
       .then(({ data }) => alive && setPosting(data))
@@ -73,8 +83,8 @@ export function JobPostingScreen() {
 
   // 탭 이름으로 어느 공고인지 알 수 있게
   useEffect(() => {
-    if (posting !== null) document.title = `${posting.title} · ${posting.company}`;
-  }, [posting]);
+    if (asPage && posting !== null) document.title = `${posting.title} · ${posting.company}`;
+  }, [asPage, posting]);
 
   if (error !== null) {
     return (

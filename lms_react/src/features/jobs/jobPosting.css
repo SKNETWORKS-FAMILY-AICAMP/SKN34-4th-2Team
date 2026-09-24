@@ -212,3 +212,72 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* 추천 카드에서 여는 공고 원문 창 — 첨삭 창처럼 화면 위에 뜬다 */
+.posting-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 880;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 54%);
+}
+
+.posting-window {
+  display: flex;
+  flex-direction: column;
+  width: min(960px, 100%);
+  height: min(860px, 100%);
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--background);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 24%);
+}
+
+.posting-window__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.posting-window__head strong {
+  font-size: 16px;
+}
+
+.posting-window__head .btn {
+  text-decoration: none;
+}
+
+.posting-window__icon {
+  color: var(--primary);
+}
+
+.posting-window__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.posting-window__body .posting {
+  padding: 24px 32px 32px;
+}
+
+@media (max-width: 600px) {
+  .posting-layer {
+    padding: 0;
+  }
+
+  .posting-window {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+  }
+
+  .posting-window__body .posting {
+    padding: 20px 16px 28px;
+  }
+}

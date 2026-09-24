@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 
 import { http } from '../../data/http';
 import { Icon } from '../../ui/Icon';
 import type { Resume } from '../../domain/types';
+import { JobPostingDialog } from '../jobs/JobPostingDialog';
 import { careerLabel, jobPostingPath } from '../jobs/JobPostingScreen';
 import { JobRecommendationLoading } from './JobRecommendationLoading';
 import { useReviewDock } from './review/ReviewDock';
@@ -162,10 +163,13 @@ function JobCard({
   onReview,
   reviewLabel,
   showReasons = true,
+  onOpenPosting,
 }: {
   index: number;
   job: JobPick;
   onReview?(job: JobPick): void;
+  /** 공고 원문을 화면 위 창으로 연다 */
+  onOpenPosting?(job: JobPick): void;
   /** 맞춤 이력서에 연결된 공고면 「재첨삭」 */
   reviewLabel?: string;
   /** 연결된 공고는 새로 추천한 것이 아니라 근거가 없다. 공고만 보이고 「추천 근거 보기」를 달지 않는다 */
@@ -188,8 +192,14 @@ function JobCard({
   const summary = [job.conditions.region, job.conditions.employmentType, job.conditions.career]
     .filter((v) => v !== null && v !== undefined && v !== '')
     .join(' · ');
-  // 채용 사이트로 바로 보내지 않고 수집해 둔 원문을 새 탭에 연다. 첨삭하던 화면을 잃지 않는다
+  // 채용 사이트로 바로 보내지 않고 수집해 둔 원문을 화면 위 창으로 연다. 첨삭하던 화면을 잃지 않는다.
+  // Ctrl · ⌘ · 가운데 버튼으로 누르면 브라우저가 하던 대로 새 탭에 연다
   const link = job.jobId === '' ? '' : jobPostingPath(job.jobId);
+  const openInPlace = (e: MouseEvent<HTMLAnchorElement>) => {
+    if (onOpenPosting === undefined || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    onOpenPosting(job);
+  };
 
   return (
     <div className="job-card">
@@ -199,14 +209,22 @@ function JobCard({
           {link === '' ? (
             <strong>{job.title}</strong>
           ) : (
-            <a href={link} target="_blank" rel="noreferrer">
+            <a href={link} target="_blank" rel="noreferrer" onClick={openInPlace}>
               <strong>{job.title}</strong>
             </a>
           )}
           <span className="job-card__company">{job.company}</span>
         </div>
         {link !== '' && (
-          <a className="job-card__open" href={link} target="_blank" rel="noreferrer" aria-label="공고 원문 새 탭에서 열기" title="공고 원문 새 탭에서 열기">
+          <a
+            className="job-card__open"
+            href={link}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="공고 원문 보기"
+            title="공고 원문 보기 (Ctrl+클릭: 새 탭)"
+            onClick={openInPlace}
+          >
             <Icon name="open_in_new" size={14} />
           </a>
         )}
@@ -297,6 +315,8 @@ export function JobRecommendationRun({ resume }: { resume: Resume }) {
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [results, setResults] = useState<Record<string, string>>({});
+  /** 화면 위 창으로 보고 있는 공고 원문 */
+  const [viewing, setViewing] = useState<string | null>(null);
   const { openReview } = useReviewDock();
   // 공고 맞춤 이력서(편집기로 옮긴 사본)는 연결된 공고를 보여 주고 「재첨삭」을 단다 — 원본 _hasLinkedJob
   const linkedJobId = resume.linkedJobId ?? '';
@@ -410,6 +430,8 @@ export function JobRecommendationRun({ resume }: { resume: Resume }) {
     );
   }
 
+  const closePosting = () => setViewing(null);
+
   // 추천이 끝나면 로딩은 사라지고 목록만 남는다.
   if (result !== null) {
     return (
@@ -437,11 +459,13 @@ export function JobRecommendationRun({ resume }: { resume: Resume }) {
                 onReview={(job) => void reviewJob(job)}
                 reviewLabel={linkedJobId !== '' ? '재첨삭' : undefined}
                 showReasons={linkedJobId === ''}
+                onOpenPosting={(job) => setViewing(job.jobId)}
               />
             ))}
           </div>
         )}
         {result.notice !== '' && <p className="hint coach-jobs__notice">{result.notice}</p>}
+        {viewing !== null && <JobPostingDialog jobId={viewing} onClose={closePosting} />}
       </div>
     );
   }
