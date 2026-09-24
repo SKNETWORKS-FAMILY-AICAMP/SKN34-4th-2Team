@@ -7,6 +7,7 @@
 # Feel free to rename the models, but don't rename db_table values or field names.
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
+from django.db.models.functions import Lower
 
 
 class AiEvalRuns(models.Model):
@@ -1024,6 +1025,8 @@ class PolicyDocumentRevisions(models.Model):
 class PracticeSets(models.Model):
     legacy_id = models.CharField(unique=True)
     cohort = models.ForeignKey(Cohorts, models.PROTECT)
+    owner = models.ForeignKey(Users, models.PROTECT, blank=True, null=True, related_name='personal_practice_sets')
+    origin = models.CharField(default='lesson', choices=[('lesson', 'lesson'), ('note', 'note'), ('file', 'file')])
     source_title = models.CharField(default='')
     lesson_date = models.DateField()
     day_label = models.CharField(default='')
@@ -1034,7 +1037,15 @@ class PracticeSets(models.Model):
 
     class Meta:
         db_table = 'practice_sets'
-        indexes = [models.Index(fields=['cohort', '-lesson_date'])]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(origin__in=('lesson', 'note', 'file')),
+                name='ck_practice_set_origin',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['cohort', '-lesson_date']),
+        ]
 
 
 class PracticeProblems(models.Model):
@@ -1044,6 +1055,7 @@ class PracticeProblems(models.Model):
         CODE_BLANK = 'code_blank'
         CODE_FIX = 'code_fix'
         CODE_WRITE = 'code_write'
+        CODE_SCRATCH = 'code_scratch'
 
     problem_set = models.ForeignKey(PracticeSets, models.CASCADE, related_name='problems')
     position = models.PositiveIntegerField()
@@ -1066,7 +1078,7 @@ class PracticeProblems(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['problem_set', 'position'], name='uq_practice_problem_position'),
             models.CheckConstraint(
-                condition=models.Q(kind__in=('concept', 'code_output', 'code_blank', 'code_fix', 'code_write')),
+                condition=models.Q(kind__in=('concept', 'code_output', 'code_blank', 'code_fix', 'code_write', 'code_scratch')),
                 name='ck_practice_problem_kind',
             ),
         ]
@@ -1143,3 +1155,107 @@ class PracticeCoverage(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['cohort', 'source_title'], name='uq_practice_coverage_source')
         ]
+
+
+class StudyGithubOwners(models.Model):
+    cohort = models.ForeignKey(Cohorts, models.PROTECT)
+    owner = models.CharField()
+    added_by = models.ForeignKey(Users, models.SET_NULL, blank=True, null=True)
+    last_synced_at = models.DateTimeField(blank=True, null=True)
+    last_error = models.TextField(default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'study_github_owners'
+        constraints = [
+            models.UniqueConstraint(models.F('cohort'), Lower('owner'), name='uq_study_github_cohort_owner'),
+        ]
+
+
+class StudyPracticeSettings(models.Model):
+    source = models.OneToOneField(StudySources, models.PROTECT, primary_key=True)
+    enabled = models.BooleanField(default=True)
+    updated_by = models.ForeignKey(Users, models.SET_NULL, blank=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'study_practice_settings'
+
+
+class StudyPracticeRuns(models.Model):
+    class Status(models.TextChoices):
+        RUNNING = 'running'
+        DONE = 'done'
+        FAILED = 'failed'
+
+    class Trigger(models.TextChoices):
+        SCHEDULE = 'schedule'
+        MANUAL = 'manual'
+
+    source = models.ForeignKey(StudySources, models.PROTECT)
+    trigger = models.CharField(default=Trigger.SCHEDULE, choices=Trigger.choices)
+    status = models.CharField(default=Status.RUNNING, choices=Status.choices)
+    problems = models.PositiveIntegerField(default=0)
+    dates = models.JSONField(default=list)
+    message = models.TextField(default='')
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        db_table = 'study_practice_runs'
+        constraints = [
+            models.CheckConstraint(condition=models.Q(trigger__in=('schedule', 'manual')), name='ck_study_run_trigger'),
+            models.CheckConstraint(condition=models.Q(status__in=('running', 'done', 'failed')), name='ck_study_run_status'),
+        ]
+        indexes = [models.Index(fields=['source', '-started_at'], name='idx_study_run_source_started')]
+
+
+class StudyPracticeJobs(models.Model):
+    class Origin(models.TextChoices):
+        NOTE = 'note'
+        FILE = 'file'
+
+    class Status(models.TextChoices):
+        RUNNING = 'running'
+        DONE = 'done'
+        FAILED = 'failed'
+
+    user = models.ForeignKey(Users, models.PROTECT)
+    cohort = models.ForeignKey(Cohorts, models.PROTECT)
+    origin = models.CharField(choices=Origin.choices)
+    label = models.CharField(default='')
+    status = models.CharField(default=Status.RUNNING, choices=Status.choices)
+    practice_set = models.ForeignKey(PracticeSets, models.SET_NULL, blank=True, null=True)
+    message = models.TextField(default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        db_table = 'study_practice_jobs'
+        constraints = [
+            models.CheckConstraint(condition=models.Q(origin__in=('note', 'file')), name='ck_study_job_origin'),
+            models.CheckConstraint(condition=models.Q(status__in=('running', 'done', 'failed')), name='ck_study_job_status'),
+        ]
+        indexes = [models.Index(fields=['user', '-created_at'], name='idx_study_job_user_created')]
+
+
+class StudyTutorTurns(models.Model):
+    class Role(models.TextChoices):
+        USER = 'user'
+        ASSISTANT = 'assistant'
+
+    user = models.ForeignKey(Users, models.PROTECT)
+    problem = models.ForeignKey(PracticeProblems, models.SET_NULL, blank=True, null=True)
+    thread_key = models.CharField()
+    role = models.CharField(choices=Role.choices)
+    text = models.TextField()
+    kind = models.CharField(default='')
+    hint_level = models.IntegerField(blank=True, null=True)
+    lines = models.JSONField(default=list)
+    llm = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'study_tutor_turns'
+        constraints = [models.CheckConstraint(condition=models.Q(role__in=('user', 'assistant')), name='ck_study_turn_role')]
+        indexes = [models.Index(fields=['user', 'thread_key', 'id'], name='idx_study_turn_thread')]
