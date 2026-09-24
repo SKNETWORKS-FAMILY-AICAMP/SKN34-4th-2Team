@@ -8,6 +8,7 @@ from django.contrib.auth.hashers import make_password
 from django.db import connection, transaction
 
 from lms.permissions import can_access_cohort
+from lms.practice_service import PRACTICE_OPS
 from lms.services import schedule_notice_vector
 
 
@@ -808,6 +809,7 @@ def op_publish_seating(cur, user, p):
 
 
 OPS = {
+    **PRACTICE_OPS,
     "updateProfile": op_update_profile,
     "createUser": op_create_user,
     "createCohort": op_create_cohort,

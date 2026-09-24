@@ -8,6 +8,7 @@ from uuid import uuid4
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
 
+from lms.bootstrap_service import build_bootstrap
 from lms.practice_service import (
     create_personal_set,
     get_coverage,
@@ -40,15 +41,17 @@ class Command(BaseCommand):
                 token = uuid4().hex
                 users = []
                 for role in ("student", "student", "instructor"):
+                    uid = f"practice-check-{token}-{len(users)}"
                     cur.execute(
                         """INSERT INTO users
                            (firebase_uid, email, password, display_name, role, cohort_id,
                             is_active, must_change_password, mileage_balance, social_links)
                            VALUES (%s, %s, %s, %s, %s, %s, true, false, 0, '{}'::jsonb) RETURNING id""",
-                        [f"practice-check-{token}-{len(users)}", f"practice-{token}-{len(users)}@example.invalid",
+                        [uid, f"practice-{token}-{len(users)}@example.invalid",
                          "!", "Practice check", role, cohort_id],
                     )
-                    users.append({"id": cur.fetchone()[0], "role": role, "cohort_id": cohort_id})
+                    users.append({"id": cur.fetchone()[0], "role": role, "cohort_id": cohort_id,
+                                  "cohort_code": cohort_code, "firebase_uid": uid, "is_active": True})
                 learner, other, instructor = users
                 problem = {"kind": "code_scratch", "topic": "python", "prompt": "print(1)"}
                 set_id = create_personal_set(
@@ -83,6 +86,9 @@ class Command(BaseCommand):
                 assert own["practiceAttempts"][0]["passed"] is True
                 assert len(own["practiceReports"]) == 1
                 assert practice_snapshot(cur, instructor, [cohort_code])["practiceReviews"][0]["decision"] == "kept"
+                bootstrap = build_bootstrap(learner)
+                assert any(item["id"] == key for item in bootstrap["practiceSets"])
+                assert bootstrap["practiceAttempts"][0]["tries"] == 2
                 cur.execute("SELECT count(*) FROM practice_problems WHERE problem_set_id = %s", [set_id])
                 assert cur.fetchone()[0] == 1
             transaction.set_rollback(True)

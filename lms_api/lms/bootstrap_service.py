@@ -7,6 +7,7 @@ import json
 from django.db import connection
 
 from lms.jsonutil import public_row
+from lms.practice_service import practice_snapshot
 from lms.storage import signed_read_url
 
 
@@ -211,6 +212,7 @@ def build_bootstrap(user: dict) -> dict:
                ) AND (%s = false OR sr.user_id = %s)""",
             [cohort_ids, is_student, user["id"]],
         )
+        practice = practice_snapshot(cur, user, [code_by_pk[pk] for pk in cohort_ids if pk in code_by_pk])
         assess_subs = q(
             """SELECT s.* FROM assessment_submissions s
                JOIN assessments a ON a.id = s.assessment_id
@@ -306,4 +308,5 @@ def build_bootstrap(user: dict) -> dict:
         "aiGenerationLogs": pub(logs),
         "publishedSeatingRoomId": published,
         "seating": seating,
+        **practice,
     }
