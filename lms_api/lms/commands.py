@@ -388,6 +388,25 @@ def _prepare_row(cur, user, table: str, payload: dict, columns: set[str]) -> dic
     return data
 
 
+def _delete_resume(cur, resume_id: int) -> None:
+    """이력서 하나를 지운다. resumes 를 가리키는 FK 는 DB 에 ON DELETE 가 없어(DEC-055) 딸린 행을 먼저 처리한다.
+
+    - 지운다: 피드백 읽음 · 피드백 · 수정 기록 · 첨삭 · 반영 기록 · 공고 맞춤 정보(resume_tailorings)
+    - 연결만 끊는다(모델의 SET_NULL): 이 이력서에서 만든 맞춤 이력서의 base_resume_id, 이 사본을 옮긴
+      편집용 이력서의 source_tailored_resume_id. 원본이 지워져도 맞춤 이력서는 남긴다(DEC-050)
+    """
+    cur.execute("UPDATE resumes SET base_resume_id = NULL WHERE base_resume_id = %s", [resume_id])
+    cur.execute("UPDATE resumes SET source_tailored_resume_id = NULL WHERE source_tailored_resume_id = %s", [resume_id])
+    cur.execute(
+        """DELETE FROM resume_feedback_reads WHERE resume_id = %s
+           OR feedback_id IN (SELECT id FROM resume_feedback WHERE resume_id = %s)""",
+        [resume_id, resume_id],
+    )
+    for table in ("resume_feedback", "resume_revisions", "resume_ai_applications", "resume_ai_reviews", "resume_tailorings"):
+        cur.execute(f"DELETE FROM {table} WHERE resume_id = %s", [resume_id])
+    cur.execute("DELETE FROM resumes WHERE id = %s", [resume_id])
+
+
 def _validate_resume_write(cur, user, data: dict, row: dict | None) -> None:
     owner_id = row["user_id"] if row else data.get("user_id") or user["id"]
     if user["role"] != "admin" and owner_id != user["id"]:
@@ -495,7 +514,9 @@ def op_upsert_sql(cur, user, p):
                 raise PermissionError("cohort only")
         else:
             _require_staff(user)
-        if row:
+        if row and table == "resumes":
+            _delete_resume(cur, row["id"])
+        elif row:
             cur.execute(f"DELETE FROM {table} WHERE id = %s", [row["id"]])
         return {"ok": True}
     if table == "scheduled_notices":

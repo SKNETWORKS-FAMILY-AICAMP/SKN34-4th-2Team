@@ -150,6 +150,24 @@ class ResumeReviewIdTests(SimpleTestCase):
         self.assertEqual(sent["resume_id"], "BASEdoc")
 
 
+class ResumeDeleteTests(SimpleTestCase):
+    """이력서 삭제 — DB FK 에 ON DELETE 가 없어 딸린 행을 먼저 처리하고 마지막에 resumes 를 지운다."""
+
+    def test_dependents_are_cleared_before_the_resume(self):
+        from lms.commands import _delete_resume
+
+        cur = Mock()
+        _delete_resume(cur, 11)
+        sqls = [" ".join(call.args[0].split()) for call in cur.execute.call_args_list]
+        self.assertEqual(sqls[-1], "DELETE FROM resumes WHERE id = %s")
+        for table in ("resume_feedback_reads", "resume_feedback", "resume_revisions",
+                      "resume_ai_applications", "resume_ai_reviews", "resume_tailorings"):
+            self.assertTrue(any(sql.startswith(f"DELETE FROM {table} ") for sql in sqls[:-1]), table)
+        # 원본 · 편집용 연결은 지우지 않고 끊는다
+        self.assertIn("UPDATE resumes SET base_resume_id = NULL WHERE base_resume_id = %s", sqls)
+        self.assertIn("UPDATE resumes SET source_tailored_resume_id = NULL WHERE source_tailored_resume_id = %s", sqls)
+
+
 class ResumeWriteValidationTests(SimpleTestCase):
     def setUp(self):
         self.actor = {"id": 1, "role": "student", "cohort_id": 34}
