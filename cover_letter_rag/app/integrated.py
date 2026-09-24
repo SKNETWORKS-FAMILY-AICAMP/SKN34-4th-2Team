@@ -12,6 +12,10 @@ from chatbot.api import router as student_chatbot_router
 from study_notes.api import router as study_notes_router
 from job_matching_bot.api.main import app as matching_app
 from app.main import app as review_app
+from app.trace_privacy import enable_trace_privacy
+
+# 위 앱들을 불러오며 .env 가 환경변수로 들어왔다. 첫 LLM 호출보다 먼저 추적의 개인정보 가리기를 건다
+enable_trace_privacy()
 
 app = FastAPI(title='LMS 취업 코치 통합 API', docs_url=None, redoc_url=None, openapi_url=None)
 origins = [s.strip() for s in os.environ.get('CORS_ALLOW_ORIGINS', '').split(',') if s.strip()]
