@@ -671,3 +671,64 @@ export interface AiEvalResult {
   avgLatencyMs?: number;
   ranAt: Date;
 }
+
+export type PracticeKind = 'concept' | 'code_output' | 'code_blank' | 'code_fix' | 'code_write' | 'code_scratch';
+
+export interface PracticeProblem {
+  kind: PracticeKind;
+  topic: string;
+  prompt: string;
+  sourceFiles: string[];
+  explanation: string;
+  choices: string[];
+  answerIndex: number | null;
+  starterCode: string;
+  expectedStdout: string;
+  blankAnswers: string[];
+  referenceSolution: string;
+  hiddenTests: string;
+  packages: string[];
+}
+
+export interface PracticeSet {
+  id: string;
+  cohortId: string;
+  sourceTitle: string;
+  lessonDate: string;
+  dayLabel: string;
+  title: string;
+  files: string[];
+  model: string;
+  problems: PracticeProblem[];
+  origin?: 'lesson' | 'note' | 'file';
+}
+
+export interface PracticeAttempt {
+  id: string;
+  uid: string;
+  setId: string;
+  index: number;
+  passed: boolean;
+  tries: number;
+  answeredAt: Date;
+}
+
+export type PracticeReportReason = 'unclear' | 'answer' | 'tests' | 'offtopic' | 'other';
+
+export interface PracticeReport {
+  id: string;
+  uid: string;
+  setId: string;
+  index: number;
+  reason: PracticeReportReason;
+  note: string;
+  createdAt: Date;
+}
+
+export interface PracticeReview {
+  setId: string;
+  index: number;
+  decision: 'hidden' | 'kept';
+  decidedBy: string;
+  decidedAt: Date;
+}

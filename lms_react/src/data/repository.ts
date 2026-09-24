@@ -14,6 +14,11 @@ import type {
   Notice,
   Post,
   PostComment,
+  PracticeAttempt,
+  PracticeReport,
+  PracticeReportReason,
+  PracticeReview,
+  PracticeSet,
   PurchaseRequest,
   QualExamSchedule,
   Resume,
@@ -1071,4 +1076,68 @@ export function updateMileageSettings(patch: Partial<import('../domain/types').M
 /** ⬇︎ Query 로 바꾼 것 (시범) */
 export function useQualExams(): Query<QualExamSchedule[]> {
   return { data: useDb((db) => db.qualExams), loading: false, error: null };
+}
+
+// ── 복습 문제: Django bootstrap 조회 / command 저장 ────────────
+
+export function usePracticeSets(cohortId: string): PracticeSet[] {
+  return useDb((db) => db.practiceSets
+    .filter((set) => set.cohortId === cohortId)
+    .sort((a, b) => b.lessonDate.localeCompare(a.lessonDate)));
+}
+
+export function usePracticeSet(id: string | null | undefined): PracticeSet | undefined {
+  return useDb((db) => (id ? db.practiceSets.find((set) => set.id === id) : undefined));
+}
+
+export function useMyPracticeAttempts(uid: string): PracticeAttempt[] {
+  return useDb((db) => db.practiceAttempts.filter((attempt) => attempt.uid === uid));
+}
+
+export function usePracticeReports(): PracticeReport[] {
+  return useDb((db) => db.practiceReports);
+}
+
+export function usePracticeReviews(): PracticeReview[] {
+  return useDb((db) => db.practiceReviews);
+}
+
+export function recordPracticeAttempt(uid: string, setId: string, index: number, passed: boolean): void {
+  if (isTestMode()) {
+    mutate((db) => {
+      const found = db.practiceAttempts.find((a) => a.uid === uid && a.setId === setId && a.index === index);
+      return { practiceAttempts: found
+        ? db.practiceAttempts.map((a) => a === found
+          ? { ...a, passed: a.passed || passed, tries: a.tries + 1, answeredAt: new Date() } : a)
+        : [...db.practiceAttempts, { id: nextId('pa'), uid, setId, index, passed, tries: 1, answeredAt: new Date() }] };
+    });
+    return;
+  }
+  void runCommand('recordPracticeAttempt', { setId, index, passed });
+}
+
+export function reportPracticeProblem(uid: string, setId: string, index: number,
+  reason: PracticeReportReason, note: string): void {
+  if (isTestMode()) {
+    mutate((db) => {
+      const found = db.practiceReports.find((r) => r.uid === uid && r.setId === setId && r.index === index);
+      return { practiceReports: found
+        ? db.practiceReports.map((r) => r === found ? { ...r, reason, note, createdAt: new Date() } : r)
+        : [...db.practiceReports, { id: nextId('pr'), uid, setId, index, reason, note, createdAt: new Date() }] };
+    });
+    return;
+  }
+  void runCommand('reportPracticeProblem', { setId, index, reason, note });
+}
+
+export function reviewPracticeProblem(decidedBy: string, setId: string, index: number,
+  decision: PracticeReview['decision']): void {
+  if (isTestMode()) {
+    mutate((db) => ({ practiceReviews: [
+      ...db.practiceReviews.filter((r) => r.setId !== setId || r.index !== index),
+      { setId, index, decision, decidedBy, decidedAt: new Date() },
+    ] }));
+    return;
+  }
+  void runCommand('reviewPracticeProblem', { setId, index, decision });
 }

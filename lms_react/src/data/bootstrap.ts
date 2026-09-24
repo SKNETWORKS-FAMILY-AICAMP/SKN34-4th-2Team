@@ -485,6 +485,19 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
       files: Array.isArray(row.files) ? (row.files as { path: string; commit: string }[]) : [],
       createdAt: asDate(row.createdAt ?? row.created_at),
     })),
+    practiceSets: rowsOf(payload, 'practiceSets') as unknown as Database['practiceSets'],
+    practiceAttempts: rowsOf(payload, 'practiceAttempts').map((row) => ({
+      ...(row as unknown as Database['practiceAttempts'][number]),
+      answeredAt: asDate(row.answeredAt) ?? new Date(0),
+    })),
+    practiceReports: rowsOf(payload, 'practiceReports').map((row) => ({
+      ...(row as unknown as Database['practiceReports'][number]),
+      createdAt: asDate(row.createdAt) ?? new Date(0),
+    })),
+    practiceReviews: rowsOf(payload, 'practiceReviews').map((row) => ({
+      ...(row as unknown as Database['practiceReviews'][number]),
+      decidedAt: asDate(row.decidedAt) ?? new Date(0),
+    })),
     curriculumSheets: rowsOf(payload, 'curriculumSheets').map(mapSheet),
     formTasks: rowsOf(payload, 'formTasks').map(mapFormTask),
     formResponses: rowsOf(payload, 'formResponses').map(mapFormResponse),

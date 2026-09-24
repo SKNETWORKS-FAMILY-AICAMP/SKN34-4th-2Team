@@ -51,6 +51,10 @@ import type {
   Notice,
   Post,
   PostComment,
+  PracticeAttempt,
+  PracticeReport,
+  PracticeReview,
+  PracticeSet,
   PurchaseRequest,
   QualExamSchedule,
   Resume,
@@ -93,6 +97,10 @@ export interface Database {
   youtubeRecommendations: YoutubeRecommendation[];
   studySources: StudySource[];
   studyNotes: StudyNote[];
+  practiceSets: PracticeSet[];
+  practiceAttempts: PracticeAttempt[];
+  practiceReports: PracticeReport[];
+  practiceReviews: PracticeReview[];
   curriculumSheets: CurriculumSheet[];
   formTasks: FormTask[];
   formResponses: FormResponse[];
@@ -130,6 +138,10 @@ function initial(): Database {
     youtubeRecommendations: seedYoutubeRecommendations,
     studySources: seedStudySources,
     studyNotes: seedStudyNotes,
+    practiceSets: [],
+    practiceAttempts: [],
+    practiceReports: [],
+    practiceReviews: [],
     curriculumSheets: seedCurriculumSheets,
     formTasks: seedFormTasks,
     formResponses: seedFormResponses,
@@ -186,6 +198,10 @@ export function emptyDb(): Database {
     youtubeRecommendations: [],
     studySources: [],
     studyNotes: [],
+    practiceSets: [],
+    practiceAttempts: [],
+    practiceReports: [],
+    practiceReviews: [],
     curriculumSheets: [],
     formTasks: [],
     formResponses: [],
