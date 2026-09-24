@@ -1,7 +1,11 @@
 # Firestore → PostgreSQL 이전 리포트
 
-> 이 문서는 과거 ETL 실행의 건수·오류 기록이며 현재 기준 DB
-> `lms_migration_replay_20260923`의 실데이터 현황을 뜻하지 않는다.
+> 2026-09-25 RDS `lms_migration_replay_20260923`(lms.0007)에 넣은 실행의 기록이다.
+> 로컬 DB에 ETL 한 뒤 덤프를 한 트랜잭션으로 넣었다. RDS에 먼저 있던 기수 `cohort_34` · 공지 15건 ·
+> 정책 문서 7건은 같은 번호로 다시 들어갔다(공지는 작성자만 채움).
+> Firestore 에 없는 공부방 · 연습장 데이터(로컬 `practice.*` · `study.*`)는 `migrate_local_study.py` 로 함께 넣었다:
+> 수업 저장소 +10 · 노트 +3 · 복습 문제 세트 20(문제 228) · 출제 범위 6 · 조직 연결 1 · 자동 출제 설정 1 · 실행 기록 7 · 튜터 대화 4.
+> 건너뛴 행은 모두 삭제된 계정 `PKoHmb6H8VPhdKuH8b4r5id9PTy1`(Firestore users 에 없음)의 것이다.
 
 운영 Firestore는 읽기만 했다. jobs 스키마와 youtube_curriculum_cache 테이블은 만들지 않았다.
 
@@ -19,16 +23,16 @@
 | `cohorts` | 3 | `cohorts` | 3 |
 | `studentIntakes` | 32 | `student_intakes` | 32 |
 | `users/{uid}/todos` | 1 | `todos` | 1 |
-| `users/{uid}/alertPopupDismissals` | 3 | `alert_popup_dismissals` | 0 |
+| `users/{uid}/alertPopupDismissals` | 3 | `alert_popup_dismissals` | 3 |
 | `…/attendances` | 1690 | `attendances` | 1624 |
 | `…/rollCalls` | 15 | `seat_presences` | 246 |
-| `…/notices` | 15 | `notices` | 15 |
+| `…/notices` | 16 | `notices` | 16 |
 | `…/resumes` | 31 | `resumes` | 25 |
 | `…/resumes/{id}/feedback` | 15 | `resume_feedback` | 15 |
-| `…/resumes/{id}/revisions` | 12 | `resume_revisions` | 0 |
+| `…/resumes/{id}/revisions` | 12 | `resume_revisions` | 12 |
 | `…/submissions` | 6 | `record_submissions` | 2 |
 | `…/assessmentSubmissions` | 4 | `assessment_submissions` | 0 |
-| `…/assessments/{id}/questions` | 20 | `assessment_questions` | 0 |
+| `…/assessments/{id}/questions` | 20 | `assessment_questions` | 20 |
 | `aiGenerationLogs` | 190 | `ai_generation_logs` | 190 |
 | `aiQuestionFeedback` | 261 | `ai_question_feedback` | 261 |
 | `…/mileageTransactions` | 5 | `mileage_transactions` | 2 |
@@ -38,7 +42,7 @@
 | `…/formTasks` | 2 | `submission_tasks` | 2 |
 | `…/seatingRooms` | 1 | `cohort_seating` | 1 |
 | `systemCache` | 1 | `system_cache` | 1 |
-| `aiEvalRuns` | 1 | `ai_eval_runs` | 0 |
+| `aiEvalRuns` | 1 | `ai_eval_runs` | 1 |
 
 ## 전체 Firestore 인벤토리
 
@@ -71,7 +75,7 @@
 - `…/mileageSettings/config`: 0
 - `…/mileageTransactions`: 5
 - `…/missionProgress`: 2
-- `…/notices`: 15
+- `…/notices`: 16
 - `…/posts`: 0
 - `…/projectTeams`: 5
 - `…/purchaseRequests`: 1
@@ -124,6 +128,8 @@
 ## 문서와 코드 차이
 
 - cohorts.status archived → closed (cohort_36)
+- resumes 원본 · 사본 연결 2/2건 (baseResumeId · sourceTailoredResumeId)
+- tailoredResumes 공고 스냅샷 · 첨삭 대화 → resume_tailorings 8/8건
 - undocumented path tailoredResumes (8 docs) flattened into resumes (ERD base_resume_id). aiReviews/aiApplications not loaded.
 - legacy studyNotes yx8R7VUJmGFSsD0B0ZHF_prefix_05_langchain_01_langchain_overview dropped (no userId)
 - jobRequirementProfiles / resumes/*/aiReviews / resumes/*/aiApplications 는 ERD 54경로에 없어 테이블을 만들지 않았다.
@@ -131,150 +137,7 @@
 
 ## ETL 오류
 
-- INSERT INTO alert_popup_dismissals VALUES (%s,%s,%s) ON CONFLICT DO NOTHING: column "date_key" is of type date but expression is of type smallint
-LINE 1: INSERT INTO alert_popup_dismissals VALUES ($1,$2,$3) ON CONF...
-                                                   ^
-HINT:  You will need to rewrite or cast the expression.
-- INSERT INTO alert_popup_dismissals VALUES (%s,%s,%s) ON CONFLICT DO NOTHING: column "date_key" is of type date but expression is of type smallint
-LINE 1: INSERT INTO alert_popup_dismissals VALUES ($1,$2,$3) ON CONF...
-                                                   ^
-HINT:  You will need to rewrite or cast the expression.
-- INSERT INTO alert_popup_dismissals VALUES (%s,%s,%s) ON CONFLICT DO NOTHING: column "date_key" is of type date but expression is of type smallint
-LINE 1: INSERT INTO alert_popup_dismissals VALUES ($1,$2,$3) ON CONF...
-                                                   ^
-HINT:  You will need to rewrite or cast the expression.
-- INSERT INTO assessments (legacy_id, cohort_id, title, tags, max_score, start_at, end_at, t: invalid input syntax for type json
-DETAIL:  Token "mini" is invalid.
-CONTEXT:  JSON data, line 1: {mini...
-unnamed portal parameter $4 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found ",".
-CONTEXT:  JSON data, line 1: {"단어를 숫자로 변환하기 위해",...
-unnamed portal parameter $7 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found ",".
-CONTEXT:  JSON data, line 1: {"모델을 간단하게 만들기 위해",...
-unnamed portal parameter $7 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found "}".
-CONTEXT:  JSON data, line 1: {"워드 임베딩"}
-unnamed portal parameter $9 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found "}".
-CONTEXT:  JSON data, line 1: {"프롬프트 설계"}
-unnamed portal parameter $9 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found ",".
-CONTEXT:  JSON data, line 1: {"데이터를 시각화하기 위해",...
-unnamed portal parameter $7 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found "}".
-CONTEXT:  JSON data, line 1: {"데이터 정제"}
-unnamed portal parameter $9 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found ",".
-CONTEXT:  JSON data, line 1: {"텍스트와 이미지",...
-unnamed portal parameter $7 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found ",".
-CONTEXT:  JSON data, line 1: {"데이터 수집",...
-unnamed portal parameter $7 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Token "CNN" is invalid.
-CONTEXT:  JSON data, line 1: {CNN...
-unnamed portal parameter $7 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found ",".
-CONTEXT:  JSON data, line 1: {"모델을 처음부터 학습하기 위해",...
-unnamed portal parameter $7 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found ",".
-CONTEXT:  JSON data, line 1: {"더 많은 데이터 처리",...
-unnamed portal parameter $7 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found ",".
-CONTEXT:  JSON data, line 1: {"데이터를 시각화하기 위해",...
-unnamed portal parameter $7 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found ",".
-CONTEXT:  JSON data, line 1: ...든 단어를 동일하게 처리하기 위해",...
-unnamed portal parameter $7 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found ",".
-CONTEXT:  JSON data, line 1: {"프롬프트의 길이",...
-unnamed portal parameter $7 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found ",".
-CONTEXT:  JSON data, line 1: {"소규모 데이터 처리",...
-unnamed portal parameter $7 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found ",".
-CONTEXT:  JSON data, line 1: {"모델의 성능을 저하시킨다",...
-unnamed portal parameter $7 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found ",".
-CONTEXT:  JSON data, line 1: {"더 많은 데이터 처리",...
-unnamed portal parameter $7 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found ",".
-CONTEXT:  JSON data, line 1: {"데이터의 양을 늘리기 위해",...
-unnamed portal parameter $7 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found ",".
-CONTEXT:  JSON data, line 1: {"모델의 출력을 다양화하기 위해",...
-unnamed portal parameter $7 = '...'
-- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
-DETAIL:  Expected ":", but found "}".
-CONTEXT:  JSON data, line 1: {"비전-언어 모델"}
-unnamed portal parameter $9 = '...'
-- INSERT INTO mission_progress VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s): column "coding_pcce" is of type boolean but expression is of type smallint
-LINE 1: INSERT INTO mission_progress VALUES ($1,$2,$3,$4,$5,$6,$7,$8...
-                                                         ^
-HINT:  You will need to rewrite or cast the expression.
-- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
-LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
-                                                             ^
-- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
-LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
-                                                             ^
-- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
-LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
-                                                             ^
-- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
-LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
-                                                             ^
-- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
-LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
-                                                             ^
-- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
-LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
-                                                             ^
-- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
-LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
-                                                             ^
-- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
-LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
-                                                             ^
-- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
-LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
-                                                             ^
-- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
-LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
-                                                             ^
-- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
-LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
-                                                             ^
-- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
-LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
-                                                             ^
-- INSERT INTO recommendation_events (legacy_id, cohort_id, user_id, recommendation_id, youtu: invalid input syntax for type json
-DETAIL:  Expected ":", but found "}".
-CONTEXT:  JSON data, line 1: ...어모델) · 자연어-이미지 멀티모달"}
-unnamed portal parameter $7 = '...'
-- INSERT INTO ai_eval_runs (legacy_id, prompt_version, model, source, total_cases, passed, a: invalid input syntax for type json
-DETAIL:  Token "notice_project_mix" is invalid.
-CONTEXT:  JSON data, line 1: {notice_project_mix...
-unnamed portal parameter $9 = '...'
+없음
 
 ## 다음에 사람이 해야 할 일
 

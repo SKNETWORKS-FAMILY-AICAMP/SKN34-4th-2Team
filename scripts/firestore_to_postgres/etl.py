@@ -317,9 +317,12 @@ class Etl:
             status = COHORT_STATUS.get(str(d.get("status") or ""), str(d.get("status") or "active"))
             if d.get("status") and d.get("status") not in ("planned", "active", "closed"):
                 self.r.diffs.append(f"cohorts.status {d.get('status')} → {status} ({doc.id})")
+            # import_notices.py 가 먼저 넣은 기수가 있으면 그 번호를 그대로 쓴다(공지 · 벡터가 그 번호를 본다).
+            # 실패로 건너뛰면 그 기수 밑의 학생 · 출결 · 이력서가 모두 조용히 빠진다
             cid = self.insert(
                 """INSERT INTO cohorts (code, name, description, term_number, classroom_name, status, is_active, start_date, end_date, created_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (code) DO UPDATE SET code = EXCLUDED.code RETURNING id""",
                 (
                     doc.id, d.get("name") or doc.id, d.get("description"),
                     d.get("termNumber"), d.get("classroomName"), status,
@@ -634,9 +637,14 @@ class Etl:
                 indexes = d.get("_vectorIndexes")
                 chunk = len(indexes) if isinstance(indexes, list) else int(d.get("vectorChunkCount") or 0)
                 author_name = d.get("authorName") if d.get("source") == "discord" else None
+                # import_notices.py 로 먼저 들어간 공지는 번호 · 내용을 그대로 두고(벡터 id 가 공지 번호를 쓴다)
+                # 그때 없던 작성자 · 예약 공지 연결만 채운다
                 self.cur.execute(
                     """INSERT INTO notices (legacy_id, cohort_id, title, content, author_id, author_name, is_favorite, priority, source, channel_label, discord_message_id, discord_channel_id, discord_channel_type, scheduled_notice_id, image_storage_key, vector_chunk_count, created_at, updated_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       ON CONFLICT (legacy_id) DO UPDATE SET
+                         author_id = COALESCE(notices.author_id, EXCLUDED.author_id),
+                         scheduled_notice_id = COALESCE(notices.scheduled_notice_id, EXCLUDED.scheduled_notice_id)""",
                     (doc.id, cid, d.get("title"), d.get("content"), self.uid(d.get("authorId")), author_name,
                      bool(d.get("isFavorite") or d.get("isPinned")), int(d.get("priority") or 0), d.get("source") or "app",
                      d.get("channelLabel"), blank(d.get("discordMessageId")), d.get("discordChannelId"), d.get("discordChannelType"),
