@@ -16,8 +16,8 @@
                  열려 있으면 지우지 않는다. 하룻밤 건수 상한이 있다.
 5. 적재          `sync`를 부른다. 오늘 받은 상세만 넣고, 목록 관측(observed)으로 만료·삭제를
                  판정한다. sweep이 불완전하면 안 본 공고는 '모름'으로 두어 지우지 않는다.
-6. 공유          팀원이 쓸 슬림 파일을 만들어 Firebase Storage에 올린다. 첨삭은 공고 원문
-                 전체가 필요한데 그건 이 저장소에만 있다. 실패해도 배치는 성공으로 둔다.
+6. 공유          PostgreSQL `jobs` 원본 사용으로 전환하는 초안이다.
+                 옛 Firebase Storage 슬림 파일 업로드 생략은 크롤링 담당자 확인 전이다.
 
 ## 주기
 
@@ -432,23 +432,12 @@ def run_index(store_path: Path, as_of: datetime, work_dir: Path) -> int:
 
 
 def share_store_file(store_path: Path) -> dict[str, Any]:
-    """팀원이 받아 쓸 슬림 파일을 만들어 올린다.
-
-    추천은 Pinecone만 보므로 키만 있으면 되지만, 첨삭은 공고 원문 전체가 필요하고
-    그건 이 저장소에만 있다. 매일 밤 갱신해 두면 팀원이 최신 공고로 시험할 수 있다.
-    """
-    from job_matching_bot.sharing import share_store
-
-    print("[공유] 슬림 파일 생성·업로드")
-    try:
-        slim = share_store.export(store_path, share_store.EXPORT_PATH)
-        archive = share_store.compress(slim)
-        share_store.upload(archive, share_store.DEFAULT_BUCKET)
-        return {"ok": True, "megabytes": round(archive.stat().st_size / 1048576, 1)}
-    except Exception as error:
-        # 인증 만료, 네트워크 끊김 등. 다음 밤에 다시 올라간다.
-        print(f"  실패(수집·적재에는 영향 없음): {type(error).__name__}: {error}")
-        return {"ok": False, "error": f"{type(error).__name__}: {error}"}
+    """공유 파일 업로드 생략 초안. 크롤링 담당자 확인 후 운영 방식을 확정한다."""
+    # TODO(크롤링 담당자 확인): 모든 소비자가 jobs 스키마를 직접 읽는지 검증하고
+    # 정기 공유 파일이 불필요한지 합의한다. 확인 전에는 배포하지 않는다.
+    del store_path
+    print("[공유] PostgreSQL jobs 원본 사용; Firebase Storage 업로드 생략")
+    return {"skipped": True, "reason": "shared_postgresql_jobs"}
 
 
 def run_stamp(now: datetime) -> str:
@@ -630,7 +619,7 @@ def main() -> int:
     summary["regroup"] = run_regroup(args.store, NIGHTLY_DIR, now)
     summary["index_exit_code"] = run_index(args.store, now, NIGHTLY_DIR)
 
-    # 6. 공유 파일. 여기서 실패해도 수집·적재는 이미 끝났으므로 배치를 실패로 만들지 않는다.
+    # 6. PostgreSQL 직접 공유 초안. 담당자 검토 전에는 이 배치 변경을 배포하지 않는다.
     if not args.no_share:
         summary["share"] = share_store_file(args.store)
 
