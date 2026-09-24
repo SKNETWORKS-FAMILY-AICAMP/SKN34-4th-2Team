@@ -703,6 +703,9 @@ class Resumes(models.Model):
     content = models.JSONField()
     is_base_resume = models.BooleanField(default=False)
     base_resume = models.ForeignKey('self', models.SET_NULL, related_name='tailored_resumes', blank=True, null=True)
+    source_tailored_resume = models.ForeignKey(
+        'self', models.SET_NULL, related_name='promoted_resumes', blank=True, null=True
+    )
     linked_job_id = models.CharField(blank=True, null=True)
     revision_count = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(blank=True, null=True)
@@ -719,6 +722,32 @@ class Resumes(models.Model):
             models.Index(fields=['user', '-updated_at']),
             models.Index(fields=['base_resume']),
             models.Index(fields=['linked_job_id']),
+        ]
+
+
+class ResumeTailorings(models.Model):
+    class ReviewProgress(models.TextChoices):
+        NOT_STARTED = 'not_started'
+        IN_PROGRESS = 'in_progress'
+        COMPLETED = 'completed'
+
+    resume = models.OneToOneField(Resumes, models.CASCADE, related_name='tailoring')
+    job_snapshot_hash = models.CharField(default='')
+    source_resume_hash = models.CharField(default='')
+    company_name = models.CharField(default='')
+    job_title = models.CharField(default='')
+    review_session = models.JSONField(default=dict)
+    review_progress = models.CharField(default=ReviewProgress.NOT_STARTED, choices=ReviewProgress.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'resume_tailorings'
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(review_progress__in=('not_started', 'in_progress', 'completed')),
+                name='ck_resume_tailoring_progress',
+            ),
         ]
 
 

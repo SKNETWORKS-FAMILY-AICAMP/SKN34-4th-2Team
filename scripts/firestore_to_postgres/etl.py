@@ -951,6 +951,7 @@ class Etl:
         # 원본 · 사본 연결 — 가리키는 이력서가 뒤에 들어올 수 있어 다 넣은 뒤 잇는다
         links: list[tuple[int, str | None, str | None]] = []  # (resumes.id, baseResumeId, sourceTailoredResumeId)
         tailored_rid: dict[str, int] = {}  # tailoredResumes 문서 id → resumes.id
+        tailorings: list[tuple[int, dict]] = []  # (사본 resumes.id, tailoredResumes 문서)
         for code, cid, ref in self._each_cohort():
             items = stream(ref.collection("resumes"))
             self.r.fs_add("…/resumes", len(items))
@@ -1033,6 +1034,7 @@ class Etl:
                             )
                             if trid:
                                 tailored_rid[tdoc.id] = trid
+                                tailorings.append((trid, td))
             for rid, d, user_id in pending_reads:
                 for fb_id in arr(d.get("readFeedbackIds")):
                     fid = self.feedback.get(str(fb_id))
@@ -1070,12 +1072,44 @@ class Etl:
             linked += 1
         if links:
             self.r.diffs.append(f"resumes 원본 · 사본 연결 {linked}/{len(links)}건 (baseResumeId · sourceTailoredResumeId)")
+        self._resume_tailorings(tailorings)
         self.r.fs_add("…/resumes/{id}/feedback", fb_n)
         self.r.fs_add("…/resumes/{id}/revisions", rev_n)
         if tailored_n:
             self.r.diffs.append(
                 f"undocumented path tailoredResumes ({tailored_n} docs) flattened into resumes (ERD base_resume_id). aiReviews/aiApplications not loaded."
             )
+
+    def _resume_tailorings(self, tailorings: list[tuple[int, dict]]) -> None:
+        """맞춤 사본의 공고 스냅샷 · 첨삭 대화 → resume_tailorings(사본과 1:1, lms.0007).
+
+        AI 서버는 resumes 와 이 테이블을 INNER JOIN 해 사본을 읽는다. 줄이 없으면 옮겨 온 사본이
+        목록에서 빠지고 열면 404 다. 칸에 DB 기본값이 없어 모두 채운다.
+        """
+        if not tailorings:
+            return
+        self._raw.execute("SELECT to_regclass('resume_tailorings') IS NOT NULL")
+        if not self._raw.fetchone()[0]:
+            self.r.diffs.append(f"resume_tailorings 가 없어(lms.0007 전) 맞춤 사본 {len(tailorings)}건의 공고 스냅샷 · 첨삭 대화를 옮기지 않음")
+            return
+        errors_before = len(self.r.errors)
+        for trid, td in tailorings:
+            session = td.get("reviewSession") if isinstance(td.get("reviewSession"), dict) else {}
+            progress = ("completed" if session.get("completed") is True
+                        else "in_progress" if session.get("result") else "not_started")
+            created = ts(td.get("createdAt"))
+            self.insert(
+                """INSERT INTO resume_tailorings
+                   (resume_id, job_snapshot_hash, source_resume_hash, company_name, job_title,
+                    review_session, review_progress, created_at, updated_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,COALESCE(%s, now()),COALESCE(%s, %s, now()))""",
+                (trid, str(td.get("jobSnapshotHash") or ""), str(td.get("sourceResumeHash") or ""),
+                 str(td.get("companyName") or "").strip(), str(td.get("jobTitle") or ""),
+                 js(dump(session)), progress, created, ts(td.get("updatedAt")), created),
+                returning=False,
+            )
+        loaded = len(tailorings) - (len(self.r.errors) - errors_before)
+        self.r.diffs.append(f"tailoredResumes 공고 스냅샷 · 첨삭 대화 → resume_tailorings {loaded}/{len(tailorings)}건")
 
     def _study(self) -> None:
         user_notes = 0

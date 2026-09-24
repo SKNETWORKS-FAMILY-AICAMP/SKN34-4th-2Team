@@ -292,7 +292,7 @@ def _owned_resume(request, resume_id: str):
     user = _require_user(request)
     with connection.cursor() as cur:
         cur.execute(
-            """SELECT r.legacy_id, c.code, u.firebase_uid, r.cohort_id
+            """SELECT r.id, r.legacy_id, c.code, u.firebase_uid, r.cohort_id
                FROM resumes r JOIN users u ON u.id = r.user_id
                JOIN cohorts c ON c.id = r.cohort_id
                WHERE r.legacy_id = %s OR r.id::text = %s""",
@@ -306,6 +306,14 @@ def _owned_resume(request, resume_id: str):
     ):
         return None, Response({"detail": "본인 이력서만 첨삭받을 수 있습니다."}, status=403)
     return row, None
+
+
+def _review_resume_id(row) -> str:
+    """첨삭 서버로 넘길 이력서 id — 화면의 공개 id 와 같다(legacy_id, 없으면 resumes.id).
+
+    화면에서 새로 만든 이력서는 legacy_id 가 없다. legacy_id 를 그대로 넘기면 None 이 가서 첨삭을 못 받았다.
+    """
+    return str(row["legacy_id"] or row["id"])
 
 
 def _review_call(path: str, payload: dict, timeout: int = 180):
@@ -540,7 +548,7 @@ def resume_review_apply(request, body: ResumeReviewApplyIn):
     payload = {
         "uid": row["firebase_uid"],
         "cohort_id": row["code"],
-        "resume_id": row["legacy_id"],
+        "resume_id": _review_resume_id(row),
         "request_id": body.requestId,
         "review_id": body.reviewId,
         "expected_input_hash": body.expectedInputHash,
@@ -560,7 +568,7 @@ def resume_review_undo(request, body: ResumeReviewApplyIn):
     payload = {
         "uid": row["firebase_uid"],
         "cohort_id": row["code"],
-        "resume_id": row["legacy_id"],
+        "resume_id": _review_resume_id(row),
         "request_id": body.requestId,
         "application_id": body.applicationId or "",
         "expected_input_hash": body.expectedInputHash,
@@ -586,7 +594,7 @@ def resume_review(request, body: ResumeReviewIn):
     payload = {
         "uid": row["firebase_uid"],
         "cohort_id": row["code"],
-        "resume_id": row["legacy_id"],
+        "resume_id": _review_resume_id(row),
         "review_mode": "job" if body.selectedJobId else body.reviewMode,
     }
     if body.selectedJobId:
@@ -618,7 +626,7 @@ def resume_review_context(request, body: ReviewContextIn):
     row, error = _owned_resume(request, body.resumeId)
     if error is not None:
         return error
-    payload = {"uid": row["firebase_uid"], "cohort_id": row["code"], "resume_id": row["legacy_id"]}
+    payload = {"uid": row["firebase_uid"], "cohort_id": row["code"], "resume_id": _review_resume_id(row)}
     if body.selectedJobId:
         payload["job_id"] = body.selectedJobId
     if body.tailoredResumeId:
@@ -640,7 +648,7 @@ def resume_review_tailored_get(request, body: TailoredRefIn):
     payload = {
         "uid": row["firebase_uid"],
         "cohort_id": row["code"],
-        "resume_id": row["legacy_id"],
+        "resume_id": _review_resume_id(row),
         "tailored_resume_id": body.tailoredResumeId,
     }
     return _review_call("/api/v1/resumes/tailored/get/proxy", payload, timeout=60)
@@ -659,7 +667,7 @@ def resume_review_session(request, body: TailoredSessionIn):
     payload = {
         "uid": row["firebase_uid"],
         "cohort_id": row["code"],
-        "resume_id": row["legacy_id"],
+        "resume_id": _review_resume_id(row),
         "tailored_resume_id": body.tailoredResumeId,
         "state": body.state,
     }
@@ -684,7 +692,7 @@ def resume_review_tailored(request, body: TailoredResumeIn):
     payload = {
         "uid": row["firebase_uid"],
         "cohort_id": row["code"],
-        "resume_id": row["legacy_id"],
+        "resume_id": _review_resume_id(row),
         "selected_job_id": body.selectedJobId,
     }
     return _review_call("/api/v1/resumes/tailored/proxy", payload, timeout=60)
@@ -704,7 +712,7 @@ def resume_review_promote(request, body: TailoredPromoteIn):
     payload = {
         "uid": row["firebase_uid"],
         "cohort_id": row["code"],
-        "resume_id": row["legacy_id"],
+        "resume_id": _review_resume_id(row),
         "tailored_resume_id": body.tailoredResumeId,
     }
     return _review_call("/api/v1/resumes/tailored/promote/proxy", payload, timeout=60)

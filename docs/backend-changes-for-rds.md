@@ -49,11 +49,13 @@
   - `POST /api/v1/resumes/tailored/session/proxy`
   - `POST /api/v1/resumes/tailored/promote/proxy`
 
-**DB에 쓰는 동작이 생김** (`firebase_gateway.py`, `dccdcf1`)
-- **대상:** Firestore에서 옮겨 온 맞춤 사본(`resumes.legacy_id = '원본/tailored/tailored_…'`)
-- **문제:** 이 사본들은 `resumes.sections._tailored`(공고 스냅샷 · 첨삭 대화)가 비어 있다. 그래서 사본 만들기는 404, 스냅샷 확인은 `tailored_resume_job_changed`로 막혔다.
-- **동작:** 이런 사본을 열면 지금 공고 스냅샷으로 `sections._tailored`를 채우고, `linked_job_id`가 비었으면 채운다. 연결된 공고와 같을 때만 채운다.
-- **ETL 쪽 요청:** 새 ETL에서 이 정보를 같이 옮겨 주면 이 보정은 필요 없어진다.
+**맞춤 사본 정보는 `resume_tailorings`** (팀원 `lms.0007` · `e26d95b`, 병합 때 아래를 더함)
+- 공고 스냅샷 · 첨삭 대화는 `resumes.sections._tailored` 대신 `resume_tailorings`(사본과 1:1)에 있다. 편집용 사본은 `resumes.source_tailored_resume_id` FK가 가리킨다.
+- **옮겨 온 사본:** `resume_tailorings` 줄이 없거나 스냅샷이 비어 있으면, 그 공고로 이어 열 때 지금 스냅샷으로 채운다(연결된 공고와 같을 때만).
+- **이미 있는 사본:** 사본 만들기를 다시 부르면 원본이 아니라 사본의 내용과 저장된 대화를 돌려준다.
+- **새 이력서:** 화면에서 만든 이력서는 `legacy_id`가 없다. Django는 `resumes.id`를 넘기고, AI 서버는 `legacy_id` 또는 `resumes.id`로 찾는다.
+- **ETL:** `tailoredResumes` 문서의 스냅샷 · 대화를 `resume_tailorings`로 옮긴다.
+- **남은 것:** DB FK는 NO ACTION이라 화면(`/command` delete)에서 맞춤 사본을 지우면 `resume_tailorings`에 막힌다. AI 서버 삭제는 딸린 행을 먼저 지워서 된다.
 
 **LangSmith 추적 개인정보 가리기** (미커밋, `trace_privacy.py`)
 - 추적을 켜면 LLM 입력 · 출력이 LangSmith(국외)로 간다. 그래서 기본정보 이름 · 연락처 · 이메일, 글 속 전화 · 이메일 · 주민번호 · 개인 링크를 가려서 보낸다.

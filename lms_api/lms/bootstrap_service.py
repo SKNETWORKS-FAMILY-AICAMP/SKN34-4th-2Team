@@ -136,7 +136,6 @@ def build_bootstrap(user: dict) -> dict:
             submission["file_urls"] = [
                 url for url in (read_url(key) for key in submission.get("file_urls") or []) if url
             ]
-        # 맞춤 사본이면 resume_tailorings 에 줄이 있다. 편집용으로 옮긴 이력서는 그 사본이 가리킨다
         resumes = q(
             """SELECT r.*, COALESCE(r.content->'section_status', '{}'::jsonb) AS sections
                FROM resumes r WHERE r.cohort_id = ANY(%s)

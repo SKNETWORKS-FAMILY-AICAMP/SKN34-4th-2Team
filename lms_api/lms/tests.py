@@ -130,6 +130,26 @@ class AiProxyContractTests(SimpleTestCase):
         self.assertNotIn(b"private-test-token", sent.data)
 
 
+class ResumeReviewIdTests(SimpleTestCase):
+    """첨삭 서버로 넘기는 이력서 id — 화면의 공개 id(legacy_id, 없으면 resumes.id)."""
+
+    def _promote(self, owned_row):
+        from lms.api import TailoredPromoteIn, resume_review_promote
+
+        with patch("lms.api._owned_resume", return_value=(owned_row, None)),              patch.dict(os.environ, {"RESUME_REVIEW_URL": "http://ai:8001"}),              patch("lms.api.urllib.request.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = b'{"workspace_resume_id":"matched_x"}'
+            resume_review_promote(Mock(), TailoredPromoteIn(resumeId="x", tailoredResumeId="tailored_abc"))
+        return json.loads(urlopen.call_args.args[0].data)
+
+    def test_new_resume_without_legacy_id_is_sent_as_resume_pk(self):
+        sent = self._promote({"id": 10, "legacy_id": None, "code": "34", "firebase_uid": "student-a"})
+        self.assertEqual(sent, {"uid": "student-a", "cohort_id": "34", "resume_id": "10", "tailored_resume_id": "tailored_abc"})
+
+    def test_migrated_resume_is_sent_as_legacy_id(self):
+        sent = self._promote({"id": 10, "legacy_id": "BASEdoc", "code": "34", "firebase_uid": "student-a"})
+        self.assertEqual(sent["resume_id"], "BASEdoc")
+
+
 class ResumeWriteValidationTests(SimpleTestCase):
     def setUp(self):
         self.actor = {"id": 1, "role": "student", "cohort_id": 34}
