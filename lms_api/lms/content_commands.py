@@ -141,57 +141,18 @@ def op_save_assessment(cur, user, p):
 
 
 def op_submit_assessment(cur, user, p):
-    """응시 제출 — 본인 것만. 답안은 통째로 갈아 끼운다."""
-    assessment = resolve_row(cur, "assessments", p["assessmentId"])
-    if not assessment:
-        raise KeyError("assessment")
-    if not can_access_cohort(user, assessment["cohort_id"]):
-        raise PermissionError("cohort")
-    key = str(p.get("id") or "")
-    cur.execute(
-        "SELECT * FROM assessment_submissions WHERE assessment_id = %s AND user_id = %s",
-        [assessment["id"], user["id"]],
-    )
-    existing = _one(cur)
-    auto = int(p.get("autoTotalScore") or 0)
-    total = int(p.get("totalScore") or auto)
-    if existing:
-        cur.execute(
-            "UPDATE assessment_submissions SET auto_total_score=%s, total_score=%s, status=%s, submitted_at=now() WHERE id=%s",
-            [auto, total, p.get("status") or "submitted", existing["id"]],
-        )
-        pk = existing["id"]
-        key = existing.get("legacy_id") or str(pk)
-    else:
-        cur.execute(
-            """INSERT INTO assessment_submissions (legacy_id, assessment_id, user_id, auto_total_score,
-                   total_score, status, submitted_at)
-               VALUES (%s,%s,%s,%s,%s,%s, now()) RETURNING id""",
-            [key or None, assessment["id"], user["id"], auto, total, p.get("status") or "submitted"],
-        )
-        pk = cur.fetchone()[0]
-        key = key or str(pk)
-        cur.execute("UPDATE assessment_submissions SET legacy_id = %s WHERE id = %s", [key, pk])
+    """응시 제출 — 학생 본인, 한 번. 채점은 서버가 한다(assessment_service.submit)."""
+    from lms.assessment_service import AssessmentError, submit
 
-    answers = p.get("answers") or {}
-    cur.execute("DELETE FROM assessment_answers WHERE submission_id = %s", [pk])
-    for question_key, entry in answers.items():
-        question = resolve_row(cur, "assessment_questions", question_key)
-        if not question:
-            continue
-        cur.execute(
-            """INSERT INTO assessment_answers (submission_id, question_id, value, auto_score, final_score, is_correct)
-               VALUES (%s,%s,%s,%s,%s,%s)""",
-            [
-                pk,
-                question["id"],
-                json.dumps(entry.get("value")),
-                int(entry.get("autoScore") or 0),
-                int(entry.get("finalScore") or entry.get("autoScore") or 0),
-                bool(entry.get("isCorrect")),
-            ],
-        )
-    return {"id": key}
+    try:
+        return submit(cur, user, p)
+    except AssessmentError as exc:
+        # 명령 창구는 403 · 404 · 400 만 안다
+        if exc.status == 403:
+            raise PermissionError(exc.detail) from exc
+        if exc.status == 404:
+            raise KeyError(exc.detail) from exc
+        raise ValueError(exc.detail) from exc
 
 
 def op_grade_answer(cur, user, p):
@@ -201,9 +162,13 @@ def op_grade_answer(cur, user, p):
     if not submission:
         raise KeyError("submission")
     question = resolve_row(cur, "assessment_questions", p["questionId"])
-    if not question:
+    if not question or question["assessment_id"] != submission["assessment_id"]:
         raise KeyError("question")
-    score = int(p.get("score") or 0)
+    cur.execute("SELECT cohort_id FROM assessments WHERE id = %s", [submission["assessment_id"]])
+    if not can_access_cohort(user, cur.fetchone()[0]):
+        raise PermissionError("cohort")
+    # 0 ~ 배점 사이로만
+    score = max(0, min(int(p.get("score") or 0), int(question.get("points") or 0)))
     cur.execute(
         "UPDATE assessment_answers SET final_score = %s, is_correct = %s WHERE submission_id = %s AND question_id = %s",
         [score, score > 0, submission["id"], question["id"]],

@@ -3167,6 +3167,29 @@ a.link {
   white-space: nowrap;
 }
 
+/* 계정 생성 · 비밀번호 재발급 창 — 아이디 · 비밀번호 한 줄씩, 옆에 복사 */
+.credential-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background: var(--surface-variant);
+}
+
+.credential-row .hint {
+  grid-column: 1 / -1;
+  font-size: 12px;
+}
+
+.credential-row__value {
+  font-size: 15px;
+  word-break: break-all;
+  user-select: all;
+}
+
 /* 기수 카드 — 지금 고른 기수는 테두리가 파랗다. */
 .cohort-card {
   display: flex;

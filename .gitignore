@@ -173,3 +173,6 @@ dist/
 celerybeat-schedule*
 **/celerybeat-schedule*
 lms_api/celerybeat-schedule*
+
+# 로컬 개발 업로드(기록 증빙) — 운영은 S3
+lms_api/media/

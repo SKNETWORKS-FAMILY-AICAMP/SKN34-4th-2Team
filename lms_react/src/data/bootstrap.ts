@@ -222,16 +222,33 @@ function mapTodo(row: Record<string, unknown>): Todo {
 }
 
 function mapSubmission(row: Record<string, unknown>): Submission {
+  // 종류별 칸(주차 · 점수 · 자격증 종류 …)은 record_submissions.details 에 snake_case 로 모여 있다
+  const d = (row.details && typeof row.details === 'object' ? row.details : {}) as Record<string, unknown>;
+  const pick = (camel: string, snake: string) => row[camel] ?? d[camel] ?? d[snake];
+  const text = (v: unknown) => (v == null || v === '' ? undefined : String(v));
+  const num = (v: unknown) => (v == null || v === '' || Number.isNaN(Number(v)) ? undefined : Number(v));
+  const status = String(row.status ?? 'pending');
   return {
     id: String(row.id ?? row.pk ?? ''),
     userId: String(row.userId ?? row.user_id ?? ''),
     userDisplayName: String(row.userDisplayName ?? row.user_display_name ?? ''),
     title: String(row.title ?? ''),
     type: (row.type as Submission['type']) || 'study',
-    status: (row.status as Submission['status']) || 'pending',
+    // 옛 값 submitted · draft 는 대기로 본다
+    status: (status === 'approved' || status === 'rejected' ? status : 'pending') as Submission['status'],
     submittedAt: asDate(row.submittedAt ?? row.submitted_at),
     reviewComment: row.reviewComment ? String(row.reviewComment) : undefined,
     fileUrls: Array.isArray(row.fileUrls) ? (row.fileUrls as string[]) : Array.isArray(row.file_urls) ? (row.file_urls as string[]) : [],
+    certType: text(pick('certType', 'cert_type')),
+    startAt: asDate(pick('startAt', 'start_at')),
+    endAt: asDate(pick('endAt', 'end_at')),
+    weekNumber: num(pick('weekNumber', 'week_number')),
+    weekLabel: text(pick('weekLabel', 'week_label')),
+    link: text(pick('link', 'link')),
+    quizScore: num(pick('quizScore', 'quiz_score')),
+    learningDate: asDate(pick('learningDate', 'learning_date')),
+    learningContent: text(pick('learningContent', 'learning_content')),
+    isTeamStudy: pick('isTeamStudy', 'is_team_study') == null ? undefined : Boolean(pick('isTeamStudy', 'is_team_study')),
     mileageGranted: Boolean(row.mileageGranted ?? row.mileage_granted),
     mileageAmount: Number(row.mileageAmount ?? row.mileage_amount ?? 0),
   };

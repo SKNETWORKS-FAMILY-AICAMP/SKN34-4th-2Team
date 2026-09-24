@@ -184,9 +184,36 @@ export function updateUser(uid: string, patch: Partial<User>): void {
   if (!isTestMode()) void runCommand('updateProfile', { uid, ...patch });
 }
 
-export function createUser(user: User): void {
-  mutate((db) => ({ users: [...db.users, user] }));
-  if (!isTestMode()) void runCommand('createUser', { ...user });
+/** 새 계정 · 재발급한 계정의 로그인 정보 — 비밀번호는 이때 한 번만 받는다(서버는 해시만 둔다) */
+export interface AccountCredentials {
+  uid: string;
+  email: string;
+  password: string;
+}
+
+/**
+ * 학생 · 강사 계정 만들기 — 서버가 임시 비밀번호를 만들어 돌려준다(createStudentAccount).
+ * 로그인 이메일을 비우면 서버가 만든다. 관리자 화면은 돌려받은 값을 복사 창으로 보여 준다.
+ */
+export async function createUser(user: User): Promise<AccountCredentials> {
+  if (isTestMode()) {
+    const email = user.email || `${user.uid}@playdata.co.kr`;
+    mutate((db) => ({ users: [...db.users, { ...user, email }] }));
+    return { uid: user.uid, email, password: 'demo-pass-1234' };
+  }
+  const result = await runCommand('createUser', { ...user });
+  return { uid: String(result.uid), email: String(result.email), password: String(result.password) };
+}
+
+/** 비밀번호 재발급 — 새 임시 비밀번호를 받고, 그 계정은 다음 로그인에서 비밀번호를 바꾼다 */
+export async function resetUserPassword(uid: string): Promise<AccountCredentials> {
+  if (isTestMode()) {
+    mutate((db) => ({ users: db.users.map((u) => (u.uid === uid ? { ...u, mustChangePassword: true } : u)) }));
+    const email = currentDb().users.find((u) => u.uid === uid)?.email ?? '';
+    return { uid, email, password: 'demo-pass-5678' };
+  }
+  const result = await runCommand('resetPassword', { uid });
+  return { uid, email: String(result.email), password: String(result.password) };
 }
 
 /** 학생 상담 내용 저장 — 열쇠가 학생이라 표 하나에 한 줄이다(student_intakes) */
@@ -478,14 +505,49 @@ export function useMySubmissions(uid: string): Submission[] {
   return useDb((db) => db.submissions.filter((s) => s.userId === uid));
 }
 
-export function createSubmission(submission: Omit<Submission, 'id' | 'submittedAt'>): string {
+/** 올린 증빙 한 장 — 서버가 준 저장 키와 지금 열 수 있는 주소 */
+export interface UploadedEvidence {
+  key: string;
+  name: string;
+  contentType: string;
+  size: number;
+  url: string;
+}
+
+/** 기록 증빙 올리기 — 이미지 · PDF, 10MB 까지. 제출할 때 돌려받은 키를 붙인다 */
+export async function uploadRecordEvidence(file: File): Promise<UploadedEvidence> {
+  if (isTestMode()) {
+    return { key: `demo/${file.name}`, name: file.name, contentType: file.type, size: file.size, url: `demo://${encodeURIComponent(file.name)}` };
+  }
+  const form = new FormData();
+  form.append('file', file);
+  // 기본 머리말이 JSON 이라 여기서 바꾼다 — 경계(boundary)는 브라우저가 붙인다
+  const { data } = await http.post<UploadedEvidence>('/uploads/record-evidence', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
+}
+
+/** 기록 제출 — 증빙은 먼저 uploadRecordEvidence 로 올린 것을 붙인다. 서버 저장이 끝나야 돌아온다 */
+export async function createSubmission(
+  submission: Omit<Submission, 'id' | 'submittedAt' | 'fileUrls'>,
+  evidence: UploadedEvidence[] = [],
+): Promise<string> {
+  const fileUrls = evidence.map((f) => f.url);
+  if (!isTestMode()) {
+    const result = await runCommand('upsert', {
+      table: 'record_submissions',
+      action: 'insert',
+      ...submission,
+      files: evidence.map(({ key, name, contentType, size }) => ({ key, name, contentType, size })),
+      cohortId: apiCohortId(),
+    });
+    return String(result.id);
+  }
   const id = nextId('sub');
   mutate((db) => ({
-    submissions: [{ ...submission, id, submittedAt: new Date() }, ...db.submissions],
+    submissions: [{ ...submission, fileUrls, id, submittedAt: new Date() }, ...db.submissions],
   }));
-  if (!isTestMode()) {
-    void runCommand('upsert', { table: 'record_submissions', action: 'insert', ...submission, cohortId: apiCohortId() });
-  }
   return id;
 }
 
@@ -1041,30 +1103,99 @@ export function setAssessmentPublished(id: string, published: boolean): void {
   if (!isTestMode()) void runCommand('upsert', { table: 'assessments', id, action: 'update', published });
 }
 
-/** 객관식·단답은 제출 즉시 자동 채점한다. Flutter도 같은 규칙이다. */
-export function submitAssessment(
-  assessment: Assessment,
+/** 단답 비교 — 앞뒤 공백을 지우고 소문자, 가운데 공백은 하나로(서버 normalize_short_answer 와 같다) */
+const normalizeShortAnswer = (value: unknown) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+/** 데모(테스트)만 화면에서 채점한다. 실제 앱은 서버가 채점한다 — 화면이 정답을 가지고 있지 않다. */
+function gradeLocally(
   questions: AssessmentQuestion[],
-  user: User,
   rawAnswers: Record<string, number | string | null>,
-): AssessmentSubmission {
+): { answers: Record<string, AssessmentAnswerEntry>; total: number } {
   const answers: Record<string, AssessmentAnswerEntry> = {};
   let total = 0;
   for (const q of questions) {
     const value = rawAnswers[q.id] ?? null;
-    let correct = false;
-    if (q.type === 'multipleChoice') {
-      correct = typeof value === 'number' && value === q.correctIndex;
-    } else {
-      const text = String(value ?? '').trim().toLowerCase();
-      correct = q.acceptedAnswers.some((a) => a.trim().toLowerCase() === text);
-    }
+    const correct =
+      q.type === 'multipleChoice'
+        ? typeof value === 'number' && value === q.correctIndex
+        : normalizeShortAnswer(value) !== '' &&
+          q.acceptedAnswers.some((a) => normalizeShortAnswer(a) === normalizeShortAnswer(value));
     const score = correct ? q.points : 0;
     total += score;
     answers[q.id] = { value, autoScore: score, finalScore: score, isCorrect: correct };
   }
+  return { answers, total };
+}
+
+/** 응시할 문항 — 정답 · 해설이 빠진 시험지(getAssessmentForTake). 공개 · 기간 · 이미 냈는지는 서버가 본다. */
+export async function fetchAssessmentForTake(assessmentId: string): Promise<AssessmentQuestion[]> {
+  if (isTestMode()) return getDb().assessmentQuestions[assessmentId] ?? [];
+  const { data } = await http.get<{ questions: AssessmentQuestion[] }>(
+    `/assessments/${encodeURIComponent(assessmentId)}/take`,
+  );
+  return data.questions.map((q) => ({ ...q, acceptedAnswers: [] }));
+}
+
+export interface AssessmentReview {
+  questions: AssessmentQuestion[];
+  submission: AssessmentSubmission;
+}
+
+/** 결과 — 정답 · 해설과 내 답(getAssessmentReview). 낸 뒤에만 온다. */
+export async function fetchAssessmentReview(assessmentId: string, user: User): Promise<AssessmentReview | null> {
+  if (isTestMode()) {
+    const db = getDb();
+    const submission = db.assessmentSubmissions.find((s) => s.assessmentId === assessmentId && s.userId === user.uid);
+    return submission === undefined ? null : { questions: db.assessmentQuestions[assessmentId] ?? [], submission };
+  }
+  const { data } = await http.get<{
+    questions: (AssessmentQuestion & { correctIndex: number | null; explanation: string | null })[];
+    submission: { id: string; totalScore: number; autoTotalScore: number; submittedAt: string | null; answers: Record<string, AssessmentAnswerEntry> };
+  }>(`/assessments/${encodeURIComponent(assessmentId)}/review`);
+  return {
+    questions: data.questions.map((q) => ({
+      ...q,
+      correctIndex: q.correctIndex ?? undefined,
+      explanation: q.explanation ?? undefined,
+      sourceDay: q.sourceDay ?? undefined,
+      sourceTopic: q.sourceTopic ?? undefined,
+    })),
+    submission: {
+      id: data.submission.id,
+      assessmentId,
+      userId: user.uid,
+      userDisplayName: user.displayName,
+      answers: data.submission.answers,
+      autoTotalScore: data.submission.autoTotalScore,
+      totalScore: data.submission.totalScore,
+      submittedAt: data.submission.submittedAt ? new Date(data.submission.submittedAt) : undefined,
+    },
+  };
+}
+
+/**
+ * 제출 — 답만 보낸다. 점수는 서버가 매겨 돌려준다(submitAssessment). 한 사람 한 번, 응시 기간 안에서만.
+ * 실패(기간 끝남 · 이미 냄)하면 그 이유로 throw 한다.
+ */
+export async function submitAssessment(
+  assessment: Assessment,
+  questions: AssessmentQuestion[],
+  user: User,
+  rawAnswers: Record<string, number | string | null>,
+): Promise<AssessmentSubmission> {
+  let answers: Record<string, AssessmentAnswerEntry>;
+  let total: number;
+  let id = `${assessment.id}_${user.uid}`;
+  if (isTestMode()) {
+    ({ answers, total } = gradeLocally(questions, rawAnswers));
+  } else {
+    const result = await runCommand('submitAssessment', { assessmentId: assessment.id, answers: rawAnswers });
+    answers = (result.answers ?? {}) as Record<string, AssessmentAnswerEntry>;
+    total = Number(result.totalScore ?? 0);
+    id = String(result.id ?? id);
+  }
   const submission: AssessmentSubmission = {
-    id: `${assessment.id}_${user.uid}`,
+    id,
     assessmentId: assessment.id,
     userId: user.uid,
     userDisplayName: user.displayName,
@@ -1079,15 +1210,6 @@ export function submitAssessment(
       submission,
     ],
   }));
-  if (!isTestMode()) {
-    void runCommand('submitAssessment', {
-      id: submission.id,
-      assessmentId: assessment.id,
-      answers,
-      autoTotalScore: total,
-      totalScore: total,
-    });
-  }
   return submission;
 }
 

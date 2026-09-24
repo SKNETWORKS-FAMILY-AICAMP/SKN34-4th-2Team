@@ -12,7 +12,7 @@ from django.contrib.auth.hashers import check_password, make_password
 from django.db import connection, transaction
 from django.http import HttpRequest
 from django.views.decorators.csrf import ensure_csrf_cookie
-from ninja import Body, NinjaAPI, Schema
+from ninja import Body, File, NinjaAPI, Schema, UploadedFile
 from ninja.responses import Response
 from ninja.security import HttpBearer
 from pydantic import Field
@@ -968,6 +968,84 @@ def command(request, body: CommandIn):
     user = _require_user(request)
     status, result = _run_op(body.op, user, body.payload or {})
     return Response(result, status=status)
+
+
+def _assessment(call):
+    from lms.assessment_service import AssessmentError
+
+    try:
+        with connection.cursor() as cur:
+            return call(cur)
+    except AssessmentError as exc:
+        return Response({"detail": exc.detail}, status=exc.status)
+
+
+@api.get("/assessments/{assessment_id}/take")
+def assessment_take(request, assessment_id: str):
+    """응시할 문항 — 정답 · 해설 없이(getAssessmentForTake). bootstrap 은 학생에게 문항을 보내지 않는다."""
+    from lms.assessment_service import take
+
+    user = _require_user(request)
+    return _assessment(lambda cur: take(cur, user, assessment_id))
+
+
+RECORD_FILE_MAX_BYTES = 10 * 1024 * 1024
+RECORD_FILE_TYPES = {
+    "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp",
+    "image/heic": ".heic", "application/pdf": ".pdf",
+}
+
+
+@api.post("/uploads/record-evidence")
+def upload_record_evidence(request, file: UploadedFile = File(...)):
+    """기록 증빙 한 장 — 이미지 · PDF, 10MB 까지. 키를 돌려주고, 제출할 때 그 키를 files 로 붙인다.
+
+    키에 올린 학생 uid 가 들어간다(records/기수/uid/무작위). 제출 때 본인 키인지 이것으로 본다.
+    """
+    import uuid
+
+    from lms.storage import put_object, read_url
+
+    user = _require_user(request)
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    if content_type not in RECORD_FILE_TYPES:
+        return Response({"detail": "이미지나 PDF 만 올릴 수 있습니다."}, status=400)
+    if file.size is not None and file.size > RECORD_FILE_MAX_BYTES:
+        return Response({"detail": "파일은 10MB 이하만 올릴 수 있습니다."}, status=400)
+    data = file.read(RECORD_FILE_MAX_BYTES + 1)
+    if len(data) > RECORD_FILE_MAX_BYTES:
+        return Response({"detail": "파일은 10MB 이하만 올릴 수 있습니다."}, status=400)
+    key = f"records/{user.get('cohort_code') or 'none'}/{user['firebase_uid']}/{uuid.uuid4().hex}{RECORD_FILE_TYPES[content_type]}"
+    try:
+        put_object(key, data, content_type)
+    except Exception:  # noqa: BLE001 — S3 권한 · 네트워크
+        return Response({"detail": "파일을 저장하지 못했습니다. 잠시 뒤 다시 시도해 주세요."}, status=502)
+    return {"key": key, "name": file.name, "contentType": content_type, "size": len(data), "url": read_url(key)}
+
+
+@api.get("/files", auth=None)
+def stored_file(request, t: str = ""):
+    """로컬 저장 파일 읽기 — bootstrap 이 준 서명 주소(1시간). S3 를 쓰면 S3 서명 주소로 가서 여기에 오지 않는다."""
+    import mimetypes
+
+    from django.http import FileResponse, Http404
+
+    from lms.storage import key_from_read_token, local_path
+
+    key = key_from_read_token(t)
+    path = local_path(key) if key else None
+    if path is None or not path.is_file():
+        raise Http404("file")
+    return FileResponse(open(path, "rb"), content_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+
+
+@api.get("/assessments/{assessment_id}/review")
+def assessment_review(request, assessment_id: str, submissionId: str = ""):
+    """제출 뒤 결과 — 정답 · 해설 + 답안(getAssessmentReview). 학생은 자기 것만."""
+    from lms.assessment_service import review
+
+    user = _require_user(request)
+    return _assessment(lambda cur: review(cur, user, assessment_id, submissionId or None))
 
 
 @api.get("/qual-exams")

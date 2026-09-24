@@ -8,7 +8,7 @@ from django.db import connection
 
 from lms.jsonutil import public_row
 from lms.practice_service import practice_snapshot
-from lms.storage import signed_read_url
+from lms.storage import read_url, signed_read_url
 
 
 def _dicts(cur):
@@ -131,6 +131,12 @@ def build_bootstrap(user: dict) -> dict:
                GROUP BY rs.id""",
             [cohort_ids, is_student, user["id"]],
         )
+        # 증빙은 저장 키로 있다 — 화면이 바로 여는 잠깐짜리 주소로 바꿔 보낸다(S3 서명 · 로컬 서명)
+        for submission in submissions:
+            submission["file_urls"] = [
+                url for url in (read_url(key) for key in submission.get("file_urls") or []) if url
+            ]
+        # 맞춤 사본이면 resume_tailorings 에 줄이 있다. 편집용으로 옮긴 이력서는 그 사본이 가리킨다
         resumes = q(
             """SELECT r.*, COALESCE(r.content->'section_status', '{}'::jsonb) AS sections
                FROM resumes r WHERE r.cohort_id = ANY(%s)

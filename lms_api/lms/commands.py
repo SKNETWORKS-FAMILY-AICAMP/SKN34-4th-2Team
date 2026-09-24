@@ -96,6 +96,18 @@ def op_update_profile(cur, user, p):
         "mustChangePassword": "must_change_password",
         "lastLoginAt": "last_login",
     }
+    if user["role"] == "admin":
+        # 관리자만 — 학생 · 강사 정보 수정, 퇴소 · 복학(비활성)
+        mapping.update({"displayName": "display_name", "seatNumber": "seat_number", "isActive": "is_active"})
+        if "email" in p:
+            email = str(p.get("email") or "").strip().lower()
+            if not email:
+                raise ValueError("로그인 이메일을 비울 수 없습니다.")
+            cur.execute("SELECT 1 FROM users WHERE lower(email) = %s AND firebase_uid <> %s", [email, uid])
+            if cur.fetchone():
+                raise ValueError("이미 사용 중인 로그인 이메일입니다.")
+            fields.append("email = %s")
+            args.append(email)
     for src, col in mapping.items():
         if src in p:
             fields.append(f"{col} = %s")
@@ -423,7 +435,8 @@ def _validate_record_submission_write(user, data: dict, row: dict | None) -> Non
             raise PermissionError("submission owner only")
         if any(key in data for key in ("reviewed_by", "reviewed_at", "review_comment")):
             raise PermissionError("review fields are staff only")
-        if "status" in data and data["status"] not in ("draft", "submitted"):
+        # 학생이 낼 때는 대기(pending). 옛 값(draft · submitted)도 받는다. 승인 · 반려는 강사 · 관리자만
+        if "status" in data and data["status"] not in ("pending", "draft", "submitted"):
             raise PermissionError("review status is staff only")
         if not row:
             data["user_id"] = user["id"]
@@ -499,6 +512,8 @@ def op_upsert_sql(cur, user, p):
     row = resolve_row(cur, table, row_id) if updating else None
     if updating and not row:
         updating = False
+    if table == "record_submissions":
+        _put_record_details(data, p, row)
     if updating:
         if not row:
             raise KeyError(table)
@@ -569,34 +584,135 @@ def op_upsert_sql(cur, user, p):
     if "legacy_id" in columns and not data.get("legacy_id"):
         # 화면이 id 를 주지 않았을 때만 번호를 legacy_id 로 — 준 id 는 위에서 넣었다
         cur.execute(f"UPDATE {table} SET legacy_id = %s WHERE id = %s", [str(pk), pk])
+    if table == "record_submissions" and p.get("files"):
+        _attach_record_files(cur, pk, data.get("user_id") or user["id"], p["files"])
     return {"id": data.get("legacy_id") or str(pk)}
 
 
+RECORD_FILE_LIMIT = 5
+
+# 기록 종류별 칸 — record_submissions.details 에 모은다(ETL 과 같은 키). 화면은 평평하게(camelCase) 보낸다
+RECORD_DETAIL_FIELDS = (
+    ("certType", "cert_type"), ("startAt", "start_at"), ("endAt", "end_at"),
+    ("weekNumber", "week_number"), ("weekLabel", "week_label"), ("link", "link"),
+    ("quizScore", "quiz_score"), ("learningDate", "learning_date"),
+    ("learningContent", "learning_content"), ("isTeamStudy", "is_team_study"),
+)
+
+
+def _put_record_details(data: dict, payload: dict, row: dict | None) -> None:
+    """화면이 보낸 종류별 값을 details 로. 고칠 때는 있던 details 에 덮어쓴다. 새 기록은 제출 시각을 찍는다."""
+    import json
+
+    incoming = {col: payload[key] for key, col in RECORD_DETAIL_FIELDS if payload.get(key) is not None}
+    if row is not None:
+        current = row.get("details") or {}
+        if isinstance(current, str):
+            current = json.loads(current or "{}")
+        if not incoming:
+            return
+        data["details"] = json.dumps({**current, **incoming}, ensure_ascii=False)
+        return
+    data["details"] = json.dumps(incoming, ensure_ascii=False)
+    data.setdefault("submitted_at", timezone_now())
+
+
+def timezone_now():
+    from django.utils import timezone
+
+    return timezone.now()
+
+
+def _attach_record_files(cur, submission_pk: int, owner_id: int, files) -> None:
+    """기록 증빙 — /uploads/record-evidence 로 올린 키를 붙인다. 제출한 학생이 올린 파일만(키에 그 학생 uid)."""
+    cur.execute("SELECT firebase_uid FROM users WHERE id = %s", [owner_id])
+    row = cur.fetchone()
+    owner_uid = row[0] if row else None
+    if not isinstance(files, list) or len(files) > RECORD_FILE_LIMIT:
+        raise ValueError(f"증빙 파일은 {RECORD_FILE_LIMIT}개까지 붙일 수 있습니다.")
+    for f in files:
+        key = str((f or {}).get("key") or "")
+        parts = key.split("/")
+        if len(parts) != 4 or parts[0] != "records" or parts[2] != owner_uid or ".." in parts:
+            raise PermissionError("본인이 올린 증빙만 붙일 수 있습니다.")
+        cur.execute(
+            """INSERT INTO record_submission_files
+                   (submission_id, storage_key, original_filename, content_type, file_size, uploaded_at)
+               VALUES (%s, %s, %s, %s, %s, now()) ON CONFLICT DO NOTHING""",
+            [submission_pk, key, str(f.get("name") or parts[-1])[:255], f.get("contentType"), f.get("size")],
+        )
+
+
+ACCOUNT_EMAIL_DOMAIN = "playdata.co.kr"
+# 헷갈리는 글자(I · l · O · 0 · 1)는 뺀다 — functions/src/index.ts generateRandomPassword 와 같은 규칙
+_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$"
+_EMAIL_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+
+def generate_password() -> str:
+    """8~12자 임시 비밀번호. 비밀번호 바꾸기의 최소 길이(8)를 넘는다."""
+    import secrets
+
+    return "".join(secrets.choice(_PASSWORD_CHARS) for _ in range(8 + secrets.randbelow(5)))
+
+
+def _generate_email(cur) -> str:
+    """로그인 이메일을 비워 두면 만든다 — 원본과 같은 12자@playdata.co.kr"""
+    import secrets
+
+    for _ in range(8):
+        email = "".join(secrets.choice(_EMAIL_CHARS) for _ in range(12)) + "@" + ACCOUNT_EMAIL_DOMAIN
+        cur.execute("SELECT 1 FROM users WHERE lower(email) = %s", [email])
+        if cur.fetchone() is None:
+            return email
+    raise ValueError("로그인 이메일을 만들지 못했습니다. 다시 시도해 주세요.")
+
+
 def op_create_user(cur, user, p):
+    """학생 · 강사 계정 만들기 — 임시 비밀번호를 서버가 만들어 한 번만 돌려준다(저장은 해시만).
+
+    관리자는 돌려받은 아이디 · 비밀번호를 학생에게 전한다. 잃어버리면 resetPassword 로 다시 만든다.
+    """
     _require_admin(user)
     import uuid
+
+    role = p.get("role") or "student"
+    if role not in ("student", "instructor"):
+        raise ValueError("학생 · 강사 계정만 만들 수 있습니다.")
+    if not str(p.get("displayName") or "").strip():
+        raise ValueError("이름을 입력해 주세요.")
+    email = str(p.get("email") or "").strip().lower()
+    if email:
+        cur.execute("SELECT 1 FROM users WHERE lower(email) = %s", [email])
+        if cur.fetchone():
+            raise ValueError("이미 사용 중인 로그인 이메일입니다.")
+    else:
+        email = _generate_email(cur)
+    personal_email = str(p.get("personalEmail") or "").strip().lower() or None
+    password = generate_password()
 
     firebase_uid = p.get("uid") or p.get("firebaseUid") or f"local-{uuid.uuid4().hex[:20]}"
     cohort_id = resolve_cohort(cur, p.get("cohortId"), user)
     import json
     cur.execute(
-        """INSERT INTO users (firebase_uid, email, password, display_name, role, cohort_id,
-               seat_number, is_active, must_change_password, motto, social_links,
+        """INSERT INTO users (firebase_uid, email, password, personal_email, display_name, role, cohort_id,
+               seat_number, is_active, must_change_password, motto, social_links, birth_date,
                mileage_balance, created_at, updated_at)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0, now(), now())
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s,%s,%s,0, now(), now())
            RETURNING id""",
         [
             firebase_uid,
-            (p.get("email") or "").strip().lower(),
-            make_password(p.get("password")) if p.get("password") else make_password(None),
-            p.get("displayName") or "",
-            p.get("role") or "student",
+            email,
+            make_password(password),
+            personal_email,
+            str(p.get("displayName")).strip(),
+            role,
             cohort_id,
             p.get("seatNumber"),
             bool(p.get("isActive", True)),
-            bool(p.get("mustChangePassword", True)),
             p.get("motto"),
             json.dumps(p.get("socialLinks") or {}),
+            p.get("birthDate") or None,
         ],
     )
     created_user_id = cur.fetchone()[0]
@@ -619,7 +735,24 @@ def op_create_user(cur, user, p):
         """INSERT INTO user_job_preferences (user_id,preferences,updated_at) VALUES (%s,%s,now())""",
         [created_user_id, json.dumps(p.get("jobPreferences") or {})],
     )
-    return {"id": firebase_uid, "uid": firebase_uid}
+    return {"id": firebase_uid, "uid": firebase_uid, "email": email, "password": password}
+
+
+def op_reset_password(cur, user, p):
+    """비밀번호 재발급 — 학생 · 강사만. 새 임시 비밀번호를 돌려주고 다음 로그인에서 바꾸게 한다."""
+    _require_admin(user)
+    cur.execute("SELECT id, role, email FROM users WHERE firebase_uid = %s", [str(p.get("uid") or "")])
+    target = _one(cur)
+    if not target:
+        raise KeyError("user")
+    if target["role"] not in ("student", "instructor"):
+        raise PermissionError("학생 · 강사 비밀번호만 재발급할 수 있습니다.")
+    password = generate_password()
+    cur.execute(
+        "UPDATE users SET password = %s, must_change_password = true, updated_at = now() WHERE id = %s",
+        [make_password(password), target["id"]],
+    )
+    return {"uid": p.get("uid"), "email": target["email"], "password": password}
 
 
 def op_create_cohort(cur, user, p):
@@ -854,6 +987,7 @@ OPS = {
     **PRACTICE_OPS,
     "updateProfile": op_update_profile,
     "createUser": op_create_user,
+    "resetPassword": op_reset_password,
     "createCohort": op_create_cohort,
     "updateCohort": op_update_cohort,
     "addTodo": op_add_todo,
