@@ -585,13 +585,17 @@ export function setSeatPresence(
   period: number,
   userId: string,
   state: SeatPresenceState,
-): void {
+): Promise<void> {
+  if (!isTestMode()) {
+    return runCommand('setSeatPresence', { dateKey, period, userId, state }).then(() => undefined);
+  }
   mutate((db) => {
     const rest = db.seatPresence.filter(
       (p) => !(p.dateKey === dateKey && p.period === period && p.userId === userId),
     );
     return { seatPresence: [...rest, { dateKey, period, userId, state }] };
   });
+  return Promise.resolve();
 }
 
 export function publishSeating(seats: { seatNumber: number; userId?: string; userDisplayName?: string }[]): void {

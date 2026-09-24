@@ -116,6 +116,10 @@ def build_bootstrap(user: dict) -> dict:
                WHERE a.cohort_id = ANY(%s) AND (%s = false OR a.user_id = %s)""",
             [cohort_ids, is_student, user["id"]],
         )
+        seat_presences = (
+            q("SELECT * FROM seat_presences WHERE cohort_id = ANY(%s)", [cohort_ids])
+            if not is_student else []
+        )
         submissions = q(
             """SELECT rs.*,
                       COALESCE(array_agg(rf.storage_key ORDER BY rf.id)
@@ -266,6 +270,7 @@ def build_bootstrap(user: dict) -> dict:
         "alertPopupDismissals": pub(dismissals),
         "todos": pub(todos),
         "attendances": pub(attendances),
+        "seatPresences": pub(seat_presences),
         "submissions": pub(submissions),
         "resumes": pub(resumes),
         "resumeFeedbacks": pub(feedbacks),

@@ -34,6 +34,8 @@ export function InstructorAttendanceScreen() {
   const [periodId, setPeriodId] = useState(() => nearestPeriod().id);
   const [index, setIndex] = useState(0);
   const [rotated, setRotated] = useState(false);
+  const [marking, setMarking] = useState(false);
+  const [markError, setMarkError] = useState(false);
 
   const period = Number(periodId);
   const presence = useSeatPresence(dateKey, period);
@@ -49,9 +51,18 @@ export function InstructorAttendanceScreen() {
   const confirmed = roll.filter((s) => stateOf(s.uid) === 'confirmed');
   const held = roll.filter((s) => stateOf(s.uid) === 'held');
 
-  const mark = (student: User, state: SeatPresenceState) => {
-    setSeatPresence(dateKey, period, student.uid, state);
-    setIndex((i) => Math.min(i + 1, roll.length - 1));
+  const mark = async (student: User, state: SeatPresenceState, advance = true) => {
+    if (marking) return;
+    setMarking(true);
+    setMarkError(false);
+    try {
+      await setSeatPresence(dateKey, period, student.uid, state);
+      if (advance) setIndex((i) => Math.min(i + 1, roll.length - 1));
+    } catch {
+      setMarkError(true);
+    } finally {
+      setMarking(false);
+    }
   };
 
   // 좌석은 3개씩 묶어 통로를 만든다. 실제 강의장 배치가 그렇다.
@@ -76,6 +87,7 @@ export function InstructorAttendanceScreen() {
           </p>
         </div>
       </header>
+      {markError && <p role="alert">자리 확인을 저장하지 못했습니다. 다시 시도해 주세요.</p>}
 
       <div className="roll-toolbar" ref={summaryRef}>
         <input
@@ -151,14 +163,16 @@ export function InstructorAttendanceScreen() {
               type="button"
               className="btn btn--filled btn--md roll-panel__confirm"
               ref={confirmRef}
-              onClick={() => current !== undefined && mark(current, 'confirmed')}
+              onClick={() => current !== undefined && void mark(current, 'confirmed')}
+              disabled={marking || current === undefined}
             >
               확인
             </button>
             <button
               type="button"
               className="btn btn--outline btn--md roll-panel__hold"
-              onClick={() => current !== undefined && mark(current, 'held')}
+              onClick={() => current !== undefined && void mark(current, 'held')}
+              disabled={marking || current === undefined}
             >
               보류
             </button>
@@ -212,7 +226,8 @@ export function InstructorAttendanceScreen() {
                   <button
                     type="button"
                     className="btn btn--text btn--sm"
-                    onClick={() => setSeatPresence(dateKey, period, s.uid, 'confirmed')}
+                    onClick={() => void mark(s, 'confirmed', false)}
+                    disabled={marking}
                   >
                     확인으로
                   </button>

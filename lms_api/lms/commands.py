@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 from django.contrib.auth.hashers import make_password
 from django.db import connection, transaction
 
@@ -168,6 +170,42 @@ def op_delete_todo(cur, user, p):
         if user["role"] != "admin" and row["user_id"] != user["id"]:
             raise PermissionError("todo owner only")
         cur.execute("DELETE FROM todos WHERE id = %s", [row["id"]])
+
+
+def op_set_seat_presence(cur, user, p):
+    _require_staff(user)
+    student_uid = str(p.get("userId") or "")
+    state = p.get("state")
+    if state not in ("confirmed", "held"):
+        raise ValueError("invalid seat presence state")
+    try:
+        presence_date = date.fromisoformat(str(p["dateKey"]))
+        period = int(p["period"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("invalid seat presence date or period") from exc
+    if period not in (9, 10, 11, 12, 14, 15, 16, 17):
+        raise ValueError("invalid seat presence period")
+    cur.execute(
+        "SELECT id, cohort_id FROM users WHERE firebase_uid = %s AND role = 'student' AND is_active = true",
+        [student_uid],
+    )
+    student = cur.fetchone()
+    if not student:
+        raise KeyError("student")
+    student_id, cohort_id = student
+    if not can_access_cohort(user, cohort_id):
+        raise PermissionError("cohort only")
+    cur.execute(
+        """INSERT INTO seat_presences
+               (cohort_id, user_id, presence_date, period, state, updated_by, updated_at)
+               VALUES (%s, %s, %s, %s, %s, %s, now())
+               ON CONFLICT (cohort_id, user_id, presence_date, period)
+               DO UPDATE SET state = EXCLUDED.state, updated_by = EXCLUDED.updated_by,
+                             updated_at = now()
+               RETURNING id""",
+        [cohort_id, student_id, presence_date, str(period), state, user["id"]],
+    )
+    return {"id": str(cur.fetchone()[0])}
 
 
 def op_create_notice(cur, user, p):
@@ -777,6 +815,7 @@ OPS = {
     "addTodo": op_add_todo,
     "toggleTodo": op_toggle_todo,
     "deleteTodo": op_delete_todo,
+    "setSeatPresence": op_set_seat_presence,
     "createNotice": op_create_notice,
     "updateNotice": op_update_notice,
     "deleteNotice": op_delete_notice,

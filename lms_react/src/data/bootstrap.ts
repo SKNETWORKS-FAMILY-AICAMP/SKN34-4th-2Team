@@ -451,6 +451,12 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
     todos: rowsOf(payload, 'todos').map(mapTodo),
     submissions: rowsOf(payload, 'submissions').map(mapSubmission),
     attendances: rowsOf(payload, 'attendances').map(mapAttendance),
+    seatPresence: rowsOf(payload, 'seatPresences').map((row) => ({
+      dateKey: String(row.presenceDate ?? row.presence_date ?? '').slice(0, 10),
+      period: Number(row.period),
+      userId: String(row.userId ?? row.user_id ?? ''),
+      state: row.state === 'confirmed' || row.state === 'held' ? row.state : 'unknown',
+    })),
     resumes: rowsOf(payload, 'resumes').map(mapResume),
     resumeFeedbacks: rowsOf(payload, 'resumeFeedbacks').map(mapResumeFeedback),
     assessments: rowsOf(payload, 'assessments').map(mapAssessment),

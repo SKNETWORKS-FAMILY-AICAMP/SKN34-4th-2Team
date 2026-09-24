@@ -12,7 +12,7 @@ from lms.api import ChatIn, _data, _study_note_proxy, api, chat
 from lms.bootstrap_service import _dicts
 from lms.commands import (
     _validate_record_submission_write, _validate_resume_write, op_add_todo,
-    op_delete_todo, op_toggle_todo, op_upsert_sql,
+    op_delete_todo, op_set_seat_presence, op_toggle_todo, op_upsert_sql,
 )
 from lms.services import sync_notice_vector
 
@@ -39,6 +39,33 @@ class AttendanceUpsertTests(TestCase):
         self.assertIn("status = EXCLUDED.status", sql)
         self.assertNotIn("user_id = EXCLUDED.user_id", sql)
         self.assertEqual(values, [9, 2, "2026-09-24", "late", "manual"])
+
+
+class SeatPresenceTests(TestCase):
+    def test_repeat_mark_upserts_same_student_period(self):
+        cur = Mock()
+        cur.fetchone.side_effect = [(8, 2), (17,)]
+        actor = {"id": 4, "role": "instructor", "cohort_id": 2, "is_active": True}
+        result = op_set_seat_presence(cur, actor, {
+            "userId": "student-uid", "dateKey": "2026-09-24", "period": 9,
+            "state": "held",
+        })
+        self.assertEqual(result, {"id": "17"})
+        sql, values = cur.execute.call_args.args
+        self.assertIn("ON CONFLICT (cohort_id, user_id, presence_date, period)", sql)
+        self.assertEqual(values[0:2], [2, 8])
+        self.assertEqual(values[4:], ["held", 4])
+
+    def test_instructor_cannot_mark_another_cohort(self):
+        cur = Mock()
+        cur.fetchone.return_value = (8, 3)
+        actor = {"id": 4, "role": "instructor", "cohort_id": 2, "is_active": True}
+        with self.assertRaises(PermissionError):
+            op_set_seat_presence(cur, actor, {
+                "userId": "student-uid", "dateKey": "2026-09-24", "period": 9,
+                "state": "confirmed",
+            })
+        self.assertEqual(cur.execute.call_count, 1)
 
 
 class NoticeVectorCountTests(TestCase):
