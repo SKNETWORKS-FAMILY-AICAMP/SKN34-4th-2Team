@@ -1,12 +1,15 @@
 # Firestore → PostgreSQL 이전 리포트
 
+> 이 문서는 과거 ETL 실행의 건수·오류 기록이며 현재 기준 DB
+> `lms_migration_replay_20260923`의 실데이터 현황을 뜻하지 않는다.
+
 운영 Firestore는 읽기만 했다. jobs 스키마와 youtube_curriculum_cache 테이블은 만들지 않았다.
 
 ## 결정 3
 - posts / post_comments: 생략 (0건)
 - qna_threads / qna_messages: 생략 (0건)
-- 레거시 studyNotes: 원본 1건 중 userId 없는 1건은 버림 (`yx8R7VUJmGFSsD0B0ZHF_prefix_05_langchain_01_langchain_overview`)
-- 레거시 seating: seating_rooms 가 있어 레거시 layout/assignment 2건은 변환하지 않고 카운트만 함
+- 레거시 studyNotes: study_notes 합침 0건 / 원본 0건
+- 레거시 seating: cohort_seating.layout JSONB로 변환
 
 ## 경로별 건수
 
@@ -16,43 +19,26 @@
 | `cohorts` | 3 | `cohorts` | 3 |
 | `studentIntakes` | 32 | `student_intakes` | 32 |
 | `users/{uid}/todos` | 1 | `todos` | 1 |
-| `users/{uid}/alertPopupDismissals` | 3 | `alert_popup_dismissals` | 3 |
+| `users/{uid}/alertPopupDismissals` | 3 | `alert_popup_dismissals` | 0 |
 | `…/attendances` | 1690 | `attendances` | 1624 |
-| `…/rollCalls` | 15 | `roll_calls` | 15 |
-| `…/notices` | 13 | `notices` | 13 |
+| `…/rollCalls` | 15 | `seat_presences` | 246 |
+| `…/notices` | 15 | `notices` | 15 |
 | `…/resumes` | 31 | `resumes` | 25 |
 | `…/resumes/{id}/feedback` | 15 | `resume_feedback` | 15 |
-| `…/resumes/{id}/revisions` | 12 | `resume_revisions` | 12 |
+| `…/resumes/{id}/revisions` | 12 | `resume_revisions` | 0 |
 | `…/submissions` | 6 | `record_submissions` | 2 |
 | `…/assessmentSubmissions` | 4 | `assessment_submissions` | 0 |
-| `…/assessments/{id}/questions` | 20 | `assessment_questions` | 20 |
+| `…/assessments/{id}/questions` | 20 | `assessment_questions` | 0 |
 | `aiGenerationLogs` | 190 | `ai_generation_logs` | 190 |
 | `aiQuestionFeedback` | 261 | `ai_question_feedback` | 261 |
 | `…/mileageTransactions` | 5 | `mileage_transactions` | 2 |
 | `…/mileageProducts` | 6 | `mileage_products` | 6 |
 | `…/projectTeams` | 5 | `project_teams` | 5 |
 | `…/studySources` | 5 | `study_sources` | 5 |
-| `…/formTasks` | 2 | `form_tasks` | 2 |
-| `…/seatingRooms` | 1 | `seating_rooms` | 1 |
+| `…/formTasks` | 2 | `submission_tasks` | 2 |
+| `…/seatingRooms` | 1 | `cohort_seating` | 1 |
 | `systemCache` | 1 | `system_cache` | 1 |
-| `aiEvalRuns` | 1 | `ai_eval_runs` | 1 |
-
-## 건수 불일치 원인
-
-공통 원인: Firestore `users` 에 없는 uid `PKoHmb6H8VPhdKuH8b4r5id9PTy1` (삭제·미이전 계정). 이 uid를 가리키는 행은 FK 때문에 넣지 않았다. 잔액은 고치지 않았다.
-
-| 경로 | FS | PG | 차이 | 원인 |
-| --- | ---: | ---: | ---: | --- |
-| attendances | 1690 | 1624 | 66 | 위 uid 출결 66건. unique (user_id, date_key) 병합은 0건 |
-| resumes | 31 | 25 | +8 tailored / -14 orphan | 부모 14건이 위 uid. undocumented `tailoredResumes` 8건은 `resumes.base_resume_id` 로 합침 |
-| record_submissions | 6 | 2 | 4 | 위 uid: `WefdiehTA0nwtsxVxDKD`, `Z8FUgJXQjjPZhvTEsbVm`, `uyiTYzDJY3YgWBujeQbZ`, `vLF56Cxo0c60e1pFpuZe` |
-| mileage_transactions | 5 | 2 | 3 | 위 uid: `HGT00pEndXUh3Phy768z`, `J9fkyrNsGYV4K4jqPua4`, `bbuvqffxYNpARRwZXpfd` |
-| assessment_submissions | 4 | 0 | 4 | 위 uid + 평가 문서도 없음 (`0SfOVS0pjN5CtZhMxU3Q`, `GfPpkqHFzGPTzzMhcwvM`, `jtXeRPgYmWTa9r2kjlCp`, `kRuDQnOJEPmHYyED5C3x`) |
-
-건너뛴 이력서 id: `5y6kvVPk6fI44KZefVR2`, `8SQETkWEkbyGgExV3Aju`, `AD0WUKtxLNFWPDMuYJHD`, `GIdv7oJ6CiI8y5HHQAQN`, `GxvNcCgG051FPWWWGJuF`, `HUhyDuF6BqRbIYQp7Bx5`, `MaE9OpHWoyLYTb6SHkEU`, `RMEnBwv4we9LuNWWvpFh`, `matched_2627c154634f4bad19aea15c`, `matched_3356d5ea91cd66ad0941d3c3`, `matched_3c607155619219f39ce55e02`, `matched_8c08ac13838162202a3b328c`, `matched_b2db1f84f2b7cd2ce21db9cf`, `rrQ1cM00bN4Q6y7lrJ5V`
-
-건너뛴 평가 제출 id: `0SfOVS0pjN5CtZhMxU3Q_PKoHmb6H8VPhdKuH8b4r5id9PTy1`, `GfPpkqHFzGPTzzMhcwvM_PKoHmb6H8VPhdKuH8b4r5id9PTy1`, `jtXeRPgYmWTa9r2kjlCp_PKoHmb6H8VPhdKuH8b4r5id9PTy1`, `kRuDQnOJEPmHYyED5C3x_PKoHmb6H8VPhdKuH8b4r5id9PTy1`
-
+| `aiEvalRuns` | 1 | `ai_eval_runs` | 0 |
 
 ## 전체 Firestore 인벤토리
 
@@ -85,7 +71,7 @@
 - `…/mileageSettings/config`: 0
 - `…/mileageTransactions`: 5
 - `…/missionProgress`: 2
-- `…/notices`: 13
+- `…/notices`: 15
 - `…/posts`: 0
 - `…/projectTeams`: 5
 - `…/purchaseRequests`: 1
@@ -145,7 +131,150 @@
 
 ## ETL 오류
 
-없음
+- INSERT INTO alert_popup_dismissals VALUES (%s,%s,%s) ON CONFLICT DO NOTHING: column "date_key" is of type date but expression is of type smallint
+LINE 1: INSERT INTO alert_popup_dismissals VALUES ($1,$2,$3) ON CONF...
+                                                   ^
+HINT:  You will need to rewrite or cast the expression.
+- INSERT INTO alert_popup_dismissals VALUES (%s,%s,%s) ON CONFLICT DO NOTHING: column "date_key" is of type date but expression is of type smallint
+LINE 1: INSERT INTO alert_popup_dismissals VALUES ($1,$2,$3) ON CONF...
+                                                   ^
+HINT:  You will need to rewrite or cast the expression.
+- INSERT INTO alert_popup_dismissals VALUES (%s,%s,%s) ON CONFLICT DO NOTHING: column "date_key" is of type date but expression is of type smallint
+LINE 1: INSERT INTO alert_popup_dismissals VALUES ($1,$2,$3) ON CONF...
+                                                   ^
+HINT:  You will need to rewrite or cast the expression.
+- INSERT INTO assessments (legacy_id, cohort_id, title, tags, max_score, start_at, end_at, t: invalid input syntax for type json
+DETAIL:  Token "mini" is invalid.
+CONTEXT:  JSON data, line 1: {mini...
+unnamed portal parameter $4 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found ",".
+CONTEXT:  JSON data, line 1: {"단어를 숫자로 변환하기 위해",...
+unnamed portal parameter $7 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found ",".
+CONTEXT:  JSON data, line 1: {"모델을 간단하게 만들기 위해",...
+unnamed portal parameter $7 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found "}".
+CONTEXT:  JSON data, line 1: {"워드 임베딩"}
+unnamed portal parameter $9 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found "}".
+CONTEXT:  JSON data, line 1: {"프롬프트 설계"}
+unnamed portal parameter $9 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found ",".
+CONTEXT:  JSON data, line 1: {"데이터를 시각화하기 위해",...
+unnamed portal parameter $7 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found "}".
+CONTEXT:  JSON data, line 1: {"데이터 정제"}
+unnamed portal parameter $9 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found ",".
+CONTEXT:  JSON data, line 1: {"텍스트와 이미지",...
+unnamed portal parameter $7 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found ",".
+CONTEXT:  JSON data, line 1: {"데이터 수집",...
+unnamed portal parameter $7 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Token "CNN" is invalid.
+CONTEXT:  JSON data, line 1: {CNN...
+unnamed portal parameter $7 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found ",".
+CONTEXT:  JSON data, line 1: {"모델을 처음부터 학습하기 위해",...
+unnamed portal parameter $7 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found ",".
+CONTEXT:  JSON data, line 1: {"더 많은 데이터 처리",...
+unnamed portal parameter $7 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found ",".
+CONTEXT:  JSON data, line 1: {"데이터를 시각화하기 위해",...
+unnamed portal parameter $7 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found ",".
+CONTEXT:  JSON data, line 1: ...든 단어를 동일하게 처리하기 위해",...
+unnamed portal parameter $7 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found ",".
+CONTEXT:  JSON data, line 1: {"프롬프트의 길이",...
+unnamed portal parameter $7 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found ",".
+CONTEXT:  JSON data, line 1: {"소규모 데이터 처리",...
+unnamed portal parameter $7 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found ",".
+CONTEXT:  JSON data, line 1: {"모델의 성능을 저하시킨다",...
+unnamed portal parameter $7 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found ",".
+CONTEXT:  JSON data, line 1: {"더 많은 데이터 처리",...
+unnamed portal parameter $7 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found ",".
+CONTEXT:  JSON data, line 1: {"데이터의 양을 늘리기 위해",...
+unnamed portal parameter $7 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found ",".
+CONTEXT:  JSON data, line 1: {"모델의 출력을 다양화하기 위해",...
+unnamed portal parameter $7 = '...'
+- INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points,: invalid input syntax for type json
+DETAIL:  Expected ":", but found "}".
+CONTEXT:  JSON data, line 1: {"비전-언어 모델"}
+unnamed portal parameter $9 = '...'
+- INSERT INTO mission_progress VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s): column "coding_pcce" is of type boolean but expression is of type smallint
+LINE 1: INSERT INTO mission_progress VALUES ($1,$2,$3,$4,$5,$6,$7,$8...
+                                                         ^
+HINT:  You will need to rewrite or cast the expression.
+- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
+LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
+                                                             ^
+- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
+LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
+                                                             ^
+- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
+LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
+                                                             ^
+- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
+LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
+                                                             ^
+- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
+LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
+                                                             ^
+- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
+LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
+                                                             ^
+- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
+LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
+                                                             ^
+- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
+LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
+                                                             ^
+- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
+LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
+                                                             ^
+- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
+LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
+                                                             ^
+- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
+LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
+                                                             ^
+- INSERT INTO resume_revisions: column "created_by" of relation "resume_revisions" does not exist
+LINE 2: ...         (legacy_id,resume_id,revision_no,content,created_by...
+                                                             ^
+- INSERT INTO recommendation_events (legacy_id, cohort_id, user_id, recommendation_id, youtu: invalid input syntax for type json
+DETAIL:  Expected ":", but found "}".
+CONTEXT:  JSON data, line 1: ...어모델) · 자연어-이미지 멀티모달"}
+unnamed portal parameter $7 = '...'
+- INSERT INTO ai_eval_runs (legacy_id, prompt_version, model, source, total_cases, passed, a: invalid input syntax for type json
+DETAIL:  Token "notice_project_mix" is invalid.
+CONTEXT:  JSON data, line 1: {notice_project_mix...
+unnamed portal parameter $9 = '...'
 
 ## 다음에 사람이 해야 할 일
 
@@ -156,20 +285,3 @@
 5. job_matching_bot SQLite → jobs 스키마
 6. 미매핑 컬렉션(jobRequirementProfiles, aiReviews, aiApplications) 스키마 결정
 7. Flutter/React가 Firestore를 보지 않게 repository를 API로 교체
-
-## 미매핑 3테이블 ETL (증분, DROP 없음)
-
-- jobRequirementProfiles FS 12 → job_requirement_profiles PG 12
-- aiReviews FS 194 → resume_ai_reviews PG 46
-- aiApplications FS 106 → resume_ai_applications PG 28
-- resume 매핑 없어 생략 226건 (고아 uid 이력서 하위 문서 포함)
-
-## jobs 스키마
-
-- `scripts/firestore_to_postgres/jobs_schema.sql` 적용됨
-- `job_matching_bot/artifacts/job_store.sqlite` 없음 → 공고 행 ETL 건너뜀. `jobs.*` 건수 0
-- `test_sqlite_store` 22 tests OK (Postgres 구현)
-
-## Redis youtube 캐시
-
-- 4키 이전: `curriculum:yt:cohort_34:{week_key}` TTL 12h

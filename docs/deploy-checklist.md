@@ -74,6 +74,9 @@ GitHub Actions: `VITE_API_BASE` secret/variable 이 있으면 build 단계에 �
 - [ ] `CHATBOT_URL` → 챗봇 서비스 내부 URL (compose에 추가 시)
 - [ ] Django와 AI 서비스에 동일한 `LMS_AI_SHARED_TOKEN`을 별도로 주입하고
       AI 서비스 포트는 외부 공개하지 않는다 (미설정 시 Django `/api/chat`은 503)
+- [ ] 공부방 노트: Django `/api/study-notes/{tree,generate,get}` → 내부 AI
+      `/api/v1/study-notes/internal/{tree,generate,get}` 경로 검증. 기준 DB에는
+      `lms.0006`까지 적용했다. 실제 AI 호출과 학습자료 응답은 별도 검증 대상이다.
 - [ ] `LMS_INLINE_PUBLISH=0` (Celery worker/beat 사용 시)
 - [ ] gunicorn chat 타임아웃 (필요 시 120초)
 - [ ] `AWS_S3_BUCKET`, `AWS_REGION` 및 최소 권한 IAM role로 S3 객체 읽기/쓰기 검증
