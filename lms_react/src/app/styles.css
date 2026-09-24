@@ -10469,3 +10469,20 @@ a.link {
     border-radius: 0;
   }
 }
+
+/* 튜터 답이 풀리는 동안 끝에 깜빡이는 막대 */
+.tutor__caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: var(--primary);
+  animation: tutor-caret 0.8s steps(1) infinite;
+}
+
+@keyframes tutor-caret {
+  50% {
+    opacity: 0;
+  }
+}

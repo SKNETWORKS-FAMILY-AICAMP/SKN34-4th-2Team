@@ -28,7 +28,7 @@ export function TutorPanel() {
   const target = tutor?.target ?? null;
   const key = threadKey(target);
   const [tab, setTab] = useState<'tutor' | 'helper'>('tutor');
-  const [turns, setTurns] = useState<TutorTurn[]>([]);
+  const [turns, setTurns] = useState<ViewTurn[]>([]);
   const [level, setLevel] = useState(0);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -98,9 +98,10 @@ export function TutorPanel() {
         ...now,
       });
       const at = new Date().toISOString();
-      setTurns((t) => [...t, { role: 'assistant', text: r.reply, kind: r.kind, hintLevel: r.hintLevel, lines: r.lines, at }]);
+      // 가리킨 줄은 글이 다 풀린 뒤에 칠한다(TurnBubble onDone)
+      const fresh = { cellId: target.cellId };
+      setTurns((t) => [...t, { role: 'assistant', text: r.reply, kind: r.kind, hintLevel: r.hintLevel, lines: r.lines, at, fresh }]);
       if (r.hintLevel) setLevel(r.hintLevel);
-      tutor.mark(target.cellId, r.lines);
     } catch (e) {
       setTurns((t) => t.slice(0, -1));
       setError(await readApiError(e));
@@ -175,7 +176,13 @@ export function TutorPanel() {
               </p>
             )}
             {turns.map((t, i) => (
-              <TurnBubble key={i} turn={t} onLines={(lines) => tutor.mark(target.cellId, lines)} />
+              <TurnBubble
+                key={i}
+                turn={t}
+                onLines={(lines) => tutor.mark(target.cellId, lines)}
+                onTick={() => bodyRef.current?.scrollTo?.({ top: bodyRef.current.scrollHeight })}
+                onDone={() => t.fresh && tutor.mark(t.fresh.cellId, t.lines)}
+              />
             ))}
             {sending && (
               <div className="tutor__msg tutor__msg--bot tutor__msg--wait">
@@ -254,7 +261,48 @@ export function TutorPanel() {
   );
 }
 
-function TurnBubble({ turn, onLines }: { turn: TutorTurn; onLines: (lines: number[]) => void }) {
+/** 방금 받은 답 — 다 받은 뒤 타자 치듯 푼다(학습 도우미 챗봇과 같은 느낌). 서버에서 이미 정답을 가린 글이라 그대로 풀어도 된다 */
+type ViewTurn = TutorTurn & { fresh?: { cellId: string } };
+
+const TYPE_TICK_MS = 22;
+/** 길어도 0.7초 안에 끝나게 한 번에 여러 글자씩 */
+const TYPE_MAX_TICKS = 32;
+
+function prefersReducedMotion() {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+}
+
+function useTyping(text: string, active: boolean, onTick: () => void, onDone: () => void) {
+  const [shown, setShown] = useState(active && !prefersReducedMotion() ? 0 : text.length);
+  const latest = useRef({ onTick, onDone });
+  latest.current = { onTick, onDone };
+  useEffect(() => {
+    if (shown >= text.length) {
+      if (active) latest.current.onDone();
+      return;
+    }
+    const step = Math.max(2, Math.ceil(text.length / TYPE_MAX_TICKS));
+    const id = window.setTimeout(() => {
+      setShown((n) => Math.min(text.length, n + step));
+      latest.current.onTick();
+    }, TYPE_TICK_MS);
+    return () => window.clearTimeout(id);
+  }, [shown, text, active]);
+  return { text: text.slice(0, shown), done: shown >= text.length };
+}
+
+function TurnBubble({
+  turn,
+  onLines,
+  onTick,
+  onDone,
+}: {
+  turn: ViewTurn;
+  onLines: (lines: number[]) => void;
+  onTick: () => void;
+  onDone: () => void;
+}) {
+  const typed = useTyping(turn.text, Boolean(turn.fresh), onTick, onDone);
   if (turn.role === 'user') return <div className="tutor__msg tutor__msg--me">{turn.text}</div>;
   const muted = turn.kind === 'offtopic' || turn.kind === 'locked';
   return (
@@ -270,8 +318,11 @@ function TurnBubble({ turn, onLines }: { turn: TutorTurn; onLines: (lines: numbe
           정답은 직접
         </span>
       )}
-      <p>{turn.text}</p>
-      {turn.lines.length > 0 && (
+      <p>
+        {typed.text}
+        {!typed.done && <span className="tutor__caret" aria-hidden />}
+      </p>
+      {typed.done && turn.lines.length > 0 && (
         <div className="tutor__lines">
           {turn.lines.map((n) => (
             <button key={n} type="button" onClick={() => onLines([n])}>

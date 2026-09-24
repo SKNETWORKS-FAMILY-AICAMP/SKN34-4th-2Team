@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { TutorProvider, useTutor, useTutorCell, useTutorMarks, type TutorTarget } from '../TutorContext';
 import { TutorPanel } from '../TutorPanel';
@@ -49,7 +49,38 @@ async function click(el: Element | null | undefined) {
 
 const byText = (host: HTMLElement, text: string) => [...host.querySelectorAll('button')].find((b) => b.textContent?.includes(text));
 
+/** 답이 타자 치듯 풀리는 효과 — 「동작 줄이기」면 바로 다 보인다. 대부분의 시험은 이걸 켜고 본다 */
+let reduceMotion = true;
+const originalMatchMedia = window.matchMedia;
+beforeEach(() => {
+  reduceMotion = true;
+  window.matchMedia = ((query: string) => ({ matches: reduceMotion && query.includes('reduce'), media: query })) as typeof window.matchMedia;
+});
+afterEach(() => {
+  window.matchMedia = originalMatchMedia;
+});
+
 describe('연습장 튜터', () => {
+  it('답은 타자 치듯 풀리고, 다 풀린 뒤에 가리킨 줄을 칠한다', async () => {
+    reduceMotion = false;
+    const host = mount({ ...PROBLEM, setId: 'ps-typing' }); // 데모 대화는 테스트끼리 이어지니 다른 문제로
+    await click(host.querySelector('[data-testid="open"]'));
+    await click(byText(host, '힌트 더 (1/3)'));
+    await click(byText(host, '힌트 더 (2/3)')); // 600ms 뒤 — 답은 막 도착해 풀리는 중
+    const bubble = () => [...host.querySelectorAll('.tutor__msg--bot')].pop()!;
+    expect(bubble().querySelector('.tutor__caret')).not.toBeNull();
+    expect(host.querySelector('[data-testid="marks"]')?.textContent).toBe('');
+    // act 하나 안에서는 상태가 끝에 한 번에 반영돼 타자가 한 칸씩만 간다 — 잘게 나눠 기다린다
+    for (let i = 0; i < 40; i++) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 25));
+      });
+    }
+    expect(bubble().querySelector('.tutor__caret')).toBeNull();
+    expect(bubble().textContent).toContain('번째 줄을 보세요');
+    expect(host.querySelector('[data-testid="marks"]')?.textContent).toBe('2');
+  });
+
   it('누르기 전엔 없고, 문제 셀에서 열면 힌트 단계가 「힌트 더」로만 오른다', async () => {
     const host = mount(PROBLEM);
     expect(host.querySelector('.tutor')).toBeNull();
