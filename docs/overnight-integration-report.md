@@ -18,7 +18,7 @@ React 데모 모드 테스트만 통과한 항목은 사용자 E2E가 아니다.
 | 5 | 예약 공지 | VERIFIED | Django API 예약 생성·발행, 재발행 방지, 다른 기수 강사 차단 및 RDS/Pinecone 검증. React 버튼은 미검증. 자세한 내용은 `docs/validation/scheduled-notices-20260924.md`. |
 | 6 | 공지 → Pinecone | VERIFIED | 실제 임시 공지 DB commit→벡터 upsert→수정→delete 확인. 임시 벡터 정리. |
 | 7 | 공지 이미지/파일 → S3 | PARTIAL | 공지 이미지 key 2개 모두 S3 `HeadObject` 200. 기존 key로 생성한 서명 GET URL에서 `Range: bytes=0-0` 요청 206, `image/png` 확인. 업로드→key 저장→React 표시 E2E는 미검증. |
-| 8 | 출결 | PARTIAL | 실제 RDS 임시 관리자·학생으로 같은 학생/날짜 출결을 두 번 저장했을 때 두 번째가 고유 제약으로 500인 것을 재현. 일일 출결 INSERT를 `(user_id, attendance_date)` 충돌 시 UPDATE하도록 최소 수정 후 `[200, 200]`, 한 행·최종 상태 `late`, bootstrap 재조회 확인. 임시 행 롤백. React 관리자 화면 조작과 교시별 착석(`seat_presences`)은 미검증. |
+| 8 | 출결·자리 확인 | PARTIAL | 일일 출결은 같은 날짜 재저장 `[200, 200]`, 한 행·최종 상태 `late`, bootstrap 재조회 확인 후 임시 행 롤백. 강사 자리 확인은 React 클릭→Django 200→RDS 1행 `confirmed`→새 로그인 후 `확인 1/1` 표시 확인. 같은 행을 API에서 `held`로 다시 저장해 ID 유지·bootstrap 상태 변경 확인. 임시 계정·행 삭제 후 잔여 0건. React 관리자 출결 화면은 미검증. |
 | 9 | TODO 및 기본 학생 기능 | PARTIAL | 임시 학생으로 실제 RDS 로그인→Django `addTodo`→bootstrap 재조회→`toggleTodo`→`deleteTodo` 모두 200. 트랜잭션 롤백 후 잔여 0건. React에는 TODO 함수만 있고 이를 호출하는 화면은 없어 TODO 화면 E2E는 불가. 별도 학생 브라우저 로그인·대시보드 표시 성공. |
 | 10 | 과제 / 제출 | CODE EXISTS / NOT VERIFIED | `submission_tasks`, `submission_responses` 테이블은 존재하나 0건. 제출 E2E 미검증. |
 | 11 | 프로젝트 관련 | CODE EXISTS / NOT VERIFIED | `project_teams`, `project_team_members` 테이블 존재. 실제 팀 작업 E2E 미검증. |
@@ -67,6 +67,12 @@ React 데모 모드 테스트만 통과한 항목은 사용자 E2E가 아니다.
 - 임시 강사 계정으로 React 로그인→Django `/api/login` 200→`/api/bootstrap`
   200→`/instructor` 자리 확인 화면 표시까지 확인했다. 정확한 ID·UID·email로
   계정 삭제 후 잔여 0건 확인. 세부 강사 쓰기 권한은 아직 별도 검증 대상이다.
+- 강사 자리 확인의 기존 React 메모리 전용 저장을 Django `setSeatPresence`
+  명령·RDS upsert·bootstrap 조회에 연결했다. 임시 강사 ID 27·학생 ID 28로
+  화면 `확인` 클릭 200, RDS `seat_presences` 1행 확인, 새 로그인 후 `확인 1/1`
+  재조회까지 성공했다. 잠시 RDS TCP 5432 접속이 끊겼으나 보안 그룹 변경 후
+  복구됐다. 같은 행을 `held`로 다시 저장해 ID 1 유지·bootstrap 상태 변경을
+  확인하고, 정확한 ID로 임시 행과 사용자 27·28을 삭제해 잔여 0건 확인했다.
 - FastAPI AI 개별 생성·첨삭·추천 요청은 이번 범위에서 실제 성공 확인이 없다.
   이전의 proxy 단위 테스트와 실제 AI E2E를 혼동하지 않는다.
 
