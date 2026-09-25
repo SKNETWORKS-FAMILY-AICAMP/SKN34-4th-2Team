@@ -46,7 +46,7 @@ import { http, readApiError } from './http';
 import { fetchBootstrap, lastBootstrapSession, mapStudyNote } from './bootstrap';
 import { getBootstrapDb, subscribeBootstrap } from './bootstrapStore';
 import { queryClient, queryKeys } from './queryClient';
-import { demoTutorAsk, demoTutorThread } from './tutorDemo';
+import { demoTutorAsk, demoTutorReset, demoTutorThread } from './tutorDemo';
 
 function isTestMode(): boolean {
   return typeof import.meta !== 'undefined' && import.meta.env?.MODE === 'test';
@@ -1498,6 +1498,15 @@ export async function fetchTutorThread(mode: TutorMode, setId?: string, index?: 
     params: mode === 'problem' ? { mode, setId, index } : { mode },
   });
   return data;
+}
+
+/** 튜터 「새 대화」 — 이 문제(또는 일반 셀)의 내 대화를 지운다. 힌트 단계도 처음부터 */
+export async function resetTutorThread(mode: TutorMode, setId?: string, index?: number): Promise<void> {
+  if (isTestMode()) {
+    await demoTutorReset(mode, setId, index);
+    return;
+  }
+  await http.delete('/practice-tutor', { params: mode === 'problem' ? { mode, setId, index } : { mode } });
 }
 
 /** 새 복습 세트가 생겼을 때 — 강사 화면의 신고 · 세트 목록이 새 세트를 보게 */

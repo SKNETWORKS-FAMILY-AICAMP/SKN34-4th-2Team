@@ -266,6 +266,23 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
     setCells((prev) => prev.map((c) => ({ ...c, ...CLEAR_OUTPUT })));
   };
 
+  /**
+   * 모든 셀 지우기 — 빈 코드 셀 하나만 남기고 변수도 비운다.
+   * 복습 세트에서는 문제 셀(세트의 일부)만 남긴다(출력은 비운다). 셀 하나 지우기와 같은 규칙이다.
+   */
+  const clearAll = () => {
+    if (busy) runner.stop();
+    runner.reset(SESSION);
+    counter.current = 0;
+    setKernelNote('');
+    setFileName(null);
+    const kept = cellsRef.current.filter((c) => c.type === 'problem').map((c) => ({ ...c, ...CLEAR_OUTPUT }));
+    const next = kept.length > 0 ? kept : [newCell()];
+    setCells(next);
+    setActiveId(next[0].id);
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+  };
+
   const move = (id: string, delta: number) =>
     setCells((prev) => {
       const i = prev.findIndex((c) => c.id === id);
@@ -363,6 +380,7 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
     runAll,
     stop,
     resetKernel,
+    clearAll,
     addCellAfter,
     move,
     remove,

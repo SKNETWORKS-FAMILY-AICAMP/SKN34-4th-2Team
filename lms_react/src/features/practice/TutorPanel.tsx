@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { readApiError } from '../../data/http';
-import { askTutor, fetchTutorThread, type TutorQuestion, type TutorTurn } from '../../data/repository';
+import { askTutor, fetchTutorThread, resetTutorThread, type TutorQuestion, type TutorTurn } from '../../data/repository';
 import { Icon } from '../../ui/Icon';
 import { OPEN_CHATBOT_EVENT } from '../chatbot/ChatbotHost';
 import { useTutor, type TutorTarget } from './TutorContext';
@@ -34,6 +34,7 @@ export function TutorPanel() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [draft, setDraft] = useState('');
+  const [confirmReset, setConfirmReset] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -44,6 +45,7 @@ export function TutorPanel() {
     setTurns([]);
     setLevel(0);
     setError('');
+    setConfirmReset(false);
     setLoading(true);
     fetchTutorThread(target.mode, target.setId, target.index)
       .then((th) => {
@@ -62,6 +64,20 @@ export function TutorPanel() {
     // 같은 대화(일반 셀끼리)면 다시 부르지 않는다
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
+
+  /** 「새 대화」 — 서버의 이 대화를 지우고 창을 비운다 */
+  const startOver = async () => {
+    if (!target) return;
+    setConfirmReset(false);
+    setError('');
+    try {
+      await resetTutorThread(target.mode, target.setId, target.index);
+      setTurns([]);
+      setLevel(0);
+    } catch (e) {
+      setError(await readApiError(e));
+    }
+  };
 
   // 처음 열 때만 입력칸으로 — 열린 채 셀을 옮겨 다닐 땐(따라가기) 편집기 포커스를 뺏지 않는다
   const isOpen = Boolean(target);
@@ -132,10 +148,38 @@ export function TutorPanel() {
             학습 도우미
           </button>
         </div>
+        <button
+          type="button"
+          className="py-icon-btn"
+          onClick={() => setConfirmReset(true)}
+          disabled={turns.length === 0 || sending || loading}
+          aria-label="새 대화"
+          title="새 대화 — 지난 대화를 지우고 처음부터"
+        >
+          <Icon name="restart_alt" size={18} />
+        </button>
         <button type="button" className="py-icon-btn" onClick={tutor.close} aria-label="튜터 닫기" title="닫기">
           <Icon name="close" size={18} />
         </button>
       </header>
+
+      {confirmReset && (
+        <div className="tutor__confirm" role="alertdialog" aria-label="새 대화">
+          <p>
+            {isProblem
+              ? '이 문제의 지난 대화를 지우고 새로 시작할까요? 힌트도 1단계부터 다시 받아요.'
+              : '코드 튜터와 나눈 지난 대화를 지우고 새로 시작할까요?'}
+          </p>
+          <div>
+            <button type="button" className="btn btn--text btn--sm" onClick={() => setConfirmReset(false)}>
+              취소
+            </button>
+            <button type="button" className="btn btn--filled btn--sm" onClick={() => void startOver()}>
+              지우고 새로 시작
+            </button>
+          </div>
+        </div>
+      )}
 
       {tab === 'helper' ? (
         <div className="tutor__helper">

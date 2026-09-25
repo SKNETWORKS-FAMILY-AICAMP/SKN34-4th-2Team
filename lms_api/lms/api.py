@@ -528,6 +528,13 @@ def practice_tutor_thread(request, mode: str = "cell", setId: str = "", index: i
     return _sources(lambda: practice_tutor.thread(user, mode, setId or None, index))
 
 
+@api.delete("/practice-tutor")
+def practice_tutor_reset(request, mode: str = "cell", setId: str = "", index: int = 0):
+    """튜터 「새 대화」 — 그 문제(또는 일반 셀)의 내 대화를 지운다"""
+    user = _require_user(request)
+    return _sources(lambda: practice_tutor.reset(user, mode, setId or None, index))
+
+
 class ResumeReviewApplyIn(Schema):
     resumeId: str
     reviewId: str

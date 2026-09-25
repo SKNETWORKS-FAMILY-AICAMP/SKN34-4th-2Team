@@ -101,6 +101,19 @@ def thread(user: dict, mode: str, set_key: str | None = None, index: int | None 
     return {"turns": turns, "hintLevel": level}
 
 
+def reset(user: dict, mode: str, set_key: str | None = None, index: int | None = None) -> dict:
+    """「새 대화」 — 이 문제(또는 일반 셀)의 내 대화를 지운다. 힌트 단계도 처음부터 다시 오른다.
+    모범답안은 힌트 단계가 아니라 채점 횟수로 열리므로(REVEAL_AFTER_TRIES) 지워도 답이 먼저 열리지 않는다."""
+    key = _thread_key(mode, set_key, index)
+    with transaction.atomic(), connection.cursor() as cur:
+        _ready(cur)
+        if mode == "problem":
+            _problem(cur, user, str(set_key), int(index or 0))
+        cur.execute("DELETE FROM study_tutor_turns WHERE user_id = %s AND thread_key = %s", [user["id"], key])
+        removed = cur.rowcount
+    return {"turns": [], "hintLevel": 0, "removed": removed}
+
+
 def _offtopic_streak(cur, user_id: int) -> bool:
     cur.execute(
         """SELECT kind FROM study_tutor_turns WHERE user_id = %s AND role = 'assistant' AND created_at > now() - %s

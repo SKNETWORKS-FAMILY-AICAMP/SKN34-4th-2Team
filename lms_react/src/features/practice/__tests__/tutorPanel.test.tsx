@@ -130,6 +130,30 @@ describe('연습장 튜터', () => {
     expect(host.querySelector('.tutor')).toBeNull(); // 닫혀 있으면 따라가지 않는다
   });
 
+  it('「새 대화」는 확인한 뒤 지난 대화와 힌트 단계를 지운다', async () => {
+    const host = mount({ ...PROBLEM, setId: 'ps-reset' });
+    await click(host.querySelector('[data-testid="open"]'));
+    const reset = () => host.querySelector<HTMLButtonElement>('button[aria-label="새 대화"]')!;
+    expect(reset().disabled).toBe(true); // 지울 대화가 없다
+
+    await click(byText(host, '힌트 더 (1/3)'));
+    expect(host.querySelectorAll('.tutor__ladder .on')).toHaveLength(1);
+    expect(reset().disabled).toBe(false);
+
+    await click(reset());
+    expect(host.querySelector('.tutor__confirm')?.textContent).toContain('1단계부터');
+    await click(byText(host, '취소'));
+    expect(host.querySelector('.tutor__confirm')).toBeNull();
+    expect(host.querySelectorAll('.tutor__msg--bot')).toHaveLength(1);
+
+    await click(reset());
+    await click(byText(host, '지우고 새로 시작'));
+    expect(host.querySelectorAll('.tutor__msg--bot')).toHaveLength(0);
+    expect(host.querySelectorAll('.tutor__ladder .on')).toHaveLength(0);
+    // 다시 열어도 비어 있다(지운 게 남지 않는다)
+    expect(byText(host, '힌트 더 (1/3)')).toBeDefined();
+  });
+
   it('일반 셀은 힌트 단계 없이 오류 설명 칩을 보인다', async () => {
     const host = mount({ cellId: 'c1', mode: 'cell', label: '셀 2', read: () => ({ code: 'print(x)', run: "NameError: name 'x' is not defined", grade: '' }) });
     await click(host.querySelector('[data-testid="open"]'));
