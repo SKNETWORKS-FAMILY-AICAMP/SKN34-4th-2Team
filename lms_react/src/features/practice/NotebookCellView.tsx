@@ -52,9 +52,6 @@ function ProblemCellRow({ cell, nb, mode }: { cell: Cell; nb: Notebook; mode: Pr
   if (mode.hiddenOf(index)) {
     return (
       <article className="py-nb-cell py-nb-cell--hidden" data-cell-id={cell.id}>
-        <div className="py-nb-cell__prompt" aria-label={`문제 ${number}`}>
-          Q{number}
-        </div>
         <div className="py-nb-cell__main pb-hidden">
           <Icon name="visibility_off" size={18} />
           <span>
@@ -70,9 +67,6 @@ function ProblemCellRow({ cell, nb, mode }: { cell: Cell; nb: Notebook; mode: Pr
       data-cell-id={cell.id}
       onClick={() => nb.setActiveId(cell.id)}
     >
-      <div className="py-nb-cell__prompt" aria-label={`문제 ${number}`}>
-        Q{number}
-      </div>
       <div className="py-nb-cell__main">
         <ProblemCell
           problem={problem}
@@ -135,9 +129,6 @@ function CodeOrMarkdownCell({ cell, index, total, nb }: { cell: Cell; index: num
       data-cell-id={cell.id}
       onClick={() => nb.setActiveId(cell.id)}
     >
-      <div className="py-nb-cell__prompt" aria-label={isMarkdown ? undefined : '실행 번호'}>
-        {isMarkdown ? '' : `[${cell.state === 'running' || cell.state === 'queued' ? '*' : cell.count ?? ' '}]`}
-      </div>
       <div className="py-nb-cell__main">
         <div className="py-nb-cell__tools">
           <button
@@ -149,6 +140,12 @@ function CodeOrMarkdownCell({ cell, index, total, nb }: { cell: Cell; index: num
           >
             <Icon name={isMarkdown ? 'visibility' : 'play_arrow'} size={18} />
           </button>
+          {/* 실행 번호 — 셀 왼쪽 칸에 있던 것을 실행 단추 옆으로. 셀이 제목 · 도구 줄과 같은 세로줄에 선다 */}
+          {!isMarkdown && (
+            <span className="py-nb-cell__count" aria-label="실행 번호">
+              [{cell.state === 'running' || cell.state === 'queued' ? '*' : cell.count ?? ' '}]
+            </span>
+          )}
           <select
             className="py-nb-cell__type"
             value={cell.type}

@@ -500,21 +500,22 @@ describe('데이터가 실제로 흐른다', () => {
 
 describe('라우트 표', () => {
   it('세 역할의 라우트가 모두 등록돼 있다', () => {
-    // 이력서 편집과 평가 응시·결과는 셸 밖에 있다 — app_router.dart와 같다.
-    expect(studentRoutes.length + fullScreenRoutes.length).toBeGreaterThanOrEqual(21);
+    // 평가 응시·결과는 셸 밖, 이력서 편집은 세 역할이 함께 쓰는 셸 안 라우트다.
+    expect(studentRoutes.length + fullScreenRoutes.length).toBeGreaterThanOrEqual(20);
     expect(instructorRoutes.length).toBeGreaterThanOrEqual(13);
     expect(adminRoutes.length).toBeGreaterThanOrEqual(35);
     expect(appRoutes.length).toBe(
-      studentRoutes.length + instructorRoutes.length + adminRoutes.length,
+      studentRoutes.length + instructorRoutes.length + adminRoutes.length + 1,
     );
   });
 
-  it('셸 밖 라우트는 왼쪽 레일 없이 화면을 다 쓴다', () => {
-    const paths = fullScreenRoutes.map((r) => r.path);
-    expect(paths).toContain('/resume/:resumeId/edit');
-    // 이력서 편집은 학생·강사·관리자가 같은 주소로 들어온다.
-    expect(fullScreenRoutes.find((r) => r.path === '/resume/:resumeId/edit')?.roles).toBeUndefined();
-    expect(appRoutes.some((r) => paths.includes(r.path))).toBe(false);
+  it('이력서 편집은 셸 안에 있고, 학생·강사·관리자가 같은 주소로 들어온다', () => {
+    const edit = appRoutes.find((r) => r.path === '/resume/:resumeId/edit');
+    expect(edit).toBeDefined();
+    expect(edit?.roles).toBeUndefined();
+    const outside = fullScreenRoutes.map((r) => r.path);
+    expect(outside).not.toContain('/resume/:resumeId/edit');
+    expect(appRoutes.some((r) => outside.includes(r.path))).toBe(false);
   });
 
   it('경로가 겹치지 않는다', () => {

@@ -1176,7 +1176,7 @@ button.chip {
 /* ── 화면 한 폭 ──────────────────────────────────────────
    모든 화면을 이력서 관리 · 탭 화면(.tab-page)과 같은 비율로 — 가운데 1080px, 좌우 여백 없음.
    화면마다 1240 · 1120 · 980 · 860 · 700px, 꽉 채움, 16 · 20 · 24px 여백으로 달랐다.
-   예외: 이력서 편집(.resume-edit) · 공고 원문(.posting) · 로그인은 제 모양을 둔다. 연습장은 아래에 따로.
+   예외: 공고 원문(.posting) · 로그인 · 평가 응시는 셸 밖이라 제 모양. 연습장 · 이력서 편집은 따로(편집기가 오른쪽 끝까지).
    ui.css 가 styles.css 뒤에 불려서 여기(맨 끝)에 둔다 — 앞에 두면 .admin-dash 1240px 가 이긴다. */
 .screen__inner,
 .assess-page,
@@ -1262,22 +1262,38 @@ button.chip {
   margin-bottom: 2px; /* gap 14 */
 }
 
-/* 셀 번호([3] · Q1)는 왼쪽 여백에 건다 — 셀 카드가 제목 · 도구 줄과 같은 세로줄에 선다.
-   여백은 (본문 폭 - 1080) / 2 라서 창이 1416px 은 돼야 번호 칸(58px)이 들어간다. 그보다 좁으면 전처럼 셀 안쪽에 둔다. */
-@media (min-width: 1416px) {
-  .py-nb-cell {
-    position: relative;
-    grid-template-columns: minmax(0, 1fr);
-  }
+/* 왼쪽 메뉴를 접으면(☰) 본문이 가운데 틀을 벗고 메뉴 옆부터 화면 끝까지 채운다 — 지메일처럼.
+   펼치면 다시 가운데 1080px. */
+.shell--rail-mini :is(
+    .screen__inner,
+    .assess-page,
+    .study-room,
+    .record-page,
+    .admin-page,
+    .admin-page--wide,
+    .admin-dash,
+    .dash,
+    .form-page,
+    .curri-page,
+    .practice-mod,
+    .mypage,
+    .qual-page,
+    .settings,
+    .seat-page,
+    .tab-page,
+    .py-layout
+  ) {
+  max-width: none;
+}
 
-  .py-nb-cell__prompt {
-    position: absolute;
-    top: 0;
-    right: calc(100% + 6px);
-    width: 52px;
-  }
+.shell--rail-mini .appbar__crumbs,
+.shell--rail-mini .resume-edit {
+  margin-left: 0;
+}
 
-  .py-add-row {
+@media (min-width: 1101px) {
+  .shell--rail-mini .py-layout--tutor {
     margin-left: 0;
+    margin-right: 0;
   }
 }

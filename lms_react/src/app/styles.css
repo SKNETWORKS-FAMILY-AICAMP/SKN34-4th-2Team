@@ -112,6 +112,76 @@ html {
   color: #fff;
 }
 
+/* 로고 줄 — 지메일처럼 ☰ 가 맨 앞. 누르면 메뉴를 아이콘만 남기고 접는다 */
+.rail__top {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--rail-border);
+}
+
+.rail__top .rail__brand {
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 6px;
+  border-bottom: 0;
+}
+
+/* ☰ 가 들어간 만큼 로고를 한 단계 줄인다 — 208px 안에 들어가게 */
+.rail__top .rail__logo {
+  width: 30px;
+  height: 30px;
+}
+
+.rail__top .rail__wordmark {
+  font-size: 17px;
+}
+
+.rail__toggle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--rail-fg);
+  cursor: pointer;
+}
+
+.rail__toggle:hover {
+  background: var(--surface-variant);
+}
+
+/* 접힌 메뉴 — 아이콘만. 이름은 올려 두면 뜬다(title) */
+.shell--rail-mini {
+  --rail-width: 72px;
+}
+
+.shell--rail-mini .rail__top {
+  justify-content: center;
+}
+
+.shell--rail-mini .rail__brand,
+.shell--rail-mini .rail__label,
+.shell--rail-mini .rail__me-name,
+.shell--rail-mini .rail__logout-label {
+  display: none;
+}
+
+.shell--rail-mini .rail__items {
+  padding: 10px 8px;
+}
+
+.shell--rail-mini .rail__item,
+.shell--rail-mini .rail__me,
+.shell--rail-mini .rail__logout {
+  justify-content: center;
+  padding: 10px 0;
+}
+
 .rail__items {
   flex: 1;
   /* flex 칸은 기본이 「내용만큼」이라 목록이 길면 줄지 않고 밑을 밀어낸다 — 0 이어야 스크롤이 생긴다 */
@@ -4324,27 +4394,27 @@ html {
   gap: 10px;
 }
 
+/* 셀 번호는 셀 윗줄(실행 단추 옆)에 있다. 왼쪽 칸이 없어 셀이 제목 · 도구 줄과 같은 세로줄에 선다 */
 .py-nb-cell {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
-.py-nb-cell__prompt {
-  padding-top: 40px;
-  text-align: right;
+.py-nb-cell__count {
+  min-width: 26px;
   font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace;
   font-size: 12px;
   color: var(--text-hint);
   font-variant-numeric: tabular-nums;
+  white-space: pre;
 }
 
-.py-nb-cell--active .py-nb-cell__prompt {
+.py-nb-cell--active .py-nb-cell__count {
   color: var(--primary);
 }
 
-.py-nb-cell--running .py-nb-cell__prompt,
-.py-nb-cell--queued .py-nb-cell__prompt {
+.py-nb-cell--running .py-nb-cell__count,
+.py-nb-cell--queued .py-nb-cell__count {
   color: var(--warning);
 }
 
@@ -4530,7 +4600,6 @@ html {
 .py-add-row {
   display: flex;
   gap: 8px;
-  margin-left: 58px;
 }
 
 .py-add-row .py-add-cell {
@@ -4718,14 +4787,6 @@ html {
 }
 
 @media (max-width: 640px) {
-  .py-nb-cell {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .py-nb-cell__prompt {
-    display: none;
-  }
-
   .py-add-cell {
     margin-left: 0;
   }
@@ -5645,6 +5706,25 @@ html {
     transition: transform 160ms ease;
   }
 
+  /* 서랍일 때는 접어 둔 설정과 상관없이 늘 펼친 모양 */
+  .shell--rail-mini {
+    --rail-width: 208px;
+  }
+
+  .shell--rail-mini .rail__brand,
+  .shell--rail-mini .rail__label,
+  .shell--rail-mini .rail__me-name,
+  .shell--rail-mini .rail__logout-label {
+    display: revert;
+  }
+
+  .shell--rail-mini .rail__item,
+  .shell--rail-mini .rail__me,
+  .shell--rail-mini .rail__logout {
+    justify-content: flex-start;
+    padding: 10px 12px;
+  }
+
   .shell--menu-open .rail {
     transform: translateX(0);
     box-shadow: 0 0 40px rgba(0, 0, 0, 0.35);
@@ -6374,33 +6454,31 @@ html {
   background: var(--primary);
 }
 
+/* 이력서 편집 — 다른 화면처럼 셸 안에 선다. 제목은 가운데 1080px 틀의 왼쪽 끝에 맞추고,
+   편집기는 오른쪽 끝까지 쓴다(이력서와 패널이 나란히 서야 해서). 남는 높이를 채우고 안에서 스크롤한다.
+   높이 = 창 - 상단 막대(70) - .screen 위 여백(4) - 아래 여백(16). 페이지 자체는 스크롤하지 않는다.
+   아래 여백은 챗봇 단추 자리(120px)보다 앞서야 해서 .shell 을 붙여 이긴다. */
+.shell .screen:has(> .resume-edit) {
+  padding-bottom: 16px;
+}
+
 .resume-edit {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  background: var(--surface);
+  height: calc(100dvh - 90px);
+  min-height: 480px;
+  margin-left: max(0px, calc((100% - 1080px) / 2));
 }
 
-.resume-edit__bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+.resume-edit > .page-head {
+  margin-bottom: 12px;
 }
 
-.resume-edit__back {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 0;
-  background: transparent;
-  color: var(--primary);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
+/* 좁은 화면에서는 .screen 위 여백이 16 이 된다 */
+@media (max-width: 900px) {
+  .resume-edit {
+    height: calc(100dvh - 102px);
+  }
 }
 
 .seg {
@@ -6427,18 +6505,11 @@ html {
   font-weight: 700;
 }
 
-.resume-edit__status {
-  display: flex;
-  align-items: center;
-  padding: 7px 16px;
-  font-size: 12.5px;
-  color: var(--text-secondary);
-}
-
 .resume-edit__progress {
   display: block;
+  flex: none;
   height: 4px;
-  margin: 0 16px;
+  border-radius: 4px;
   background: var(--primary-light, color-mix(in srgb, var(--primary) 18%, transparent));
   overflow: hidden;
 }
@@ -6455,8 +6526,8 @@ html {
   flex-wrap: nowrap;
   overflow-x: auto;
   scrollbar-width: none;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
+  flex: none;
+  padding: 10px 0;
 }
 
 .resume-edit__chips::-webkit-scrollbar {
@@ -6496,12 +6567,16 @@ html {
 }
 
 /* 이력서 | 손잡이 | 패널. 패널 크기는 손잡이로 끌어 바꾼다(--panel-w, --panel-h).
-   창 크기가 바뀌어도 본문 560 · 패널 최소값을 지키도록 여기서 한 번 더 자른다. */
+   창 크기가 바뀌어도 본문 520 · 패널 최소값을 지키도록 여기서 한 번 더 자른다. */
 .resume-edit__body {
   flex: 1;
   min-height: 0;
   display: flex;
   align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
 }
 
 .resume-edit__body > .resume-doc {
@@ -6517,7 +6592,7 @@ html {
   width: clamp(
     var(--panel-min),
     var(--panel-w),
-    max(var(--panel-min), min(900px, calc(100% - 588px)))
+    max(var(--panel-min), min(900px, calc(100% - 548px)))
   );
 }
 
@@ -6533,7 +6608,23 @@ html {
 /* 강사·관리자 — 항목 목록과 피드백 창만 */
 .resume-panel--review {
   display: grid;
-  grid-template-columns: 208px minmax(0, 1fr);
+  /* 가장 긴 이름(핵심역량/강점)이 한 줄에 드는 폭. 208 이던 것을 줄여 본문 · 피드백 창에 돌렸다 */
+  grid-template-columns: 140px minmax(0, 1fr);
+}
+
+.resume-panel--review .review-nav {
+  padding: 14px 6px;
+}
+
+.resume-panel--review .review-nav__title {
+  padding: 0 6px 8px;
+}
+
+.resume-panel--review .review-nav__item {
+  gap: 6px;
+  padding: 7px 6px;
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 /* 좁은 화면 — 패널은 이력서 아래에 붙고 위아래로 끌어 높이를 바꾼다.
@@ -7807,11 +7898,6 @@ a.coach-ask__card-title:hover {
   gap: 8px;
 }
 
-.resume-edit__owner {
-  font-size: 14px;
-  font-weight: 600;
-}
-
 .review-nav {
   display: flex;
   flex-direction: column;
@@ -8328,8 +8414,6 @@ a.coach-ask__card-title:hover {
 
   .rail,
   .appbar,
-  .resume-edit__bar,
-  .resume-edit__status,
   .resume-edit__progress,
   .resume-edit__chips,
   .resume-doc,
@@ -8740,11 +8824,6 @@ a.coach-ask__card-title:hover {
 }
 
 /* 문제 셀 */
-.py-nb-cell--problem .py-nb-cell__prompt {
-  color: var(--primary);
-  font-weight: 700;
-}
-
 .py-nb-cell--problem .py-nb-cell__main {
   border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
 }
@@ -9217,10 +9296,6 @@ a.coach-ask__card-title:hover {
 }
 
 /* 신고가 모여 숨긴 문제 자리 */
-.py-nb-cell--hidden .py-nb-cell__prompt {
-  color: var(--text-hint);
-}
-
 .pb-hidden {
   display: flex;
   align-items: center;

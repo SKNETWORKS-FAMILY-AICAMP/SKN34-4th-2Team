@@ -286,16 +286,20 @@ export const adminRoutes: AppRoute[] = [
   { path: RoutePaths.adminSettings, element: <SettingsScreen />, roles: admin },
 ];
 
-export const appRoutes: AppRoute[] = [...studentRoutes, ...instructorRoutes, ...adminRoutes];
+export const appRoutes: AppRoute[] = [
+  ...studentRoutes,
+  ...instructorRoutes,
+  ...adminRoutes,
+  // 이력서 편집은 학생 · 강사 · 관리자가 같은 주소로 들어오므로 역할을 걸지 않는다.
+  // 다른 화면처럼 셸 안에 둔다 — 넓게 쓰려면 왼쪽 메뉴를 접는다
+  { path: '/resume/:resumeId/edit', element: <ResumeEditScreen /> },
+];
 
 /**
- * 셸 밖 라우트 — app_router.dart에서 ShellRoute 위에 놓인 세 개.
- *
- * 왼쪽 레일도 상단 바도 없이 화면 전체를 쓴다. 이력서 편집은 학생·강사·관리자가
- * 같은 주소로 들어오므로 역할을 걸지 않는다.
+ * 셸 밖 라우트 — 왼쪽 레일도 상단 바도 없이 화면 전체를 쓴다(평가 응시 · 결과).
+ * 원본 app_router.dart 에서는 이력서 편집도 여기 있었다. 지금은 셸 안에 둔다.
  */
 export const fullScreenRoutes: AppRoute[] = [
-  { path: '/resume/:resumeId/edit', element: <ResumeEditScreen /> },
   { path: '/assessments/:assessmentId/take', element: <AssessmentTakeScreen />, roles: student },
   { path: '/assessments/:assessmentId/result', element: <AssessmentResultScreen />, roles: student },
 ];

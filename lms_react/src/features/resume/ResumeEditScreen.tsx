@@ -7,7 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 
 import { RoutePaths } from '../../app/routePaths';
 import {
@@ -25,7 +25,8 @@ import {
 } from '../../domain/constants';
 import type { Resume, ResumeContent } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
-import { Card, EmptyState } from '../../ui/components';
+import { Card, EmptyState, PageHeader } from '../../ui/components';
+import { usePageCrumbs } from '../../app/crumbs';
 import { formatDateTime } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
 import { CoachAsk } from './ask/CoachAsk';
@@ -40,14 +41,16 @@ const COACH_VISIBILITY_KEY = 'resume_edit_coach_visible';
 
 /**
  * 오른쪽(좁으면 아래) 패널 크기 — `resume_edit_screen.dart` 값 그대로.
- * 코치 최소 360은 첨삭 대화가 접히지 않는 폭이고, 이력서 본문은 늘 560 이상 남긴다.
+ * 코치 최소 360은 첨삭 대화가 접히지 않는 폭이고, 이력서 본문은 늘 520 이상 남긴다.
  * 좁은 화면에서는 위아래로 끌어 높이를 바꾸고, 본문과 패널 모두 200을 지킨다.
  */
 const PANEL = {
   coach: { min: 360, initial: 420 },
-  review: { min: 500, initial: 560 },
+  // 항목 목록(140)이 붙는다. 목록을 208 에서 줄인 만큼 패널도 줄였다
+  review: { min: 440, initial: 480 },
   maxWidth: 900,
-  minResumeWidth: 560,
+  // 셸 안에 들어와 520 으로 낮췄다. 560 이면 1280 창에서 강사 · 관리자 패널이 나란히 서지 못했다
+  minResumeWidth: 520,
   minHeight: 200,
   initialHeight: 430,
   maxHeight: 900,
@@ -82,20 +85,22 @@ function useStoredSize(key: string, initial: number): [number, (size: number) =>
 }
 
 /**
- * 넓은 화면인가 — `resume_edit_screen.dart`의 `wide` 그대로.
- * 검토자는 왼쪽에 구역 목록이 하나 더 붙어서 기준이 더 높다.
+ * 이력서와 패널을 나란히 둘 만큼 넓은가 — `resume_edit_screen.dart`의 `wide`처럼 바깥 틀 폭으로 본다.
+ *
+ * 편집기가 셸 안에 있어 창 폭이 아니라 편집기 폭을 잰다. 왼쪽 메뉴를 접고 펴면 폭이 달라진다.
+ * 기준은 본문 최소 + 손잡이 + 패널 최소. 검토자는 패널에 항목 목록이 붙어 더 넓어야 한다.
  */
-function useWide(reviewer: boolean): boolean {
-  const query = `(min-width: ${reviewer ? 1120 : 1000}px)`;
-  const [wide, setWide] = useState(() => window.matchMedia(query).matches);
+function useWide(root: HTMLElement | null, reviewer: boolean): boolean {
+  const need = PANEL.minResumeWidth + PANEL.handle + (reviewer ? PANEL.review.min : PANEL.coach.min);
+  // 재기 전 첫 그림 — 창 폭에서 펼친 메뉴 · 여백을 뺀 어림값
+  const [wide, setWide] = useState(() => window.innerWidth - 256 >= need);
 
   useEffect(() => {
-    const media = window.matchMedia(query);
-    const onChange = () => setWide(media.matches);
-    media.addEventListener('change', onChange);
-    setWide(media.matches);
-    return () => media.removeEventListener('change', onChange);
-  }, [query]);
+    if (root === null || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => setWide(entry.contentRect.width >= need));
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, [root, need]);
 
   return wide;
 }
@@ -147,9 +152,9 @@ export function ResumeEditScreen() {
   const resume = useResume(resumeId);
   const feedbacks = useResumeFeedbacks(resumeId ?? '');
   const user = useCurrentUser();
-  const navigate = useNavigate();
   const reviewer = user.role !== 'student';
-  const wide = useWide(reviewer);
+  const [root, setRoot] = useState<HTMLDivElement | null>(null);
+  const wide = useWide(root, reviewer);
   const [coachVisible, setCoachVisible] = useCoachVisible(wide);
   const showCoach = coachVisible;
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -170,6 +175,8 @@ export function ResumeEditScreen() {
   const { openReview } = useReviewDock();
   const [current, setCurrent] = useState<string>(search.get('section') ?? 'basicInfo');
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const listPath = reviewer ? (user.role === 'admin' ? RoutePaths.adminResumes : RoutePaths.instructorResumes) : RoutePaths.resume;
+  usePageCrumbs([{ label: '이력서 관리', to: listPath }, { label: resume?.title ?? '이력서' }]);
 
   if (resume === undefined) {
     return (
@@ -199,115 +206,104 @@ export function ResumeEditScreen() {
     }
   };
 
-  const backTo = reviewer
-    ? user.role === 'admin'
-      ? RoutePaths.adminResumes
-      : RoutePaths.instructorResumes
-    : RoutePaths.resume;
-
-  return (
-    <div className="resume-edit">
-      <header className="resume-edit__bar">
-        <button type="button" className="resume-edit__back" onClick={() => navigate(backTo)}>
-          <Icon name="arrow_back" size={18} />
-          목록으로
+  const headActions = (
+    <>
+      {/* 좁을 때만 나온다. 넓으면 패널 가장자리의 단추로 접고 편다. */}
+      {!wide && (
+        <button
+          type="button"
+          className="icon-btn"
+          onClick={() => setCoachVisible(!coachVisible)}
+          aria-expanded={coachVisible}
+          aria-label={
+            coachVisible
+              ? (reviewer ? '피드백 접기' : 'AI 코치 접기')
+              : (reviewer ? '피드백 열기' : 'AI 코치 열기')
+          }
+          title={
+            coachVisible
+              ? (reviewer ? '피드백 접기' : 'AI 코치 접기')
+              : (reviewer ? '피드백 열기' : 'AI 코치 열기')
+          }
+        >
+          <Icon
+            name={coachVisible ? 'keyboard_arrow_down' : reviewer ? 'chat_bubble' : 'smart_toy'}
+            size={20}
+          />
         </button>
-        {reviewer && <span className="resume-edit__owner">{resume.userDisplayName}님의 이력서</span>}
-        <span className="spacer" />
-        {/* 좁을 때만 나온다. 넓으면 패널 가장자리의 단추로 접고 편다. */}
-        {!wide && (
+      )}
+      {!reviewer && <FeedbackBell resume={resume} onGoTo={setCurrent} />}
+      <span className="seg">
+        {(['doc', 'edit'] as const).map((m) => (
           <button
+            key={m}
             type="button"
-            className="icon-btn"
-            onClick={() => setCoachVisible(!coachVisible)}
-            aria-expanded={coachVisible}
-            aria-label={
-              coachVisible
-                ? (reviewer ? '피드백 접기' : 'AI 코치 접기')
-                : (reviewer ? '피드백 열기' : 'AI 코치 열기')
-            }
-            title={
-              coachVisible
-                ? (reviewer ? '피드백 접기' : 'AI 코치 접기')
-                : (reviewer ? '피드백 열기' : 'AI 코치 열기')
-            }
+            className={`seg__btn${mode === m ? ' seg__btn--on' : ''}`}
+            onClick={() => setMode(m)}
+            disabled={reviewer && m === 'edit'}
           >
-            <Icon
-              name={coachVisible ? 'keyboard_arrow_down' : reviewer ? 'chat_bubble' : 'smart_toy'}
-              size={20}
-            />
+            {m === 'doc' ? 'Doc' : 'Edit'}
           </button>
-        )}
-        {!reviewer && <FeedbackBell resume={resume} onGoTo={setCurrent} />}
-        <span className="seg">
-          {(['doc', 'edit'] as const).map((m) => (
+        ))}
+      </span>
+      {/* PDF는 Doc 보기에서만 나온다 — 종이에 나갈 모양을 보고 있을 때만 쓴다. */}
+      {mode === 'doc' && (
+        <button
+          type="button"
+          className="icon-btn resume-edit__pdf"
+          onClick={() => window.print()}
+          aria-label="PDF 내보내기"
+          title="PDF 내보내기"
+        >
+          <Icon name="picture_as_pdf" size={20} />
+        </button>
+      )}
+      {reviewer
+        ? resume.status === 'feedbackRequested' && (
             <button
-              key={m}
               type="button"
-              className={`seg__btn${mode === m ? ' seg__btn--on' : ''}`}
-              onClick={() => setMode(m)}
-              disabled={reviewer && m === 'edit'}
+              className="btn btn--filled btn--sm"
+              onClick={() => updateResume(resume.id, { status: 'approved' })}
             >
-              {m === 'doc' ? 'Doc' : 'Edit'}
+              <Icon name="check_circle" size={17} />
+              승인
             </button>
-          ))}
-        </span>
-        {/* PDF는 Doc 보기에서만 나온다 — 종이에 나갈 모양을 보고 있을 때만 쓴다. */}
-        {mode === 'doc' && (
-          <button
-            type="button"
-            className="icon-btn resume-edit__pdf"
-            onClick={() => window.print()}
-            aria-label="PDF 내보내기"
-            title="PDF 내보내기"
-          >
-            <Icon name="picture_as_pdf" size={20} />
-          </button>
-        )}
-        {reviewer
-          ? resume.status === 'feedbackRequested' && (
+          )
+        : mode === 'edit' && (
+            <>
               <button
                 type="button"
-                className="btn btn--filled btn--md"
-                onClick={() => updateResume(resume.id, { status: 'approved' })}
+                className="btn btn--outline btn--md"
+                onClick={() => void saveResume()}
+                disabled={saveState === 'saving'}
+                aria-live="polite"
               >
-                <Icon name="check_circle" size={17} />
-                승인
+                {saveState === 'saved' && <Icon name="check" size={17} />}
+                {saveState === 'saved' ? '저장됨' : saveState === 'saving' ? '저장 중…' : saveState === 'error' ? '저장 실패 · 재시도' : '저장'}
               </button>
-            )
-          : mode === 'edit' && (
-              <>
+              {resume.status === 'draft' && (
                 <button
                   type="button"
-                  className="btn btn--outline btn--md"
-                  onClick={() => void saveResume()}
-                  disabled={saveState === 'saving'}
-                  aria-live="polite"
+                  className="btn btn--filled btn--md"
+                  onClick={() => updateResume(resume.id, { status: 'feedbackRequested' })}
                 >
-                  {saveState === 'saved' && <Icon name="check" size={17} />}
-                  {saveState === 'saved' ? '저장됨' : saveState === 'saving' ? '저장 중…' : saveState === 'error' ? '저장 실패 · 재시도' : '저장'}
+                  <Icon name="send" size={17} />
+                  피드백 요청
                 </button>
-                {resume.status === 'draft' && (
-                  <button
-                    type="button"
-                    className="btn btn--filled btn--md"
-                    onClick={() => updateResume(resume.id, { status: 'feedbackRequested' })}
-                  >
-                    <Icon name="send" size={17} />
-                    피드백 요청
-                  </button>
-                )}
-              </>
-            )}
-      </header>
+              )}
+            </>
+          )}
+    </>
+  );
 
-      <div className="resume-edit__status">
-        <span>
-          {filled}/{ResumeSectionKeys.length} 완료 · {ResumeStatusLabels[resume.status]}
-        </span>
-        <span className="spacer" />
-        <span className="hint">v{resume.revisionCount}</span>
-      </div>
+  return (
+    <div className="resume-edit" ref={setRoot}>
+      {/* 다른 화면과 같은 머리글. 위치(이력서 관리 › 제목)는 상단 막대에, 진행 상태는 설명 줄에 */}
+      <PageHeader
+        title={resume.title}
+        description={`${reviewer ? `${resume.userDisplayName}님의 이력서 · ` : ''}${filled}/${ResumeSectionKeys.length} 완료 · ${ResumeStatusLabels[resume.status]} · v${resume.revisionCount}`}
+        actions={headActions}
+      />
       <span className="resume-edit__progress">
         <i style={{ width: `${(filled / ResumeSectionKeys.length) * 100}%` }} />
       </span>
@@ -748,7 +744,7 @@ function ReviewPanel({
           <input
             className="input"
             value={draft}
-            placeholder="피드백 입력 · Enter 전송 / Shift+Enter 줄바꿈"
+            placeholder="피드백 입력 · Enter 전송"
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
