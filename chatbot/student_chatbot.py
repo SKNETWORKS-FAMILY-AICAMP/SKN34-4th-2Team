@@ -48,6 +48,7 @@ StudentDataScope = Literal[
     "material_files",
     "record_files",
     "assignment_files",
+    "study_room",
 ]
 Route = Literal["lms", "greeting", "blocked"]
 StudentContextLoader = Callable[[str, str, list[StudentDataScope], str], dict[str, Any]]
@@ -84,6 +85,8 @@ _IMPLICIT_PERSONAL_ATTENDANCE = re.compile(
 )
 _CONTENT_CREATION = re.compile(r"대신\s*(?:써|작성)|(?:써|작성|만들어)\s*줘|대필")
 _COHORT = re.compile(r"일정|시간표|좌석|게시글|과제|평가|기수\s*정보|링크")
+# 공부방 복습 문제 현황 — 「오늘 복습 문제 나왔어?」「다시 풀 문제」
+_STUDY_ROOM = re.compile(r"복습\s*문제|오늘\s*복습|복습\s*(?:몇|세트|진도)|다시\s*풀\s*문제|공부방")
 _CURRICULUM_FILE = re.compile(r"커리큘럼\s*(?:파일|pdf)|교육과정\s*(?:파일|pdf)", re.IGNORECASE)
 _CURRICULUM_SCHEDULE = re.compile(
     r"(?:이번|다음|오늘|내일|금주|차주|\d{1,2}\s*월)?\s*"
@@ -120,9 +123,10 @@ SUPERVISOR_PROMPT = """
 - student_scopes: student_private=본인 프로필/할 일/출결/제출/진도/상담/이력서/마일리지,
   cohort_shared=기수 일정/게시글/좌석/과제/평가/링크, curriculum_files=기수 커리큘럼 PDF,
   material_files=기수 강의자료, record_files=본인 학습 기록·증빙 파일,
-  assignment_files=본인 과제 제출 파일.
+  assignment_files=본인 과제 제출 파일,
+  study_room=본인 공부방 복습 문제 현황(오늘 복습 문제가 나왔는지·몇 문제 풀었는지·다시 풀 문제 수).
 - 문서만 필요하면 student_scopes를, 본인 데이터만 필요하면 namespaces를 비운다. 연동 질문은
-  양쪽을 고르고, 복합 질문은 필요한 값의 합집합을 고른다. "내 데이터 전부"는 여섯 scope 전부다.
+  양쪽을 고르고, 복합 질문은 필요한 값의 합집합을 고른다. "내 데이터 전부"는 모든 scope다.
 - "내/나의/내가 제출한/내 출석"처럼 로그인 학생의 실제 값이 필요할 때만 scope를 고른다.
   일반 기준·방법은 policy다. 공지는 cohort가 필요하다.
 - 공지·최근 안내·운영 변경은 notice를 포함한다. 시설·음식물·라운지·강의장처럼 변경 가능한
@@ -153,6 +157,8 @@ SUPERVISOR_PROMPT = """
   "2차 프로젝트 사례"=lms/project_reference/query:"1~28기 2차 프로젝트 사례".
 - "프로젝트 자료와 출결 기준"=lms/project_reference+policy, "안녕"=greeting,
   "파이썬 정렬 코드"=blocked.
+- "오늘 복습 문제 나왔어?", "복습 몇 개 남았어?", "다시 풀 문제 있어?"=lms/study_room.
+  복습 문제의 정답·풀이·코드 설명은 blocked다(연습장 튜터가 맡는다).
 
 출력 전 route·조회 범위·tasks가 위 규칙과 모순되지 않는지 확인한다.
 """.strip()
@@ -268,7 +274,7 @@ class SupervisorGuardrailMiddleware:
             scope for scope in decision.student_scopes
             if scope in (
                 "student_private", "cohort_shared", "curriculum_files", "material_files",
-                "record_files", "assignment_files",
+                "record_files", "assignment_files", "study_room",
             )
         ))
         if not namespaces and not scopes:
@@ -307,6 +313,8 @@ def detect_routing_signals(question: str) -> RoutingSignals:
         scopes.append("record_files")
     if _ASSIGNMENT_FILE.search(question):
         scopes.append("assignment_files")
+    if _STUDY_ROOM.search(question):
+        scopes.append("study_room")
     return RoutingSignals(
         lms=bool(namespaces or scopes),
         namespaces=tuple(dict.fromkeys(namespaces)),

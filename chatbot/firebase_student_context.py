@@ -26,7 +26,10 @@ ALLOWED_SCOPES = {
     "material_files",
     "record_files",
     "assignment_files",
+    "study_room",
 }
+STUDY_RECENT_SETS = 5
+PRACTICE_AUTO_TIME = "매일 18:30 — 그날 수업 저장소에 올라온 내용으로 자동 출제(강사가 끈 저장소는 제외)"
 BLOCKED_KEYS = {
     "password", "passwordhash", "initialpassword", "accesstoken", "refreshtoken",
     "idtoken", "secret", "privatekey",
@@ -271,6 +274,57 @@ def _student_private(cur, cid: int, uid: str, user_id: int | None) -> dict[str, 
     return result
 
 
+def _study_room(cur, cid: int, user_id: int | None) -> dict[str, Any]:
+    """공부방 복습 문제 현황 — 오늘 나왔는지 · 몇 개 풀었는지 · 다시 풀 문제 수.
+
+    문제 지문 · 모범답안 · 숨긴 테스트는 읽지 않는다(챗봇이 정답을 말하지 않게).
+    학생이 만든 세트는 만든 본인 것만, 풀이 기록은 본인 것만.
+    """
+    today = datetime.now(KST).date()
+    uid = user_id or 0  # 사용자 행이 없으면 풀이 기록 없이 세트만
+    sets = list(cur.execute(
+        """SELECT s.lesson_date, s.source_title, s.day_label, s.title, s.owner_id,
+                  (s.created_at AT TIME ZONE 'Asia/Seoul')::date AS made_on,
+                  count(p.id) AS total,
+                  count(a.problem_id) FILTER (WHERE a.passed) AS passed,
+                  count(a.problem_id) AS tried
+           FROM practice_sets s
+           JOIN practice_problems p ON p.problem_set_id = s.id
+           LEFT JOIN practice_attempts a ON a.problem_id = p.id AND a.user_id = %(uid)s
+           WHERE s.cohort_id = %(cid)s AND (s.owner_id IS NULL OR s.owner_id = %(uid)s)
+           GROUP BY s.id
+           ORDER BY s.lesson_date DESC, s.id DESC
+           LIMIT %(limit)s""",
+        {"uid": uid, "cid": cid, "limit": STUDY_RECENT_SETS},
+    ))
+    retry = cur.execute(
+        """SELECT count(*) AS n FROM practice_attempts a
+           JOIN practice_problems p ON p.id = a.problem_id
+           JOIN practice_sets s ON s.id = p.problem_set_id
+           WHERE a.user_id = %(uid)s AND NOT a.passed AND s.cohort_id = %(cid)s
+             AND (s.owner_id IS NULL OR s.owner_id = %(uid)s)""",
+        {"uid": uid, "cid": cid},
+    ).fetchone()
+
+    def view(s: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "수업 날짜": _safe(s["lesson_date"]), "출제일": _safe(s["made_on"]),
+            "과목": s["source_title"], "제목": s["day_label"] or s["title"],
+            "누가 만들었나": "내가 만든 문제" if s["owner_id"] else "수업 복습(자동 출제)",
+            "문제 수": s["total"], "통과": s["passed"], "풀어 봄": s["tried"], "남은 문제": s["total"] - s["passed"],
+        }
+
+    recent = [view(s) for s in sets]
+    return {
+        "오늘": today.isoformat(),
+        "자동 출제": PRACTICE_AUTO_TIME,
+        "오늘 나온 복습 세트": [v for v in recent if today.isoformat() in (v["수업 날짜"], v["출제일"])],
+        "최근 복습 세트": recent,
+        "다시 풀 문제 수": int((retry or {}).get("n") or 0),
+        "보는 곳": "학습실 › 공부방 — 오늘 복습 카드 · 과목별 목록, 틀린 문제는 「다시 풀 문제」",
+    }
+
+
 def _resume_pack(cur, cid: int, user_id: int) -> dict[str, Any]:
     docs = list(cur.execute(
         "SELECT * FROM resumes WHERE cohort_id = %s AND user_id = %s LIMIT 6",
@@ -478,6 +532,7 @@ def load_student_context(
             "material_files": lambda: _s3_files(f"cohorts/{code}/materials/", query),
             "record_files": lambda: _s3_files(f"cohorts/{code}/records/{uid}/", query),
             "assignment_files": lambda: _s3_files(f"cohorts/{code}/assignments/", query, uid),
+            "study_room": lambda: _study_room(cur, cid, user_id),
         }
         for scope in selected:
             _put(data, errors, scope, loaders[scope])
