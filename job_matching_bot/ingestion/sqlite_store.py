@@ -481,14 +481,16 @@ class SqliteJobStore:
         return {"total": self.count(), "by_status": by_status}
 
     # ── 쓰기 ──────────────────────────────────────────────────
-    def _write_record(self, record: JobRecord) -> None:
-        job = record.job
-        # 읽을 때 뒤집을 값이면 쓸 때 미리 뒤집는다. 쓴 지문과 읽은 지문이 같아야
-        # 적재가 "바뀐 것 없음"을 믿을 수 있다. 읽을 때만 뒤집던 동안 4,316건의
-        # 지문이 어긋나 바뀐 것이 없는데도 다시 올릴 대상으로 잡혔다.
+    @staticmethod
+    def _as_stored(job: Job) -> Job:
+        """쓸 때의 모양. 읽을 때 뒤집을 값이면 쓸 때 미리 뒤집는다. 쓴 지문과 읽은 지문이 같아야
+        적재가 "바뀐 것 없음"을 믿을 수 있다. 읽을 때만 뒤집던 동안 4,316건의
+        지문이 어긋나 바뀐 것이 없는데도 다시 올릴 대상으로 잡혔다."""
         flag = _effective_image_flag(job.description, job.body_is_image)
-        if flag != job.body_is_image:
-            job = replace(job, body_is_image=flag)
+        return replace(job, body_is_image=flag) if flag != job.body_is_image else job
+
+    def _write_record(self, record: JobRecord) -> None:
+        job = self._as_stored(record.job)
         values = {name: _encode(name, getattr(job, name)) for name in JOB_FIELDS}
         values["status"] = record.status
         # 인덱스에 올라갈 내용의 지문. indexed_embed_hash는 여기서 건드리지 않는다 —
@@ -530,7 +532,7 @@ class SqliteJobStore:
             params = [v for key in chunk for v in key]
             rows = self.conn.execute(
                 "SELECT source, source_job_id, content_hash, first_seen_at, revisions, "
-                "company, title, deadline "
+                "company, title, deadline, parser_version, embed_hash "
                 f"FROM jobs WHERE (source, source_job_id) IN (VALUES {marks})",
                 params,
             )
@@ -616,6 +618,11 @@ class SqliteJobStore:
         # ① 이번에 받은 공고: 신규 / 갱신 / 변경 없음
         keys = [(job.source, job.source_job_id) for job in collected]
         existing = self._existing_light(list(dict.fromkeys(keys)))
+        # 변경 없음은 통째로 다시 쓰지 않고 생애주기(상태 · 마지막 확인 · 미관측 0)만 한꺼번에 고친다.
+        # 공고 하나를 다시 쓰면 DB 왕복이 세 번이다. RDS(왕복 약 0.2초)에서는 잡코리아 누적 상세
+        # 2.3만 건을 매일 다시 쓰느라 적재가 3시간 54분 걸렸다(2026-09-25 밤).
+        # 파서 판 · 인덱스 지문까지 같을 때만 건너뛴다 — 다르면 다시 파싱한 내용을 써야 한다.
+        lifecycle_only: list[tuple[str, str, str]] = []  # (status, last_seen_at, job_id)
         with self.conn:
             for job in collected:
                 key = (job.source, job.source_job_id)
@@ -643,7 +650,17 @@ class SqliteJobStore:
                         revisions=int(previous["revisions"]) + (1 if changed else 0),
                     )
                     (report.updated if changed else report.unchanged).append(job.job_id)
-                self._write_record(record)
+                stored = self._as_stored(job)
+                embed = _embed_hash(stored)
+                if (
+                    previous is not None
+                    and previous["content_hash"] == job.content_hash
+                    and previous["parser_version"] == job.parser_version
+                    and previous["embed_hash"] == embed
+                ):
+                    lifecycle_only.append((status, timestamp, job.job_id))
+                else:
+                    self._write_record(record)
                 # 같은 공고가 collected에 두 번 오면 두 번째는 '기존'으로 보이게 한다 (reconcile과 동일).
                 existing[key] = {
                     "content_hash": job.content_hash,
@@ -652,7 +669,12 @@ class SqliteJobStore:
                     "company": job.company,
                     "title": job.title,
                     "deadline": job.deadline,
+                    "parser_version": job.parser_version,
+                    "embed_hash": embed,
                 }
+            self.conn.executemany(
+                "UPDATE jobs SET status = ?, last_seen_at = ?, missing_runs = 0 WHERE job_id = ?", lifecycle_only
+            )
 
             # ② 이번에 안 보인 같은 소스의 공고: 만료 / 목록에서 봄 / 미관측 누적 / 삭제
             rows = self.conn.execute(
