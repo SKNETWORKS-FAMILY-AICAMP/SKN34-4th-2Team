@@ -16,7 +16,7 @@ import json
 import os
 import re
 import sqlite3
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
@@ -956,10 +956,14 @@ class SqliteJobStore:
         candidates = self.source_job_ids(source) - observed
         if not candidates:
             return observed
-        cutoff = (as_of - timedelta(days=within_days)).isoformat()
+        # 저장소가 돌려주는 시각은 UTC 글자다(`+00:00`). 글자로 견주므로 기준도 UTC 로 맞춘다 —
+        # 한국 시각(+09:00) 글자와 견주면 경계가 9시간 어긋난다.
+        cutoff_at = as_of - timedelta(days=within_days)
+        cutoff = (cutoff_at.astimezone(timezone.utc) if cutoff_at.tzinfo else cutoff_at).isoformat()
         swept = {row["cat_mcls"]: row["swept_at"] for row in self.conn.execute("SELECT cat_mcls, swept_at FROM list_sweeps")}
         evidence: dict[str, bool] = {}
-        for row in self.conn.execute("SELECT source_job_id, cat_mcls, seen_at FROM list_seen"):
+        # 같은 출처의 기록만 — 사람인 · 잡코리아 공고번호가 겹치면 남의 기록이 근거가 된다.
+        for row in self.conn.execute("SELECT source_job_id, cat_mcls, seen_at FROM list_seen WHERE source = ?", (source,)):
             job_id = row["source_job_id"]
             if job_id not in candidates:
                 continue
@@ -972,6 +976,27 @@ class SqliteJobStore:
             elif not authoritative:
                 observed.add(job_id)
         return observed
+
+    def expire_past_deadline(self, at: datetime) -> list[str]:
+        """마감 시각이 `at` 보다 앞선 **열린** 공고를 마감(EXPIRED)으로. 바꾼 job_id 목록.
+
+        적재(`upsert`)는 배치 시작 시각으로 판정하므로, 배치 도중에 마감 시각이 지나는 공고
+        (그날 23:59 마감)는 다음 적재까지 열림으로 남는다. 야간 배치가 끝에서 지금 시각으로 부른다.
+        판정은 적재와 같은 `_is_expired` — 마감일 글자를 못 읽는 공고는 건드리지 않는다.
+        """
+        rows = self.conn.execute(
+            "SELECT job_id, deadline FROM jobs WHERE status = ? AND deadline IS NOT NULL AND deadline <> ''",
+            (STATUS_OPEN,),
+        ).fetchall()
+        expired = []
+        for row in rows:
+            probe = Job.__new__(Job)
+            probe.deadline = row["deadline"]
+            if _is_expired(probe, at):
+                expired.append(row["job_id"])
+        with self.conn:
+            self.conn.executemany("UPDATE jobs SET status = 'EXPIRED' WHERE job_id = ?", [(j,) for j in expired])
+        return expired
 
     def removal_candidates(self, source: str, observed: set[str], missing_run_limit: int = DEFAULT_MISSING_RUN_LIMIT) -> list[str]:
         """이번 upsert에서 REMOVED로 넘어갈 진행 중 공고. 링크 확인 대상이다."""

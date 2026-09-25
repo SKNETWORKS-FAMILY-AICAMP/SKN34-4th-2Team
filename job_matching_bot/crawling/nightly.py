@@ -424,7 +424,13 @@ def record_jobkorea_list(store: Any, list_path: Path, at: datetime) -> dict[str,
         for cat in row.get("categories") or []:
             seen[cat].add(row["source_job_id"])
     capped = sorted(c for c, ids in seen.items() if len(ids) >= JOBKOREA_WALL)
-    complete = {c: len(ids) for c, ids in seen.items() if len(ids) < JOBKOREA_WALL}
+    # 끝까지 훑은 대분류 — 1만 벽 아래이고, 받은 건수가 사이트가 말한 총 건수 이상인 것만.
+    # 총 건수가 없는 옛 목록 파일이면 아무것도 완전으로 세지 않는다(도중에 끊긴 훑기를 믿지 않게).
+    totals = payload.get("site_totals") or {}
+    complete = {
+        c: len(ids) for c, ids in seen.items()
+        if len(ids) < JOBKOREA_WALL and c in totals and len(ids) >= int(totals[c])
+    }
 
     # 상세를 받는 대분류의 공고는 `jobs` 로 들어오므로 목록 표에 담지 않는다. 저장소의
     # skip 판정은 `cat_mcls` 를 보므로 여기서 미리 거른다.
@@ -437,7 +443,61 @@ def record_jobkorea_list(store: Any, list_path: Path, at: datetime) -> dict[str,
     if capped:
         print(f"  [잡코리아] 1만 벽에 닿은 대분류 {len(capped)}개 {capped} — 완전히 훑은 것으로 세지 않음")
     print(f"  [잡코리아] 목록 적재 {listed:,}건 (관측 {sum(len(v) for v in seen.values()):,}쌍)")
-    return {"rows": len(rows), "listed": listed, "capped": capped}
+    return {"rows": len(rows), "listed": listed, "capped": capped, "complete": sorted(complete)}
+
+
+def jobkorea_observation(
+    store: Any, list_path: Path, info: dict[str, Any], as_of: datetime, work_dir: Path
+) -> tuple[Path, list[str]]:
+    """잡코리아 적재 입력과 사라짐 판정 옵션. 상세를 받는 대분류를 **모두 끝까지 훑은 밤에만** 켠다.
+
+    - 적재 입력은 오늘 목록에 있는 공고의 상세만. 누적 상세(`details.jsonl`) 전부를 넣으면 내려간
+      공고도 매일 「봤다」로 세여 영영 열림으로 남는다 — 2026-09-25 까지 잡코리아 삭제가 0건이던 까닭.
+    - 오늘 안 보인 공고는 사람인과 같은 규칙(`list_observed` · 연속 2번 미관측이면 삭제)을 탄다.
+      상세 대분류는 셋 다 1만 아래라 끝까지 받을 수 있다(2026-09-25: 7,794 · 6,264 · 7,273).
+    """
+    needed = set(jobkorea.DETAIL_CATEGORIES)
+    missing = sorted(needed - set(info.get("complete") or []))
+    if not info.get("rows") or missing:
+        reason = "목록 없음" if not info.get("rows") else f"끝까지 훑지 못한 상세 대분류 {missing}"
+        info["observation"] = {"skipped": reason}
+        print(f"  [잡코리아 관측] 건너뜀 — {reason}. 누적 상세 전부를 봤다고 적재한다(삭제 판정 없음)")
+        return JOBKOREA_DETAIL_FILE, []
+
+    payload = json.loads(list_path.read_text(encoding="utf-8"))
+    seen_today = {row["source_job_id"] for row in payload.get("list") or []}
+    observed = store.list_observed(
+        JOBKOREA_SOURCE, seen_today=seen_today, as_of=as_of, within_days=OBSERVED_WINDOW_DAYS, authoritative=False
+    )
+    stamp = run_stamp(as_of)
+    today_input = work_dir / f"{stamp}_jobkorea_today.jsonl"
+    kept = 0
+    with JOBKOREA_DETAIL_FILE.open(encoding="utf-8") as src, today_input.open("w", encoding="utf-8") as dst:
+        for line in src:
+            if line.strip() and json.loads(line).get("source_job_id") in seen_today:
+                dst.write(line if line.endswith("\n") else line + "\n")
+                kept += 1
+    observed_file = work_dir / f"{stamp}_jobkorea_observed.json"
+    observed_file.write_text(json.dumps([{"source_job_id": i} for i in sorted(observed)]), encoding="utf-8")
+    info["observation"] = {"seen_today": len(seen_today), "input": kept, "observed": len(observed)}
+    print(f"  [잡코리아 관측] 오늘 목록 {len(seen_today):,}건 · 적재할 상세 {kept:,}건 · "
+          f"살아 있는 것으로 볼 공고 {len(observed):,}건")
+    return today_input, ["--observed", str(observed_file)]
+
+
+def expire_passed_deadlines(store_path: Path) -> int:
+    """배치 도중에 마감 시각이 지난 열린 공고를 끝에서 마감으로 돌린다.
+
+    적재는 배치 **시작** 시각(23:00)으로 마감을 판정한다. 그래서 그날 23:59 마감(하루 1천 건 남짓)은
+    다음 밤 적재까지 스무 시간 넘게 열림으로 남았다. 끝에서 **지금** 시각으로 한 번 더 본다.
+    """
+    store = open_store(store_path)
+    try:
+        expired = store.expire_past_deadline(datetime.now(KST))
+    finally:
+        store.close()
+    print(f"[마감 정리] 배치 도중 마감 시각이 지난 열린 공고 {len(expired):,}건을 마감으로", flush=True)
+    return len(expired)
 
 
 def finish_jobkorea(
@@ -454,11 +514,12 @@ def finish_jobkorea(
     store = open_store(store_path)
     try:
         info = record_jobkorea_list(store, list_path, as_of)
+        detail_input, observed_args = jobkorea_observation(store, list_path, info, as_of, work_dir)
     finally:
         store.close()
 
-    # 사라짐 판정(`--observed`)은 아직 넘기지 않는다. 사이트가 대분류당 1만에서 막아
-    # "안 보이면 사라진 것"을 아직 믿을 수 없다. 소분류로 쪼개 전량을 받게 된 뒤에 켠다.
+    # 사라짐 판정(`--observed`)은 상세 대분류를 모두 끝까지 훑은 밤에만 켠다(jobkorea_observation).
+    # 1만을 넘는 대분류(일요일 전체 훑기의 큰 것들)는 끝까지 못 받으니 완전으로 세지 않는다.
     #
     # `--skip-index`: Pinecone 에는 아직 올리지 않는다. 같은 공고가 두 사이트에 다
     # 올라와 있는데(IT 상세에서만 1,100쌍) 묶는 코드가 아직 없다. 그대로 올리면 한
@@ -467,10 +528,10 @@ def finish_jobkorea(
     # 묶기를 붙이면 이 옵션을 빼면 된다. 그날 밤 한꺼번에 올라간다.
     command = [
         sys.executable, "-m", "job_matching_bot.sync",
-        "--source", JOBKOREA_SOURCE, "--input", str(JOBKOREA_DETAIL_FILE),
+        "--source", JOBKOREA_SOURCE, "--input", str(detail_input),
         "--store", str(store_path), "--as-of", as_of.isoformat(),
         "--report", str(work_dir / f"{run_stamp(as_of)}_sync_jobkorea.json"),
-        "--skip-index",
+        "--skip-index", *observed_args,
     ]
     print("[잡코리아 적재] " + " ".join(command[2:]), flush=True)
     info["crawl_exit_code"] = code
@@ -701,7 +762,10 @@ def main() -> int:
                 jobkorea_proc, jobkorea_list, args.store, now, NIGHTLY_DIR
             )
 
-        # 5c. 같은 공고 묶기 → 대표만 인덱스. 두 출처가 다 들어온 뒤라야 짝을 찾는다.
+        # 5c. 배치 도중 마감 시각이 지난 공고(그날 23:59 마감 등)를 마감으로. 묶기 · 인덱스 전에.
+        summary["expired_at_end"] = expire_passed_deadlines(args.store)
+
+        # 5d. 같은 공고 묶기 → 대표만 인덱스. 두 출처가 다 들어온 뒤라야 짝을 찾는다.
         summary["regroup"] = run_regroup(args.store, NIGHTLY_DIR, now)
         summary["index_exit_code"] = run_index(args.store, now, NIGHTLY_DIR)
 

@@ -394,12 +394,19 @@ def sweep_category(
     page_size: int = PAGE_SIZE,
     min_delay: float = 3.0,
     max_delay: float = 5.0,
+    totals: dict[str, int] | None = None,
 ) -> Iterator[dict[str, Any]]:
-    """대분류 하나를 앞쪽부터 훑는다. 같은 쪽이 되풀이되면 끝으로 본다."""
+    """대분류 하나를 앞쪽부터 훑는다. 같은 쪽이 되풀이되면 끝으로 본다.
+
+    `totals` 를 넘기면 사이트가 말하는 이 대분류의 총 건수를 적는다. 받은 건수가 이와 같아야
+    「끝까지 훑었다」고 믿고 사라짐 판정에 쓴다(도중에 끊긴 훑기를 완전으로 세지 않게).
+    """
     page = 1
     seen: set[str] = set()
     while max_pages is None or page <= max_pages:
         rows, total = fetch_page(session, duty, page, page_size=page_size)
+        if totals is not None and total is not None:
+            totals[duty] = total
         if not rows:
             break
         fresh = [row for row in rows if row["source_job_id"] not in seen]
@@ -451,6 +458,7 @@ def sweep_categories(
     min_delay: float = 3.0,
     max_delay: float = 5.0,
     on_category: Any = None,
+    totals: dict[str, int] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """여러 대분류를 훑어 공고번호로 합친다.
 
@@ -469,7 +477,7 @@ def sweep_categories(
         polite_delay(min_delay, max_delay)
 
         for row in sweep_category(
-            session, duty, max_pages=max_pages, min_delay=min_delay, max_delay=max_delay
+            session, duty, max_pages=max_pages, min_delay=min_delay, max_delay=max_delay, totals=totals
         ):
             count += 1
             gno = row["source_job_id"]
@@ -624,6 +632,9 @@ def main() -> int:
 
     labels = ", ".join(DUTY_CATEGORIES.get(d, d) for d in duties)
     print(f"[목록] 대분류 {len(duties)}개: {labels}")
+    # 대분류마다 사이트가 말한 총 건수 · 실제로 받은 건수. 둘이 같아야 끝까지 훑은 것이다(야간 배치의 사라짐 판정).
+    site_totals: dict[str, int] = {}
+    counts: dict[str, int] = {}
 
     def write_list(rows: list[dict[str, Any]], saved: int = 0, failed: int = 0) -> None:
         payload = {
@@ -632,6 +643,8 @@ def main() -> int:
             "duty_labels": {d: DUTY_CATEGORIES.get(d, d) for d in duties},
             "detail_duties": sorted(detail_duties),
             "collected_at": datetime.now(KST).isoformat(timespec="seconds"),
+            "site_totals": site_totals,
+            "counts": counts,
             "list_count": len(rows),
             "detail_saved": saved,
             "detail_failed": failed,
@@ -642,7 +655,10 @@ def main() -> int:
 
     def report(duty: str, count: int, merged: dict[str, dict[str, Any]]) -> None:
         name = DUTY_CATEGORIES.get(duty, duty)
-        print(f"  {name} {count:,}건 (누적 고유 {len(merged):,}건)", flush=True)
+        counts[duty] = count
+        total = site_totals.get(duty)
+        whole = "" if total is None else (" · 끝까지" if count >= total else f" · 사이트 {total:,}건 중 일부")
+        print(f"  {name} {count:,}건{whole} (누적 고유 {len(merged):,}건)", flush=True)
         # 대분류 하나 끝날 때마다 떨군다. 전 대분류 훑기가 다섯 시간이 넘어서,
         # 끝나고 한 번만 쓰면 도중에 연결이 끊길 때 그 다섯 시간이 통째로 날아간다.
         write_list(list(merged.values()))
@@ -655,6 +671,7 @@ def main() -> int:
             min_delay=args.min_delay,
             max_delay=args.max_delay,
             on_category=report,
+            totals=site_totals,
         )
     except BlockedByTargetSiteError as error:
         print(f"[중단] {error}")
