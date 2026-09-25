@@ -1,3 +1,5 @@
+> 3차 프로젝트(Flutter + Firebase) 실행 가이드입니다. 지금 프로젝트 실행 방법은 [README.md](README.md)를 보세요.
+
 # PLAYDATA All-in-One LMS — 팀원 실행 가이드
 
 Flutter + Firebase 기반 LMS입니다.  

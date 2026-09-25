@@ -1,187 +1,139 @@
-# SKN34-4th-2Team
+# SKN34-4th-2Team — PLAYDATA LXP
 
-SK네트웍스 Family AI 캠프 34기 4차 프로젝트 - 2팀
+SK네트웍스 Family AI 캠프 34기 4차 프로젝트 2팀.
+학생 · 강사 · 관리자가 함께 쓰는 학습 관리 서비스에 AI 기능(챗봇 · 이력서 첨삭 · 채용공고 추천 · 공부방 노트 · 코드 튜터)을 붙였습니다.
 
-## 브랜치 전략
+> 3차 프로젝트(Flutter + Firebase) 기록은 [README-3rd.md](README-3rd.md) · [SETUP-3rd.md](SETUP-3rd.md)에 남아 있습니다.
 
-| 브랜치 | 용도 |
+## 구성
+
+```
+브라우저 ── React (lms_react, :5173)
+              │  /api
+              ▼
+          Django API (lms_api, :8000) ── PostgreSQL (AWS RDS)
+              │  로그인 · 권한 확인 뒤 대신 부름        ├ public : LMS 데이터
+              ▼                                        └ jobs   : 채용공고
+          AI 서버 (cover_letter_rag/app/integrated.py, :8001)
+              ├ 학생 챗봇 (chatbot)
+              ├ 이력서 첨삭 (cover_letter_rag)
+              ├ 채용공고 추천 · 대화 (job_matching_bot) ── Pinecone
+              ├ 공부방 노트 (study_notes)
+              └ 연습장 튜터
+
+채용공고 크롤러 (job_matching_bot/crawling) ── 매일 23:00, jobs 스키마 · Pinecone 에 적재
+```
+
+| 폴더 | 내용 |
 | --- | --- |
-| `main` | 배포/릴리스 기준. 직접 커밋하지 않고 `develop`에서만 머지 |
-| `develop` | 통합 개발 브랜치. 모든 `feature/*`가 여기로 머지 |
-| `feature/*` | 기능 단위 작업 브랜치. `develop`에서 분기 |
+| `lms_react/` | 웹 화면 (React · TypeScript · Vite) |
+| `lms_api/` | LMS API (Django · django-ninja · JWT) |
+| `cover_letter_rag/` | 이력서 첨삭 + AI 서버를 하나로 묶는 진입점(`app/integrated.py`) |
+| `chatbot/` | 학생 LMS 챗봇 |
+| `job_matching_bot/` | 채용공고 크롤링 · 적재 · 추천 · 공고 대화 |
+| `study_notes/` | 공부방 AI 수업 노트 · 복습 문제 |
+| `practice_verifier/` | 복습 문제 검증기 (브라우저와 같은 Pyodide) |
+| `vectordb/` | 학생 챗봇 벡터 DB 적재 |
+| `chatbot_lab/` | 챗봇 실험용 (운영과 연결 안 됨) |
+| `lms_expo/` | 모바일 앱 시작점 (Expo) |
+| `scripts/` | 실행 · 이전 · 적재 스크립트 |
+| `deploy/`, `docker-compose*.yml` | 배포 (Nginx · AI 서버 이미지) |
+| `docs/` | 설계 · 이전 · 점검 문서 |
+| `functions/`, `config/firebase/` | 3차 Firebase 자산 (이전 참고용) |
 
-### 작업 흐름
+각 폴더의 README에 자세한 설명이 있습니다.
 
-```bash
-git switch develop
-git pull origin develop
+## 로컬 실행
 
-git switch -c feature/<작업명>
-# ... 작업 및 커밋 ...
-git push -u origin feature/<작업명>
-# GitHub에서 develop 으로 Pull Request
-```
+필요한 것: Python 3.12, Node 20 이상, (로컬 DB를 쓸 때) Docker.
 
-## 커밋 컨벤션
-
-```
-<type>: <제목>
-```
-
-`feat` / `fix` / `docs` / `refactor` / `test` / `chore`
-
----
-
-# PLAYDATA LXP — React 프로토타입 (`lms_react/`)
-
-Flutter 앱(`lib/`)을 React + TypeScript + Vite로 옮긴 프로토타입입니다. 학생·강사·관리자
-세 역할의 화면 전부가 들어 있고, 데이터는 Flutter의 데모 저장소(`lib/shared/demo/`)를
-옮긴 메모리 목업입니다. Firebase는 쓰지 않습니다.
-
-## 실행 방법
-
-Node 20 이상이 필요합니다(Vite 6 요구 사항, Node 24.18.0에서 검증).
+### 1. 환경변수
 
 ```bash
+cp .env.example .env
+```
+
+- **RDS를 쓸 때:** `DB_HOST` · `DB_NAME` · `DB_USER` · `DB_PASSWORD`를 채웁니다. 채우면 `DATABASE_URL`보다 먼저 씁니다. 접속 정보는 팀 채널에서 받습니다.
+- **로컬 DB를 쓸 때:** `DB_*`를 비우고 `docker compose up -d db`로 PostgreSQL을 띄웁니다(`DATABASE_URL` 기본값).
+- AI 기능을 쓰려면 `CHATBOT_URL` · `JOBS_URL`을 `http://127.0.0.1:8001`로 둡니다. 비우면 그 기능만 「연결되어 있지 않습니다」로 답합니다.
+- 값에 따옴표를 붙이지 않습니다.
+
+### 2. Python 패키지
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate            # macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt -r lms_api/requirements.txt
+```
+
+### 3. 서버 셋 띄우기 (터미널 셋)
+
+```bash
+# Django API → http://127.0.0.1:8000
+cd lms_api
+python manage.py migrate          # 로컬 DB 일 때만. RDS 는 이미 적용돼 있다
+python manage.py runserver 127.0.0.1:8000
+
+# AI 서버 → http://127.0.0.1:8001
+python -m uvicorn app.integrated:app --app-dir cover_letter_rag --port 8001
+#   Windows 는 scripts/start-backend.ps1 -Port 8001 -SkipJobStoreSync 도 된다
+
+# 화면 → http://localhost:5173  (/api 는 8000 으로 넘긴다)
 cd lms_react
-
-npm install      # 최초 1회 — 의존성 148개
-npm run dev      # 개발 서버 → http://localhost:5173
-npm test         # vitest 44개
-npm run build    # 타입 체크(tsc -b) + 프로덕션 번들 → dist/
-npm run preview  # 빌드 결과 미리보기
+npm install
+npm run dev
 ```
 
-## 현재 상태 (2026-09-19 기준)
-
-| 항목 | 상태 |
-| --- | --- |
-| 화면 | 학생·강사·관리자 전 화면 구현 |
-| 이용 안내 투어 | 역할별 14 / 12 / 17스텝 동작 |
-| 테스트 | ✅ 4개 파일 44개 전부 통과 (`npm test`) |
-| 빌드 | ✅ 성공 — 107 모듈, JS 468 kB (gzip 137 kB) |
-| DB 연동 | ❌ 없음 — Firestore 미연결, 메모리 저장소만 |
-| LLM 연동 | ❌ 없음 — 규칙 기반 응답으로 대체 |
-
-React 쪽에는 `fetch`·`axios` 호출이 한 건도 없습니다. Firebase를 쓰는 쪽은 Flutter
-앱(`lib/`, 39개 파일)이고, Python LLM 백엔드(`chatbot/`, `cover_letter_rag/`,
-`job_matching_bot/`)도 아직 React와 연결돼 있지 않습니다.
-
-## 로그인
-
-로그인 화면의 버튼으로 바로 들어갈 수 있습니다. 비밀번호는 셋 다 `Playdata123!`.
-
-| 역할 | 계정 |
-| --- | --- |
-| 학생 | student@playdata.co.kr |
-| 강사 | instructor@playdata.co.kr |
-| 관리자 | admin@playdata.co.kr |
-
-## 무엇이 들어 있나
-
-**학생** — 대시보드(프로필·공지·출석 캘린더·미션·내 자리·오늘 커리큘럼·자격시험·주간 학습
-추천·설문·승인 현황), 이력서 관리와 편집(AI 코치·피드백 패널), 학습실(인프런 패키지·YouTube
-추천·학습 노트), 게시판(공지·소통 피드), 자리 배치, 설문·제출, 자격 시험 일정, 기록실(5종 제출
-폼), 마일리지(내역·상점·장바구니), 성취도평가(목록·응시·결과), 마이페이지, 설정, 챗봇.
-
-**강사** — 자리 확인(날짜·교시·확인/보류·좌석도), 이력서 검토, 게시물관리(공지 CRUD),
-성취도평가(목록·상세·만들기·채점), 커리큘럼(CSV 등록/교체), 마이페이지, 설정.
-
-**관리자** — 대시보드, 기수 관리, 학생 관리(목록·상세·등록/수정), 강사 관리, 출석 관리,
-자리 확인, 좌석 배치(배정·게시), 성취도 평가, 기록실 승인, 이력서 승인, 설문·제출,
-학습실, 게시판(공지·예약 공지·알림 팝업), 마일리지(상품·구매 요청·수동 조정·설정), LLMOps.
-
-**이용 안내 투어** — 역할별 14 / 12 / 17스텝. 첫 로그인에 자동으로 뜨고, 스텝이 요구하는
-화면으로 옮겨 다니며 메뉴를 비춥니다. 「다시 보지 않기」는 localStorage에 남고, 마이페이지에서
-되살릴 수 있습니다.
-
-## 겉모습을 원본에 맞춘 방법
-
-Flutter 앱의 실제 화면은 `onboarding/output/pdf/*.pdf`(역할별 가이드)에 캡처로 남아 있습니다.
-그 PDF에서 원해상도 스크린샷을 뽑아 옆에 놓고 맞췄습니다.
-
-- **글꼴**: 앱이 쓰는 Paperlogy를 `assets/fonts/`에서 가져와 `public/fonts/`에 넣고 `@font-face`로 씁니다.
-- **아이콘**: `Icons.*`와 같은 Material Symbols Rounded 폰트(`material-symbols` 패키지)를 그대로 씁니다.
-- **사이드바**: 흰 바탕 + 선택 항목만 옅은 파랑 알약, 위에 로고, 아래에 프로필·로그아웃. 관리자는 그룹을 접었다 폅니다.
-- **색·모서리**: `app_colors.dart`의 값을 CSS 변수로 옮겼고, 카드는 흰 바탕 + 1px 테두리 + 14px 모서리입니다.
-- **사이드바 색 6종**: `kSideRailDarkPalettes` 그대로입니다. 고른 색이 사이드바 바탕뿐 아니라 버튼·링크(`action`)와
-  마일리지 카드 그라데이션(`primaryDark` → 사이드바 색)까지 정합니다. 전체 다크에서는 `AppColors._balanced`와 같은
-  방식(상대 휘도 0.18)으로 밝기를 맞춥니다.
-- **움직임**: 원본의 움직임을 값까지 그대로 옮겼습니다.
-  - 로그인 브랜드 카드 — 28초 타원 궤도 + 8초 맥박 + 마우스 시차 (`login_brand_stage.dart`)
-  - 챗봇 로봇 머리 — 답이 올 때마다 늘어남 곡선(0→1.33→1→-0.33→0.17→0)으로 한 번 튐 (`robot_head_icon.dart`)
-  - 마일리지 카드 — 포인터를 따라 최대 0.14rad 3D 기울임, 광택이 함께 흐르고 놓으면 easeOutCubic으로 복귀 (`mileage_credit_card.dart`)
-  - 공고 추천 — 매달린 로봇이 3.1초로 흔들리다 끝나면 줄을 놓고 떨어짐(1.3초), 위아래로만 잘림 (`job_recommendation_loading.dart`)
-  - 이력서 첨삭 — 네 단계 진행 표시 후 대화 (`job_resume_review_dialog.dart`)
-
-- **이력서 Doc / Edit**: Doc은 입력창 없이 값만 읽는 문서 보기(빈 칸은 「미작성」)이고, 그 상태에서 PDF 버튼을
-  누르면 인쇄 미리보기가 열립니다 — 원본 가이드의 "PDF 내보내기: 인쇄 미리보기에서 PDF로 저장합니다" 그대로입니다.
-  인쇄에는 사이드바·상단 바·코치 패널이 빠지고 이력서만 남습니다.
-
-  `prefers-reduced-motion`을 켠 사람에게는 모두 멈춰 보입니다.
-
-화면을 고친 뒤에는 직접 찍어서 확인합니다.
-
-```bash
-npm run build                  # 미리보기는 dist 를 띄운다
-node tools/shot.mjs all        # 역할별 전 화면
-node tools/shot.mjs resume     # 이력서 흐름만
-node tools/shot.mjs            # 할 수 있는 목록 보기
-```
-
-## 구조
-
-```
-src/
-  app/        라우터·셸·테마·네비게이션 정의
-  domain/     모델 타입과 라벨 상수 (lib/shared/models, lib/core/constants)
-  data/       시드 데이터와 메모리 저장소 (lib/shared/demo)
-  features/   화면 — auth, dashboard, board, records, forms, qual, seating,
-              study, mileage, assessments, resume, mypage, settings,
-              instructor, admin, chatbot, notices
-  tour/       이용 안내 투어 (lib/features/onboarding)
-  ui/         공통 위젯 (버튼·카드·표·대화상자 등)
-  utils/      날짜·숫자 표기
-```
-
-### Flutter와의 대응
-
-| Flutter | React |
-| --- | --- |
-| `core/routing/app_router.dart` (go_router) | `app/routes.tsx` + `app/App.tsx` (react-router) |
-| `core/theme/app_colors.dart` | `app/theme.css` (CSS 변수, 다크 포함) |
-| `shared/models/*.dart` | `domain/types.ts` |
-| `shared/demo/demo_lms_repository.dart` | `data/seed.ts` + `data/store.ts` |
-| `shared/providers/*` (Riverpod) | `data/repository.ts` (useSyncExternalStore 훅) |
-| `features/auth` (Firebase Auth) | `features/auth/session.tsx` (데모 계정) |
-| `features/*/presentation/*_screen.dart` | `features/*/…Screen.tsx` |
-| `features/onboarding` | `tour/` |
-
-## 프로토타입이라 다른 점
-
-- **저장소가 메모리입니다.** 새로고침하면 시드 상태로 돌아갑니다. 설정 화면에서 바로 되돌릴
-  수도 있습니다. 대신 한 세션 안에서는 진짜로 흐릅니다 — 학생이 올린 기록은 관리자 승인
-  대기에 뜨고, 구매를 승인하면 학생 잔액이 깎입니다.
-- **AI가 규칙으로 대체됐습니다.** 이력서 AI 코치와 챗봇은 실제로는 LLM을 부릅니다. 여기서는
-  같은 자리·같은 모양으로 규칙 기반 답을 보여 줍니다. LLMOps 지표도 시드 로그를 집계합니다.
-- **파일 업로드가 없습니다.** 증빙 파일 칸은 자리만 있습니다.
-- **비밀번호는 바뀌지 않습니다.** 변경 화면과 첫 로그인 강제 변경 흐름은 있지만 값은
-  저장되지 않습니다.
+계정은 팀 채널에서 받습니다(저장소에 비밀번호를 적지 않습니다).
 
 ## 테스트
 
+```bash
+cd lms_react && npm test && npm run build     # 화면 테스트 · 타입 검사 · 빌드
+cd lms_api && python manage.py test lms       # Django
+pytest job_matching_bot/tests                 # 크롤러 · 추천 (로컬 DB 필요)
 ```
-src/__tests__/app.test.tsx        앱 전체 — 로그인, 역할 가드, 데이터 흐름, 투어
-src/tour/__tests__/               투어 상태·배치 계산·dismiss 저장
+
+## 작업 방식
+
+### 브랜치
+
+| 브랜치 | 용도 |
+| --- | --- |
+| `main` | 배포 기준. `develop`에서만 머지 |
+| `develop` | 통합 개발 브랜치. 모든 작업 브랜치가 여기로 머지 |
+| `feature/*` · `fix/*` · `docs/*` · `chore/*` | 작업 브랜치. `develop`에서 분기 |
+
+```bash
+git switch develop && git pull origin develop
+git switch -c feature/<이슈번호>-<작업명>
+# ... 작업 · 커밋 ...
+git push -u origin feature/<이슈번호>-<작업명>
+# GitHub 에서 develop 으로 Pull Request
 ```
 
-`npm test`로 44개가 모두 돕니다 (앱 18개 + 투어 26개).
+### 이슈 · 보드
 
+- 할 일은 [Issues](https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN34-4th-2Team/issues)에서, 진행 상황은 [프로젝트 보드](https://github.com/orgs/SKNETWORKS-FAMILY-AICAMP/projects/64)에서 봅니다.
+- 칸: 할 일 → 진행 중 → 검토 중(PR) → 완료
+- 이슈를 맡으면 Assignees에 이름을 넣고 카드를 「진행 중」으로 옮깁니다.
 
-## 다음 할 일
+### 커밋
 
-- [ ] 데이터 연동 — [lms_react/src/data/repository.ts](lms_react/src/data/repository.ts)가 교체 지점.
-      화면은 전부 이 훅만 보고 있어 여기만 바꾸면 됨 (Firestore 직결 또는 백엔드 REST 경유)
-- [ ] LLM 연동 — 챗봇(`chatbot/api.py`), 이력서 코치(`cover_letter_rag/`),
-      공고 추천(`job_matching_bot/`)의 FastAPI 엔드포인트 연결
-- [ ] 파일 업로드 및 인증 연동
+```
+[#이슈번호] <type>: <짧은 제목>
+```
+
+- `type`: `feat` · `fix` · `docs` · `refactor` · `test` · `chore`
+- 예: `[#7] feat: 자리 배치 저장 RDS 연결`
+- PR 설명에 `Closes #7`을 쓰면 머지될 때 이슈가 닫히고 보드에서 「완료」로 갑니다.
+
+## 문서
+
+| 문서 | 내용 |
+| --- | --- |
+| [docs/target-architecture.md](docs/target-architecture.md) | 목표 구조 |
+| [docs/db-schema.md](docs/db-schema.md) · [docs/db-tables.md](docs/db-tables.md) | DB 스키마 · 테이블 |
+| [docs/migration-report.md](docs/migration-report.md) | Firestore → PostgreSQL 이전 결과 |
+| [docs/backend-changes-for-rds.md](docs/backend-changes-for-rds.md) | RDS 통합 때 바뀐 백엔드 |
+| [docs/deploy-checklist.md](docs/deploy-checklist.md) | 배포 점검 |

@@ -43,7 +43,7 @@ $env:SEED_EMAIL="student@playdata.co.kr"; $env:SEED_PASSWORD="<비밀번호>"
 node scripts/seed-resume-mocks.mjs
 ```
 
-사전 조건(Authentication 이메일/비밀번호 켜기 등)과 생성되는 계정은 [SETUP.md](../SETUP.md#계정-시드-최초-1회)에 있다.
+사전 조건(Authentication 이메일/비밀번호 켜기 등)과 생성되는 계정은 [SETUP-3rd.md](../SETUP-3rd.md#계정-시드-최초-1회)에 있다.
 
 ## 데이터 파일
 
@@ -59,5 +59,5 @@ node scripts/seed-resume-mocks.mjs
 | 스크립트 | 하는 일 |
 |---|---|
 | `fetch_holidays.py` | 공공데이터포털 특일 정보로 `lib/core/constants/korean_holidays.dart`를 다시 만든다. 앱은 실행 중에 이 API를 부르지 않고 만들어진 표만 읽는다 |
-| `google-form-webhook.gs` | 구글폼에 붙이는 Apps Script. 제출을 Functions `googleFormWebhook`으로 보낸다. 설정 방법은 [SETUP.md](../SETUP.md)의 구글폼 설문 연동 |
+| `google-form-webhook.gs` | 구글폼에 붙이는 Apps Script. 제출을 Functions `googleFormWebhook`으로 보낸다. 설정 방법은 [SETUP-3rd.md](../SETUP-3rd.md)의 구글폼 설문 연동 |
 | `fix-cursor-update-lock.bat` | Cursor 에디터 업데이트 잠금 해제 도우미(개발 도구용, 프로젝트 기능과 무관) |
