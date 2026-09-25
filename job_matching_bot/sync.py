@@ -73,7 +73,7 @@ def record_run(
     store = open_store(store_path)
     if not hasattr(store, "record_run"):
         return
-    store.record_run(collection, started_at=started, finished_at=datetime.now(), vectors=vectors, error=error)
+    store.record_run(collection, started_at=started, finished_at=datetime.now(KST), vectors=vectors, error=error)
     store.save()
     store.close()
 
@@ -91,10 +91,15 @@ def _index(args, report: dict[str, Any], as_of: datetime, started: datetime) -> 
     index = client().Index(info["name"])
     jobs, tracker = load_store(args.store)
     vectors = 0
+    # 적재를 건너뛰었으니 수집 건수는 0이다. 출처 자리에 INDEX 를 적어 크롤 실행과 가른다.
+    run = CollectionReport(source="INDEX", collected_at=as_of.isoformat())
     try:
         changed, to_delete, stats = plan(jobs, index, force=False, tracker=tracker)
         for key, value in stats.items():
             print(f"  {key}: {value:,}")
+        if args.dry_run:
+            print(f"\n(--dry-run: 올릴 {len(changed):,}건 · 지울 {len(to_delete):,}건. 인덱스와 저장소를 건드리지 않았습니다)")
+            return 0
         if to_delete:
             delete_ids(index, to_delete, tracker=tracker)
             print(f"  {len(to_delete):,}건 삭제")
@@ -103,10 +108,17 @@ def _index(args, report: dict[str, Any], as_of: datetime, started: datetime) -> 
         total = index.describe_index_stats().get("total_vector_count", 0)
         report["index"] = {**stats, "삭제": len(to_delete), "적재 후 벡터": total, "올린 벡터": vectors}
         print(f"  인덱스 벡터 수: {total:,}")
+    except Exception as error:
+        if tracker is not None:
+            tracker.close()
+            tracker = None
+        record_run(args.store, run, started, vectors=vectors, error=repr(error))
+        raise
     finally:
         if tracker is not None:
             tracker.close()
-    report["elapsed_seconds"] = round((datetime.now() - started).total_seconds(), 1)
+    record_run(args.store, run, started, vectors=vectors)
+    report["elapsed_seconds"] = round((datetime.now(KST) - started).total_seconds(), 1)
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"리포트 {args.report}")
@@ -148,7 +160,9 @@ def main() -> int:
         args.input = SOURCES[args.source][3]
 
     ensure_loaded()
-    started = datetime.now()
+    # runs.started_at 은 timestamptz 다. 시간대 없는 값을 넘기면 DB 세션 시간대(RDS 는 UTC)로
+    # 읽혀 9시간 밀린다.
+    started = datetime.now(KST)
     as_of = args.as_of or datetime.now(KST)
     if as_of.tzinfo is None:
         as_of = as_of.replace(tzinfo=KST)
@@ -236,8 +250,8 @@ def main() -> int:
             tracker.close()
     record_run(args.store, collection, started, vectors=vectors)
 
-    report["finished_at"] = datetime.now().isoformat(timespec="seconds")
-    report["elapsed_seconds"] = round((datetime.now() - started).total_seconds(), 1)
+    report["finished_at"] = datetime.now(KST).isoformat(timespec="seconds")
+    report["elapsed_seconds"] = round((datetime.now(KST) - started).total_seconds(), 1)
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n완료 ({report['elapsed_seconds']}초) · 리포트: {args.report}")

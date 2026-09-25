@@ -231,7 +231,7 @@ def upsert(jobs: list[Job], index, tracker=None, embeddings=None) -> int:
                 time.sleep(UPSERT_PAUSE)
 
         if tracker is not None:
-            tracker.mark_indexed({job.job_id: doc.embed_hash(job) for job in chunk}, at=datetime.now())
+            tracker.mark_indexed({job.job_id: doc.embed_hash(job) for job in chunk}, at=datetime.now().astimezone())
         done += len(chunk)
         print(f"  적재 {done:,}/{len(jobs):,}")
         if done < len(jobs):
