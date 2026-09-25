@@ -6,6 +6,7 @@ import { usePublishedSeating } from '../../data/repository';
 import { edgesOf, sameGroup } from '../../domain/seatingLayout';
 import type { SeatPresenceState, SeatingCell, SeatingGrid } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
+import { PageHeader } from '../../ui/components';
 import { useCurrentUser } from '../auth/session';
 
 /**
@@ -18,15 +19,13 @@ export function SeatingScreen() {
   const user = useCurrentUser();
   const { room, assignment, published } = usePublishedSeating(user.cohortId);
 
-  const title = ['자리 배치', user.cohortName, room?.roomNumber?.trim()]
+  const where = [user.cohortName, room?.roomNumber?.trim()]
     .filter((v): v is string => v !== undefined && v !== '')
     .join(' · ');
 
   return (
     <div className="seat-page">
-      <header className="seat-page__bar">
-        <h1>{title}</h1>
-      </header>
+      <PageHeader title="자리 배치" description={where === '' ? '확정된 강의실 자리를 확인하세요.' : `${where} · 내 자리는 파랗게 표시됩니다.`} />
 
       {room === undefined ? (
         <div className="seat-page__wait">

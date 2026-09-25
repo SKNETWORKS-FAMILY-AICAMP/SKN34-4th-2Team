@@ -1,6 +1,6 @@
 """공부방 수업 저장소 — 기수에 연결한 GitHub 조직·계정에서 저장소를 찾아 자동으로 올린다.
 
-- 관리자·강사가 기수에 GitHub 조직(예: skn-ai34-260616)이나 강사 개인 계정을 연결한다(study.github_owners).
+- 관리자·강사가 기수에 GitHub 조직(예: skn-ai34-260616)이나 강사 개인 계정을 연결한다(study_github_owners).
 - 찾기: AI 서버(/api/v1/study-notes/proxy/repos)가 그 주인의 저장소 목록을 주면, study_sources 에 없는 것만
   바로 공개(is_active = true)로 넣는다. 이미 있는 저장소는 건드리지 않는다 — 숨긴 저장소는 숨긴 채로 남는다.
 - 언제: 저장소 관리 화면을 열 때(10분에 한 번까지), 「저장소 새로 찾기」, Celery beat 한 시간마다(lms.tasks).
@@ -36,9 +36,9 @@ def _repo_key(url: str) -> str:
 
 
 def _check_schema(cur) -> None:
-    cur.execute("SELECT 1 FROM information_schema.schemata WHERE schema_name = 'study'")
-    if not cur.fetchone():
-        raise StudySourceError(503, "study 스키마가 없습니다. scripts/firestore_to_postgres/study_schema.sql 을 실행하세요.")
+    cur.execute("SELECT to_regclass('study_github_owners') IS NOT NULL")
+    if not cur.fetchone()[0]:
+        raise StudySourceError(503, "공부방 표가 없습니다. manage.py migrate 로 lms.0006 까지 적용하세요.")
 
 
 def _cohort(cur, user: dict, cohort_code: str) -> dict:
@@ -55,10 +55,10 @@ def _cohort(cur, user: dict, cohort_code: str) -> dict:
     return row
 
 
-def _owners(cur, code: str) -> list[dict]:
+def _owners(cur, cohort_id: int) -> list[dict]:
     cur.execute(
-        "SELECT id, owner, last_synced_at, last_error FROM study.github_owners WHERE cohort_code = %s ORDER BY id",
-        [code],
+        "SELECT id, owner, last_synced_at, last_error FROM study_github_owners WHERE cohort_id = %s ORDER BY id",
+        [cohort_id],
     )
     return [
         {
@@ -78,7 +78,7 @@ def list_owners(user: dict, cohort_code: str) -> dict:
     with connection.cursor() as cur:
         _check_schema(cur)
         cohort = _cohort(cur, user, cohort_code)
-        return {"cohortId": cohort["code"], "owners": _owners(cur, cohort["code"])}
+        return {"cohortId": cohort["code"], "owners": _owners(cur, cohort["id"])}
 
 
 def add_owner(user: dict, cohort_code: str, owner: str) -> dict:
@@ -89,9 +89,9 @@ def add_owner(user: dict, cohort_code: str, owner: str) -> dict:
         _check_schema(cur)
         cohort = _cohort(cur, user, cohort_code)
         cur.execute(
-            """INSERT INTO study.github_owners (cohort_code, owner, added_by_uid) VALUES (%s, %s, %s)
-               ON CONFLICT (cohort_code, lower(owner)) DO NOTHING""",
-            [cohort["code"], owner, user.get("firebase_uid") or ""],
+            """INSERT INTO study_github_owners (cohort_id, owner, added_by_id, last_error, created_at)
+               VALUES (%s, %s, %s, '', now()) ON CONFLICT DO NOTHING""",
+            [cohort["id"], owner, user.get("id")],
         )
     # 연결하자마자 한 번 찾는다 — 화면에 바로 저장소가 보이게
     return sync_cohort(user, cohort["code"], force=True)
@@ -101,13 +101,16 @@ def remove_owner(user: dict, owner_id: str) -> dict:
     """연결만 끊는다. 이미 올라간 저장소와 학생 노트는 그대로 — 필요하면 저장소를 숨긴다."""
     with transaction.atomic(), connection.cursor() as cur:
         _check_schema(cur)
-        cur.execute("SELECT cohort_code FROM study.github_owners WHERE id::text = %s", [str(owner_id)])
+        cur.execute(
+            "SELECT c.code FROM study_github_owners o JOIN cohorts c ON c.id = o.cohort_id WHERE o.id::text = %s",
+            [str(owner_id)],
+        )
         row = _one(cur)
         if not row:
             raise StudySourceError(404, "연결을 찾을 수 없습니다.")
-        cohort = _cohort(cur, user, row["cohort_code"])
-        cur.execute("DELETE FROM study.github_owners WHERE id::text = %s", [str(owner_id)])
-        return {"cohortId": cohort["code"], "owners": _owners(cur, cohort["code"])}
+        cohort = _cohort(cur, user, row["code"])
+        cur.execute("DELETE FROM study_github_owners WHERE id::text = %s", [str(owner_id)])
+        return {"cohortId": cohort["code"], "owners": _owners(cur, cohort["id"])}
 
 
 # ── 찾기 ──────────────────────────────────────────────────────────
@@ -118,10 +121,10 @@ def _sync_code(code: str, *, force: bool) -> tuple[list[str], list[dict]]:
     with connection.cursor() as cur:
         cur.execute("SELECT id FROM cohorts WHERE code = %s", [code])
         cohort = _one(cur)
-        cur.execute("SELECT * FROM study.github_owners WHERE cohort_code = %s ORDER BY id", [code])
+        if not cohort:
+            return [], []
+        cur.execute("SELECT * FROM study_github_owners WHERE cohort_id = %s ORDER BY id", [cohort["id"]])
         owners = _dicts(cur)
-    if not cohort:
-        return [], []
     now = timezone.now()
     added: list[str] = []
     errors: list[dict] = []
@@ -154,7 +157,7 @@ def _sync_code(code: str, *, force: bool) -> tuple[list[str], list[dict]]:
                 known.add(_repo_key(url))
                 added.append(str(repo.get("name") or url))
             cur.execute(
-                "UPDATE study.github_owners SET last_synced_at = now(), last_error = %s WHERE id = %s",
+                "UPDATE study_github_owners SET last_synced_at = now(), last_error = %s WHERE id = %s",
                 [error[:500], owner["id"]],
             )
     return added, errors
@@ -167,16 +170,16 @@ def sync_cohort(user: dict, cohort_code: str, *, force: bool = False) -> dict:
         cohort = _cohort(cur, user, cohort_code)
     added, errors = _sync_code(cohort["code"], force=force)
     with connection.cursor() as cur:
-        return {"cohortId": cohort["code"], "added": added, "errors": errors, "owners": _owners(cur, cohort["code"])}
+        return {"cohortId": cohort["code"], "added": added, "errors": errors, "owners": _owners(cur, cohort["id"])}
 
 
 def sync_all() -> dict:
     """Celery beat 가 부른다 — 연결이 있는 모든 기수"""
     with connection.cursor() as cur:
-        cur.execute("SELECT 1 FROM information_schema.schemata WHERE schema_name = 'study'")
-        if not cur.fetchone():
+        cur.execute("SELECT to_regclass('study_github_owners') IS NOT NULL")
+        if not cur.fetchone()[0]:
             return {}
-        cur.execute("SELECT DISTINCT cohort_code FROM study.github_owners")
+        cur.execute("SELECT DISTINCT c.code FROM study_github_owners o JOIN cohorts c ON c.id = o.cohort_id")
         codes = [r[0] for r in cur.fetchall()]
     result = {}
     for code in codes:

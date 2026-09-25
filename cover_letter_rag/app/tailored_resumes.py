@@ -7,7 +7,7 @@ from app.models import TailoredResumeCreateRequest, TailoredResumeResponse, Tail
 
 def _summary(data: dict) -> TailoredResumeSummary:
     session = data.get('reviewSession') or {}
-    progress = (
+    progress = data.get('reviewProgress') or (
         'completed' if session.get('completed') is True
         else 'in_progress' if session.get('result')
         else 'not_started'

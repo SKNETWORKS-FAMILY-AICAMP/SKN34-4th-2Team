@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { useDb } from '../../data/repository';
 import type { AiGenerationLog } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
-import { Badge } from '../../ui/components';
+import { Badge, PageHeader } from '../../ui/components';
 import { formatDateTime } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
 
@@ -41,8 +41,7 @@ export function AdminAiQualityScreen() {
 
   return (
     <div className="admin-page admin-page--wide llmops">
-      <h1 className="admin-page__title">LLMOps · {user.cohortName}</h1>
-      <p className="admin-page__desc">관측 · 평가 · 피드백 · 프롬프트 버전</p>
+      <PageHeader title="AI 품질 (LLMOps)" description={`${user.cohortName} · 관측 · 평가 · 피드백 · 프롬프트 버전`} />
 
       <div className="mchips">
         {TYPE_FILTERS.map(([id, label]) => (

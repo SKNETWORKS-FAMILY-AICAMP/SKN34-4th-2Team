@@ -113,6 +113,7 @@ scripts/seed-students-*.csv
 vectordb/policy_chunks.jsonl
 vectordb/policy_ingestion_errors.jsonl
 vectordb/.policy_ingestion_state.json
+vectordb/.policy_postgres_projection_state.json
 vectordb/.policy_notion_cache.json
 # 지난 기수 프로젝트 소개 자료. 파이프라인이 만들어 내는 것이라 받아 쓰면 된다.
 vectordb/project_reference_documents.jsonl
@@ -120,6 +121,7 @@ vectordb/project_reference_documents.jsonl
 # 가상환경
 venv/
 .venv/
+.venv-ai/
 env/
 
 # ─────────────────────────────────────────────
@@ -171,3 +173,6 @@ dist/
 celerybeat-schedule*
 **/celerybeat-schedule*
 lms_api/celerybeat-schedule*
+
+# 로컬 개발 업로드(기록 증빙) — 운영은 S3
+lms_api/media/

@@ -29,6 +29,7 @@ import {
   PageHeader,
   Row,
   Spacer,
+  TabPage,
   Tabs,
   TextInput,
 } from '../../ui/components';
@@ -74,17 +75,16 @@ export function MileageScreen() {
   });
 
   return (
-    <div className="screen__inner mileage-page">
-      <header className="mileage-head">
-        <div>
-          <h1 className="mileage-head__title">마일리지</h1>
-          <p className="mileage-head__desc">적립 내역을 확인하고 상품을 교환하세요.</p>
-        </div>
+    <TabPage
+      title="마일리지"
+      description="적립 내역을 확인하고 상품을 교환하세요."
+      actions={
         <div className="mileage-head__who">
           <strong>{user.displayName}</strong>
           <span>{user.cohortName}</span>
         </div>
-      </header>
+      }
+    >
 
       <div className="mileage-hero">
         <MileageCreditCard balance={user.mileageBalance} holderName={user.displayName} width={420} />
@@ -100,24 +100,14 @@ export function MileageScreen() {
         </Link>
       </div>
 
-      {/* 알약 세그먼트 — 고른 칸은 글씨색으로 칠하고 그 위 글씨는 바탕색이다. */}
-      <div className="mseg">
-        {(
-          [
-            ['history', '마일리지 내역'],
-            ['requests', '구매 요청'],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            className={`mseg__btn${tab === id ? ' mseg__btn--on' : ''}`}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        active={tab}
+        onChange={(id) => setTab(id as typeof tab)}
+        items={[
+          { id: 'history', label: '마일리지 내역' },
+          { id: 'requests', label: '구매 요청', count: requests.length },
+        ]}
+      />
 
       {tab === 'history' ? (
         <div className="mileage-history">
@@ -196,7 +186,7 @@ export function MileageScreen() {
       ) : (
         <PurchaseRequestsTab requests={requests} />
       )}
-    </div>
+    </TabPage>
   );
 }
 

@@ -9,17 +9,17 @@ from collections import defaultdict
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import unquote
+from zoneinfo import ZoneInfo
 
 import firebase_admin
 import psycopg
+from django.contrib.auth.hashers import make_password
 from firebase_admin import credentials, firestore
-from psycopg import ClientCursor
 from google.cloud.firestore_v1.base_document import DocumentSnapshot
 from psycopg.types.json import Jsonb
 
 ROOT = Path(__file__).resolve().parent
-SCHEMA = ROOT / "schema.sql"
 REPORT = ROOT.parents[1] / "docs" / "migration-report.md"
 
 COHORT_STATUS = {"upcoming": "planned", "archived": "closed", "active": "active", "planned": "planned", "closed": "closed"}
@@ -29,6 +29,7 @@ COPY_DROP = {
     "feedbackCount", "responseCount", "questionCount", "uploadedByName",
     "processedByName", "createdByName", "byName", "revisionCount", "studentCount",
 }
+FIREBASE_STORAGE_URL = re.compile(r"https://firebasestorage\.googleapis\.com/v0/b/[^/]+/o/([^?]+)", re.I)
 
 
 class Report:
@@ -59,19 +60,47 @@ def _init_firebase():
     return firestore.client()
 
 
-def _admin_url(url: str) -> str:
-    parsed = urlparse(url)
-    return urlunparse(parsed._replace(path="/postgres"))
+def connect_database():
+    """Connect to an existing Django-migrated database without creating or dropping schema."""
+    if os.environ.get("DB_HOST"):
+        missing = [key for key in ("DB_NAME", "DB_USER", "DB_PASSWORD") if not os.environ.get(key)]
+        if missing:
+            raise RuntimeError(f"DB_HOST is set, but these settings are missing: {', '.join(missing)}")
+        return psycopg.connect(
+            host=os.environ["DB_HOST"],
+            port=os.environ.get("DB_PORT", "5432"),
+            dbname=os.environ["DB_NAME"],
+            user=os.environ["DB_USER"],
+            password=os.environ["DB_PASSWORD"],
+            sslmode=os.environ.get("DB_SSLMODE", "require"),
+        )
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        raise RuntimeError("Set DATABASE_URL or the DB_HOST/DB_NAME/DB_USER/DB_PASSWORD variables")
+    return psycopg.connect(url)
 
 
-def ensure_db(url: str) -> None:
-    parsed = urlparse(url)
-    dbname = (parsed.path or "/lms").lstrip("/") or "lms"
-    with psycopg.connect(_admin_url(url), autocommit=True) as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,))
-            if not cur.fetchone():
-                cur.execute(f'CREATE DATABASE "{dbname}"')
+def assert_schema_ready(conn) -> None:
+    required = (
+        "django_migrations",
+        "cohorts",
+        "users",
+        "submission_tasks",
+        "record_submission_files",
+        "skills",
+        "user_job_preferences",
+    )
+    missing: list[str] = []
+    with conn.cursor() as cur:
+        for table in required:
+            cur.execute("SELECT to_regclass(%s)", (f"public.{table}",))
+            if cur.fetchone()[0] is None:
+                missing.append(table)
+    if missing:
+        raise RuntimeError(
+            "Django schema is not ready. Run `python manage.py migrate` first. "
+            f"Missing tables: {', '.join(missing)}"
+        )
 
 
 def ts(value: Any) -> datetime | None:
@@ -120,6 +149,39 @@ def blank(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def storage_key(value: Any) -> str | None:
+    text = blank(value)
+    if not text:
+        return None
+    match = FIREBASE_STORAGE_URL.search(text)
+    if match:
+        return unquote(match.group(1)).lstrip("/")
+    if text.startswith("gs://"):
+        parts = text.split("/", 3)
+        return parts[3].lstrip("/") if len(parts) == 4 else None
+    if "://" not in text:
+        return text.lstrip("/")
+    return None
+
+
+def at_day(day: date, value: Any) -> datetime | None:
+    parsed = as_time(value)
+    if not parsed:
+        return None
+    return datetime.combine(day, parsed, tzinfo=ZoneInfo("Asia/Seoul"))
+
+
+def resume_content(content: Any, sections: Any) -> tuple[dict[str, Any], list[str]]:
+    merged = dict(content) if isinstance(content, dict) else {}
+    conflicts: list[str] = []
+    if isinstance(sections, dict):
+        if "section_status" in merged and merged["section_status"] != sections:
+            conflicts.append("section_status")
+        else:
+            merged["section_status"] = sections
+    return merged, conflicts
 
 
 def arr(value: Any) -> list:
@@ -255,9 +317,12 @@ class Etl:
             status = COHORT_STATUS.get(str(d.get("status") or ""), str(d.get("status") or "active"))
             if d.get("status") and d.get("status") not in ("planned", "active", "closed"):
                 self.r.diffs.append(f"cohorts.status {d.get('status')} → {status} ({doc.id})")
+            # import_notices.py 가 먼저 넣은 기수가 있으면 그 번호를 그대로 쓴다(공지 · 벡터가 그 번호를 본다).
+            # 실패로 건너뛰면 그 기수 밑의 학생 · 출결 · 이력서가 모두 조용히 빠진다
             cid = self.insert(
                 """INSERT INTO cohorts (code, name, description, term_number, classroom_name, status, is_active, start_date, end_date, created_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (code) DO UPDATE SET code = EXCLUDED.code RETURNING id""",
                 (
                     doc.id, d.get("name") or doc.id, d.get("description"),
                     d.get("termNumber"), d.get("classroomName"), status,
@@ -282,22 +347,43 @@ class Etl:
                     if k not in self.r.unknown_fields["users"]:
                         self.r.unknown_fields["users"].append(k)
             uid = self.insert(
-                """INSERT INTO users (firebase_uid, email, password, personal_email, display_name, role, cohort_id, seat_number, is_active, must_change_password, motto, skills, social_links, job_preferences, birth_date, photo_url, photo_storage_path, mileage_balance, last_login, created_at, updated_at)
-                   VALUES (%s,%s,'',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                """INSERT INTO users (firebase_uid, email, password, personal_email, display_name, role, cohort_id, seat_number, is_active, must_change_password, motto, social_links, birth_date, photo_storage_key, mileage_balance, last_login, created_at, updated_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                 (
-                    doc.id, blank(d.get("email")), blank(d.get("personalEmail")),
+                    doc.id, blank(d.get("email")), make_password(None), blank(d.get("personalEmail")),
                     d.get("displayName") or "", d.get("role") or "student",
                     self.cohorts.get(d.get("cohortId") or ""),
                     d.get("seatNumber"), bool(d.get("isActive", True)),
-                    bool(d.get("mustChangePassword", False)), d.get("motto"),
-                    arr(d.get("skills")), js(dump(d.get("socialLinks") or {})),
-                    js(dump(d.get("jobPreferences") or {})), as_date(d.get("birthDate")),
-                    blank(d.get("photoUrl")), blank(d.get("photoStoragePath")),
+                    True, d.get("motto"), js(dump(d.get("socialLinks") or {})),
+                    as_date(d.get("birthDate")),
+                    storage_key(d.get("photoStoragePath") or d.get("photoUrl")),
                     int(d.get("mileageBalance") or 0), ts(d.get("lastLoginAt")),
                     ts(d.get("createdAt")), ts(d.get("updatedAt")),
                 ),
             )
             self.users[doc.id] = uid
+            for raw_skill in arr(d.get("skills")):
+                name = " ".join(str(raw_skill).split()).casefold()
+                if not name:
+                    continue
+                skill_id = self.insert(
+                    """INSERT INTO skills (canonical_name, created_at) VALUES (%s, now())
+                       ON CONFLICT (canonical_name) DO UPDATE SET canonical_name=EXCLUDED.canonical_name
+                       RETURNING id""",
+                    (name,),
+                )
+                if skill_id:
+                    self.cur.execute(
+                        """INSERT INTO user_skills (user_id, skill_id, source, updated_at)
+                           VALUES (%s,%s,'legacy_profile',now()) ON CONFLICT (user_id, skill_id) DO NOTHING""",
+                        (uid, skill_id),
+                    )
+            self.cur.execute(
+                """INSERT INTO user_job_preferences (user_id, preferences, updated_at)
+                   VALUES (%s,%s,now()) ON CONFLICT (user_id) DO UPDATE
+                   SET preferences=EXCLUDED.preferences, updated_at=EXCLUDED.updated_at""",
+                (uid, js(dump(d.get("jobPreferences") or {}))),
+            )
 
     def _intakes_todos_cache(self) -> None:
         docs = stream(self.db.collection("studentIntakes"))
@@ -308,8 +394,12 @@ class Etl:
             user_id = self.uid(doc.id)
             if user_id is None:
                 continue
-            if d.get("passwordChanged"):
-                self.cur.execute("UPDATE users SET must_change_password = TRUE WHERE id = %s", (user_id,))
+            initial_password = d.get("initialPassword") or intake.get("initialPassword")
+            if initial_password and not d.get("passwordChanged"):
+                self.cur.execute(
+                    "UPDATE users SET password=%s, must_change_password=TRUE WHERE id=%s",
+                    (make_password(str(initial_password)), user_id),
+                )
             self.cur.execute(
                 """INSERT INTO student_intakes (user_id, education_major, current_status, weekly_study_hours, programming_level, collaboration_tools, ai_llm_experience, motivation, desired_role, post_completion_goal, awards, project_links, team_role, self_learning_style, slump_overcome_experience, is_active, created_by, created_at)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
@@ -365,9 +455,9 @@ class Etl:
                 self.r.fs_add("…/curriculum/meta", 1)
                 d = meta.to_dict() or {}
                 self.cur.execute(
-                    """INSERT INTO curriculum_pdfs (cohort_id, full_pdf_url, full_pdf_file_name, published, updated_by, updated_at)
+                    """INSERT INTO curriculum_pdfs (cohort_id, storage_key, original_filename, published, updated_by, updated_at)
                        VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (cohort_id) DO NOTHING""",
-                    (cid, d.get("fullPdfUrl") or d.get("url"), d.get("fullPdfFileName") or d.get("fileName"),
+                    (cid, storage_key(d.get("fullPdfUrl") or d.get("url")), d.get("fullPdfFileName") or d.get("fileName"),
                      bool(d.get("published", False)), self.uid(d.get("updatedBy")), ts(d.get("updatedAt"))),
                 )
             else:
@@ -377,9 +467,9 @@ class Etl:
             for doc in sheets:
                 d = doc.to_dict() or {}
                 sid = self.insert(
-                    """INSERT INTO curriculum_sheets (legacy_id, cohort_id, title, file_name, storage_path, source, uploaded_by, uploaded_at)
+                    """INSERT INTO curriculum_sheets (legacy_id, cohort_id, title, file_name, storage_key, source, uploaded_by, uploaded_at)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                    (doc.id, cid, d.get("title"), d.get("fileName"), d.get("storagePath"), d.get("source"),
+                     (doc.id, cid, d.get("title"), d.get("fileName"), storage_key(d.get("storagePath")), d.get("source"),
                      self.uid(d.get("uploadedBy")), ts(d.get("uploadedAt"))),
                 )
                 self.sheets[doc.id] = sid
@@ -396,9 +486,9 @@ class Etl:
             for doc in mats:
                 d = doc.to_dict() or {}
                 self.cur.execute(
-                    """INSERT INTO materials (legacy_id, cohort_id, title, file_url, file_name, description, created_at)
+                    """INSERT INTO materials (legacy_id, cohort_id, title, storage_key, file_name, description, created_at)
                        VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-                    (doc.id, cid, d.get("title"), d.get("fileUrl") or d.get("url"), d.get("fileName"), d.get("description"), ts(d.get("createdAt"))),
+                    (doc.id, cid, d.get("title"), storage_key(d.get("fileUrl") or d.get("url")), d.get("fileName"), d.get("description"), ts(d.get("createdAt"))),
                 )
             att = stream(ref.collection("attendances"))
             self.r.fs_add("…/attendances", len(att))
@@ -418,14 +508,26 @@ class Etl:
                 if not status and merged.get("type") == "checkIn":
                     status = "present"
                 self.cur.execute(
-                    """INSERT INTO attendances (legacy_id, cohort_id, user_id, date_key, status, status_source, check_in_time, check_out_time, form_attendance_type, official_leave_used, official_leave_type, official_leave_other, recorded_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                       ON CONFLICT (user_id, date_key) DO NOTHING""",
-                    (items[0][0].id, cid, user_id, day, status, merged.get("statusSource"),
-                     as_time(merged.get("checkInTime")), as_time(merged.get("checkOutTime")),
-                     merged.get("formAttendanceType"), merged.get("officialLeaveUsed"),
-                     merged.get("officialLeaveType"), merged.get("officialLeaveOther"), ts(merged.get("timestamp"))),
+                    """INSERT INTO attendances (legacy_id, cohort_id, user_id, attendance_date, check_in_at, check_out_at, status, data_source, created_at, updated_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       ON CONFLICT (user_id, attendance_date) DO NOTHING""",
+                    (items[0][0].id, cid, user_id, day, at_day(day, merged.get("checkInTime")),
+                     at_day(day, merged.get("checkOutTime")), status, merged.get("statusSource"),
+                     ts(merged.get("timestamp")) or datetime.now(timezone.utc),
+                     ts(merged.get("timestamp")) or datetime.now(timezone.utc)),
                 )
+                issue_type = merged.get("formAttendanceType") or merged.get("officialLeaveType")
+                if issue_type:
+                    self.cur.execute(
+                        """INSERT INTO attendance_issue_reports
+                           (user_id, cohort_id, attendance_date, issue_type, details, status, created_at, updated_at)
+                           VALUES (%s,%s,%s,%s,%s,'submitted',%s,%s)""",
+                        (user_id, cid, day, issue_type, js({
+                            "officialLeaveUsed": merged.get("officialLeaveUsed"),
+                            "officialLeaveOther": merged.get("officialLeaveOther"),
+                        }), ts(merged.get("timestamp")) or datetime.now(timezone.utc),
+                         ts(merged.get("timestamp")) or datetime.now(timezone.utc)),
+                    )
             rolls = stream(ref.collection("rollCalls"))
             self.r.fs_add("…/rollCalls", len(rolls))
             for doc in rolls:
@@ -437,115 +539,67 @@ class Etl:
                     if m:
                         date_key = as_date(m.group(1))
                         period = period or m.group(2)
-                rid = self.insert(
-                    """INSERT INTO roll_calls (legacy_id, cohort_id, date_key, period_id, carried_from_period_id, updated_by, updated_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                    (doc.id, cid, date_key, period or "", d.get("carriedFromPeriodId"), self.uid(d.get("updatedBy")), ts(d.get("updatedAt"))),
-                )
                 seen = set()
                 for uid in arr(d.get("confirmedUserIds")):
                     user_id = self.uid(str(uid))
                     if user_id and user_id not in seen:
-                        self.cur.execute("INSERT INTO roll_call_entries VALUES (%s,%s,'confirmed') ON CONFLICT DO NOTHING", (rid, user_id))
+                        self.cur.execute(
+                            """INSERT INTO seat_presences
+                               (cohort_id,user_id,presence_date,period,state,updated_by,updated_at)
+                               VALUES (%s,%s,%s,%s,'confirmed',%s,%s) ON CONFLICT DO NOTHING""",
+                            (cid, user_id, date_key, period or '', self.uid(d.get("updatedBy")), ts(d.get("updatedAt"))),
+                        )
                         seen.add(user_id)
                 for uid in arr(d.get("heldUserIds")):
                     user_id = self.uid(str(uid))
                     if user_id and user_id not in seen:
-                        self.cur.execute("INSERT INTO roll_call_entries VALUES (%s,%s,'held') ON CONFLICT DO NOTHING", (rid, user_id))
+                        self.cur.execute(
+                            """INSERT INTO seat_presences
+                               (cohort_id,user_id,presence_date,period,state,updated_by,updated_at)
+                               VALUES (%s,%s,%s,%s,'held',%s,%s) ON CONFLICT DO NOTHING""",
+                            (cid, user_id, date_key, period or '', self.uid(d.get("updatedBy")), ts(d.get("updatedAt"))),
+                        )
                         seen.add(user_id)
 
     def _seating(self) -> None:
         for code, cid, ref in self._each_cohort():
             rooms = stream(ref.collection("seatingRooms"))
             self.r.fs_add("…/seatingRooms", len(rooms))
-            for doc in rooms:
-                d = doc.to_dict() or {}
-                layout = d.get("layout") if isinstance(d.get("layout"), dict) else d
-                rid = self.insert(
-                    """INSERT INTO seating_rooms (legacy_id, cohort_id, room_number, rows, cols, max_students, updated_by, created_at, updated_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                    (doc.id, cid, layout.get("roomNumber") or d.get("roomNumber"),
-                     layout.get("rows") or d.get("rows"), layout.get("cols") or d.get("cols"),
-                     layout.get("maxStudents") or d.get("maxStudents"),
-                     self.uid(d.get("updatedBy")), ts(d.get("createdAt")), ts(d.get("updatedAt"))),
-                )
-                self.rooms[(code, doc.id)] = rid
-                for cell in arr(layout.get("cells") or d.get("cells")):
-                    if not isinstance(cell, dict):
-                        continue
-                    if cell.get("type") in (None, "empty"):
-                        continue
-                    cell_id = self.insert(
-                        """INSERT INTO seating_cells (room_id, seat_id, row, col, label, type, group_id)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                        (rid, cell.get("seatId") or f"{cell.get('row')}_{cell.get('col')}",
-                         cell.get("row"), cell.get("col"), cell.get("label"), cell.get("type") or "seat", cell.get("groupId")),
-                    )
-                    self.cells[(rid, str(cell.get("seatId")))] = cell_id
             assigns = stream(ref.collection("seatingAssignments"))
             self.r.fs_add("…/seatingAssignments", len(assigns))
-            for doc in assigns:
-                room_pg = self.rooms.get((code, doc.id))
-                if not room_pg:
-                    continue
-                d = doc.to_dict() or {}
-                self.cur.execute(
-                    """INSERT INTO seating_assignments (room_id, status, published_at, published_by, updated_at, updated_by)
-                       VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (room_id) DO NOTHING""",
-                    (room_pg, d.get("status") or "draft", ts(d.get("publishedAt")), self.uid(d.get("publishedBy")),
-                     ts(d.get("updatedAt")), self.uid(d.get("updatedBy"))),
-                )
-                raw = d.get("assignments") or {}
-                if isinstance(raw, dict):
-                    for seat_id, uid in raw.items():
-                        cell_id = self.cells.get((room_pg, str(seat_id)))
-                        user_id = self.uid(str(uid))
-                        if cell_id and user_id:
-                            self.cur.execute(
-                                """INSERT INTO seat_assignments (room_id, cell_id, user_id) VALUES (%s,%s,%s)
-                                   ON CONFLICT DO NOTHING""",
-                                (room_pg, cell_id, user_id),
-                            )
             meta = ref.collection("seatingMeta").document("default").get()
             self.r.fs_add("…/seatingMeta/default", 1 if meta.exists else 0)
-            if meta.exists:
-                published = (meta.to_dict() or {}).get("publishedRoomId")
-                if published and (code, published) in self.rooms:
-                    self.cur.execute("UPDATE cohorts SET published_seating_room_id = %s WHERE id = %s", (self.rooms[(code, published)], cid))
+            published_id = (meta.to_dict() or {}).get("publishedRoomId") if meta.exists else None
+            room_docs = {doc.id: (doc.to_dict() or {}) for doc in rooms}
+            assignment_docs = {doc.id: (doc.to_dict() or {}) for doc in assigns}
+            selected_id = published_id if published_id in room_docs else next(iter(room_docs), None)
+            selected = room_docs.get(selected_id, {})
+            layout = selected.get("layout") if isinstance(selected.get("layout"), dict) else selected
+            assignment = assignment_docs.get(selected_id, {})
             legacy = stream(ref.collection("seating"))
             self.r.fs_add("…/seating/{layout,assignment}", len(legacy))
-            if not rooms and legacy:
+            if not selected_id and legacy:
                 layout_doc = ref.collection("seating").document("layout").get()
                 assign_doc = ref.collection("seating").document("assignment").get()
                 layout = (layout_doc.to_dict() or {}) if layout_doc.exists else {}
-                rid = self.insert(
-                    """INSERT INTO seating_rooms (legacy_id, cohort_id, room_number, rows, cols, max_students, updated_by, updated_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                    (f"{code}/legacy", cid, layout.get("roomNumber"), layout.get("rows"), layout.get("cols"),
-                     layout.get("maxStudents"), self.uid(layout.get("updatedBy")), ts(layout.get("updatedAt"))),
+                assignment = (assign_doc.to_dict() or {}) if assign_doc.exists else {}
+                selected_id = f"{code}/legacy"
+            if selected_id:
+                payload = dict(dump(layout)) if isinstance(layout, dict) else {}
+                payload["sourceRoomId"] = selected_id
+                payload["assignments"] = dump(assignment.get("assignments") or {})
+                self.cur.execute(
+                    """INSERT INTO cohort_seating
+                       (cohort_id,room_number,layout,published,updated_by,updated_at)
+                       VALUES (%s,%s,%s,%s,%s,%s)
+                       ON CONFLICT (cohort_id) DO UPDATE SET
+                         room_number=EXCLUDED.room_number, layout=EXCLUDED.layout,
+                         published=EXCLUDED.published, updated_by=EXCLUDED.updated_by,
+                         updated_at=EXCLUDED.updated_at""",
+                    (cid, payload.get("roomNumber"), js(payload), bool(published_id),
+                     self.uid(assignment.get("updatedBy") or selected.get("updatedBy")),
+                     ts(assignment.get("updatedAt") or selected.get("updatedAt")) or datetime.now(timezone.utc)),
                 )
-                self.rooms[(code, "legacy")] = rid
-                for cell in arr(layout.get("cells")):
-                    if not isinstance(cell, dict) or cell.get("type") in (None, "empty"):
-                        continue
-                    cell_id = self.insert(
-                        """INSERT INTO seating_cells (room_id, seat_id, row, col, label, type, group_id) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                        (rid, cell.get("seatId"), cell.get("row"), cell.get("col"), cell.get("label"), cell.get("type") or "seat", cell.get("groupId")),
-                    )
-                    self.cells[(rid, str(cell.get("seatId")))] = cell_id
-                if assign_doc.exists:
-                    ad = assign_doc.to_dict() or {}
-                    self.cur.execute(
-                        """INSERT INTO seating_assignments (room_id, status, published_at, published_by, updated_at, updated_by)
-                           VALUES (%s,%s,%s,%s,%s,%s)""",
-                        (rid, ad.get("status") or "draft", ts(ad.get("publishedAt")), self.uid(ad.get("publishedBy")),
-                         ts(ad.get("updatedAt")), self.uid(ad.get("updatedBy"))),
-                    )
-                    for seat_id, uid in (ad.get("assignments") or {}).items():
-                        cell_id = self.cells.get((rid, str(seat_id)))
-                        user_id = self.uid(str(uid))
-                        if cell_id and user_id:
-                            self.cur.execute("INSERT INTO seat_assignments VALUES (%s,%s,%s) ON CONFLICT DO NOTHING", (rid, cell_id, user_id))
             teams = stream(ref.collection("projectTeams"))
             self.r.fs_add("…/projectTeams", len(teams))
             for doc in teams:
@@ -558,7 +612,7 @@ class Etl:
                 for uid in arr(d.get("memberIds")):
                     user_id = self.uid(str(uid))
                     if user_id:
-                        self.cur.execute("INSERT INTO project_team_members VALUES (%s,%s) ON CONFLICT DO NOTHING", (tid, user_id))
+                        self.cur.execute("INSERT INTO project_team_members (team_id,user_id) VALUES (%s,%s) ON CONFLICT DO NOTHING", (tid, user_id))
 
     def _comms(self) -> None:
         posts_n = qna_n = 0
@@ -583,13 +637,18 @@ class Etl:
                 indexes = d.get("_vectorIndexes")
                 chunk = len(indexes) if isinstance(indexes, list) else int(d.get("vectorChunkCount") or 0)
                 author_name = d.get("authorName") if d.get("source") == "discord" else None
+                # import_notices.py 로 먼저 들어간 공지는 번호 · 내용을 그대로 두고(벡터 id 가 공지 번호를 쓴다)
+                # 그때 없던 작성자 · 예약 공지 연결만 채운다
                 self.cur.execute(
-                    """INSERT INTO notices (legacy_id, cohort_id, title, content, author_id, author_name, is_favorite, priority, source, channel_label, discord_message_id, discord_channel_id, discord_channel_type, scheduled_notice_id, image_url, vector_chunk_count, created_at, updated_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    """INSERT INTO notices (legacy_id, cohort_id, title, content, author_id, author_name, is_favorite, priority, source, channel_label, discord_message_id, discord_channel_id, discord_channel_type, scheduled_notice_id, image_storage_key, vector_chunk_count, created_at, updated_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       ON CONFLICT (legacy_id) DO UPDATE SET
+                         author_id = COALESCE(notices.author_id, EXCLUDED.author_id),
+                         scheduled_notice_id = COALESCE(notices.scheduled_notice_id, EXCLUDED.scheduled_notice_id)""",
                     (doc.id, cid, d.get("title"), d.get("content"), self.uid(d.get("authorId")), author_name,
                      bool(d.get("isFavorite") or d.get("isPinned")), int(d.get("priority") or 0), d.get("source") or "app",
                      d.get("channelLabel"), blank(d.get("discordMessageId")), d.get("discordChannelId"), d.get("discordChannelType"),
-                     self.sched_notices.get(d.get("scheduledNoticeId") or ""), d.get("imageUrl"), chunk,
+                     self.sched_notices.get(d.get("scheduledNoticeId") or ""), storage_key(d.get("imageUrl")), chunk,
                      ts(d.get("createdAt")), ts(d.get("updatedAt"))),
                 )
             vm = stream(ref.collection("vectorMetadata"))
@@ -621,7 +680,7 @@ class Etl:
                 if popup_id and user_id:
                     d = doc.to_dict() or {}
                     self.cur.execute(
-                        "INSERT INTO alert_popup_dismissals VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
+                        "INSERT INTO alert_popup_dismissals (user_id,popup_id,date_key) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
                         (user_id, popup_id, as_date(d.get("dateKey"))),
                     )
         self.r.fs_add("users/{uid}/alertPopupDismissals", dismiss)
@@ -630,25 +689,10 @@ class Etl:
         for code, cid, ref in self._each_cohort():
             assigns = stream(ref.collection("assignments"))
             self.r.fs_add("…/assignments", len(assigns))
-            sub_n = 0
-            for doc in assigns:
-                d = doc.to_dict() or {}
-                aid = self.insert(
-                    """INSERT INTO assignments (legacy_id, cohort_id, title, description, due_date, created_at)
-                       VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
-                    (doc.id, cid, d.get("title"), d.get("description"), ts(d.get("dueDate") or d.get("dueAt")), ts(d.get("createdAt"))),
-                )
-                for sub in stream(doc.reference.collection("submissions")):
-                    sub_n += 1
-                    sd = sub.to_dict() or {}
-                    user_id = self.uid(sub.id if not sd.get("userId") else sd.get("userId"))
-                    if user_id:
-                        self.cur.execute(
-                            """INSERT INTO assignment_submissions VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
-                            (aid, user_id, sd.get("fileUrl"), sd.get("fileName"), sd.get("fileSizeBytes") or sd.get("fileSize"),
-                             sd.get("status"), ts(sd.get("submittedAt"))),
-                        )
+            sub_n = sum(len(stream(doc.reference.collection("submissions"))) for doc in assigns)
             self.r.fs_add("…/assignments/{id}/submissions", sub_n)
+            if assigns or sub_n:
+                self.r.decision3["legacy assignments"] = f"초기 통합 제외 ({len(assigns)} tasks / {sub_n} responses)"
             recs = stream(ref.collection("submissions"))
             self.r.fs_add("…/submissions", len(recs))
             for doc in recs:
@@ -656,44 +700,52 @@ class Etl:
                 user_id = self.uid(d.get("userId"))
                 if not user_id:
                     continue
-                self.cur.execute(
-                    """INSERT INTO record_submissions (legacy_id, cohort_id, user_id, type, status, title, review_comment, reviewed_by, reviewed_at, cert_type, file_urls, start_at, end_at, week_number, week_label, link, quiz_score, learning_date, learning_content, is_team_study, mileage_granted, mileage_amount, submitted_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                details = {
+                    key: dump(d.get(source)) for key, source in (
+                        ("cert_type", "certType"), ("start_at", "startAt"), ("end_at", "endAt"),
+                        ("week_number", "weekNumber"), ("week_label", "weekLabel"), ("link", "link"),
+                        ("quiz_score", "quizScore"), ("learning_date", "learningDate"),
+                        ("learning_content", "learningContent"), ("is_team_study", "isTeamStudy"),
+                    ) if d.get(source) is not None
+                }
+                submitted_at = ts(d.get("submittedAt")) or datetime.now(timezone.utc)
+                record_id = self.insert(
+                    """INSERT INTO record_submissions
+                       (legacy_id,cohort_id,user_id,type,status,title,details,review_comment,reviewed_by,reviewed_at,submitted_at,created_at,updated_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                     (doc.id, cid, user_id, d.get("type") or "blog", d.get("status") or "pending", d.get("title"),
-                     d.get("reviewComment"), self.uid(d.get("reviewedBy")), ts(d.get("reviewedAt")), d.get("certType"),
-                     arr(d.get("fileUrls")), ts(d.get("startAt")), ts(d.get("endAt")), d.get("weekNumber"), d.get("weekLabel"),
-                     d.get("link"), d.get("quizScore"), as_date(d.get("learningDate")), d.get("learningContent"),
-                     d.get("isTeamStudy"), bool(d.get("mileageGranted", False)), int(d.get("mileageAmount") or 0),
-                     ts(d.get("submittedAt"))),
+                     js(details), d.get("reviewComment"), self.uid(d.get("reviewedBy")), ts(d.get("reviewedAt")),
+                     submitted_at, ts(d.get("createdAt")) or submitted_at, ts(d.get("updatedAt")) or submitted_at),
                 )
+                for file_value in arr(d.get("fileUrls")):
+                    key = storage_key(file_value)
+                    if key and record_id:
+                        self.cur.execute(
+                            """INSERT INTO record_submission_files
+                               (submission_id,storage_key,original_filename,uploaded_at)
+                               VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
+                            (record_id, key, key.rsplit('/', 1)[-1], submitted_at),
+                        )
             wtasks = stream(ref.collection("weeklyTasks"))
             self.r.fs_add("…/weeklyTasks", len(wtasks))
-            for doc in wtasks:
-                d = doc.to_dict() or {}
-                self.cur.execute(
-                    """INSERT INTO weekly_tasks (legacy_id, cohort_id, title, due_date, total_count) VALUES (%s,%s,%s,%s,%s)""",
-                    (doc.id, cid, d.get("title"), ts(d.get("dueDate")), d.get("totalCount")),
-                )
             up = stream(ref.collection("userProgress"))
             self.r.fs_add("…/userProgress", len(up))
-            for doc in up:
-                d = doc.to_dict() or {}
-                user_id = self.uid(doc.id)
-                if user_id:
-                    self.cur.execute(
-                        """INSERT INTO weekly_progress VALUES (%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
-                        (cid, user_id, int(d.get("completedCount") or 0), int(d.get("totalCount") or 0), ts(d.get("updatedAt"))),
-                    )
             forms = stream(ref.collection("formTasks"))
             self.r.fs_add("…/formTasks", len(forms))
             resp_n = 0
             for doc in forms:
                 d = doc.to_dict() or {}
                 tid = self.insert(
-                    """INSERT INTO form_tasks (legacy_id, cohort_id, title, description, form_url, notion_guide_url, due_at, published, created_at, updated_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                    (doc.id, cid, d.get("title"), d.get("description"), d.get("formUrl"), d.get("notionGuideUrl"),
-                     ts(d.get("dueAt")), bool(d.get("published", True)), ts(d.get("createdAt")), ts(d.get("updatedAt"))),
+                    """INSERT INTO submission_tasks
+                       (legacy_id,title,description,submission_type,external_url,guide_url,due_at,published,created_at,updated_at)
+                       VALUES (%s,%s,%s,'external_form',%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (doc.id, d.get("title"), d.get("description"), d.get("formUrl"), d.get("notionGuideUrl"),
+                      ts(d.get("dueAt")), bool(d.get("published", True)), ts(d.get("createdAt")), ts(d.get("updatedAt"))),
+                )
+                self.cur.execute(
+                    """INSERT INTO submission_task_cohorts (task_id,cohort_id)
+                       VALUES (%s,%s) ON CONFLICT DO NOTHING""",
+                    (tid, cid),
                 )
                 for resp in stream(doc.reference.collection("responses")):
                     resp_n += 1
@@ -701,8 +753,11 @@ class Etl:
                     user_id = self.uid(resp.id if not rd.get("userId") else rd.get("userId"))
                     if user_id:
                         self.cur.execute(
-                            """INSERT INTO form_responses VALUES (%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
-                            (tid, user_id, rd.get("source"), blank(rd.get("googleResponseId")), ts(rd.get("submittedAt"))),
+                            """INSERT INTO submission_responses
+                               (task_id,user_id,source,external_response_id,response,submitted_at)
+                               VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
+                            (tid, user_id, rd.get("source"), blank(rd.get("googleResponseId")),
+                             js(dump(rd.get("response") or {})), ts(rd.get("submittedAt"))),
                         )
             self.r.fs_add("…/formTasks/{id}/responses", resp_n)
 
@@ -737,10 +792,10 @@ class Etl:
                 src = d.get("curriculumSource") or d.get("notionSource") or {}
                 sheet_id = self.sheets.get(src.get("sheetId") or src.get("moduleId") or "")
                 aid = self.insert(
-                    """INSERT INTO assessments (legacy_id, cohort_id, title, tags, max_score, start_at, end_at, thumbnail_url, thumbnail_path, published, created_by, created_at, updated_at, curriculum_sheet_id, day_from, day_to, subject_filter)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                    (doc.id, cid, d.get("title"), arr(d.get("tags")), d.get("maxScore"), ts(d.get("startAt")), ts(d.get("endAt")),
-                     d.get("thumbnailUrl"), d.get("thumbnailPath"), bool(d.get("published", False)), self.uid(d.get("createdBy")),
+                    """INSERT INTO assessments (legacy_id, cohort_id, title, tags, max_score, start_at, end_at, thumbnail_storage_key, published, created_by, created_at, updated_at, curriculum_sheet_id, day_from, day_to, subject_filter)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (doc.id, cid, d.get("title"), js(arr(d.get("tags"))), d.get("maxScore"), ts(d.get("startAt")), ts(d.get("endAt")),
+                     storage_key(d.get("thumbnailPath") or d.get("thumbnailUrl")), bool(d.get("published", False)), self.uid(d.get("createdBy")),
                      ts(d.get("createdAt")), ts(d.get("updatedAt")), sheet_id, src.get("dayFrom") or src.get("snFrom"),
                      src.get("dayTo") or src.get("snTo"), src.get("subjectFilter") or src.get("moduleName")),
                 )
@@ -752,7 +807,7 @@ class Etl:
                         """INSERT INTO assessment_questions (legacy_id, assessment_id, "order", type, prompt, points, choices, correct_index, accepted_answers, explanation, origin, ai_log_id, ai_draft_id, prompt_version, source_day, source_topic)
                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                         (q.id, aid, qd.get("order"), qd.get("type"), qd.get("prompt"), qd.get("points"),
-                         arr(qd.get("choices")), qd.get("correctIndex"), arr(qd.get("acceptedAnswers")),
+                         js(arr(qd.get("choices"))), qd.get("correctIndex"), js(arr(qd.get("acceptedAnswers"))),
                          qd.get("explanation"), qd.get("origin") or "manual", self.ai_logs.get(qd.get("aiLogId") or ""),
                          qd.get("aiDraftId"), qd.get("promptVersion"), qd.get("sourceDay"), qd.get("sourceTopic")),
                     )
@@ -782,7 +837,9 @@ class Etl:
                         if not pg_q:
                             continue
                         self.cur.execute(
-                            """INSERT INTO assessment_answers VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
+                            """INSERT INTO assessment_answers
+                               (submission_id,question_id,value,auto_score,final_score,is_correct)
+                               VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
                             (sid, pg_q, js(dump(ans.get("value"))), ans.get("autoScore"), ans.get("finalScore"), ans.get("isCorrect")),
                         )
                 for adj in arr(d.get("scoreAdjustments")):
@@ -816,7 +873,9 @@ class Etl:
             if cfg.exists:
                 d = cfg.to_dict() or {}
                 self.cur.execute(
-                    """INSERT INTO mileage_settings VALUES (%s,%s,%s,%s,%s) ON CONFLICT (cohort_id) DO NOTHING""",
+                    """INSERT INTO mileage_settings
+                       (cohort_id,category_limits,accrual_rules,updated_by,updated_at)
+                       VALUES (%s,%s,%s,%s,%s) ON CONFLICT (cohort_id) DO NOTHING""",
                     (cid, js(d.get("categoryLimits") or {}), js(d.get("accrualRules") or {}), self.uid(d.get("updatedBy")), ts(d.get("updatedAt"))),
                 )
             products = stream(ref.collection("mileageProducts"))
@@ -868,7 +927,9 @@ class Etl:
                     if not pid:
                         continue
                     self.cur.execute(
-                        """INSERT INTO mileage_cart_items VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
+                        """INSERT INTO mileage_cart_items
+                           (user_id,product_id,quantity,unit_price,purchase_link,updated_at)
+                           VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
                         (user_id, pid, item.get("quantity") or 1, item.get("unitPrice"), item.get("purchaseLink"), ts(d.get("updatedAt"))),
                     )
             missions = stream(ref.collection("missionProgress"))
@@ -879,13 +940,17 @@ class Etl:
                 if not user_id:
                     continue
                 self.cur.execute(
-                    """INSERT INTO mission_progress VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    """INSERT INTO mission_progress
+                       (cohort_id,user_id,study_cert_count,study_cert_granted,quiz_pass_count,quiz_granted,
+                        coding_pcce,coding_pccp,coding_pcsql,coding_granted,blog_weeks,blog_units_granted,
+                        study_week_keys,study_granted,updated_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        ON CONFLICT DO NOTHING""",
                     (cid, user_id, int(d.get("studyCertCount") or 0), int(d.get("studyCertGranted") or 0),
                      int(d.get("quizPassCount") or 0), int(d.get("quizGranted") or 0),
                      bool(d.get("codingPcce")), bool(d.get("codingPccp")), bool(d.get("codingPcsql")),
-                     int(d.get("codingGranted") or 0), arr(d.get("blogWeeks")), arr(d.get("blogUnitsGranted")),
-                     [str(x) for x in arr(d.get("studyWeekKeys"))], bool(d.get("studyGranted")), ts(d.get("updatedAt"))),
+                     int(d.get("codingGranted") or 0), js(arr(d.get("blogWeeks"))), js(arr(d.get("blogUnitsGranted"))),
+                     js([str(x) for x in arr(d.get("studyWeekKeys"))]), bool(d.get("studyGranted")), ts(d.get("updatedAt"))),
                 )
 
     def _resumes(self) -> None:
@@ -894,6 +959,7 @@ class Etl:
         # 원본 · 사본 연결 — 가리키는 이력서가 뒤에 들어올 수 있어 다 넣은 뒤 잇는다
         links: list[tuple[int, str | None, str | None]] = []  # (resumes.id, baseResumeId, sourceTailoredResumeId)
         tailored_rid: dict[str, int] = {}  # tailoredResumes 문서 id → resumes.id
+        tailorings: list[tuple[int, dict]] = []  # (사본 resumes.id, tailoredResumes 문서)
         for code, cid, ref in self._each_cohort():
             items = stream(ref.collection("resumes"))
             self.r.fs_add("…/resumes", len(items))
@@ -903,12 +969,17 @@ class Etl:
                 user_id = self.uid(d.get("userId"))
                 if not user_id:
                     continue
+                merged_content, conflicts = resume_content(d.get("content"), d.get("sections"))
+                if conflicts:
+                    self.r.diffs.append(
+                        f"resume {doc.id}: content/sections 충돌 키는 content 우선 ({', '.join(conflicts)})"
+                    )
                 rid = self.insert(
-                    """INSERT INTO resumes (legacy_id, cohort_id, user_id, title, status, content, sections, is_base_resume, linked_job_id, created_at, updated_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                    (doc.id, cid, user_id, d.get("title"), d.get("status"), js(dump(d.get("content") or {})),
-                     js(dump(d.get("sections") or {})), bool(d.get("isBaseResume", False)),
-                     blank(d.get("jobId") or d.get("linkedJobId")),
+                    """INSERT INTO resumes
+                       (legacy_id,cohort_id,user_id,title,status,content,is_base_resume,linked_job_id,revision_count,created_at,updated_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s) RETURNING id""",
+                    (doc.id, cid, user_id, d.get("title"), d.get("status"), js(dump(merged_content)),
+                     bool(d.get("isBaseResume", False)), blank(d.get("jobId") or d.get("linkedJobId")),
                      ts(d.get("createdAt")), ts(d.get("updatedAt"))),
                 )
                 self.resumes[doc.id] = rid
@@ -924,12 +995,22 @@ class Etl:
                         (fb.id, rid, fd.get("sectionKey") or fd.get("section"), fd.get("content"), self.uid(fd.get("authorId")), ts(fd.get("createdAt"))),
                     )
                     self.feedback[fb.id] = fid
-                for rev in stream(doc.reference.collection("revisions")):
+                for revision_no, rev in enumerate(stream(doc.reference.collection("revisions")), start=1):
                     rev_n += 1
                     rd = rev.to_dict() or {}
+                    revision_content, revision_conflicts = resume_content(rd.get("content"), rd.get("sections"))
+                    if revision_conflicts:
+                        self.r.diffs.append(
+                            f"resume revision {rev.id}: content/sections 충돌 키는 content 우선 "
+                            f"({', '.join(revision_conflicts)})"
+                        )
                     self.cur.execute(
-                        """INSERT INTO resume_revisions (legacy_id, resume_id, title, content, saved_at) VALUES (%s,%s,%s,%s,%s)""",
-                        (rev.id, rid, rd.get("title"), js(dump(rd.get("content") or {})), ts(rd.get("savedAt") or rd.get("createdAt"))),
+                        """INSERT INTO resume_revisions
+                           (legacy_id,resume_id,revision_no,content,created_by_id,created_at)
+                           VALUES (%s,%s,%s,%s,%s,%s)""",
+                        (rev.id, rid, revision_no, js(dump(revision_content)),
+                         self.uid(rd.get("createdBy") or d.get("userId")),
+                         ts(rd.get("savedAt") or rd.get("createdAt")) or datetime.now(timezone.utc)),
                     )
                 for child in doc.reference.collections():
                     if child.id in {"feedback", "revisions"}:
@@ -945,44 +1026,98 @@ class Etl:
                             tuid = self.uid(td.get("userId") or d.get("userId"))
                             if not tuid:
                                 continue
+                            tailored_content, tailored_conflicts = resume_content(td.get("content"), td.get("sections"))
+                            if tailored_conflicts:
+                                self.r.diffs.append(
+                                    f"tailored resume {tdoc.id}: content/sections 충돌 키는 content 우선 "
+                                    f"({', '.join(tailored_conflicts)})"
+                                )
                             trid = self.insert(
-                                """INSERT INTO resumes (legacy_id, cohort_id, user_id, title, status, content, sections, is_base_resume, base_resume_id, linked_job_id, created_at, updated_at)
-                                   VALUES (%s,%s,%s,%s,%s,%s,%s,false,%s,%s,%s,%s) RETURNING id""",
+                                """INSERT INTO resumes
+                                   (legacy_id,cohort_id,user_id,title,status,content,is_base_resume,base_resume_id,linked_job_id,revision_count,created_at,updated_at)
+                                   VALUES (%s,%s,%s,%s,%s,%s,false,%s,%s,0,%s,%s) RETURNING id""",
                                 (f"{doc.id}/tailored/{tdoc.id}", cid, tuid, td.get("title"), td.get("status"),
-                                 js(dump(td.get("content") or {})), js(dump(td.get("sections") or {})), rid,
+                                 js(dump(tailored_content)), rid,
                                  blank(td.get("jobId") or td.get("linkedJobId")), ts(td.get("createdAt")), ts(td.get("updatedAt"))),
                             )
                             if trid:
                                 tailored_rid[tdoc.id] = trid
+                                tailorings.append((trid, td))
             for rid, d, user_id in pending_reads:
                 for fb_id in arr(d.get("readFeedbackIds")):
                     fid = self.feedback.get(str(fb_id))
                     if fid:
-                        self.cur.execute("INSERT INTO resume_feedback_reads VALUES (%s,%s,%s) ON CONFLICT DO NOTHING", (fid, user_id, None))
+                        self.cur.execute(
+                            """INSERT INTO resume_feedback_reads (resume_id,user_id,feedback_id,read_at)
+                               VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
+                            (rid, user_id, fid, datetime.now(timezone.utc)),
+                        )
                 for fb_id in arr(d.get("reviewerReadFeedbackIds")):
                     fid = self.feedback.get(str(fb_id))
                     if fid:
                         # reviewer ids unknown; keep student+reviewer in one table per user if we had reviewer uid. skip unknown.
                         pass
+        # source_tailored_resume_id 는 새 스키마(0006)에 아직 없다. 칸이 생기기 전엔 원본 연결만 옮긴다
+        self.cur.execute(
+            """SELECT 1 FROM information_schema.columns
+               WHERE table_schema = current_schema() AND table_name = 'resumes'
+                 AND column_name = 'source_tailored_resume_id'"""
+        )
+        has_source_col = self.cur.fetchone() is not None
         linked = 0
         for rid, base_doc, source_doc in links:
             base = self.resumes.get(base_doc) if base_doc else None
-            source = (tailored_rid.get(source_doc) or self.resumes.get(source_doc)) if source_doc else None
+            source = (tailored_rid.get(source_doc) or self.resumes.get(source_doc)) if source_doc and has_source_col else None
             if base is None and source is None:
                 continue
-            self.cur.execute(
-                "UPDATE resumes SET base_resume_id = COALESCE(%s, base_resume_id), source_tailored_resume_id = %s WHERE id = %s",
-                (base, source, rid),
-            )
+            if has_source_col:
+                self.cur.execute(
+                    "UPDATE resumes SET base_resume_id = COALESCE(%s, base_resume_id), source_tailored_resume_id = %s WHERE id = %s",
+                    (base, source, rid),
+                )
+            else:
+                self.cur.execute("UPDATE resumes SET base_resume_id = COALESCE(%s, base_resume_id) WHERE id = %s", (base, rid))
             linked += 1
         if links:
             self.r.diffs.append(f"resumes 원본 · 사본 연결 {linked}/{len(links)}건 (baseResumeId · sourceTailoredResumeId)")
+        self._resume_tailorings(tailorings)
         self.r.fs_add("…/resumes/{id}/feedback", fb_n)
         self.r.fs_add("…/resumes/{id}/revisions", rev_n)
         if tailored_n:
             self.r.diffs.append(
                 f"undocumented path tailoredResumes ({tailored_n} docs) flattened into resumes (ERD base_resume_id). aiReviews/aiApplications not loaded."
             )
+
+    def _resume_tailorings(self, tailorings: list[tuple[int, dict]]) -> None:
+        """맞춤 사본의 공고 스냅샷 · 첨삭 대화 → resume_tailorings(사본과 1:1, lms.0007).
+
+        AI 서버는 resumes 와 이 테이블을 INNER JOIN 해 사본을 읽는다. 줄이 없으면 옮겨 온 사본이
+        목록에서 빠지고 열면 404 다. 칸에 DB 기본값이 없어 모두 채운다.
+        """
+        if not tailorings:
+            return
+        self._raw.execute("SELECT to_regclass('resume_tailorings') IS NOT NULL")
+        if not self._raw.fetchone()[0]:
+            self.r.diffs.append(f"resume_tailorings 가 없어(lms.0007 전) 맞춤 사본 {len(tailorings)}건의 공고 스냅샷 · 첨삭 대화를 옮기지 않음")
+            return
+        errors_before = len(self.r.errors)
+        for trid, td in tailorings:
+            session = td.get("reviewSession") if isinstance(td.get("reviewSession"), dict) else {}
+            progress = ("completed" if session.get("completed") is True
+                        else "in_progress" if session.get("result") else "not_started")
+            created = ts(td.get("createdAt"))
+            self.insert(
+                """INSERT INTO resume_tailorings
+                   (resume_id, job_snapshot_hash, source_resume_hash, company_name, job_title,
+                    review_session, review_progress, created_at, updated_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,COALESCE(%s, now()),COALESCE(%s, %s, now()))""",
+                (trid, str(td.get("jobSnapshotHash") or ""), str(td.get("sourceResumeHash") or ""),
+                 str(td.get("companyName") or "").strip(), str(td.get("jobTitle") or ""),
+                 js(dump(session)), progress, created, ts(td.get("updatedAt")), created),
+                returning=False,
+            )
+        loaded = len(tailorings) - (len(self.r.errors) - errors_before)
+        self.r.diffs.append(f"tailoredResumes 공고 스냅샷 · 첨삭 대화 → resume_tailorings {loaded}/{len(tailorings)}건")
 
     def _study(self) -> None:
         user_notes = 0
@@ -1019,7 +1154,7 @@ class Etl:
                     """INSERT INTO recommendation_events (legacy_id, cohort_id, user_id, recommendation_id, youtube_video_id, user_skills, matched_tags, action, created_at)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (doc.id, cid, self.uid(d.get("userId")), self.yt.get((code, str(d.get("youtubeVideoId") or d.get("videoId") or ""))),
-                     d.get("youtubeVideoId") or d.get("videoId"), arr(d.get("userSkills")), arr(d.get("matchedTags")),
+                     d.get("youtubeVideoId") or d.get("videoId"), js(arr(d.get("userSkills"))), js(arr(d.get("matchedTags"))),
                      d.get("action"), ts(d.get("createdAt"))),
                 )
             cache = stream(ref.collection("youtubeCurriculumCache"))
@@ -1069,7 +1204,7 @@ class Etl:
                 )
         self.r.fs_add("users/{uid}/studyNotes", user_notes)
         seating_legacy = self.r.fs.get("…/seating/{layout,assignment}", 0)
-        self.r.decision3["레거시 seating"] = "seating_rooms 로 변환" if seating_legacy else "생략 (신규 seatingRooms 사용)"
+        self.r.decision3["레거시 seating"] = "cohort_seating.layout JSONB로 변환" if seating_legacy else "생략 (신규 seatingRooms 사용)"
 
     def _ai_ops(self) -> None:
         fbs = stream(self.db.collection("aiQuestionFeedback"))
@@ -1092,7 +1227,7 @@ class Etl:
                 """INSERT INTO ai_eval_runs (legacy_id, prompt_version, model, source, total_cases, passed, accuracy, avg_latency_ms, failed_ids, created_at)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (doc.id, d.get("promptVersion"), d.get("model"), d.get("source"), d.get("totalCases"), d.get("passed"),
-                 d.get("accuracy"), d.get("avgLatencyMs"), [str(x) for x in arr(d.get("failedIds"))], ts(d.get("createdAt"))),
+                 d.get("accuracy"), d.get("avgLatencyMs"), js([str(x) for x in arr(d.get("failedIds"))]), ts(d.get("createdAt"))),
             )
 
     def _unmapped(self) -> None:
@@ -1116,18 +1251,16 @@ class Etl:
             "curriculum_sheets": "…/curriculumSheets",
             "materials": "…/materials",
             "attendances": "…/attendances",
-            "roll_calls": "…/rollCalls",
-            "seating_rooms": "…/seatingRooms",
-            "seating_assignments": "…/seatingAssignments",
+            "seat_presences": "…/rollCalls",
+            "cohort_seating": "…/seatingRooms",
             "project_teams": "…/projectTeams",
             "notices": "…/notices",
             "scheduled_notices": "…/scheduledNotices",
             "alert_popups": "…/alertPopups",
-            "assignments": "…/assignments",
             "record_submissions": "…/submissions",
-            "weekly_tasks": "…/weeklyTasks",
-            "weekly_progress": "…/userProgress",
-            "form_tasks": "…/formTasks",
+            "record_submission_files": "…/submissions.fileUrls",
+            "submission_tasks": "…/formTasks",
+            "submission_responses": "…/formTasks/{id}/responses",
             "assessments": "…/assessments",
             "assessment_questions": "…/assessments/{id}/questions",
             "assessment_submissions": "…/assessmentSubmissions",
@@ -1175,14 +1308,14 @@ def write_report(r: Report) -> None:
     pairs = [
         ("users", "users"), ("cohorts", "cohorts"), ("studentIntakes", "student_intakes"),
         ("users/{uid}/todos", "todos"), ("users/{uid}/alertPopupDismissals", "alert_popup_dismissals"),
-        ("…/attendances", "attendances"), ("…/rollCalls", "roll_calls"), ("…/notices", "notices"),
+        ("…/attendances", "attendances"), ("…/rollCalls", "seat_presences"), ("…/notices", "notices"),
         ("…/resumes", "resumes"), ("…/resumes/{id}/feedback", "resume_feedback"),
         ("…/resumes/{id}/revisions", "resume_revisions"), ("…/submissions", "record_submissions"),
         ("…/assessmentSubmissions", "assessment_submissions"), ("…/assessments/{id}/questions", "assessment_questions"),
         ("aiGenerationLogs", "ai_generation_logs"), ("aiQuestionFeedback", "ai_question_feedback"),
         ("…/mileageTransactions", "mileage_transactions"), ("…/mileageProducts", "mileage_products"),
         ("…/projectTeams", "project_teams"), ("…/studySources", "study_sources"),
-        ("…/formTasks", "form_tasks"), ("…/seatingRooms", "seating_rooms"),
+        ("…/formTasks", "submission_tasks"), ("…/seatingRooms", "cohort_seating"),
         ("systemCache", "system_cache"), ("aiEvalRuns", "ai_eval_runs"),
     ]
     for fs, table in pairs:
@@ -1233,28 +1366,18 @@ def write_report(r: Report) -> None:
     REPORT.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def apply_schema(url: str) -> None:
-    sql = SCHEMA.read_text(encoding="utf-8").replace("BEGIN;", "").replace("COMMIT;", "")
-    with psycopg.connect(url, autocommit=True, cursor_factory=ClientCursor) as conn:
-        conn.execute("DROP SCHEMA IF EXISTS public CASCADE")
-        conn.execute("CREATE SCHEMA public")
-        conn.execute(sql)
-
-
 def main() -> int:
-    url = os.environ["DATABASE_URL"]
-    ensure_db(url)
-    apply_schema(url)
     db = _init_firebase()
     report = Report()
-    with psycopg.connect(url, autocommit=False) as conn:
+    with connect_database() as conn:
+        assert_schema_ready(conn)
         etl = Etl(db, conn, report)
         etl.migrate()
     write_report(report)
     print(f"report: {REPORT}")
     print(f"pg users={report.pg.get('users')} fs users={report.fs.get('users')}")
     print(f"mileage mismatches={len(report.mileage)} uid_fail={len(set(report.uid_fail))} errors={len(report.errors)}")
-    return 0
+    return 1 if report.errors or report.uid_fail else 0
 
 
 if __name__ == "__main__":

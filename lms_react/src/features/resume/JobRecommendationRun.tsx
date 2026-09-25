@@ -8,6 +8,7 @@ import { careerLabel, jobPostingPath } from '../jobs/JobPostingScreen';
 import { JobRecommendationLoading } from './JobRecommendationLoading';
 import { useReviewDock } from './review/ReviewDock';
 import { reviewApi } from './review/reviewApi';
+import { reviewWorkCopy } from './resumeGroups';
 
 /**
  * 공고 추천 — 단계가 하나씩 켜지다 마지막에 로봇이 손을 놓는다.
@@ -320,8 +321,8 @@ export function JobRecommendationRun({ resume }: { resume: Resume }) {
   const { openReview } = useReviewDock();
   // 공고 맞춤 이력서(편집기로 옮긴 사본)는 연결된 공고를 보여 주고 「재첨삭」을 단다 — 원본 _hasLinkedJob
   const linkedJobId = resume.linkedJobId ?? '';
-  // 첨삭 작업본(「원본/tailored/사본」)이면 새로 뜨지 않고 그 사본의 대화를 이어서 연다
-  const workCopy = /^(?<base>[^/]+)\/tailored\/(?<tailored>[^/]+)$/.exec(resume.id)?.groups;
+  // 첨삭 작업본이면 새로 뜨지 않고 그 사본의 대화를 이어서 연다(원본이 지워진 작업본은 새로 뜬다)
+  const workCopy = reviewWorkCopy(resume);
 
   const reviewJob = async (job: JobPick) => {
     const options = { generalReview: false, jobId: job.jobId, jobCompany: job.company, jobTitle: job.title };

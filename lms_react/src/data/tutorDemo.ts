@@ -95,3 +95,8 @@ export async function demoTutorThread(mode: TutorMode, setId?: string, index?: n
   const turns = threads.get(keyOf(mode, setId, index)) ?? [];
   return { turns, hintLevel: levelOf(turns) };
 }
+
+export async function demoTutorReset(mode: TutorMode, setId?: string, index?: number) {
+  threads.delete(keyOf(mode, setId, index));
+  return { turns: [] as TutorTurn[], hintLevel: 0 };
+}

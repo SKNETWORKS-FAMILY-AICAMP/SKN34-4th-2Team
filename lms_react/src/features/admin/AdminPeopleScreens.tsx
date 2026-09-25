@@ -19,8 +19,11 @@ import {
   useMySubmissions,
   useStudents,
   useUser,
+  resetUserPassword,
   saveStudentIntake,
+  type AccountCredentials,
 } from '../../data/repository';
+import { readApiError } from '../../data/http';
 import { nextId } from '../../data/store';
 import { CohortStatusLabels, RecordTypeLabels, attendanceLabel } from '../../domain/constants';
 import type { Cohort, CohortStatus, StudentIntake, User } from '../../domain/types';
@@ -29,6 +32,7 @@ import {
   Button,
   Card,
   DataTable,
+  Dialog,
   EmptyState,
   Field,
   PageHeader,
@@ -36,16 +40,18 @@ import {
   Select,
   Spacer,
   StatTile,
+  TabPage,
+  Tabs,
   TextArea,
   TextInput,
   Toggle,
 } from '../../ui/components';
 import { formatDate, formatDateTime, formatMileage } from '../../utils/format';
-import { FilterPillHeader } from '../../ui/FilterPillHeader';
 import { MoreMenu } from '../../ui/MoreMenu';
 import { Icon } from '../../ui/Icon';
 import { dateKeyOf } from '../../data/seed';
 import { useCurrentUser } from '../auth/session';
+import { CredentialDialog } from './CredentialDialog';
 
 // 내 PC 시각 기준 — toISOString 은 세계 표준시라 하루 어긋난다
 const toInputDate = (d?: Date) => (d === undefined ? '' : dateKeyOf(d));
@@ -67,16 +73,24 @@ export function AdminStudentsScreen() {
     );
 
   return (
-    <div className="list-page">
-      <FilterPillHeader
-        pills={[
-          { id: 'active', label: '재원', count: students.filter((s) => s.isActive).length },
-          { id: 'inactive', label: '퇴소', count: students.filter((s) => !s.isActive).length },
-        ]}
-        selected={filter}
-        onSelect={(id) => setFilter(id as 'active' | 'inactive')}
-        trailing={
-          <>
+    <TabPage
+      title="학생 관리"
+      description="상담 등록으로 계정을 만들고, 재원 · 퇴소를 관리합니다."
+      actions={
+        <Link className="btn btn--filled btn--md" to={RoutePaths.adminStudentsCreate}>
+          <Icon name="person_add" size={18} />
+          학생 등록
+        </Link>
+      }
+      tabs={
+        <Tabs
+          active={filter}
+          onChange={(id) => setFilter(id as 'active' | 'inactive')}
+          items={[
+            { id: 'active', label: '재원', count: students.filter((s) => s.isActive).length },
+            { id: 'inactive', label: '퇴소', count: students.filter((s) => !s.isActive).length },
+          ]}
+          trailing={
             <label className="search-bar search-bar--sm">
               <Icon name="search" size={20} />
               <input
@@ -96,14 +110,10 @@ export function AdminStudentsScreen() {
                 </button>
               )}
             </label>
-            <Link className="btn btn--filled btn--md" to={RoutePaths.adminStudentsCreate}>
-              <Icon name="person_add" size={18} />
-              학생 등록
-            </Link>
-          </>
-        }
-      />
-
+          }
+        />
+      }
+    >
       {rows.length === 0 ? (
         <div className="list-page__empty">
           <Icon name="groups" size={44} />
@@ -145,7 +155,7 @@ export function AdminStudentsScreen() {
           ))}
         </div>
       )}
-    </div>
+    </TabPage>
   );
 }
 
@@ -157,6 +167,7 @@ export function AdminStudentDetailScreen() {
   const submissions = useMySubmissions(studentUid ?? '');
   const transactions = useMileageTransactions(studentUid);
   const navigate = useNavigate();
+  const account = useAccountActions();
 
   if (student === undefined) {
     return (
@@ -180,15 +191,16 @@ export function AdminStudentDetailScreen() {
             <Button variant="outline" onClick={() => navigate(adminStudentEditPath(student.uid))}>
               정보 수정
             </Button>
-            <Button
-              variant={student.isActive ? 'danger' : 'filled'}
-              onClick={() => updateUser(student.uid, { isActive: !student.isActive })}
-            >
-              {student.isActive ? '비활성화' : '재활성화'}
+            <Button variant="outline" onClick={() => account.askReset(student)}>
+              비밀번호 재발급
+            </Button>
+            <Button variant={student.isActive ? 'danger' : 'filled'} onClick={() => account.askActive(student)}>
+              {student.isActive ? '퇴소 처리' : '복학 처리'}
             </Button>
           </>
         }
       />
+      {account.dialogs}
 
       <div className="grid grid--4">
         <StatTile label="좌석" value={`${student.seatNumber ?? '-'}번`} />
@@ -364,38 +376,56 @@ export function AdminStudentFormScreen() {
   const [isActive, setActive] = useState(existing?.isActive ?? true);
   const [intake, setIntake] = useState<StudentIntake>(EMPTY_INTAKE);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [created, setCreated] = useState<AccountCredentials | null>(null);
 
   const setField = (key: keyof StudentIntake, value: string) =>
     setIntake((current) => ({ ...current, [key]: value }));
 
-  const save = () => {
-    if (displayName.trim() === '' || email.trim() === '') {
-      setError('이름과 이메일은 반드시 입력해야 합니다.');
+  const save = async () => {
+    if (displayName.trim() === '') {
+      setError('이름을 입력해 주세요.');
       return;
     }
     if (existing === undefined) {
-      const uid = nextId('user');
-      createUser({
-        uid,
-        email: email.trim(),
-        personalEmail: personalEmail.trim(),
-        displayName: displayName.trim(),
-        role: 'student',
-        cohortId: admin.cohortId,
-        cohortName: admin.cohortName,
-        seatNumber: seatNumber === '' ? undefined : Number(seatNumber),
-        isActive,
-        // 새 계정은 임시 비밀번호로 만들고 첫 로그인에서 바꾸게 한다.
-        mustChangePassword: true,
-        skills: [],
-        socialLinks: {},
-        jobPreferences: { targetRoles: [], regions: [], employmentTypes: [] },
-        birthDate: birthDate === '' ? undefined : birthDate,
-        mileageBalance: 0,
-        createdAt: new Date(),
-      });
-      if (Object.values(intake).some((v) => v.trim() !== '')) saveStudentIntake(uid, intake);
-      navigate(adminStudentDetailPath(uid));
+      // 원본(createStudentAccount)처럼 구글폼 매칭용 개인 이메일은 꼭 받는다. 로그인 이메일은 비우면 서버가 만든다
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(personalEmail.trim())) {
+        setError('구글폼 매칭에 쓸 개인 이메일을 입력해 주세요.');
+        return;
+      }
+      setSaving(true);
+      setError(null);
+      try {
+        const account = await createUser({
+          uid: nextId('user'),
+          email: email.trim(),
+          personalEmail: personalEmail.trim(),
+          displayName: displayName.trim(),
+          role: 'student',
+          cohortId: admin.cohortId,
+          cohortName: admin.cohortName,
+          seatNumber: seatNumber === '' ? undefined : Number(seatNumber),
+          isActive,
+          // 새 계정은 임시 비밀번호로 만들고 첫 로그인에서 바꾸게 한다.
+          mustChangePassword: true,
+          skills: [],
+          socialLinks: {},
+          jobPreferences: { targetRoles: [], regions: [], employmentTypes: [] },
+          birthDate: birthDate === '' ? undefined : birthDate,
+          mileageBalance: 0,
+          createdAt: new Date(),
+        });
+        if (Object.values(intake).some((v) => v.trim() !== '')) saveStudentIntake(account.uid, intake);
+        setCreated(account);
+      } catch (e) {
+        setError(await readApiError(e));
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+    if (email.trim() === '') {
+      setError('로그인 이메일을 비울 수 없습니다.');
       return;
     }
     updateUser(existing.uid, {
@@ -414,14 +444,21 @@ export function AdminStudentFormScreen() {
       <PageHeader title={existing === undefined ? '학생 등록' : '학생 정보 수정'} />
       <Card>
         <div className="grid grid--2">
-          <Field label="이름" error={error ?? undefined}>
+          <Field label="이름 *">
             <TextInput value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
           </Field>
-          <Field label="계정 이메일">
+          <Field
+            label="로그인 이메일"
+            hint={existing === undefined ? '비워 두면 무작위 주소(@playdata.co.kr)를 만듭니다.' : undefined}
+          >
             <TextInput value={email} onChange={(e) => setEmail(e.target.value)} placeholder="student@playdata.co.kr" />
           </Field>
-          <Field label="개인 이메일" hint="구글폼 제출 매칭에 씁니다.">
-            <TextInput value={personalEmail} onChange={(e) => setPersonalEmail(e.target.value)} />
+          <Field label={existing === undefined ? '개인 이메일 (Gmail) *' : '개인 이메일'} hint="구글폼 제출 매칭에 씁니다.">
+            <TextInput
+              value={personalEmail}
+              onChange={(e) => setPersonalEmail(e.target.value)}
+              placeholder="student@gmail.com"
+            />
           </Field>
           <Field label="좌석 번호">
             <TextInput type="number" value={seatNumber} onChange={(e) => setSeatNumber(e.target.value)} />
@@ -434,6 +471,11 @@ export function AdminStudentFormScreen() {
         {existing === undefined && (
           <div className="callout">
             등록하면 임시 비밀번호로 계정이 만들어지고, 첫 로그인에서 비밀번호를 바꾸게 됩니다.
+          </div>
+        )}
+        {error !== null && (
+          <div className="callout callout--error" role="alert">
+            {error}
           </div>
         )}
       </Card>
@@ -455,32 +497,56 @@ export function AdminStudentFormScreen() {
           <Button variant="outline" onClick={() => navigate(RoutePaths.adminStudents)}>
             취소
           </Button>
-          <Button onClick={save}>저장</Button>
+          <Button onClick={() => void save()} disabled={saving}>
+            {existing === undefined ? '아이디 · 비밀번호 생성하기' : '저장'}
+          </Button>
         </Row>
       </Card>
+
+      {created !== null && (
+        <CredentialDialog
+          title="계정 생성 완료"
+          credentials={created}
+          onClose={() => navigate(adminStudentDetailPath(created.uid))}
+        />
+      )}
     </div>
   );
 }
 
 /** 강사 관리 — admin_instructors_screen.dart */
 export function AdminInstructorsScreen() {
-  const instructors = useInstructors();
+  const all = useInstructors();
+  const account = useAccountActions();
+  // 학생 관리(재원 · 퇴소)와 같은 구조 — 활성 · 비활성으로 나눠 본다
+  const [filter, setFilter] = useState<'active' | 'inactive'>('active');
+  const instructors = all.filter((i) => (filter === 'active' ? i.isActive : !i.isActive));
 
   return (
-    <div className="list-page">
-      <div className="pill-head">
-        <div className="pill-head__trailing">
-          <Link className="btn btn--filled btn--md" to={RoutePaths.adminInstructorsCreate}>
-            <Icon name="person_add" size={18} />
-            강사 등록
-          </Link>
-        </div>
-      </div>
-
+    <TabPage
+      title="강사 관리"
+      description="강사 계정을 만들고 비밀번호 재발급 · 활성 여부를 관리합니다."
+      actions={
+        <Link className="btn btn--filled btn--md" to={RoutePaths.adminInstructorsCreate}>
+          <Icon name="person_add" size={18} />
+          강사 등록
+        </Link>
+      }
+      tabs={
+        <Tabs
+          active={filter}
+          onChange={(id) => setFilter(id as 'active' | 'inactive')}
+          items={[
+            { id: 'active', label: '활성', count: all.filter((i) => i.isActive).length },
+            { id: 'inactive', label: '비활성', count: all.filter((i) => !i.isActive).length },
+          ]}
+        />
+      }
+    >
       {instructors.length === 0 ? (
         <div className="list-page__empty">
           <Icon name="badge" size={44} />
-          <p>등록된 강사가 없습니다</p>
+          <p>{filter === 'active' ? '등록된 강사가 없습니다' : '비활성 강사가 없습니다'}</p>
         </div>
       ) : (
         <div className="list-page__body">
@@ -499,13 +565,13 @@ export function AdminInstructorsScreen() {
                   {
                     key: 'reset',
                     label: '비밀번호 재발급',
-                    onSelect: () => updateUser(i.uid, { mustChangePassword: true }),
+                    onSelect: () => account.askReset(i),
                   },
                   {
                     key: 'toggle',
                     label: i.isActive ? '비활성으로' : '활성으로',
                     danger: i.isActive,
-                    onSelect: () => updateUser(i.uid, { isActive: !i.isActive }),
+                    onSelect: () => account.askActive(i),
                   },
                 ]}
               />
@@ -513,8 +579,102 @@ export function AdminInstructorsScreen() {
           ))}
         </div>
       )}
-    </div>
+      {account.dialogs}
+    </TabPage>
   );
+}
+
+/**
+ * 비밀번호 재발급 · 퇴소(비활성) 확인 창 — 학생 상세와 강사 목록이 같이 쓴다.
+ * 재발급은 resetStudentPassword / resetInstructorPassword, 활성 바꾸기는 set*ActiveStatus 자리다.
+ */
+function useAccountActions() {
+  const [resetTarget, setResetTarget] = useState<User | null>(null);
+  const [activeTarget, setActiveTarget] = useState<User | null>(null);
+  const [issued, setIssued] = useState<AccountCredentials | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const who = (u: User) => (u.role === 'instructor' ? `${u.displayName} 강사` : `${u.displayName} 학생`);
+  const activeLabel = (u: User) =>
+    u.role === 'student' ? (u.isActive ? '퇴소' : '복학') : u.isActive ? '비활성' : '활성';
+  const close = () => {
+    setResetTarget(null);
+    setActiveTarget(null);
+    setError(null);
+  };
+  const reset = async (u: User) => {
+    setBusy(true);
+    setError(null);
+    try {
+      setIssued(await resetUserPassword(u.uid));
+      setResetTarget(null);
+    } catch (e) {
+      setError(await readApiError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const dialogs = (
+    <>
+      {resetTarget !== null && (
+        <Dialog
+          title="비밀번호 재발급"
+          onClose={close}
+          actions={
+            <>
+              <Button variant="text" onClick={close}>
+                취소
+              </Button>
+              <Button onClick={() => void reset(resetTarget)} disabled={busy}>
+                재발급
+              </Button>
+            </>
+          }
+        >
+          <p>{who(resetTarget)}의 비밀번호를 재발급할까요? 지금 비밀번호로는 더 이상 로그인할 수 없습니다.</p>
+          {error !== null && (
+            <div className="callout callout--error" role="alert">
+              {error}
+            </div>
+          )}
+        </Dialog>
+      )}
+      {activeTarget !== null && (
+        <Dialog
+          title={`${activeLabel(activeTarget)} 처리`}
+          onClose={close}
+          actions={
+            <>
+              <Button variant="text" onClick={close}>
+                취소
+              </Button>
+              <Button
+                variant={activeTarget.isActive ? 'danger' : 'filled'}
+                onClick={() => {
+                  updateUser(activeTarget.uid, { isActive: !activeTarget.isActive });
+                  close();
+                }}
+              >
+                {activeLabel(activeTarget)}
+              </Button>
+            </>
+          }
+        >
+          <p>
+            {who(activeTarget)}을(를) {activeLabel(activeTarget)} 처리할까요?{' '}
+            {activeTarget.isActive ? '로그인할 수 없게 됩니다.' : '다시 로그인할 수 있게 됩니다.'}
+          </p>
+        </Dialog>
+      )}
+      {issued !== null && (
+        <CredentialDialog title="비밀번호 재발급 완료" credentials={issued} onClose={() => setIssued(null)} />
+      )}
+    </>
+  );
+
+  return { askReset: setResetTarget, askActive: setActiveTarget, dialogs };
 }
 
 /** 강사 등록 — admin_instructor_create_screen.dart */
@@ -524,10 +684,12 @@ export function AdminInstructorCreateScreen() {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [created, setCreated] = useState<AccountCredentials | null>(null);
 
-  const save = () => {
-    if (displayName.trim() === '' || email.trim() === '') {
-      setError('이름과 이메일은 반드시 입력해야 합니다.');
+  const save = async () => {
+    if (displayName.trim() === '') {
+      setError('이름을 입력해 주세요.');
       return;
     }
     const newInstructor: User = {
@@ -545,8 +707,15 @@ export function AdminInstructorCreateScreen() {
       mileageBalance: 0,
       createdAt: new Date(),
     };
-    createUser(newInstructor);
-    navigate(RoutePaths.adminInstructors);
+    setSaving(true);
+    setError(null);
+    try {
+      setCreated(await createUser(newInstructor));
+    } catch (e) {
+      setError(await readApiError(e));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -556,7 +725,7 @@ export function AdminInstructorCreateScreen() {
         <Field label="이름" error={error ?? undefined}>
           <TextInput value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
         </Field>
-        <Field label="계정 이메일">
+        <Field label="로그인 이메일 (선택)" hint="비워 두면 무작위 주소(@playdata.co.kr)를 만듭니다.">
           <TextInput value={email} onChange={(e) => setEmail(e.target.value)} placeholder="instructor@playdata.co.kr" />
         </Field>
         <div className="callout">임시 비밀번호로 계정이 만들어지고, 첫 로그인에서 비밀번호를 바꾸게 됩니다.</div>
@@ -565,9 +734,18 @@ export function AdminInstructorCreateScreen() {
           <Button variant="outline" onClick={() => navigate(RoutePaths.adminInstructors)}>
             취소
           </Button>
-          <Button onClick={save}>등록</Button>
+          <Button onClick={() => void save()} disabled={saving}>
+            계정 생성
+          </Button>
         </Row>
       </Card>
+      {created !== null && (
+        <CredentialDialog
+          title="계정 생성 완료"
+          credentials={created}
+          onClose={() => navigate(RoutePaths.adminInstructors)}
+        />
+      )}
     </div>
   );
 }
@@ -582,22 +760,27 @@ export function AdminCohortsScreen() {
   const shown = cohorts.filter((c) => c.status === filter);
 
   return (
-    <div className="list-page">
-      <FilterPillHeader
-        pills={[
-          { id: 'active', label: '진행중', count: count('active') },
-          { id: 'planned', label: '예정', count: count('planned') },
-          { id: 'closed', label: '종료', count: count('closed') },
-        ]}
-        selected={filter}
-        onSelect={(id) => setFilter(id as 'active' | 'planned' | 'closed')}
-        trailing={
-          <Link className="btn btn--filled btn--md" to={RoutePaths.adminCohortsCreate}>
-            <Icon name="add" size={18} />
-            기수 생성
-          </Link>
-        }
-      />
+    <TabPage
+      title="기수 관리"
+      description="기수를 만들고 기간 · 상태 · 강의장을 관리합니다."
+      actions={
+        <Link className="btn btn--filled btn--md" to={RoutePaths.adminCohortsCreate}>
+          <Icon name="add" size={18} />
+          기수 생성
+        </Link>
+      }
+      tabs={
+        <Tabs
+          active={filter}
+          onChange={(id) => setFilter(id as 'active' | 'planned' | 'closed')}
+          items={[
+            { id: 'active', label: '진행중', count: count('active') },
+            { id: 'planned', label: '예정', count: count('planned') },
+            { id: 'closed', label: '종료', count: count('closed') },
+          ]}
+        />
+      }
+    >
 
       {shown.length === 0 ? (
         <div className="list-page__empty">
@@ -641,7 +824,7 @@ export function AdminCohortsScreen() {
           })}
         </div>
       )}
-    </div>
+    </TabPage>
   );
 }
 

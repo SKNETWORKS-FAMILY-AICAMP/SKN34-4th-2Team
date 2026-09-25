@@ -8,13 +8,14 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from django.contrib.auth.hashers import check_password, make_password
 from django.db import connection, transaction
 from django.http import HttpRequest
 from django.views.decorators.csrf import ensure_csrf_cookie
-from ninja import NinjaAPI, Schema
+from ninja import Body, File, NinjaAPI, Schema, UploadedFile
 from ninja.responses import Response
 from ninja.security import HttpBearer
-from pydantic import ConfigDict, Field
+from pydantic import Field
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -47,12 +48,6 @@ api = NinjaAPI(
 )
 
 
-class LooseBody(Schema):
-    """DRF request.data 처럼 임의 JSON을 받는다."""
-
-    model_config = ConfigDict(extra="allow")
-
-
 class LoginIn(Schema):
     email: str = ""
     password: str = ""
@@ -67,10 +62,8 @@ class CommandIn(Schema):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
-def _data(body: LooseBody | None) -> dict[str, Any]:
-    if body is None:
-        return {}
-    return body.model_dump(exclude_none=False)
+def _data(body: dict[str, Any] | None) -> dict[str, Any]:
+    return body or {}
 
 
 def _require_user(request: HttpRequest) -> dict:
@@ -129,7 +122,7 @@ def login(request, body: LoginIn):
             status=400,
         )
     stored = user.get("password") or ""
-    if stored and stored != password:
+    if not stored or not check_password(password, stored):
         return Response({"ok": False, "message": "비밀번호가 올바르지 않습니다."}, status=400)
     with connection.cursor() as cur:
         cur.execute("UPDATE users SET last_login = now() WHERE id = %s", [user["id"]])
@@ -176,7 +169,7 @@ def token_refresh(request, body: RefreshIn):
 
 
 @api.post("/password")
-def password(request, body: LooseBody):
+def password(request, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
     data = _data(body)
     if data.get("skip"):
@@ -199,13 +192,13 @@ def password(request, body: LooseBody):
         if not row:
             return Response({"ok": False, "message": "사용자를 찾을 수 없습니다."}, status=404)
         stored, must_change = row[0] or "", bool(row[1])
-        if not must_change and stored and stored != current:
+        if not must_change and (not stored or not check_password(current, stored)):
             return Response({"ok": False, "message": "현재 비밀번호가 올바르지 않습니다."}, status=400)
         cur.execute(
             """UPDATE users
                SET password = %s, must_change_password = false, updated_at = now()
                WHERE id = %s""",
-            [new_password, user["id"]],
+            [make_password(new_password), user["id"]],
         )
     return {"ok": True}
 
@@ -244,6 +237,9 @@ def chat(request, body: ChatIn):
         return {
             "answer": "학습 도우미 서버가 연결되어 있지 않습니다. 관리자에게 문의하세요.",
         }
+    internal_token = os.environ.get("LMS_AI_SHARED_TOKEN") or ""
+    if not internal_token:
+        return Response({"detail": "AI 서비스 내부 인증이 설정되지 않았습니다"}, status=503)
     payload = json.dumps(
         {"message": message, "uid": user["firebase_uid"], "thread_id": "web"},
         ensure_ascii=False,
@@ -251,7 +247,7 @@ def chat(request, body: ChatIn):
     req = urllib.request.Request(
         f"{base}/api/v1/student-chatbot/chat",
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "X-LMS-AI-Token": internal_token},
         method="POST",
     )
     try:
@@ -296,7 +292,7 @@ def _owned_resume(request, resume_id: str):
     user = _require_user(request)
     with connection.cursor() as cur:
         cur.execute(
-            """SELECT r.legacy_id, c.code, u.firebase_uid, r.cohort_id
+            """SELECT r.id, r.legacy_id, c.code, u.firebase_uid, r.cohort_id
                FROM resumes r JOIN users u ON u.id = r.user_id
                JOIN cohorts c ON c.id = r.cohort_id
                WHERE r.legacy_id = %s OR r.id::text = %s""",
@@ -310,6 +306,14 @@ def _owned_resume(request, resume_id: str):
     ):
         return None, Response({"detail": "본인 이력서만 첨삭받을 수 있습니다."}, status=403)
     return row, None
+
+
+def _review_resume_id(row) -> str:
+    """첨삭 서버로 넘길 이력서 id — 화면의 공개 id 와 같다(legacy_id, 없으면 resumes.id).
+
+    화면에서 새로 만든 이력서는 legacy_id 가 없다. legacy_id 를 그대로 넘기면 None 이 가서 첨삭을 못 받았다.
+    """
+    return str(row["legacy_id"] or row["id"])
 
 
 def _review_call(path: str, payload: dict, timeout: int = 180):
@@ -524,6 +528,13 @@ def practice_tutor_thread(request, mode: str = "cell", setId: str = "", index: i
     return _sources(lambda: practice_tutor.thread(user, mode, setId or None, index))
 
 
+@api.delete("/practice-tutor")
+def practice_tutor_reset(request, mode: str = "cell", setId: str = "", index: int = 0):
+    """튜터 「새 대화」 — 그 문제(또는 일반 셀)의 내 대화를 지운다"""
+    user = _require_user(request)
+    return _sources(lambda: practice_tutor.reset(user, mode, setId or None, index))
+
+
 class ResumeReviewApplyIn(Schema):
     resumeId: str
     reviewId: str
@@ -544,7 +555,7 @@ def resume_review_apply(request, body: ResumeReviewApplyIn):
     payload = {
         "uid": row["firebase_uid"],
         "cohort_id": row["code"],
-        "resume_id": row["legacy_id"],
+        "resume_id": _review_resume_id(row),
         "request_id": body.requestId,
         "review_id": body.reviewId,
         "expected_input_hash": body.expectedInputHash,
@@ -564,7 +575,7 @@ def resume_review_undo(request, body: ResumeReviewApplyIn):
     payload = {
         "uid": row["firebase_uid"],
         "cohort_id": row["code"],
-        "resume_id": row["legacy_id"],
+        "resume_id": _review_resume_id(row),
         "request_id": body.requestId,
         "application_id": body.applicationId or "",
         "expected_input_hash": body.expectedInputHash,
@@ -590,7 +601,7 @@ def resume_review(request, body: ResumeReviewIn):
     payload = {
         "uid": row["firebase_uid"],
         "cohort_id": row["code"],
-        "resume_id": row["legacy_id"],
+        "resume_id": _review_resume_id(row),
         "review_mode": "job" if body.selectedJobId else body.reviewMode,
     }
     if body.selectedJobId:
@@ -622,7 +633,7 @@ def resume_review_context(request, body: ReviewContextIn):
     row, error = _owned_resume(request, body.resumeId)
     if error is not None:
         return error
-    payload = {"uid": row["firebase_uid"], "cohort_id": row["code"], "resume_id": row["legacy_id"]}
+    payload = {"uid": row["firebase_uid"], "cohort_id": row["code"], "resume_id": _review_resume_id(row)}
     if body.selectedJobId:
         payload["job_id"] = body.selectedJobId
     if body.tailoredResumeId:
@@ -644,7 +655,7 @@ def resume_review_tailored_get(request, body: TailoredRefIn):
     payload = {
         "uid": row["firebase_uid"],
         "cohort_id": row["code"],
-        "resume_id": row["legacy_id"],
+        "resume_id": _review_resume_id(row),
         "tailored_resume_id": body.tailoredResumeId,
     }
     return _review_call("/api/v1/resumes/tailored/get/proxy", payload, timeout=60)
@@ -663,7 +674,7 @@ def resume_review_session(request, body: TailoredSessionIn):
     payload = {
         "uid": row["firebase_uid"],
         "cohort_id": row["code"],
-        "resume_id": row["legacy_id"],
+        "resume_id": _review_resume_id(row),
         "tailored_resume_id": body.tailoredResumeId,
         "state": body.state,
     }
@@ -688,7 +699,7 @@ def resume_review_tailored(request, body: TailoredResumeIn):
     payload = {
         "uid": row["firebase_uid"],
         "cohort_id": row["code"],
-        "resume_id": row["legacy_id"],
+        "resume_id": _review_resume_id(row),
         "selected_job_id": body.selectedJobId,
     }
     return _review_call("/api/v1/resumes/tailored/proxy", payload, timeout=60)
@@ -708,7 +719,7 @@ def resume_review_promote(request, body: TailoredPromoteIn):
     payload = {
         "uid": row["firebase_uid"],
         "cohort_id": row["code"],
-        "resume_id": row["legacy_id"],
+        "resume_id": _review_resume_id(row),
         "tailored_resume_id": body.tailoredResumeId,
     }
     return _review_call("/api/v1/resumes/tailored/promote/proxy", payload, timeout=60)
@@ -724,15 +735,16 @@ def jobs_recommend(request, body: JobRecommendIn):
     """공고 추천 — 이력서를 DB 에서 읽어 추천 서버(job_matching_bot)로 넘긴다.
 
     이력서 평문을 화면에서 받지 않는다. 남의 이력서로 추천을 받거나, 화면이 보낸 글이
-    DB 와 달라지는 것을 막는다. 희망 조건은 마이페이지(`users.job_preferences`)에서 읽는다.
+    DB 와 달라지는 것을 막는다. 희망 조건은 마이페이지(`user_job_preferences`)에서 읽는다.
 
     추천은 15초쯤 걸린다. 서버가 없으면(`JOBS_URL` 없음) 무엇이 빠졌는지 알려 준다.
     """
     user = _require_user(request)
     with connection.cursor() as cur:
         cur.execute(
-            """SELECT r.content, r.user_id, r.cohort_id, u.firebase_uid, u.job_preferences
+            """SELECT r.content, r.user_id, r.cohort_id, u.firebase_uid, p.preferences AS job_preferences
                FROM resumes r JOIN users u ON u.id = r.user_id
+               LEFT JOIN user_job_preferences p ON p.user_id = u.id
                WHERE r.legacy_id = %s OR r.id::text = %s""",
             [body.resumeId, body.resumeId],
         )
@@ -832,7 +844,7 @@ def bootstrap(request):
 
 
 @api.post("/notices")
-def create_notice(request, body: LooseBody):
+def create_notice(request, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
     data = _data(body)
     if user["role"] not in ("admin", "instructor"):
@@ -850,8 +862,8 @@ def create_notice(request, body: LooseBody):
             cur.execute("SELECT code FROM cohorts WHERE id = %s", [cohort_id])
             code = (cur.fetchone() or [None])[0]
             cur.execute(
-                """INSERT INTO notices (cohort_id, title, content, author_id, author_name, is_favorite, priority, created_at, updated_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s, now(), now()) RETURNING id""",
+                """INSERT INTO notices (cohort_id, title, content, author_id, author_name, is_favorite, priority, vector_chunk_count, created_at, updated_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,0, now(), now()) RETURNING id""",
                 [
                     cohort_id,
                     title,
@@ -880,7 +892,7 @@ def create_notice(request, body: LooseBody):
 
 
 @api.patch("/notices/{pk}")
-def patch_notice(request, pk: int, body: LooseBody):
+def patch_notice(request, pk: int, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
     data = _data(body)
     with transaction.atomic():
@@ -936,7 +948,7 @@ def delete_notice(request, pk: int):
 
 
 @api.post("/mileage/adjust")
-def mileage_adjust(request, body: LooseBody):
+def mileage_adjust(request, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
     data = _data(body)
     if user["role"] != "admin":
@@ -973,6 +985,84 @@ def command(request, body: CommandIn):
     return Response(result, status=status)
 
 
+def _assessment(call):
+    from lms.assessment_service import AssessmentError
+
+    try:
+        with connection.cursor() as cur:
+            return call(cur)
+    except AssessmentError as exc:
+        return Response({"detail": exc.detail}, status=exc.status)
+
+
+@api.get("/assessments/{assessment_id}/take")
+def assessment_take(request, assessment_id: str):
+    """응시할 문항 — 정답 · 해설 없이(getAssessmentForTake). bootstrap 은 학생에게 문항을 보내지 않는다."""
+    from lms.assessment_service import take
+
+    user = _require_user(request)
+    return _assessment(lambda cur: take(cur, user, assessment_id))
+
+
+RECORD_FILE_MAX_BYTES = 10 * 1024 * 1024
+RECORD_FILE_TYPES = {
+    "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp",
+    "image/heic": ".heic", "application/pdf": ".pdf",
+}
+
+
+@api.post("/uploads/record-evidence")
+def upload_record_evidence(request, file: UploadedFile = File(...)):
+    """기록 증빙 한 장 — 이미지 · PDF, 10MB 까지. 키를 돌려주고, 제출할 때 그 키를 files 로 붙인다.
+
+    키에 올린 학생 uid 가 들어간다(records/기수/uid/무작위). 제출 때 본인 키인지 이것으로 본다.
+    """
+    import uuid
+
+    from lms.storage import put_object, read_url
+
+    user = _require_user(request)
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    if content_type not in RECORD_FILE_TYPES:
+        return Response({"detail": "이미지나 PDF 만 올릴 수 있습니다."}, status=400)
+    if file.size is not None and file.size > RECORD_FILE_MAX_BYTES:
+        return Response({"detail": "파일은 10MB 이하만 올릴 수 있습니다."}, status=400)
+    data = file.read(RECORD_FILE_MAX_BYTES + 1)
+    if len(data) > RECORD_FILE_MAX_BYTES:
+        return Response({"detail": "파일은 10MB 이하만 올릴 수 있습니다."}, status=400)
+    key = f"records/{user.get('cohort_code') or 'none'}/{user['firebase_uid']}/{uuid.uuid4().hex}{RECORD_FILE_TYPES[content_type]}"
+    try:
+        put_object(key, data, content_type)
+    except Exception:  # noqa: BLE001 — S3 권한 · 네트워크
+        return Response({"detail": "파일을 저장하지 못했습니다. 잠시 뒤 다시 시도해 주세요."}, status=502)
+    return {"key": key, "name": file.name, "contentType": content_type, "size": len(data), "url": read_url(key)}
+
+
+@api.get("/files", auth=None)
+def stored_file(request, t: str = ""):
+    """로컬 저장 파일 읽기 — bootstrap 이 준 서명 주소(1시간). S3 를 쓰면 S3 서명 주소로 가서 여기에 오지 않는다."""
+    import mimetypes
+
+    from django.http import FileResponse, Http404
+
+    from lms.storage import key_from_read_token, local_path
+
+    key = key_from_read_token(t)
+    path = local_path(key) if key else None
+    if path is None or not path.is_file():
+        raise Http404("file")
+    return FileResponse(open(path, "rb"), content_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+
+
+@api.get("/assessments/{assessment_id}/review")
+def assessment_review(request, assessment_id: str, submissionId: str = ""):
+    """제출 뒤 결과 — 정답 · 해설 + 답안(getAssessmentReview). 학생은 자기 것만."""
+    from lms.assessment_service import review
+
+    user = _require_user(request)
+    return _assessment(lambda cur: review(cur, user, assessment_id, submissionId or None))
+
+
 @api.get("/qual-exams")
 def qual_exams(request, year: str = ""):
     _require_user(request)
@@ -989,7 +1079,7 @@ def qual_exams(request, year: str = ""):
 
 
 @api.post("/scheduled-notices")
-def create_scheduled(request, body: LooseBody):
+def create_scheduled(request, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
     status, result = _run_op(
         "upsertScheduledNotice", user, {**_data(body), "action": "insert"}
@@ -997,8 +1087,21 @@ def create_scheduled(request, body: LooseBody):
     return Response(result, status=status)
 
 
+@api.post("/scheduled-notices/publish")
+def publish_scheduled(request, body: dict[str, Any] = Body(...)):
+    user = _require_user(request)
+    if user["role"] not in ("admin", "instructor"):
+        return Response({"detail": "forbidden"}, status=403)
+    data = _data(body)
+    ids = data.get("ids") or data.get("scheduledIds")
+    count = publish_scheduled_notices(
+        ids=ids, cohort_id=None if user["role"] == "admin" else user.get("cohort_id") or -1,
+    )
+    return {"ok": True, "published": count}
+
+
 @api.patch("/scheduled-notices/{pk}")
-def patch_scheduled(request, pk: int, body: LooseBody):
+def patch_scheduled(request, pk: int, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
     status, result = _run_op(
         "upsertScheduledNotice", user, {**_data(body), "id": pk, "action": "update"}
@@ -1015,26 +1118,15 @@ def delete_scheduled(request, pk: int):
     return Response(result, status=status)
 
 
-@api.post("/scheduled-notices/publish")
-def publish_scheduled(request, body: LooseBody):
-    user = _require_user(request)
-    if user["role"] not in ("admin", "instructor"):
-        return Response({"detail": "forbidden"}, status=403)
-    data = _data(body)
-    ids = data.get("ids") or data.get("scheduledIds")
-    count = publish_scheduled_notices(ids=ids)
-    return {"ok": True, "published": count}
-
-
 @api.post("/alert-popups")
-def create_alert(request, body: LooseBody):
+def create_alert(request, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
     status, result = _run_op("upsertAlertPopup", user, {**_data(body), "action": "insert"})
     return Response(result, status=status)
 
 
 @api.patch("/alert-popups/{pk}")
-def patch_alert(request, pk: int, body: LooseBody):
+def patch_alert(request, pk: int, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
     status, result = _run_op(
         "upsertAlertPopup", user, {**_data(body), "id": pk, "action": "update"}
@@ -1052,7 +1144,7 @@ def delete_alert(request, pk: int):
 
 
 @api.post("/alert-popups/{pk}/dismiss")
-def dismiss_alert(request, pk: int, body: LooseBody = None):
+def dismiss_alert(request, pk: int, body: dict[str, Any] | None = Body(None)):
     user = _require_user(request)
     status, result = _run_op(
         "dismissAlertPopup", user, {**_data(body), "popupId": pk}

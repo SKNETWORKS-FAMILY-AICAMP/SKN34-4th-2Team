@@ -7,9 +7,9 @@
 | 기능/경로 | 현재 코드 상태 | TO-BE 작업 | 완료 판정 |
 |---|---|---|---|
 | 학생 챗봇 (`chatbot/`) | 학생 문맥 SQL은 TO-BE 테이블·`DB_*` 우선 연결로 수정. Django 프록시 내부 토큰 단위 테스트와 검증 DB 읽기 전용 SQL 확인 완료. 직접 `/init`·`/stream`은 Firebase ID 토큰. | Django 인증으로 직접 경로 대체, 실제 학생 데이터·Pinecone·S3 문맥 답변 검증 | React→Django→AI→RDS/S3/Pinecone 종단 간 테스트 |
-| 공부방 수업 노트 (`study_notes/`) | `service.py`의 소스/노트/생성 잠금은 Firestore. Django `study_sources`·`study_notes` 테이블은 있으나 노트 중복 생성용 `(user, source, scope)` 고유 제약·잠금 상태 설계가 필요. | PostgreSQL 원자적 선점·완료·실패 저장, Django 인증 프록시, 기존 응답 계약 유지 | 동시 생성·재조회·실패 복구·권한 테스트 |
+| 공부방 수업 노트 (`study_notes/`) | React 화면의 저장소 조회·노트 생성 호출을 Django 프록시에 연결했고 AI 내부 경로는 PostgreSQL 소스/노트를 사용한다. `0005` migration은 개발 DB에 적용, Django 테스트 22개 통과. 3차 직접 API/`service.py`의 Firestore 경로는 아직 남음. | AI 런타임 의존성 설치, `CHATBOT_URL`·공유 토큰 설정, 실제 소스/학생으로 생성·동시성 시험 | 동시 생성·재조회·실패 복구·권한·React 종단 간 테스트 |
 | 이력서 첨삭 (`cover_letter_rag/`) | 이력서 관련 SQL은 있으나 `firebase_gateway.py`의 인증·일부 상태는 Firebase. PostgreSQL 연결은 `DB_*` 우선으로 수정. | Firebase 토큰·잔여 Firestore 읽기/쓰기 제거, Django 인증·TO-BE 이력서/첨삭 테이블 연동 | 원본→첨삭→피드백 저장/적용 및 권한 테스트 |
-| 채용 매칭·공고 (`job_matching_bot/`) | `jobs` PostgreSQL 스키마 사용. 운영 저장소의 연결을 `DB_*` 우선으로 수정; 테스트 격리 스키마는 로컬 URL 유지. 공유/야간 수집 경로에 Firebase Storage 참조가 남음. | 크롤링→jobs upsert→임베딩 projection→추천, 공유 파일은 S3 key로 전환 | 신규·수정·마감 공고의 재수집 및 추천 응답 테스트 |
+| 채용 매칭·공고 (`job_matching_bot/`) | `jobs` PostgreSQL 스키마 사용. 운영 저장소의 연결을 `DB_*` 우선으로 수정; 테스트 격리 스키마는 로컬 URL 유지. 야간 배치의 옛 Firebase Storage 공유 업로드를 생략하는 **미커밋 초안**이 있으나 크롤링 담당자 확인 전이며 운영 확정 아님. 수동 공유 도구는 그대로 남음. | 담당자가 공유 파일의 소비자·필요성을 확인한 뒤 크롤링→jobs upsert→임베딩 projection→추천 운영 경로 확정 | 신규·수정·마감 공고의 재수집 및 추천 응답 테스트 |
 | 정책·공지·프로젝트 검색 (`vectordb/`, `functions/`) | Pinecone 검색 코드는 존재. 공지 자동 동기화는 Firestore Cloud Function 경로를 전제로 함. | PostgreSQL 원본 변경을 이벤트/작업으로 Pinecone에 투영, 재색인·삭제·재시도 | RDS 원본과 검색 결과의 동기화 검증 |
 | 연습·복습 문제 | Django practice 테이블은 존재. 3차의 풀이·생성 API 이주 상태는 별도 확인 필요. | 문제 생성/풀이/신고/검토 경로를 Django 인증과 managed tables에 연결 | 생성→풀이→재시도→신고 테스트 |
 

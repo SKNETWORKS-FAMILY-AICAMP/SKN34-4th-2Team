@@ -7,6 +7,7 @@ import type { User } from '../../domain/types';
 import { tourFor } from '../../tour/tours';
 import { useTour } from '../../tour/useTour';
 import { Icon } from '../../ui/Icon';
+import { PageHeader } from '../../ui/components';
 import { formatDateTime } from '../../utils/format';
 import { useCurrentUser, useSession } from '../auth/session';
 
@@ -25,17 +26,7 @@ export function MyPageScreen() {
   return (
     <div className="mypage">
       <div className="mypage__column">
-        <header className="mypage__head">
-          <button
-            type="button"
-            className="icon-btn"
-            aria-label="뒤로"
-            onClick={() => navigate(homeFor(user.role))}
-          >
-            <Icon name="arrow_back" size={22} />
-          </button>
-          <h1>마이페이지</h1>
-        </header>
+        <PageHeader title="마이페이지" description="프로필 · 연락처 · 취업 희망 조건 · 비밀번호를 관리합니다." />
 
         <ProfileOverviewCard user={user} />
         <PersonalInfoCard user={user} />

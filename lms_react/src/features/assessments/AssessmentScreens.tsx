@@ -1,15 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { RoutePaths, assessmentResultPath, assessmentTakePath } from '../../app/routePaths';
 import {
+  fetchAssessmentForTake,
+  fetchAssessmentReview,
   submitAssessment,
   useAssessment,
-  useAssessmentQuestions,
   useAssessments,
   useMyAssessmentSubmission,
+  type AssessmentReview,
 } from '../../data/repository';
-import type { Assessment } from '../../domain/types';
+import { readApiError } from '../../data/http';
+import type { Assessment, AssessmentQuestion } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import {
   Badge,
@@ -49,6 +52,7 @@ export function AssessmentsScreen() {
   // 원본은 860px 한 줄기다. 검색 줄과 목록의 너비가 같다.
   return (
     <div className="screen__inner assess-page">
+      <PageHeader title="성취도평가" description="공개된 평가를 기간 안에 응시하고 결과를 확인하세요." />
       <div className="search-bar">
         <Icon name="search" size={20} />
         <input
@@ -138,11 +142,30 @@ export function AssessmentTakeScreen() {
   const user = useCurrentUser();
   const navigate = useNavigate();
   const assessment = useAssessment(assessmentId);
-  const questions = useAssessmentQuestions(assessmentId);
   const submission = useMyAssessmentSubmission(assessmentId, user.uid);
   const [answers, setAnswers] = useState<Record<string, number | string | null>>({});
   const [index, setIndex] = useState(0);
   const [confirmSubmit, setConfirmSubmit] = useState(false);
+  // 문항은 서버가 정답을 빼고 따로 준다(getAssessmentForTake) — 공개 · 기간 · 이미 냈는지도 거기서 본다
+  const [questions, setQuestions] = useState<AssessmentQuestion[] | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const canTake = assessment !== undefined && submission === undefined && assessment.published && windowState(assessment) === 'open';
+
+  useEffect(() => {
+    if (!canTake || assessmentId === undefined) return;
+    let alive = true;
+    fetchAssessmentForTake(assessmentId)
+      .then((list) => alive && setQuestions(list))
+      .catch(async (e) => {
+        const reason = await readApiError(e);
+        if (alive) setLoadError(reason);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [assessmentId, canTake]);
 
   if (assessment === undefined) {
     return (
@@ -192,13 +215,39 @@ export function AssessmentTakeScreen() {
     );
   }
 
+  if (questions === null) {
+    return (
+      <div className="screen__inner">
+        <Card>
+          <EmptyState message={loadError || '문항을 불러오는 중입니다'} />
+          {loadError !== '' && (
+            <Row>
+              <Spacer />
+              <Link className="btn btn--outline btn--md" to={RoutePaths.assessments}>목록으로</Link>
+              <Spacer />
+            </Row>
+          )}
+        </Card>
+      </div>
+    );
+  }
+
   const question = questions[index];
   const answered = questions.filter((q) => answers[q.id] !== undefined && answers[q.id] !== '').length;
   const last = index >= questions.length - 1;
 
-  const submit = () => {
-    submitAssessment(assessment, questions, user, answers);
-    navigate(assessmentResultPath(assessment.id), { replace: true });
+  const submit = async () => {
+    setSubmitting(true);
+    setSubmitError('');
+    try {
+      await submitAssessment(assessment, questions, user, answers);
+      navigate(assessmentResultPath(assessment.id), { replace: true });
+    } catch (e) {
+      setConfirmSubmit(false);
+      setSubmitError(await readApiError(e));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const finish = () => {
@@ -206,7 +255,7 @@ export function AssessmentTakeScreen() {
       setConfirmSubmit(true);
       return;
     }
-    submit();
+    void submit();
   };
 
   return (
@@ -254,11 +303,18 @@ export function AssessmentTakeScreen() {
             </Button>
             <Spacer />
             {last ? (
-              <Button onClick={finish}>제출하기</Button>
+              <Button onClick={finish} disabled={submitting}>
+                제출하기
+              </Button>
             ) : (
               <Button onClick={() => setIndex((i) => i + 1)}>다음</Button>
             )}
           </Row>
+          {submitError !== '' && (
+            <div className="callout callout--error" role="alert">
+              제출하지 못했습니다 · {submitError}
+            </div>
+          )}
         </Card>
       )}
 
@@ -269,7 +325,9 @@ export function AssessmentTakeScreen() {
           actions={
             <>
               <Button variant="outline" onClick={() => setConfirmSubmit(false)}>계속 풀기</Button>
-              <Button onClick={submit}>그대로 제출</Button>
+              <Button onClick={() => void submit()} disabled={submitting}>
+                그대로 제출
+              </Button>
             </>
           }
         >
@@ -285,10 +343,27 @@ export function AssessmentResultScreen() {
   const { assessmentId } = useParams<{ assessmentId: string }>();
   const user = useCurrentUser();
   const assessment = useAssessment(assessmentId);
-  const questions = useAssessmentQuestions(assessmentId);
-  const submission = useMyAssessmentSubmission(assessmentId, user.uid);
+  const mine = useMyAssessmentSubmission(assessmentId, user.uid);
+  // 정답 · 해설은 낸 뒤에 서버가 따로 준다(getAssessmentReview). 학생 bootstrap 에는 문항이 없다
+  const [review, setReview] = useState<AssessmentReview | null | undefined>(undefined);
+  const [loadError, setLoadError] = useState('');
 
-  if (assessment === undefined || submission === undefined) {
+  useEffect(() => {
+    if (assessmentId === undefined || mine === undefined) return;
+    let alive = true;
+    fetchAssessmentReview(assessmentId, user)
+      .then((r) => alive && setReview(r))
+      .catch(async (e) => {
+        const reason = await readApiError(e);
+        if (alive) setLoadError(reason);
+      });
+    return () => {
+      alive = false;
+    };
+    // 제출이 새로 들어오면(방금 낸 경우) 다시 읽는다
+  }, [assessmentId, mine?.id, mine?.totalScore]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (assessment === undefined || mine === undefined || review === null) {
     return (
       <div className="screen__inner">
         <Card>
@@ -297,6 +372,16 @@ export function AssessmentResultScreen() {
       </div>
     );
   }
+  if (review === undefined) {
+    return (
+      <div className="screen__inner">
+        <Card>
+          <EmptyState message={loadError ? `결과를 불러오지 못했습니다 · ${loadError}` : '결과를 불러오는 중입니다'} />
+        </Card>
+      </div>
+    );
+  }
+  const { questions, submission } = review;
 
   const correct = questions.filter((q) => submission.answers[q.id]?.isCorrect === true).length;
   const wrong = questions.filter((q) => submission.answers[q.id]?.isCorrect !== true);

@@ -22,6 +22,8 @@ services:
     env_file:
       - .env
     environment:
+      # Local Compose always uses its own db service, even if root .env has RDS DB_HOST.
+      DB_HOST: ""
       DATABASE_URL: postgresql://postgres:postgres@db:5432/lms
       REDIS_URL: redis://redis:6379/0
       DJANGO_DEBUG: "1"
@@ -40,6 +42,7 @@ services:
     env_file:
       - .env
     environment:
+      DB_HOST: ""
       DATABASE_URL: postgresql://postgres:postgres@db:5432/lms
       REDIS_URL: redis://redis:6379/0
     depends_on:
@@ -55,6 +58,7 @@ services:
     env_file:
       - .env
     environment:
+      DB_HOST: ""
       DATABASE_URL: postgresql://postgres:postgres@db:5432/lms
       REDIS_URL: redis://redis:6379/0
     depends_on:

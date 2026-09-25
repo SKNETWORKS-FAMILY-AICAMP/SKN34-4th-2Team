@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 import type { PracticeSet } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
+import { Button, Dialog } from '../../ui/components';
 import { MoreMenu } from '../../ui/MoreMenu';
 import { startPracticeFromFile, useMyPracticeAttempts, usePracticeSets } from '../../data/repository';
 import { useCurrentUser } from '../auth/session';
@@ -27,6 +28,7 @@ import type { Notebook } from './useNotebook';
 export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | undefined }) {
   const [showStdin, setShowStdin] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const file = useNotebookFile(nb, set);
   const [making, setMaking] = useState(false);
   const tutor = useTutor();
@@ -36,9 +38,16 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
     <>
       <div className="py-toolbar">
         <span className="py-toolbar__run">
-          <button type="button" className="btn btn--filled btn--sm" onClick={nb.runAll} disabled={nb.busy}>
+          <button
+            type="button"
+            className="btn btn--filled btn--sm"
+            onClick={nb.runAll}
+            disabled={nb.busy}
+            aria-label="모두 실행"
+            title="모두 실행"
+          >
             <Icon name="fast_forward" size={18} />
-            모두 실행
+            <span className="py-toolbar__label py-toolbar__label--main">모두 실행</span>
           </button>
           {nb.busy && (
             <button type="button" className="btn btn--danger btn--sm" onClick={nb.stop}>
@@ -65,7 +74,10 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
               onSelect: () => nb.addExample(e.code, e.type),
             })),
           ]}
-        />
+        >
+          <Icon name="add" size={18} />
+          <span className="py-toolbar__label">셀 추가</span>
+        </MoreMenu>
 
         <ProblemPicker nb={nb} />
 
@@ -76,9 +88,10 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
           onClick={() => setMaking((v) => !v)}
           aria-expanded={making}
           title="지금 셀로 복습 문제 6개를 만들어요 · 나만 봐요"
+          aria-label="문제 만들기"
         >
           <Icon name="auto_awesome" size={18} />
-          문제 만들기
+          <span className="py-toolbar__label">문제 만들기</span>
         </button>
 
         {tutor && (
@@ -88,9 +101,10 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
             onClick={() => (tutorOn ? tutor.close() : tutor.openFor([nb.activeId, ...nb.cells.map((c) => c.id)]))}
             aria-expanded={tutorOn}
             title="지금 고른 셀(문제)을 튜터에게 물어요 · 셀을 옮기면 튜터도 따라가요"
+            aria-label="튜터"
           >
             <Icon name="school" size={18} />
-            튜터
+            <span className="py-toolbar__label">튜터</span>
           </button>
         )}
 
@@ -101,15 +115,26 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
           className={`btn btn--outline btn--sm${showStdin ? ' py-toolbar__on' : ''}`}
           onClick={() => setShowStdin((v) => !v)}
           aria-expanded={showStdin}
+          aria-label="입력값"
+          title="입력값 — input() 이 읽을 줄"
         >
           <Icon name="keyboard" size={18} />
-          입력값{nb.stdinLines ? ` · ${nb.stdinLines}줄` : ''}
+          <span className="py-toolbar__label">입력값</span>
+          {nb.stdinLines ? <span className="py-toolbar__label"> · {nb.stdinLines}줄</span> : null}
         </button>
 
         <MoreMenu
           label="더 보기"
           items={[
             { key: 'reset', icon: 'restart_alt', label: '변수 초기화', hint: '모든 변수를 비우고 실행 번호를 1부터', onSelect: nb.resetKernel },
+            {
+              key: 'clear',
+              icon: 'delete_sweep',
+              label: '모든 셀 지우기',
+              hint: set ? '문제 셀만 남기고 내가 쓴 셀을 지워요' : '빈 셀 하나만 남기고 모두 지워요',
+              danger: true,
+              onSelect: () => setConfirmClear(true),
+            },
             { key: 'open', icon: 'upload_file', label: '불러오기…', hint: '.ipynb · .py 파일', divider: true, onSelect: file.openPicker },
             { key: 'ipynb', icon: 'download', label: '내려받기 · .ipynb', hint: 'Jupyter 노트북 · 출력 포함', onSelect: () => file.download('ipynb') },
             { key: 'py', icon: 'download', label: '내려받기 · .py', hint: '# %% 로 셀 구분', onSelect: () => file.download('py') },
@@ -152,6 +177,35 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
       )}
 
       {showKeys && <ShortcutHelp onClose={() => setShowKeys(false)} />}
+
+      {confirmClear && (
+        <Dialog
+          title="모든 셀 지우기"
+          onClose={() => setConfirmClear(false)}
+          actions={
+            <>
+              <Button variant="text" onClick={() => setConfirmClear(false)}>
+                취소
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  nb.clearAll();
+                  setConfirmClear(false);
+                }}
+              >
+                모두 지우기
+              </Button>
+            </>
+          }
+        >
+          <p>
+            {set
+              ? '문제 셀만 남기고 내가 쓴 셀과 출력을 모두 지울까요? 변수도 비워집니다.'
+              : '모든 셀과 출력을 지우고 빈 셀 하나만 남길까요? 변수도 비워집니다. 필요하면 먼저 「내려받기」로 저장하세요.'}
+          </p>
+        </Dialog>
+      )}
     </>
   );
 }
@@ -186,9 +240,10 @@ function ProblemPicker({ nb }: { nb: Notebook }) {
         className="btn btn--outline btn--sm py-picker__main"
         onClick={() => pick()}
         title={`다음 문제 · ${MINI_LEVELS[next.level]} · ${next.title}`}
+        aria-label="연습 문제 풀기"
       >
         <Icon name="fitness_center" size={18} />
-        연습 문제 풀기
+        <span className="py-toolbar__label">연습 문제 풀기</span>
       </button>
       <MoreMenu
         label="문제 고르기"

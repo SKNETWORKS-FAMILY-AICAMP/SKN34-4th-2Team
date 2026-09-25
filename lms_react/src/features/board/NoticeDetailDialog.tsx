@@ -21,6 +21,13 @@ export function NoticeDetailDialog({ notice, onClose }: { notice: Notice; onClos
       <p className="muted" style={{ whiteSpace: 'pre-wrap' }}>
         {notice.content}
       </p>
+      {notice.imageUrl && (
+        <img
+          src={notice.imageUrl}
+          alt={`${notice.title} 첨부 이미지`}
+          style={{ display: 'block', maxWidth: '100%', height: 'auto', borderRadius: 8 }}
+        />
+      )}
     </Dialog>
   );
 }

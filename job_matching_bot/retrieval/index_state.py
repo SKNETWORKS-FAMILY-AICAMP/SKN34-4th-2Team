@@ -76,7 +76,7 @@ def adopt(store, index) -> dict[str, int]:
             adopted[job_id] = row["embed_hash"]
         else:
             stale.append(job_id)
-    store.mark_indexed(adopted, at=datetime.now())
+    store.mark_indexed(adopted, at=datetime.now().astimezone())
     return {
         "embed_hash 계산": refreshed,
         "인덱스에 있음": len(found),
@@ -84,6 +84,13 @@ def adopt(store, index) -> dict[str, int]:
         "내용이 달라 다음 적재 때 다시 올릴 것": len(stale),
         "인덱스에 없음": len(ids) - len(found),
     }
+
+
+def _stamp(value) -> str:
+    """runs.started_at 은 PostgreSQL 에서 datetime 으로, 옛 SQLite 에서 문자열로 온다."""
+    if isinstance(value, datetime):
+        return value.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    return str(value)[:19]
 
 
 def recent_runs(store, limit: int = 5) -> list[dict]:
@@ -129,7 +136,7 @@ def main() -> int:
         for run in runs:
             outcome = f"오류 {run['error']}" if run["error"] else f"벡터 {run['vectors'] if run['vectors'] is not None else '-'}"
             print(
-                f"  {run['started_at'][:19]} {run['source'] or ''} 신규 {run['new']} 갱신 {run['updated']} "
+                f"  {_stamp(run['started_at'])} {run['source'] or ''} 신규 {run['new']} 갱신 {run['updated']} "
                 f"변경없음 {run['unchanged']} 만료 {run['expired']} 삭제 {run['removed']} · {outcome}"
             )
     store.close()

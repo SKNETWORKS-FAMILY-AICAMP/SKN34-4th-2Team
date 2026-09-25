@@ -45,10 +45,7 @@ import { MenuRow } from './AdminDashboardScreen';
 export function AdminMileageHubScreen() {
   return (
     <div className="admin-page">
-      <h1 className="admin-page__title">마일리지 관리</h1>
-      <p className="admin-page__desc">
-        상품 등록, 구매 요청 처리, 마일리지 지급 및 기수 설정을 관리합니다.
-      </p>
+      <PageHeader title="마일리지 관리" description="상품 등록, 구매 요청 처리, 마일리지 지급 및 기수 설정을 관리합니다." />
 
       <MenuRow
         icon="inventory_2"

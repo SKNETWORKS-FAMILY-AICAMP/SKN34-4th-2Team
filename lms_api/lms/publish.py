@@ -57,7 +57,8 @@ def _dicts(cur):
     return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
-def publish_scheduled_notices(*, ids: list | None = None, now: datetime | None = None) -> int:
+def publish_scheduled_notices(*, ids: list | None = None, now: datetime | None = None,
+                              cohort_id: int | None = None) -> int:
     """기한이 된 예약(또는 지정 id)을 notices 에 넣고 다음 시각을 갱신한다."""
     when = now or timezone.now()
     published = 0
@@ -65,22 +66,36 @@ def publish_scheduled_notices(*, ids: list | None = None, now: datetime | None =
         with connection.cursor() as cur:
             if ids:
                 rows = []
+                seen = set()
                 for raw in ids:
+                    if str(raw) in seen:
+                        continue
+                    seen.add(str(raw))
                     try:
                         pk = int(raw)
                     except (TypeError, ValueError):
-                        cur.execute("SELECT * FROM scheduled_notices WHERE legacy_id = %s", [str(raw)])
+                        cur.execute("SELECT * FROM scheduled_notices WHERE legacy_id = %s AND is_active = true FOR UPDATE", [str(raw)])
                     else:
-                        cur.execute("SELECT * FROM scheduled_notices WHERE id = %s OR legacy_id = %s", [pk, str(raw)])
+                        cur.execute("SELECT * FROM scheduled_notices WHERE (id = %s OR legacy_id = %s) AND is_active = true FOR UPDATE", [pk, str(raw)])
                     found = _dicts(cur)
-                    if found:
+                    if found and (cohort_id is None or found[0]["cohort_id"] == cohort_id):
                         rows.append(found[0])
             else:
-                cur.execute(
-                    """SELECT * FROM scheduled_notices
-                       WHERE is_active = true AND next_publish_at IS NOT NULL AND next_publish_at <= %s""",
-                    [when],
-                )
+                if cohort_id is None:
+                    cur.execute(
+                        """SELECT * FROM scheduled_notices
+                           WHERE is_active = true AND next_publish_at IS NOT NULL AND next_publish_at <= %s
+                           FOR UPDATE SKIP LOCKED""",
+                        [when],
+                    )
+                else:
+                    cur.execute(
+                        """SELECT * FROM scheduled_notices
+                           WHERE cohort_id = %s AND is_active = true
+                             AND next_publish_at IS NOT NULL AND next_publish_at <= %s
+                           FOR UPDATE SKIP LOCKED""",
+                        [cohort_id, when],
+                    )
                 rows = _dicts(cur)
 
             for row in rows:
@@ -96,8 +111,8 @@ def publish_scheduled_notices(*, ids: list | None = None, now: datetime | None =
                 cur.execute(
                     """INSERT INTO notices
                        (cohort_id, title, content, author_id, author_name, is_favorite,
-                        source, scheduled_notice_id, created_at, updated_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,'scheduled',%s, now(), now()) RETURNING id""",
+                        priority, vector_chunk_count, source, scheduled_notice_id, created_at, updated_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,0,0,'scheduled',%s, now(), now()) RETURNING id""",
                     [
                         row["cohort_id"],
                         row.get("title") or "",

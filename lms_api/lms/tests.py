@@ -1,0 +1,285 @@
+"""Small API-contract checks that do not require a database connection."""
+
+import json
+import os
+from collections import namedtuple
+
+from django.test import SimpleTestCase
+from unittest import TestCase
+from unittest.mock import Mock, patch
+
+from lms.api import ChatIn, _data, api, chat
+from lms.bootstrap_service import _dicts
+from lms.commands import (
+    _validate_record_submission_write, _validate_resume_write, op_add_todo,
+    op_delete_todo, op_set_seat_presence, op_toggle_todo, op_upsert_sql,
+)
+from lms.services import sync_notice_vector
+
+
+class AttendanceUpsertTests(TestCase):
+    @patch("lms.commands._prepare_row", return_value={
+        "user_id": 9, "cohort_id": 2, "attendance_date": "2026-09-24",
+        "status": "late", "data_source": "manual",
+    })
+    @patch("lms.commands._table_columns", return_value={
+        "id", "user_id", "cohort_id", "attendance_date", "status", "data_source",
+        "created_at", "updated_at",
+    })
+    def test_repeated_daily_insert_updates_existing_row(self, _columns, _prepare):
+        cur = Mock()
+        cur.fetchone.return_value = (17,)
+        result = op_upsert_sql(cur, {"role": "admin", "id": 1}, {
+            "table": "attendances", "action": "insert", "userId": "student-uid",
+            "dateKey": "2026-09-24", "status": "late",
+        })
+        sql, values = cur.execute.call_args.args
+        self.assertEqual(result, {"id": "17"})
+        self.assertIn("ON CONFLICT (user_id, attendance_date) DO UPDATE SET", sql)
+        self.assertIn("status = EXCLUDED.status", sql)
+        self.assertNotIn("user_id = EXCLUDED.user_id", sql)
+        self.assertEqual(values, [9, 2, "2026-09-24", "late", "manual"])
+
+
+class SeatPresenceTests(TestCase):
+    def test_repeat_mark_upserts_same_student_period(self):
+        cur = Mock()
+        cur.fetchone.side_effect = [(8, 2), (17,)]
+        actor = {"id": 4, "role": "instructor", "cohort_id": 2, "is_active": True}
+        result = op_set_seat_presence(cur, actor, {
+            "userId": "student-uid", "dateKey": "2026-09-24", "period": 9,
+            "state": "held",
+        })
+        self.assertEqual(result, {"id": "17"})
+        sql, values = cur.execute.call_args.args
+        self.assertIn("ON CONFLICT (cohort_id, user_id, presence_date, period)", sql)
+        self.assertEqual(values[0:2], [2, 8])
+        self.assertEqual(values[4:], ["held", 4])
+
+    def test_instructor_cannot_mark_another_cohort(self):
+        cur = Mock()
+        cur.fetchone.return_value = (8, 3)
+        actor = {"id": 4, "role": "instructor", "cohort_id": 2, "is_active": True}
+        with self.assertRaises(PermissionError):
+            op_set_seat_presence(cur, actor, {
+                "userId": "student-uid", "dateKey": "2026-09-24", "period": 9,
+                "state": "confirmed",
+            })
+        self.assertEqual(cur.execute.call_count, 1)
+
+
+class NoticeVectorCountTests(TestCase):
+    @patch("lms.services.connection.cursor")
+    @patch("lms.services.notice_vectors.upsert_notice_vectors", return_value=2)
+    def test_upsert_persists_chunk_count(self, upsert, cursor):
+        count = sync_notice_vector("cohort_34", 17, {"title": "Test", "content": "Text"})
+        self.assertEqual(count, 2)
+        upsert.assert_called_once()
+        cursor.return_value.__enter__.return_value.execute.assert_called_once_with(
+            "UPDATE notices SET vector_chunk_count = %s WHERE id = %s", [2, 17]
+        )
+
+    @patch("lms.services.connection.cursor")
+    @patch("lms.services.notice_vectors.delete_notice_vectors")
+    def test_delete_only_removes_existing_vectors(self, delete, cursor):
+        sync_notice_vector("cohort_34", 17, None, previous_chunk_count=2)
+        delete.assert_called_once_with("cohort_34", 17, 2)
+        cursor.assert_not_called()
+
+
+class JsonBodyContractTests(SimpleTestCase):
+    def test_arbitrary_json_fields_survive(self):
+        payload = {"title": "Notice", "cohortId": "cohort_34", "isActive": False}
+        self.assertEqual(_data(payload), payload)
+        self.assertEqual(_data(None), {})
+
+    def test_write_routes_accept_json_request_bodies(self):
+        paths = api.get_openapi_schema()["paths"]
+        for path, method in (
+            ("/api/notices", "post"),
+            ("/api/notices/{pk}", "patch"),
+            ("/api/scheduled-notices", "post"),
+            ("/api/scheduled-notices/{pk}", "patch"),
+            ("/api/alert-popups", "post"),
+            ("/api/alert-popups/{pk}", "patch"),
+        ):
+            with self.subTest(path=path, method=method):
+                operation = paths[path][method]
+                self.assertIn("requestBody", operation)
+                self.assertFalse(any(p["name"] == "body" for p in operation.get("parameters", [])))
+
+
+class AiProxyContractTests(SimpleTestCase):
+    def test_missing_internal_token_does_not_call_ai_service(self):
+        request = Mock(auth={"id": 42, "role": "student", "firebase_uid": "student-a"})
+        with patch.dict(os.environ, {"CHATBOT_URL": "http://ai:8001", "LMS_AI_SHARED_TOKEN": ""}), \
+             patch("lms.api.urllib.request.urlopen") as urlopen:
+            response = chat(request, ChatIn(message="hello"))
+        self.assertEqual(response.status_code, 503)
+        urlopen.assert_not_called()
+
+    def test_internal_token_is_sent_in_header_not_body(self):
+        request = Mock(auth={"role": "student", "firebase_uid": "student-a"})
+        with patch.dict(os.environ, {"CHATBOT_URL": "http://ai:8001", "LMS_AI_SHARED_TOKEN": "private-test-token"}), \
+             patch("lms.api.urllib.request.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = b'{"answer":"ok"}'
+            response = chat(request, ChatIn(message="hello"))
+            sent = urlopen.call_args.args[0]
+        self.assertEqual(response["answer"], "ok")
+        self.assertEqual(sent.get_header("X-lms-ai-token"), "private-test-token")
+        self.assertNotIn(b"private-test-token", sent.data)
+
+
+class ResumeReviewIdTests(SimpleTestCase):
+    """첨삭 서버로 넘기는 이력서 id — 화면의 공개 id(legacy_id, 없으면 resumes.id)."""
+
+    def _promote(self, owned_row):
+        from lms.api import TailoredPromoteIn, resume_review_promote
+
+        with patch("lms.api._owned_resume", return_value=(owned_row, None)),              patch.dict(os.environ, {"RESUME_REVIEW_URL": "http://ai:8001"}),              patch("lms.api.urllib.request.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = b'{"workspace_resume_id":"matched_x"}'
+            resume_review_promote(Mock(), TailoredPromoteIn(resumeId="x", tailoredResumeId="tailored_abc"))
+        return json.loads(urlopen.call_args.args[0].data)
+
+    def test_new_resume_without_legacy_id_is_sent_as_resume_pk(self):
+        sent = self._promote({"id": 10, "legacy_id": None, "code": "34", "firebase_uid": "student-a"})
+        self.assertEqual(sent, {"uid": "student-a", "cohort_id": "34", "resume_id": "10", "tailored_resume_id": "tailored_abc"})
+
+    def test_migrated_resume_is_sent_as_legacy_id(self):
+        sent = self._promote({"id": 10, "legacy_id": "BASEdoc", "code": "34", "firebase_uid": "student-a"})
+        self.assertEqual(sent["resume_id"], "BASEdoc")
+
+
+class ResumeDeleteTests(SimpleTestCase):
+    """이력서 삭제 — DB FK 에 ON DELETE 가 없어 딸린 행을 먼저 처리하고 마지막에 resumes 를 지운다."""
+
+    def test_dependents_are_cleared_before_the_resume(self):
+        from lms.commands import _delete_resume
+
+        cur = Mock()
+        _delete_resume(cur, 11)
+        sqls = [" ".join(call.args[0].split()) for call in cur.execute.call_args_list]
+        self.assertEqual(sqls[-1], "DELETE FROM resumes WHERE id = %s")
+        for table in ("resume_feedback_reads", "resume_feedback", "resume_revisions",
+                      "resume_ai_applications", "resume_ai_reviews", "resume_tailorings"):
+            self.assertTrue(any(sql.startswith(f"DELETE FROM {table} ") for sql in sqls[:-1]), table)
+        # 원본 · 편집용 연결은 지우지 않고 끊는다
+        self.assertIn("UPDATE resumes SET base_resume_id = NULL WHERE base_resume_id = %s", sqls)
+        self.assertIn("UPDATE resumes SET source_tailored_resume_id = NULL WHERE source_tailored_resume_id = %s", sqls)
+
+
+class ResumeWriteValidationTests(SimpleTestCase):
+    def setUp(self):
+        self.actor = {"id": 1, "role": "student", "cohort_id": 34}
+
+    def test_cannot_edit_another_users_resume(self):
+        with self.assertRaises(PermissionError):
+            _validate_resume_write(Mock(), self.actor, {"title": "changed"}, {"id": 5, "user_id": 2, "cohort_id": 34, "base_resume_id": None, "is_base_resume": True})
+
+    @patch("lms.commands.resolve_row")
+    def test_parent_must_be_own_base_resume(self, resolve):
+        resolve.return_value = {"id": 7, "user_id": 2, "is_base_resume": True}
+        with self.assertRaises(ValueError):
+            _validate_resume_write(Mock(), self.actor, {"base_resume_id": 7}, None)
+
+    def test_linked_job_must_exist(self):
+        cur = Mock()
+        cur.fetchone.return_value = None
+        with self.assertRaises(ValueError):
+            _validate_resume_write(cur, self.actor, {"linked_job_id": "missing"}, None)
+
+    @patch("lms.commands.resolve_row")
+    def test_own_base_resume_is_accepted(self, resolve):
+        resolve.return_value = {"id": 7, "user_id": 1, "is_base_resume": True}
+        data = {"base_resume_id": 7}
+        _validate_resume_write(Mock(), self.actor, data, None)
+        self.assertEqual(data["user_id"], 1)
+        self.assertEqual(data["base_resume_id"], 7)
+
+
+class UpsertRoleTests(SimpleTestCase):
+    def test_student_cannot_mutate_administrative_tables(self):
+        student = {"id": 1, "role": "student"}
+        for table in ("cohorts", "mileage_products", "assessments", "cohort_seating"):
+            with self.subTest(table=table), self.assertRaises(PermissionError):
+                op_upsert_sql(Mock(), student, {"table": table, "action": "insert"})
+
+    def test_instructor_cannot_mutate_cohorts(self):
+        with self.assertRaises(PermissionError):
+            op_upsert_sql(Mock(), {"id": 2, "role": "instructor"}, {"table": "cohorts", "action": "insert"})
+
+    def test_student_cannot_write_unvalidated_scores_or_purchase_state(self):
+        student = {"id": 1, "role": "student"}
+        for table in (
+            "assessment_submissions", "submission_responses", "purchase_requests",
+            "mileage_cart_items", "mission_progress", "recommendation_events",
+        ):
+            with self.subTest(table=table), self.assertRaises(PermissionError):
+                op_upsert_sql(Mock(), student, {"table": table, "action": "insert", "userId": 2})
+
+
+class RecordSubmissionValidationTests(SimpleTestCase):
+    def setUp(self):
+        self.actor = {"id": 1, "role": "student", "cohort_id": 34, "is_active": True}
+
+    def test_student_cannot_edit_another_users_submission(self):
+        with self.assertRaises(PermissionError):
+            _validate_record_submission_write(
+                self.actor, {"title": "changed"}, {"user_id": 2, "cohort_id": 34}
+            )
+
+    def test_student_cannot_set_review_status(self):
+        with self.assertRaises(PermissionError):
+            _validate_record_submission_write(self.actor, {"status": "approved"}, None)
+
+    def test_student_cannot_forge_review_comment(self):
+        with self.assertRaises(PermissionError):
+            _validate_record_submission_write(self.actor, {"review_comment": "approved"}, None)
+
+    def test_student_insert_uses_own_identity(self):
+        data = {"status": "submitted"}
+        _validate_record_submission_write(self.actor, data, None)
+        self.assertEqual(data["user_id"], 1)
+        self.assertEqual(data["cohort_id"], 34)
+
+
+class TodoAuthorizationTests(SimpleTestCase):
+    def setUp(self):
+        self.actor = {"id": 1, "role": "student", "firebase_uid": "student-a"}
+
+    @patch("lms.commands.resolve_user")
+    def test_student_cannot_add_todo_for_another_user(self, resolve):
+        with self.assertRaises(PermissionError):
+            op_add_todo(Mock(), self.actor, {"uid": "student-b", "title": "wrong"})
+        resolve.assert_not_called()
+
+    @patch("lms.commands.resolve_row", return_value={"id": 3, "user_id": 2})
+    def test_student_cannot_toggle_another_users_todo(self, _resolve):
+        cur = Mock()
+        with self.assertRaises(PermissionError):
+            op_toggle_todo(cur, self.actor, {"todoId": "3"})
+        cur.execute.assert_not_called()
+
+    @patch("lms.commands.resolve_row", return_value={"id": 3, "user_id": 2})
+    def test_student_cannot_delete_another_users_todo(self, _resolve):
+        cur = Mock()
+        with self.assertRaises(PermissionError):
+            op_delete_todo(cur, self.actor, {"todoId": "3"})
+        cur.execute.assert_not_called()
+
+    @patch("lms.commands.resolve_row", return_value={"id": 3, "user_id": 1})
+    def test_student_can_toggle_own_todo(self, _resolve):
+        cur = Mock()
+        op_toggle_todo(cur, self.actor, {"todoId": "3"})
+        cur.execute.assert_called_once()
+
+
+class BootstrapJsonTests(SimpleTestCase):
+    def test_jsonb_is_an_object_not_a_json_string(self):
+        cur = Mock()
+        column = namedtuple("Column", "name type_code")
+        cur.description = [column("content", 3802), column("title", 1043)]
+        cur.fetchall.return_value = [('{"section_status":{"intro":true}}', "Resume")]
+        rows = _dicts(cur)
+        self.assertEqual(rows[0]["content"]["section_status"], {"intro": True})
+        self.assertEqual(rows[0]["title"], "Resume")

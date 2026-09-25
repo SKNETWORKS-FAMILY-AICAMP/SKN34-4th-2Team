@@ -107,7 +107,7 @@ export function ResumeEditScreen() {
   const [panel, setPanel] = useState<'coach' | 'ask' | 'jobs'>('coach');
   const { openReview } = useReviewDock();
   const [current, setCurrent] = useState<string>(search.get('section') ?? 'basicInfo');
-  const [saveState, setSaveState] = useState<'idle' | 'saved'>('idle');
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   if (resume === undefined) {
     return (
@@ -123,13 +123,18 @@ export function ResumeEditScreen() {
   const filled = ResumeSectionKeys.filter((k) => done[k]).length;
   const patch = (change: Partial<ResumeContent>) => {
     setSaveState('idle');
-    updateResume(resume.id, {
+    void updateResume(resume.id, {
       content: { ...resume.content, ...change },
-    });
+    }).catch(() => setSaveState('error'));
   };
-  const saveResume = () => {
-    updateResume(resume.id, { revisionCount: resume.revisionCount + 1 });
-    setSaveState('saved');
+  const saveResume = async () => {
+    setSaveState('saving');
+    try {
+      await updateResume(resume.id, { revisionCount: resume.revisionCount + 1 });
+      setSaveState('saved');
+    } catch {
+      setSaveState('error');
+    }
   };
 
   const backTo = reviewer
@@ -213,11 +218,12 @@ export function ResumeEditScreen() {
                 <button
                   type="button"
                   className="btn btn--outline btn--md"
-                  onClick={saveResume}
+                  onClick={() => void saveResume()}
+                  disabled={saveState === 'saving'}
                   aria-live="polite"
                 >
                   {saveState === 'saved' && <Icon name="check" size={17} />}
-                  {saveState === 'saved' ? '저장됨' : '저장'}
+                  {saveState === 'saved' ? '저장됨' : saveState === 'saving' ? '저장 중…' : saveState === 'error' ? '저장 실패 · 재시도' : '저장'}
                 </button>
                 {resume.status === 'draft' && (
                   <button
@@ -297,7 +303,7 @@ export function ResumeEditScreen() {
                   maxLength={100}
                   onChange={(e) => {
                     setSaveState('idle');
-                    updateResume(resume.id, { title: e.target.value });
+                    void updateResume(resume.id, { title: e.target.value }).catch(() => setSaveState('error'));
                   }}
                 />
                 <span className="resume-doc__count">{resume.title.length}/100</span>

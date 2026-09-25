@@ -25,7 +25,6 @@ import type {
   SeatingAssignment,
   SeatingCellType,
   SeatingRoom,
-  SeatPresence,
   StudyNote,
   Submission,
   Todo,
@@ -134,7 +133,7 @@ export function mapUser(row: Record<string, unknown>): User {
 
 export function mapNotice(row: Record<string, unknown>): Notice {
   return {
-    id: String(row.id ?? row.pk ?? ''),
+    id: String(row.pk ?? row.id ?? ''),
     title: String(row.title ?? ''),
     content: String(row.content ?? ''),
     authorName: String(row.authorName ?? row.author_name ?? ''),
@@ -152,7 +151,7 @@ export function mapNotice(row: Record<string, unknown>): Notice {
 export function mapScheduled(row: Record<string, unknown>): ScheduledNotice {
   const repeat = String(row.repeatType ?? row.repeat_type ?? 'once');
   return {
-    id: String(row.id ?? row.pk ?? ''),
+    id: String(row.pk ?? row.id ?? ''),
     title: String(row.title ?? ''),
     content: String(row.content ?? ''),
     authorName: String(row.authorName ?? row.author_name ?? ''),
@@ -170,7 +169,7 @@ export function mapScheduled(row: Record<string, unknown>): ScheduledNotice {
 
 export function mapAlert(row: Record<string, unknown>): AlertPopup {
   return {
-    id: String(row.id ?? row.pk ?? ''),
+    id: String(row.pk ?? row.id ?? ''),
     title: String(row.title ?? ''),
     content: String(row.content ?? ''),
     authorName: String(row.authorName ?? row.author_name ?? ''),
@@ -223,16 +222,33 @@ function mapTodo(row: Record<string, unknown>): Todo {
 }
 
 function mapSubmission(row: Record<string, unknown>): Submission {
+  // 종류별 칸(주차 · 점수 · 자격증 종류 …)은 record_submissions.details 에 snake_case 로 모여 있다
+  const d = (row.details && typeof row.details === 'object' ? row.details : {}) as Record<string, unknown>;
+  const pick = (camel: string, snake: string) => row[camel] ?? d[camel] ?? d[snake];
+  const text = (v: unknown) => (v == null || v === '' ? undefined : String(v));
+  const num = (v: unknown) => (v == null || v === '' || Number.isNaN(Number(v)) ? undefined : Number(v));
+  const status = String(row.status ?? 'pending');
   return {
     id: String(row.id ?? row.pk ?? ''),
     userId: String(row.userId ?? row.user_id ?? ''),
     userDisplayName: String(row.userDisplayName ?? row.user_display_name ?? ''),
     title: String(row.title ?? ''),
     type: (row.type as Submission['type']) || 'study',
-    status: (row.status as Submission['status']) || 'pending',
+    // 옛 값 submitted · draft 는 대기로 본다
+    status: (status === 'approved' || status === 'rejected' ? status : 'pending') as Submission['status'],
     submittedAt: asDate(row.submittedAt ?? row.submitted_at),
     reviewComment: row.reviewComment ? String(row.reviewComment) : undefined,
     fileUrls: Array.isArray(row.fileUrls) ? (row.fileUrls as string[]) : Array.isArray(row.file_urls) ? (row.file_urls as string[]) : [],
+    certType: text(pick('certType', 'cert_type')),
+    startAt: asDate(pick('startAt', 'start_at')),
+    endAt: asDate(pick('endAt', 'end_at')),
+    weekNumber: num(pick('weekNumber', 'week_number')),
+    weekLabel: text(pick('weekLabel', 'week_label')),
+    link: text(pick('link', 'link')),
+    quizScore: num(pick('quizScore', 'quiz_score')),
+    learningDate: asDate(pick('learningDate', 'learning_date')),
+    learningContent: text(pick('learningContent', 'learning_content')),
+    isTeamStudy: pick('isTeamStudy', 'is_team_study') == null ? undefined : Boolean(pick('isTeamStudy', 'is_team_study')),
     mileageGranted: Boolean(row.mileageGranted ?? row.mileage_granted),
     mileageAmount: Number(row.mileageAmount ?? row.mileage_amount ?? 0),
   };
@@ -484,25 +500,6 @@ function mapCartItem(row: Record<string, unknown>): MileageCartItem {
   };
 }
 
-/** 자리 확인 — roll_calls(날짜 · 교시) 밑에 학생별 상태가 달려 온다 */
-function mapSeatPresence(payload: Record<string, unknown>): SeatPresence[] {
-  const calls = rowsOf(payload, 'rollCalls');
-  const entries = rowsOf(payload, 'rollCallEntries');
-  const callByPk = new Map(calls.map((c) => [String(c.pk ?? c.id ?? ''), c]));
-  const out: SeatPresence[] = [];
-  for (const e of entries) {
-    const call = callByPk.get(String(e.rollCallId ?? e.roll_call_id ?? ''));
-    if (call === undefined) continue;
-    out.push({
-      dateKey: String(call.dateKey ?? call.date_key ?? '').slice(0, 10),
-      period: Number(call.periodId ?? call.period_id ?? 0),
-      userId: String(e.userId ?? e.user_id ?? ''),
-      state: String(e.state ?? 'none') as SeatPresence['state'],
-    });
-  }
-  return out;
-}
-
 function mapSheet(row: Record<string, unknown>): CurriculumSheet {
   return {
     id: String(row.id ?? row.pk ?? ''),
@@ -742,6 +739,12 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
     todos: rowsOf(payload, 'todos').map(mapTodo),
     submissions: withNames(rowsOf(payload, 'submissions').map(mapSubmission), nameOf),
     attendances: rowsOf(payload, 'attendances').map(mapAttendance),
+    seatPresence: rowsOf(payload, 'seatPresences').map((row) => ({
+      dateKey: String(row.presenceDate ?? row.presence_date ?? '').slice(0, 10),
+      period: Number(row.period),
+      userId: String(row.userId ?? row.user_id ?? ''),
+      state: row.state === 'confirmed' || row.state === 'held' ? row.state : 'unknown',
+    })),
     resumes: withNames(mapResumes(rowsOf(payload, 'resumes')), nameOf),
     resumeFeedbacks: rowsOf(payload, 'resumeFeedbacks').map(mapResumeFeedback),
     assessments: rowsOf(payload, 'assessments').map(mapAssessment),
@@ -794,7 +797,6 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
       status: (row.status as 'success' | 'error') || 'success',
       createdAt: asDate(row.createdAt ?? row.created_at),
     })),
-    seatPresence: mapSeatPresence(payload),
     alertDismissals: dismissals,
   };
 }

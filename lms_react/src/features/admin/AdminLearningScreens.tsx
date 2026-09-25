@@ -36,6 +36,7 @@ import {
   Row,
   Select,
   Spacer,
+  TabPage,
   StatTile,
   TextArea,
   TextInput,
@@ -65,17 +66,16 @@ export function AdminFormTasksScreen() {
   const [detail, setDetail] = useState<FormTask | null>(null);
 
   return (
-    <div className="list-page">
-      <div className="pill-head">
-        <h1 className="pill-head__title">설문 · 제출 관리</h1>
-        <div className="pill-head__trailing">
-          <Link className="btn btn--filled btn--md" to={RoutePaths.adminFormTasksCreate}>
-            <Icon name="add" size={18} />
-            설문 등록
-          </Link>
-        </div>
-      </div>
-
+    <TabPage
+      title="설문 · 제출 관리"
+      description="구글폼 설문을 등록하고 학생별 제출 여부를 확인합니다."
+      actions={
+        <Link className="btn btn--filled btn--md" to={RoutePaths.adminFormTasksCreate}>
+          <Icon name="add" size={18} />
+          설문 등록
+        </Link>
+      }
+    >
       {tasks.length === 0 ? (
         <div className="list-page__empty">
           <Icon name="assignment" size={44} />
@@ -148,7 +148,7 @@ export function AdminFormTasksScreen() {
           </ul>
         </Dialog>
       )}
-    </div>
+    </TabPage>
   );
 }
 
@@ -234,8 +234,9 @@ export function AdminStudyRoomScreen() {
 
   return (
     <div className="admin-page admin-page--wide study-admin">
+      <PageHeader title="학습실 관리" description="인프런 강의 패키지 · 관심사 YouTube 추천 · 수업 저장소를 관리합니다." />
       <SectionHead
-        title="학습실"
+        title="인프런 강의 패키지"
         desc="인프런 강의 패키지를 등록하고 기수에 공개하세요."
         action={
           <Link className="btn btn--filled btn--md" to={RoutePaths.adminStudyRoomCreate}>

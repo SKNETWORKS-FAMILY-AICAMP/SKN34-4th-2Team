@@ -1,6 +1,6 @@
 import { reviewPracticeProblem, usePracticeReports, usePracticeReviews, usePracticeSets, useUsers } from '../../data/repository';
 import { Icon } from '../../ui/Icon';
-import { Badge } from '../../ui/components';
+import { Badge, PageHeader } from '../../ui/components';
 import { formatRelative } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
 import { KIND_LABEL } from '../practice/practiceLabels';
@@ -25,20 +25,17 @@ export function InstructorPracticeScreen() {
 
   return (
     <div className="practice-mod">
-      <header className="practice-mod__head">
-        <div>
-          <h1>복습 문제 신고</h1>
-          <p className="hint">
-            학생이 「이상해요」를 누른 문제입니다. 서로 다른 학생 {HIDE_AT}명이 신고하면 자동으로 숨겨져요. 확인한 뒤 다시 보일지 정해
-            주세요.
-          </p>
-        </div>
-        <div className="practice-mod__stats">
-          <Stat label="신고된 문제" value={list.length} />
-          <Stat label="숨김" value={hidden} tone={hidden ? 'warn' : undefined} />
-          <Stat label="복습 세트" value={sets.length} />
-        </div>
-      </header>
+      <PageHeader
+        title="복습 문제 신고"
+        description={`학생이 「이상해요」를 누른 문제입니다. 서로 다른 학생 ${HIDE_AT}명이 신고하면 자동으로 숨겨져요. 확인한 뒤 다시 보일지 정해 주세요.`}
+        actions={
+          <div className="practice-mod__stats">
+            <Stat label="신고된 문제" value={list.length} />
+            <Stat label="숨김" value={hidden} tone={hidden ? 'warn' : undefined} />
+            <Stat label="복습 세트" value={sets.length} />
+          </div>
+        }
+      />
 
       {list.length === 0 ? (
         <div className="list-page__empty">

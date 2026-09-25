@@ -25,6 +25,8 @@ from psycopg.rows import dict_row
 from psycopg.sql import SQL, Identifier
 from psycopg.types.json import Jsonb
 
+from chatbot.database import connect as connect_postgres
+
 from job_matching_bot.config import now
 from job_matching_bot.ingestion.job_store import (
     REQUIRED_FIELDS,
@@ -299,27 +301,59 @@ class SqliteJobStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if not self.path.exists():
             self.path.touch()
-        url = os.environ.get("DATABASE_URL") or os.environ.get("JOBS_DATABASE_URL")
-        if not url:
-            raise RuntimeError("DATABASE_URL 이 필요합니다 (jobs 스키마)")
         self.schema = _schema_for_path(self.path)
+        # The managed production jobs schema follows Django's DB_* priority.
+        # Isolated test schemas keep their explicit local URL even when .env has RDS.
+        #
         # autocommit=True 로 연다. False 로 두면 첫 조회가 트랜잭션을 먼저 열어 버리고,
         # 그 뒤의 `with self.conn:` 은 진짜 트랜잭션이 아니라 세이브포인트가 된다. 블록을
         # 빠져나와도 바깥 트랜잭션이 남아 close() 에서 통째로 되돌아간다 — 2026-09-22 밤
         # 상세 적재가 "신규 1,778" 이라 찍히고도 한 건도 안 남은 이유다.
         # True 면 `with self.conn:` 마다 진짜 트랜잭션이 열리고 나올 때 커밋된다.
-        # 블록 밖 한 문장은 그 자리에서 커밋되는데, 원래 SQLite 동작과 같다.
-        raw = psycopg.connect(url, row_factory=dict_row, autocommit=True)
-        raw.execute(SQL("CREATE SCHEMA IF NOT EXISTS {}").format(Identifier(self.schema)))
-        raw.execute(SQL("SET search_path TO {}").format(Identifier(self.schema)))
-        for stmt in _sql_statements(_JOBS_SCHEMA_PATH.read_text(encoding="utf-8")):
-            raw.execute(stmt)
-        raw.commit()
-        self._pg = raw
-        self.conn = _PgConn(raw)
-        self._add_missing_columns()
+        raw = connect_postgres(
+            fallback_url=os.environ.get("JOBS_DATABASE_URL"),
+            use_db_host=self.schema == "jobs",
+            row_factory=dict_row,
+            autocommit=True,
+        )
+        try:
+            if self.schema != "jobs":
+                # Test stores use isolated schemas and may bootstrap them locally.
+                raw.execute(SQL("CREATE SCHEMA IF NOT EXISTS {}").format(Identifier(self.schema)))
+            raw.execute(SQL("SET search_path TO {}, public").format(Identifier(self.schema)))
+            if self.schema != "jobs":
+                for stmt in _sql_statements(_JOBS_SCHEMA_PATH.read_text(encoding="utf-8")):
+                    raw.execute(stmt)
+            self._pg = raw
+            self.conn = _PgConn(raw)
+            if self.schema == "jobs":
+                self._verify_managed_schema()
+            else:
+                self._add_missing_columns()
+        except Exception:
+            raw.close()
+            raise
         if _looks_like_sqlite(self.path):
             self._import_sqlite_file(self.path)
+
+    def _verify_managed_schema(self) -> None:
+        """Production schema comes from Django migrations, never crawler DDL."""
+        required_tables = (
+            "jobs", "job_tags", "runs", "list_seen", "link_checks",
+            "list_jobs", "list_sweeps", "list_jobs_search",
+        )
+        missing_tables = [
+            table for table in required_tables
+            if self._pg.execute("SELECT to_regclass(%s)", (f"jobs.{table}",)).fetchone()["to_regclass"] is None
+        ]
+        required_columns = set(_COLUMNS) | {"embed_hash", "indexed_embed_hash", "indexed_at", "group_key"}
+        missing_columns = required_columns - self._table_columns("jobs") if not missing_tables else set()
+        if missing_tables or missing_columns:
+            raise RuntimeError(
+                "jobs schema가 Django migration과 일치하지 않습니다. "
+                "manage.py migrate를 먼저 실행하세요. "
+                f"missing tables/views={sorted(missing_tables)}, columns={sorted(missing_columns)}"
+            )
 
     def _table_columns(self, table: str) -> set[str]:
         rows = self.conn.execute(

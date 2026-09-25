@@ -5,10 +5,12 @@ import { RoutePaths } from '../../app/routePaths';
 import {
   createSubmission,
   reviewSubmission,
+  uploadRecordEvidence,
   useCohorts,
   useMySubmissions,
   useSubmissions,
 } from '../../data/repository';
+import { readApiError } from '../../data/http';
 import {
   CertKinds,
   RecordTypeDescriptions,
@@ -476,13 +478,27 @@ export function RecordFormScreen({ type }: { type: RecordType }) {
   const [quizScore, setQuizScore] = useState('');
   const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
 
   const weeks = blogWeeks(cohort?.startDate);
   // 승인된 주차는 다시 낼 수 없다
   const approvedWeeks = new Set(
     myRecords.filter((s) => s.type === 'blog' && s.status === 'approved' && s.weekNumber !== undefined).map((s) => s.weekNumber),
   );
-  const fileUrls = () => evidenceFiles.map((file) => `demo://${encodeURIComponent(file.name)}`);
+  // 증빙을 먼저 올리고(서버가 키를 준다) 그 키를 붙여 제출한다. 하나라도 실패하면 제출하지 않는다
+  const send = async (record: Omit<Submission, 'id' | 'submittedAt' | 'fileUrls'>, withFiles: boolean) => {
+    setSending(true);
+    setError(null);
+    try {
+      const evidence = withFiles ? await Promise.all(evidenceFiles.map((file) => uploadRecordEvidence(file))) : [];
+      await createSubmission(record, evidence);
+      navigate(RoutePaths.records);
+    } catch (e) {
+      setError(`제출하지 못했습니다 · ${await readApiError(e)}`);
+    } finally {
+      setSending(false);
+    }
+  };
 
   const submit = () => {
     const base = {
@@ -498,36 +514,40 @@ export function RecordFormScreen({ type }: { type: RecordType }) {
       if (learningDate === '') return setError('학습일자를 선택해 주세요.');
       if (learningContent.trim() === '') return setError('학습한 내용을 입력해 주세요.');
       if (evidenceFiles.length === 0) return setError('날짜·시간이 보이는 인증 사진을 첨부해 주세요.');
-      createSubmission({
-        ...base,
-        title: `학습인증 ${learningDate}`,
-        learningDate: new Date(learningDate),
-        learningContent: learningContent.trim(),
-        fileUrls: fileUrls(),
-      });
+      return void send(
+        {
+          ...base,
+          title: `학습인증 ${learningDate}`,
+          learningDate: new Date(learningDate),
+          learningContent: learningContent.trim(),
+        },
+        true,
+      );
     } else if (type === 'precourseQuiz') {
       const score = Number(quizScore.trim());
       if (title.trim() === '') return setError('회차 / 제목을 입력해 주세요.');
       if (!Number.isFinite(score) || score < 0 || score > 100) return setError('점수는 0~100 사이로 입력해 주세요.');
       if (evidenceFiles.length === 0) return setError('점수 화면 캡처 등 증빙을 첨부해 주세요.');
-      createSubmission({ ...base, title: title.trim(), quizScore: score, fileUrls: fileUrls() });
+      return void send({ ...base, title: title.trim(), quizScore: score }, true);
     } else if (type === 'certification') {
       if (title.trim() === '') return setError('자격증 제목을 입력해 주세요.');
       if (evidenceFiles.length === 0) return setError('증빙 이미지를 첨부해 주세요.');
-      createSubmission({ ...base, title: title.trim(), certType, fileUrls: fileUrls() });
+      return void send({ ...base, title: title.trim(), certType }, true);
     } else if (type === 'study') {
       if (title.trim() === '') return setError('스터디 제목을 입력해 주세요.');
       if (startAt === '' || endAt === '') return setError('시작일과 종료일을 선택해 주세요.');
       if (evidenceFiles.length === 0) return setError('증빙 이미지를 1개 이상 첨부해 주세요.');
       if (!isTeamStudy) return setError('개인 스터디는 마일리지 미션 대상이 아닙니다. 팀 스터디만 인정됩니다.');
-      createSubmission({
-        ...base,
-        title: title.trim(),
-        startAt: new Date(startAt),
-        endAt: new Date(endAt),
-        isTeamStudy: true,
-        fileUrls: fileUrls(),
-      });
+      return void send(
+        {
+          ...base,
+          title: title.trim(),
+          startAt: new Date(startAt),
+          endAt: new Date(endAt),
+          isTeamStudy: true,
+        },
+        true,
+      );
     } else {
       const week = weeks.find((w) => w.weekNumber === weekNumber);
       if (week === undefined) return setError('주차를 선택해 주세요.');
@@ -536,16 +556,17 @@ export function RecordFormScreen({ type }: { type: RecordType }) {
       if (!url.startsWith('http://') && !url.startsWith('https://')) {
         return setError('http:// 또는 https:// 로 시작하는 URL을 입력해 주세요.');
       }
-      createSubmission({
-        ...base,
-        title: `${week.label} 블로그`,
-        weekNumber: week.weekNumber,
-        weekLabel: week.label,
-        link: url,
-        fileUrls: [],
-      });
+      return void send(
+        {
+          ...base,
+          title: `${week.label} 블로그`,
+          weekNumber: week.weekNumber,
+          weekLabel: week.label,
+          link: url,
+        },
+        false,
+      );
     }
-    navigate(RoutePaths.records);
   };
 
   const fileField = (label: string, hint: string, multiple: boolean) => (
@@ -694,7 +715,9 @@ export function RecordFormScreen({ type }: { type: RecordType }) {
           <Button variant="outline" onClick={() => navigate(RoutePaths.recordsCreate)}>
             이전
           </Button>
-          <Button onClick={submit}>제출</Button>
+          <Button onClick={submit} disabled={sending}>
+            {sending ? '올리는 중…' : '제출'}
+          </Button>
         </Row>
       </Card>
     </div>

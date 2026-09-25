@@ -6,7 +6,7 @@
 - 일반 셀(mode=cell): 코드 · 오류 설명. 대화는 셀 하나로 이어진다.
 - 횟수 한도는 없다. 쓸데없는 질문만 거른다 — 잡담은 AI 서버가 LLM 없이 돌려보내고,
   돌려보낸 답(offtopic)이 최근 OFFTOPIC_WINDOW 안에 OFFTOPIC_STREAK 번 이어지면 여기서 LLM 을 부르지 않는다.
-- 대화는 study.tutor_turns — 튜터 창을 다시 열면 이어 보이고, 나중에 한도가 필요한지 볼 근거가 된다.
+- 대화는 study_tutor_turns — 튜터 창을 다시 열면 이어 보이고, 나중에 한도가 필요한지 볼 근거가 된다.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from datetime import timedelta
 
 from django.db import connection, transaction
 
-from lms.practice_service import sets_have_owner
 from lms.study_note_service import StudyNoteError, _call, _dicts, _one
 from lms.study_source_service import StudySourceError
 
@@ -37,26 +36,24 @@ ON_TOPIC = re.compile(
 
 
 def _ready(cur) -> None:
-    cur.execute("SELECT to_regclass('study.tutor_turns') IS NOT NULL")
+    cur.execute("SELECT to_regclass('study_tutor_turns') IS NOT NULL")
     if not cur.fetchone()[0]:
-        raise StudySourceError(503, "튜터 기록을 넣을 곳이 없습니다. study_schema.sql 을 실행하세요.")
+        raise StudySourceError(503, "튜터 기록을 넣을 곳이 없습니다. manage.py migrate 로 lms.0006 까지 적용하세요.")
 
 
 def _problem(cur, user: dict, set_key: str, index: int) -> dict:
     """내가 볼 수 있는 세트의 문제 — 내 기수(관리자는 모두), 학생이 만든 세트면 만든 학생만"""
-    owner = ", s.owner_uid" if sets_have_owner(cur) else ", NULL AS owner_uid"
     cur.execute(
-        f"""SELECT p.*, s.cohort_code{owner} FROM practice.problems p JOIN practice.sets s ON s.id = p.set_id
-            WHERE s.legacy_id = %s AND p.idx = %s""",
+        """SELECT p.*, s.cohort_id, s.owner_id FROM practice_problems p JOIN practice_sets s ON s.id = p.problem_set_id
+           WHERE s.legacy_id = %s AND p.position = %s""",
         [set_key, index],
     )
     row = _one(cur)
-    uid = user.get("firebase_uid") or ""
-    if not row or (row["owner_uid"] and row["owner_uid"] != uid):
+    if not row or (row["owner_id"] is not None and row["owner_id"] != user.get("id")):
         raise StudySourceError(404, "문제를 찾을 수 없습니다.")
-    if user.get("role") != "admin" and row["cohort_code"] != user.get("cohort_code"):
+    if user.get("role") != "admin" and row["cohort_id"] != user.get("cohort_id"):
         raise StudySourceError(403, "해당 기수의 문제가 아닙니다.")
-    cur.execute("SELECT passed, tries FROM practice.attempts WHERE user_uid = %s AND problem_id = %s", [uid, row["id"]])
+    cur.execute("SELECT passed, tries FROM practice_attempts WHERE user_id = %s AND problem_id = %s", [user.get("id"), row["id"]])
     attempt = cur.fetchone()
     row["passed"], row["tries"] = (bool(attempt[0]), int(attempt[1])) if attempt else (False, 0)
     return row
@@ -75,11 +72,11 @@ def _problem_payload(p: dict) -> dict:
     }
 
 
-def _turns(cur, uid: str, key: str, limit: int) -> list[dict]:
+def _turns(cur, user_id: int, key: str, limit: int) -> list[dict]:
     cur.execute(
-        """SELECT role, text, kind, hint_level, lines, created_at FROM study.tutor_turns
-           WHERE user_uid = %s AND thread_key = %s ORDER BY id DESC LIMIT %s""",
-        [uid, key, limit],
+        """SELECT role, text, kind, hint_level, lines, created_at FROM study_tutor_turns
+           WHERE user_id = %s AND thread_key = %s ORDER BY id DESC LIMIT %s""",
+        [user_id, key, limit],
     )
     rows = _dicts(cur)[::-1]
     return [
@@ -95,35 +92,49 @@ def _thread_key(mode: str, set_key: str | None, index: int | None) -> str:
 
 def thread(user: dict, mode: str, set_key: str | None = None, index: int | None = None) -> dict:
     """튜터 창을 다시 열 때 — 지난 대화와 지금 힌트 단계"""
-    uid = user.get("firebase_uid") or ""
     with connection.cursor() as cur:
         _ready(cur)
         if mode == "problem":
             _problem(cur, user, str(set_key), int(index or 0))
-        turns = _turns(cur, uid, _thread_key(mode, set_key, index), 30)
+        turns = _turns(cur, user["id"], _thread_key(mode, set_key, index), 30)
     level = max([t["hintLevel"] or 0 for t in turns] or [0])
     return {"turns": turns, "hintLevel": level}
 
 
-def _offtopic_streak(cur, uid: str) -> bool:
+def reset(user: dict, mode: str, set_key: str | None = None, index: int | None = None) -> dict:
+    """「새 대화」 — 이 문제(또는 일반 셀)의 내 대화를 지운다. 힌트 단계도 처음부터 다시 오른다.
+    모범답안은 힌트 단계가 아니라 채점 횟수로 열리므로(REVEAL_AFTER_TRIES) 지워도 답이 먼저 열리지 않는다."""
+    key = _thread_key(mode, set_key, index)
+    with transaction.atomic(), connection.cursor() as cur:
+        _ready(cur)
+        if mode == "problem":
+            _problem(cur, user, str(set_key), int(index or 0))
+        cur.execute("DELETE FROM study_tutor_turns WHERE user_id = %s AND thread_key = %s", [user["id"], key])
+        removed = cur.rowcount
+    return {"turns": [], "hintLevel": 0, "removed": removed}
+
+
+def _offtopic_streak(cur, user_id: int) -> bool:
     cur.execute(
-        """SELECT kind FROM study.tutor_turns WHERE user_uid = %s AND role = 'assistant' AND created_at > now() - %s
+        """SELECT kind FROM study_tutor_turns WHERE user_id = %s AND role = 'assistant' AND created_at > now() - %s
            ORDER BY id DESC LIMIT %s""",
-        [uid, OFFTOPIC_WINDOW, OFFTOPIC_STREAK],
+        [user_id, OFFTOPIC_WINDOW, OFFTOPIC_STREAK],
     )
     kinds = [r[0] for r in cur.fetchall()]
     return len(kinds) == OFFTOPIC_STREAK and all(k == "offtopic" for k in kinds)
 
 
-def _save(cur, uid: str, key: str, question: str, answer: dict, level: int | None) -> None:
+def _save(cur, user_id: int, problem_id: int | None, key: str, question: str, answer: dict, level: int | None) -> None:
     cur.execute(
-        """INSERT INTO study.tutor_turns (user_uid, thread_key, role, text, hint_level) VALUES (%s, %s, 'user', %s, %s)""",
-        [uid, key, question, level],
+        """INSERT INTO study_tutor_turns (user_id, problem_id, thread_key, role, text, kind, hint_level, lines, llm, created_at)
+           VALUES (%s, %s, %s, 'user', %s, '', %s, '[]'::jsonb, false, now())""",
+        [user_id, problem_id, key, question, level],
     )
     cur.execute(
-        """INSERT INTO study.tutor_turns (user_uid, thread_key, role, text, kind, hint_level, lines, llm)
-           VALUES (%s, %s, 'assistant', %s, %s, %s, %s::jsonb, %s)""",
-        [uid, key, answer["reply"], answer["type"], level, json.dumps(answer.get("lines") or []), bool(answer.get("llm"))],
+        """INSERT INTO study_tutor_turns (user_id, problem_id, thread_key, role, text, kind, hint_level, lines, llm, created_at)
+           VALUES (%s, %s, %s, 'assistant', %s, %s, %s, %s::jsonb, %s, now())""",
+        [user_id, problem_id, key, answer["reply"], answer["type"] or "", level,
+         json.dumps(answer.get("lines") or []), bool(answer.get("llm"))],
     )
 
 
@@ -138,7 +149,6 @@ def ask(user: dict, body: dict) -> dict:
         question = "정답 알려 주세요"
     if not question:
         raise StudySourceError(422, "질문을 적어 주세요.")
-    uid = user.get("firebase_uid") or ""
     set_key = str(body.get("setId") or "")
     index = int(body.get("index") or 0)
     key = _thread_key(mode, set_key, index)
@@ -146,7 +156,7 @@ def ask(user: dict, body: dict) -> dict:
     with connection.cursor() as cur:
         _ready(cur)
         problem = _problem(cur, user, set_key, index) if mode == "problem" else None
-        history = _turns(cur, uid, key, HISTORY)
+        history = _turns(cur, user["id"], key, HISTORY)
         current = max([t["hintLevel"] or 0 for t in history] or [0])
         level = None
         if problem:
@@ -161,7 +171,7 @@ def ask(user: dict, body: dict) -> dict:
                 reply = (f"모범답안은 {REVEAL_AFTER_TRIES}번 채점해 본 뒤에 열려요(지금 {problem['tries']}번). "
                          f"힌트 {level}단계까지 봤으니 고쳐서 한 번 더 채점해 볼까요?")
             answer = {"type": "locked", "reply": reply, "lines": [], "llm": False}
-        elif not ON_TOPIC.search(question) and _offtopic_streak(cur, uid):
+        elif not ON_TOPIC.search(question) and _offtopic_streak(cur, user["id"]):
             answer = {"type": "offtopic", "reply": STREAK_REPLY, "lines": [], "llm": False}
 
     if answer is None:
@@ -178,6 +188,6 @@ def ask(user: dict, body: dict) -> dict:
             raise StudySourceError(exc.status, exc.detail) from exc
 
     with transaction.atomic(), connection.cursor() as cur:
-        _save(cur, uid, key, question, answer, level)
+        _save(cur, user["id"], problem["id"] if problem else None, key, question, answer, level)
     return {"reply": answer["reply"], "kind": answer["type"], "lines": answer.get("lines") or [],
             "hintLevel": level, "llm": bool(answer.get("llm"))}
