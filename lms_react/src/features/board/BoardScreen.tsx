@@ -21,6 +21,8 @@ import {
   EmptyState,
   Row,
   Spacer,
+  TabPage,
+  Tabs,
   TextArea,
 } from '../../ui/components';
 import { Icon } from '../../ui/Icon';
@@ -31,33 +33,28 @@ import { NoticeDetailDialog } from './NoticeDetailDialog';
 /**
  * 게시판 — features/hub/presentation/board_screen.dart (공지사항 / 소통 피드)
  *
- * 머리글이 없다. 화면 맨 위에 두 칸짜리 탭 줄이 가로로 꽉 차고, 공지사항 탭에만
- * 검색 줄이 붙는다. 숫자는 붙지 않는다.
+ * 다른 탭 화면과 같은 틀(TabPage)이다. 공지사항 탭에만 검색 줄이 붙는다.
  */
 export function BoardScreen() {
   const [tab, setTab] = useState<'notices' | 'feed'>('notices');
 
   return (
-    <div className="board-page">
-      <div className="board-tabs">
-        {(
-          [
-            ['notices', '공지사항'],
-            ['feed', '소통 피드'],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            className={`board-tab${tab === id ? ' board-tab--on' : ''}`}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+    <TabPage
+      title="게시판"
+      description="기수 공지와 동료들의 이야기를 확인하세요."
+      tabs={
+        <Tabs
+          active={tab}
+          onChange={(id) => setTab(id as typeof tab)}
+          items={[
+            { id: 'notices', label: '공지사항' },
+            { id: 'feed', label: '소통 피드' },
+          ]}
+        />
+      }
+    >
       {tab === 'notices' ? <NoticesTab /> : <FeedTab />}
-    </div>
+    </TabPage>
   );
 }
 

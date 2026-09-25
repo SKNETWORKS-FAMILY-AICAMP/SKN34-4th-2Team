@@ -28,6 +28,17 @@ a.link {
   text-decoration: underline;
 }
 
+/* 페이지 전체 스크롤바는 숨긴다(휠 · 터치패드 · 키보드 스크롤은 그대로).
+   내용이 길어 스크롤바가 생기는 화면만 폭이 15px 줄어, 가운데 1080px 틀과 제목이 탭마다 7px 씩 움직였다.
+   안쪽 스크롤 영역(표 · 채팅 · 목록)의 스크롤바는 그대로 둔다. */
+html {
+  scrollbar-width: none;
+}
+
+html::-webkit-scrollbar {
+  display: none;
+}
+
 /* ── 셸 ──────────────────────────────────────────────── */
 .shell {
   display: flex;
@@ -958,29 +969,6 @@ a.link {
 
 /* ── 마일리지 화면 ─────────────────────────────────────
    원본은 카드를 화면 가운데 크게 놓고, 글 폭(reading)만큼만 쓴다. */
-.mileage-page {
-  max-width: 900px;
-  margin: 0 auto;
-  width: 100%;
-}
-
-.mileage-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-}
-
-.mileage-head__title {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 700;
-}
-
-.mileage-head__desc {
-  margin: 2px 0 0;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
 
 .mileage-head__who {
   margin-left: auto;
@@ -1015,38 +1003,6 @@ a.link {
 
 .mileage-use__btn {
   border-radius: 12px;
-}
-
-/* 알약 2탭 */
-.mseg {
-  display: flex;
-  height: 40px;
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  background: var(--surface);
-  overflow: hidden;
-}
-
-.mseg__btn {
-  flex: 1;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.mseg__btn + .mseg__btn {
-  border-left: 1px solid var(--border);
-}
-
-/* 고른 칸은 글씨색으로 칠하고, 그 위 글씨는 바탕색이다 — 밝은 화면에서는
-   검은 칸에 흰 글씨, 어두운 화면에서는 밝은 칸에 어두운 글씨가 된다. */
-.mseg__btn--on {
-  background: var(--text-primary);
-  color: var(--surface);
 }
 
 .mileage-history {
@@ -1899,39 +1855,13 @@ a.link {
 
 /* ── 관리자 좌석 배치 ───────────────────────────────────
    탭 셋: 좌석 틀 설정 · 프로젝트 팀 · 배치 편집 */
-.seat-admin {
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
-  margin: -16px -24px;
-}
-
-.seat-admin__bar {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-}
-
-.seat-admin__bar h1 {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 700;
-}
-
-.seat-admin__tabs {
-  display: flex;
-  gap: 8px;
-}
 
 .seat-admin__body {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 16px 20px 28px;
+  padding: 0 0 28px;
   min-width: 0;
 }
 
@@ -3002,22 +2932,11 @@ a.link {
   color: var(--error);
 }
 
-/* 목록 화면(관리자) — 필터 줄 + 목록 */
-.list-page {
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
-  margin: -16px -24px;
-}
-
 .list-page__body {
   width: 100%;
-  max-width: 860px;
-  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 16px;
 }
 
 .list-page__empty {
@@ -3037,12 +2956,6 @@ a.link {
 .search-bar--sm {
   width: 240px;
   height: 38px;
-}
-
-.pill-head__title {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 700;
 }
 
 /* 설문 한 줄 */
@@ -3246,28 +3159,6 @@ a.link {
   margin: 0;
   font-size: 13px;
   color: var(--text-secondary);
-}
-
-/* 목록 위 필터 줄 — filter_pill_header.dart */
-.pill-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-}
-
-.pill-head__pills {
-  display: flex;
-  gap: 8px;
-}
-
-.pill-head__trailing {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .pill {
@@ -3648,42 +3539,6 @@ a.link {
 
 /* ── 게시판 ────────────────────────────────────────────
    머리글 없이 탭 줄이 맨 위를 가로지른다. */
-.board-page {
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
-  margin: -16px -24px;
-  background: var(--background);
-}
-
-.board-tabs {
-  display: flex;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  padding: 0 24px;
-}
-
-.board-tabs--inline {
-  margin: 0 -24px;
-  padding: 0 24px;
-}
-
-.board-tab {
-  padding: 16px 20px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  font: inherit;
-  font-size: 14px;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.board-tab--on {
-  border-bottom-color: var(--primary);
-  color: var(--primary);
-  font-weight: 700;
-}
 
 .board-body {
   flex: 1;
@@ -3692,8 +3547,7 @@ a.link {
 }
 
 .board-search-strip {
-  padding: 12px 20px;
-  background: var(--surface);
+  padding: 0;
 }
 
 .board-search {
@@ -3702,8 +3556,9 @@ a.link {
   gap: 8px;
   height: 44px;
   padding: 0 12px;
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--background);
+  background: var(--surface);
   color: var(--text-hint);
 }
 
@@ -3724,12 +3579,10 @@ a.link {
 
 .board-column {
   width: 100%;
-  max-width: 900px;
-  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 20px;
-  padding: 16px 20px 28px;
+  padding: 16px 0 28px;
 }
 
 .board-section__title {
@@ -3821,10 +3674,15 @@ a.link {
   font-weight: 600;
 }
 
+/* 원본(form_task_card.dart)처럼 두 줄까지만 — 나머지는 … (전체는 마우스를 올리면 보인다) */
 .form-card__desc {
   margin: 4px 0 0;
   font-size: 12px;
   color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .form-chip {
@@ -4296,6 +4154,25 @@ a.link {
 .py-toolbar__on {
   border-color: var(--primary);
   color: var(--primary);
+}
+
+/* 좁은 화면 — 도구 줄을 한 줄로 두고 보조 단추는 아이콘만(이름은 title · aria-label).
+   글자를 다 두면 두 줄로 접히고 「입력값 · ···」만 오른쪽 끝에 따로 떨어졌다. */
+@media (max-width: 760px) {
+  .py-toolbar {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .py-toolbar__label:not(.py-toolbar__label--main) {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .py-toolbar__label--main {
+    display: none;
+  }
 }
 
 /* 단축키 — 「···」에서 켜면 도구 줄 아래에 제자리로 펼쳐진다 */
@@ -5092,25 +4969,12 @@ a.link {
 .seat-page {
   display: flex;
   flex-direction: column;
+  gap: 16px;
   min-height: 100%;
-  margin: -16px -24px;
-}
-
-.seat-page__bar {
-  padding: 18px 24px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-}
-
-.seat-page__bar h1 {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 700;
 }
 
 .seat-page__body {
   flex: 1;
-  padding: 16px;
   overflow-x: auto;
 }
 
@@ -5751,10 +5615,6 @@ a.link {
   .screen {
     padding: 16px;
   }
-
-  .board-page {
-    margin: -16px;
-  }
 }
 
 .study-note-chips {
@@ -6329,70 +6189,6 @@ a.link {
 }
 
 /* ── 이력서 ────────────────────────────────────────────── */
-.resume-tabs {
-  display: flex;
-  gap: 18px;
-  border-bottom: 1px solid var(--border);
-}
-
-.resume-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 10px 2px 12px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  font: inherit;
-  font-size: 14px;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-/* 탭 한 개가 제 색을 지닌다. 밑줄·글자·배지가 그 색을 같이 쓴다. */
-.resume-tab {
-  --tab-tone: var(--text-primary);
-  --tab-on-ink: var(--surface);
-}
-
-.resume-tab[data-tone='warning'] {
-  --tab-tone: var(--warning);
-  --tab-on-ink: #1f2328;
-}
-
-.resume-tab[data-tone='info'] {
-  --tab-tone: #1d6fe0;
-  --tab-on-ink: #ffffff;
-}
-
-.resume-tab[data-tone='success'] {
-  --tab-tone: var(--success);
-  --tab-on-ink: #ffffff;
-}
-
-.resume-tab--on {
-  color: var(--tab-tone);
-  font-weight: 700;
-  border-bottom-color: var(--tab-tone);
-}
-
-.resume-tab__count {
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
-  display: inline-grid;
-  place-items: center;
-  background: color-mix(in srgb, var(--tab-tone) 12%, transparent);
-  color: var(--tab-tone);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.resume-tab--on .resume-tab__count {
-  background: var(--tab-tone);
-  color: var(--tab-on-ink);
-}
 
 .base-resume {
   gap: 10px;
@@ -9023,18 +8819,6 @@ a.link {
 }
 
 @media (max-width: 900px) {
-  /* 꽉 찬 화면들 — 여기서는 .screen 여백이 16px 이라 -24px 이면 8px 이 넘친다 */
-  .list-page,
-  .seat-admin,
-  .seat-page {
-    margin: -16px;
-  }
-
-  .board-tabs--inline {
-    margin: 0 -16px;
-    padding: 0 16px;
-  }
-
   /* 표 — 칸을 억지로 좁혀 글자가 세로로 깨지게 두지 않고, 표 안에서 가로로 민다 */
   .table th,
   .table td {
@@ -9077,23 +8861,17 @@ a.link {
     white-space: nowrap;
   }
 
-  /* 목록 위 필터 줄 — 버튼·검색은 다음 줄로 */
-  .pill-head {
+  /* 탭 줄 오른쪽 검색 · 버튼 — 좁으면 탭 아래 한 줄로 */
+  .tabs {
     flex-wrap: wrap;
   }
 
-  .pill-head__pills {
-    max-width: 100%;
-    overflow-x: auto;
-  }
-
-  .pill-head__trailing {
+  .tabs__trailing {
     margin-left: 0;
     width: 100%;
-    flex-wrap: wrap;
   }
 
-  .pill-head__trailing .search-bar--sm {
+  .tabs__trailing .search-bar--sm {
     flex: 1 1 180px;
     width: auto;
   }
@@ -10197,6 +9975,29 @@ a.link {
   gap: 8px;
   padding: 8px 8px 0 12px;
   border-bottom: 1px solid var(--divider);
+}
+
+/* 「새 대화」 확인 — 머리 바로 아래에 한 줄로 */
+.tutor__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--divider);
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+  font-size: 13px;
+}
+
+.tutor__confirm p {
+  flex: 1 1 200px;
+  margin: 0;
+}
+
+.tutor__confirm div {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
 }
 
 .tutor__tabs {

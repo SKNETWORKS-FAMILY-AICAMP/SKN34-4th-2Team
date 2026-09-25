@@ -33,6 +33,8 @@ import {
   Row,
   Select,
   Spacer,
+  TabPage,
+  Tabs,
   TextArea,
   TextInput,
   Toggle,
@@ -58,11 +60,21 @@ export function AdminBoardScreen() {
   const createRef = useTourTarget(AdminTargets.boardCreate);
 
   return (
-    <div className="screen__inner">
-      <PageHeader
-        title="게시판 관리"
-        description="공지 · 예약 게시 · 로그인 알림 팝업을 관리합니다."
-        actions={
+    <TabPage
+      title="게시판 관리"
+      description="공지 · 예약 게시 · 로그인 알림 팝업을 관리합니다."
+      tabs={
+        <Tabs
+          active={tab}
+          onChange={(id) => setTab(id as typeof tab)}
+          items={[
+            { id: 'notices', label: '공지 관리', count: notices.length },
+            { id: 'scheduled', label: '예약 공지', count: scheduled.length },
+            { id: 'popups', label: '알림 팝업', count: popups.length },
+          ]}
+        />
+      }
+      actions={
           tab === 'notices' ? (
             <Link className="btn btn--filled btn--md" ref={createRef} to={RoutePaths.adminBoardNoticeCreate}>
               공지 작성
@@ -76,28 +88,8 @@ export function AdminBoardScreen() {
               팝업 등록
             </Link>
           )
-        }
-      />
-
-      <div className="board-tabs board-tabs--inline">
-        {(
-          [
-            ['notices', '공지 관리'],
-            ['scheduled', '예약 공지'],
-            ['popups', '알림 팝업'],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            className={`board-tab${tab === id ? ' board-tab--on' : ''}`}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
+      }
+    >
       {tab === 'notices' && (
         <Card padded={false}>
           <DataTable
@@ -237,7 +229,7 @@ export function AdminBoardScreen() {
           />
         </Card>
       )}
-    </div>
+    </TabPage>
   );
 }
 

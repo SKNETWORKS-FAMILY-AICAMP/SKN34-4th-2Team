@@ -16,7 +16,7 @@ import { assignTeamsToSeats, shuffle, teamAccent } from '../../domain/projectTea
 import { MAX_COHORT_STUDENTS, emptyGrid, seatCells, seatCount } from '../../domain/seatingLayout';
 import type { SeatingGrid, SeatingRoom, User } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
-import { Button, Dialog, Field, Select, TextInput } from '../../ui/components';
+import { Button, Dialog, Field, Select, TabPage, Tabs, TextInput } from '../../ui/components';
 import { useCurrentUser } from '../auth/session';
 import { LayoutEditor } from './LayoutEditor';
 import { ProjectTeamsPanel } from './ProjectTeamsPanel';
@@ -72,28 +72,21 @@ export function AdminSeatingScreen() {
     .join(' · ');
 
   return (
-    <div className="seat-admin">
-      <header className="seat-admin__bar">
-        <h1>{title}</h1>
-        <div className="seat-admin__tabs">
-          {(
-            [
-              ['frame', '좌석 틀 설정'],
-              ['teams', '프로젝트 팀'],
-              ['assign', '배치 편집'],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              className={`pill${tab === id ? ' pill--on' : ''}`}
-              onClick={() => setTab(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </header>
+    <TabPage
+      title={title}
+      description="강의실 틀을 만들고, 프로젝트 팀을 짜고, 학생을 자리에 앉혀 확정합니다."
+      tabs={
+        <Tabs
+          active={tab}
+          onChange={(id) => setTab(id as typeof tab)}
+          items={[
+            { id: 'frame', label: '좌석 틀 설정' },
+            { id: 'teams', label: '프로젝트 팀' },
+            { id: 'assign', label: '배치 편집' },
+          ]}
+        />
+      }
+    >
 
       <div className="seat-admin__body">
         {flash !== null && (
@@ -115,7 +108,7 @@ export function AdminSeatingScreen() {
           />
         )}
       </div>
-    </div>
+    </TabPage>
   );
 }
 

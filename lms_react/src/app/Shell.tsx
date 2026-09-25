@@ -72,6 +72,10 @@ export function Shell() {
   const navigate = useNavigate();
   const cohorts = useCohorts();
   const [menuOpen, setMenuOpen] = useState(false);
+  // 좁은 화면에서 연 메뉴는 다른 화면으로 가면 닫는다(메뉴 · 로고 · 마이페이지 무엇을 눌러도)
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location]);
 
   const attendanceFormRef = useTourTarget(StudentTargets.attendanceForm);
   const myPageRef = useTourTarget(StudentTargets.navMyPage);

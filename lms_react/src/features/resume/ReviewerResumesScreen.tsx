@@ -8,6 +8,7 @@ import type { Resume } from '../../domain/types';
 import { InstructorTargets } from '../../tour/targets';
 import { useTourTarget } from '../../tour/useTourTarget';
 import { MoreMenu } from '../../ui/MoreMenu';
+import { TabPage, Tabs, type TabItem } from '../../ui/components';
 import { formatDate } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
 
@@ -27,7 +28,7 @@ const TAB_LABELS: Record<Filter, string> = {
 };
 
 /** 배지 색은 상태의 뜻을 따른다. 강조색을 바꿔도 이 색은 움직이지 않는다. */
-const TAB_TONES: Record<Filter, string> = {
+const TAB_TONES: Record<Filter, NonNullable<TabItem['tone']>> = {
   requested: 'info',
   approved: 'success',
   all: 'neutral',
@@ -63,28 +64,24 @@ export function ReviewerResumesScreen({ canApprove = false }: { canApprove?: boo
     : `${user.cohortName === '' ? '담당 기수' : user.cohortName} · 피드백을 요청했거나 승인한 이력서만 보입니다.`;
 
   return (
-    <div className="screen__inner">
-      <header className="page-head">
-        <div>
-          <h1 className="page-head__title">이력서 관리</h1>
-          <p className="page-head__desc">{subtitle}</p>
+    <TabPage
+      title="이력서 관리"
+      description={subtitle}
+      tabs={
+        <div ref={statsRef}>
+          <Tabs
+            active={filter}
+            onChange={(id) => setFilter(id as Filter)}
+            items={(['requested', 'approved', 'all'] as const).map((id) => ({
+              id,
+              label: TAB_LABELS[id],
+              count: counts[id],
+              tone: TAB_TONES[id],
+            }))}
+          />
         </div>
-      </header>
-
-      <div className="resume-tabs" ref={statsRef}>
-        {(['requested', 'approved', 'all'] as const).map((id) => (
-          <button
-            key={id}
-            type="button"
-            data-tone={TAB_TONES[id]}
-            className={`resume-tab${filter === id ? ' resume-tab--on' : ''}`}
-            onClick={() => setFilter(id)}
-          >
-            {TAB_LABELS[id]}
-            <span className="resume-tab__count">{counts[id]}</span>
-          </button>
-        ))}
-      </div>
+      }
+    >
 
       {shown.length === 0 ? (
         <p className="resume-empty">
@@ -116,7 +113,7 @@ export function ReviewerResumesScreen({ canApprove = false }: { canApprove?: boo
           </table>
         </section>
       )}
-    </div>
+    </TabPage>
   );
 }
 

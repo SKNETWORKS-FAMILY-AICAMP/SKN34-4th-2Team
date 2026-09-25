@@ -52,6 +52,7 @@ export function AssessmentsScreen() {
   // 원본은 860px 한 줄기다. 검색 줄과 목록의 너비가 같다.
   return (
     <div className="screen__inner assess-page">
+      <PageHeader title="성취도평가" description="공개된 평가를 기간 안에 응시하고 결과를 확인하세요." />
       <div className="search-bar">
         <Icon name="search" size={20} />
         <input

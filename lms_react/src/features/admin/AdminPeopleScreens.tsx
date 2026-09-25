@@ -40,12 +40,13 @@ import {
   Select,
   Spacer,
   StatTile,
+  TabPage,
+  Tabs,
   TextArea,
   TextInput,
   Toggle,
 } from '../../ui/components';
 import { formatDate, formatDateTime, formatMileage } from '../../utils/format';
-import { FilterPillHeader } from '../../ui/FilterPillHeader';
 import { MoreMenu } from '../../ui/MoreMenu';
 import { Icon } from '../../ui/Icon';
 import { dateKeyOf } from '../../data/seed';
@@ -72,16 +73,24 @@ export function AdminStudentsScreen() {
     );
 
   return (
-    <div className="list-page">
-      <FilterPillHeader
-        pills={[
-          { id: 'active', label: '재원', count: students.filter((s) => s.isActive).length },
-          { id: 'inactive', label: '퇴소', count: students.filter((s) => !s.isActive).length },
-        ]}
-        selected={filter}
-        onSelect={(id) => setFilter(id as 'active' | 'inactive')}
-        trailing={
-          <>
+    <TabPage
+      title="학생 관리"
+      description="상담 등록으로 계정을 만들고, 재원 · 퇴소를 관리합니다."
+      actions={
+        <Link className="btn btn--filled btn--md" to={RoutePaths.adminStudentsCreate}>
+          <Icon name="person_add" size={18} />
+          학생 등록
+        </Link>
+      }
+      tabs={
+        <Tabs
+          active={filter}
+          onChange={(id) => setFilter(id as 'active' | 'inactive')}
+          items={[
+            { id: 'active', label: '재원', count: students.filter((s) => s.isActive).length },
+            { id: 'inactive', label: '퇴소', count: students.filter((s) => !s.isActive).length },
+          ]}
+          trailing={
             <label className="search-bar search-bar--sm">
               <Icon name="search" size={20} />
               <input
@@ -101,14 +110,10 @@ export function AdminStudentsScreen() {
                 </button>
               )}
             </label>
-            <Link className="btn btn--filled btn--md" to={RoutePaths.adminStudentsCreate}>
-              <Icon name="person_add" size={18} />
-              학생 등록
-            </Link>
-          </>
-        }
-      />
-
+          }
+        />
+      }
+    >
       {rows.length === 0 ? (
         <div className="list-page__empty">
           <Icon name="groups" size={44} />
@@ -150,7 +155,7 @@ export function AdminStudentsScreen() {
           ))}
         </div>
       )}
-    </div>
+    </TabPage>
   );
 }
 
@@ -511,24 +516,37 @@ export function AdminStudentFormScreen() {
 
 /** 강사 관리 — admin_instructors_screen.dart */
 export function AdminInstructorsScreen() {
-  const instructors = useInstructors();
+  const all = useInstructors();
   const account = useAccountActions();
+  // 학생 관리(재원 · 퇴소)와 같은 구조 — 활성 · 비활성으로 나눠 본다
+  const [filter, setFilter] = useState<'active' | 'inactive'>('active');
+  const instructors = all.filter((i) => (filter === 'active' ? i.isActive : !i.isActive));
 
   return (
-    <div className="list-page">
-      <div className="pill-head">
-        <div className="pill-head__trailing">
-          <Link className="btn btn--filled btn--md" to={RoutePaths.adminInstructorsCreate}>
-            <Icon name="person_add" size={18} />
-            강사 등록
-          </Link>
-        </div>
-      </div>
-
+    <TabPage
+      title="강사 관리"
+      description="강사 계정을 만들고 비밀번호 재발급 · 활성 여부를 관리합니다."
+      actions={
+        <Link className="btn btn--filled btn--md" to={RoutePaths.adminInstructorsCreate}>
+          <Icon name="person_add" size={18} />
+          강사 등록
+        </Link>
+      }
+      tabs={
+        <Tabs
+          active={filter}
+          onChange={(id) => setFilter(id as 'active' | 'inactive')}
+          items={[
+            { id: 'active', label: '활성', count: all.filter((i) => i.isActive).length },
+            { id: 'inactive', label: '비활성', count: all.filter((i) => !i.isActive).length },
+          ]}
+        />
+      }
+    >
       {instructors.length === 0 ? (
         <div className="list-page__empty">
           <Icon name="badge" size={44} />
-          <p>등록된 강사가 없습니다</p>
+          <p>{filter === 'active' ? '등록된 강사가 없습니다' : '비활성 강사가 없습니다'}</p>
         </div>
       ) : (
         <div className="list-page__body">
@@ -562,7 +580,7 @@ export function AdminInstructorsScreen() {
         </div>
       )}
       {account.dialogs}
-    </div>
+    </TabPage>
   );
 }
 
@@ -742,22 +760,27 @@ export function AdminCohortsScreen() {
   const shown = cohorts.filter((c) => c.status === filter);
 
   return (
-    <div className="list-page">
-      <FilterPillHeader
-        pills={[
-          { id: 'active', label: '진행중', count: count('active') },
-          { id: 'planned', label: '예정', count: count('planned') },
-          { id: 'closed', label: '종료', count: count('closed') },
-        ]}
-        selected={filter}
-        onSelect={(id) => setFilter(id as 'active' | 'planned' | 'closed')}
-        trailing={
-          <Link className="btn btn--filled btn--md" to={RoutePaths.adminCohortsCreate}>
-            <Icon name="add" size={18} />
-            기수 생성
-          </Link>
-        }
-      />
+    <TabPage
+      title="기수 관리"
+      description="기수를 만들고 기간 · 상태 · 강의장을 관리합니다."
+      actions={
+        <Link className="btn btn--filled btn--md" to={RoutePaths.adminCohortsCreate}>
+          <Icon name="add" size={18} />
+          기수 생성
+        </Link>
+      }
+      tabs={
+        <Tabs
+          active={filter}
+          onChange={(id) => setFilter(id as 'active' | 'planned' | 'closed')}
+          items={[
+            { id: 'active', label: '진행중', count: count('active') },
+            { id: 'planned', label: '예정', count: count('planned') },
+            { id: 'closed', label: '종료', count: count('closed') },
+          ]}
+        />
+      }
+    >
 
       {shown.length === 0 ? (
         <div className="list-page__empty">
@@ -801,7 +824,7 @@ export function AdminCohortsScreen() {
           })}
         </div>
       )}
-    </div>
+    </TabPage>
   );
 }
 

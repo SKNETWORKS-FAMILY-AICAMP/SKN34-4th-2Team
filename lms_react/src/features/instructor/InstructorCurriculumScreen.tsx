@@ -6,7 +6,7 @@ import type { CurriculumRow } from '../../domain/types';
 import { InstructorTargets } from '../../tour/targets';
 import { useTourTarget } from '../../tour/useTourTarget';
 import { Icon } from '../../ui/Icon';
-import { Button, Dialog, Field, Row, Spacer, TextArea } from '../../ui/components';
+import { Button, Dialog, Field, PageHeader, Row, Spacer, TextArea } from '../../ui/components';
 import { formatDateTime } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
 
@@ -60,6 +60,14 @@ export function InstructorCurriculumScreen() {
   return (
     <div className="curri-page">
       <div className="curri-column">
+        <PageHeader
+          title="커리큘럼"
+          description={
+            sheet === undefined
+              ? '구글시트에서 내려받은 CSV 를 올리면 일차별 수업 계획이 보입니다.'
+              : `${sheet.title} · ${sheet.fileName} · ${sheet.rows.length}행 · ${formatDateTime(sheet.uploadedAt)}`
+          }
+        />
         {sheet === undefined ? (
           <div className="list-page__empty">
             <Icon name="table_chart" size={44} />
@@ -68,11 +76,6 @@ export function InstructorCurriculumScreen() {
           </div>
         ) : (
           <>
-            <h1 className="curri-title">{sheet.title}</h1>
-            <p className="curri-meta">
-              {sheet.fileName} · {sheet.rows.length}행 · {formatDateTime(sheet.uploadedAt)}
-            </p>
-
             <label className="study-search">
               <Icon name="search" size={20} />
               <input

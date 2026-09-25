@@ -89,6 +89,38 @@ export function PageHeader({
   );
 }
 
+/**
+ * 탭이 있는 화면의 틀 — 제목 · 설명 · 버튼 → 탭 → 내용. 가운데 1080px(wide 면 화면 폭).
+ * 탭 화면들이 폭 · 제목 크기 · 탭 모양을 따로 갖던 것을 이것 하나로 맞춘다.
+ */
+export function TabPage({
+  title,
+  description,
+  actions,
+  tabs,
+  wide = false,
+  className,
+  children,
+}: {
+  title: string;
+  description?: string;
+  actions?: ReactNode;
+  /** 보통 <Tabs>. 탭이 내용 중간에 오는 화면은 비우고 내용 안에 둔다 */
+  tabs?: ReactNode;
+  /** 좌석 편집처럼 넓게 써야 하는 화면 */
+  wide?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`tab-page${wide ? ' tab-page--wide' : ''}${className ? ` ${className}` : ''}`}>
+      <PageHeader title={title} description={description} actions={actions} />
+      {tabs}
+      {children}
+    </div>
+  );
+}
+
 // ── 표시 조각 ──────────────────────────────────────────
 
 export function Badge({
@@ -188,16 +220,21 @@ export interface TabItem {
   id: string;
   label: string;
   count?: number;
+  /** 밑줄 · 글자 · 개수 배지의 색. 없으면 기본(파랑). 이력서 상태처럼 탭마다 뜻이 있을 때 */
+  tone?: 'neutral' | 'warning' | 'info' | 'success';
 }
 
+/** 밑줄 탭 — 모든 탭 화면이 같은 모양을 쓴다. trailing 은 탭 줄 오른쪽(검색 · 버튼) */
 export function Tabs({
   items,
   active,
   onChange,
+  trailing,
 }: {
   items: TabItem[];
   active: string;
   onChange(id: string): void;
+  trailing?: ReactNode;
 }) {
   return (
     <div className="tabs" role="tablist">
@@ -207,6 +244,7 @@ export function Tabs({
           type="button"
           role="tab"
           aria-selected={item.id === active}
+          data-tone={item.tone}
           className={`tabs__tab${item.id === active ? ' tabs__tab--on' : ''}`}
           onClick={() => onChange(item.id)}
         >
@@ -214,6 +252,7 @@ export function Tabs({
           {item.count !== undefined && <span className="tabs__count">{item.count}</span>}
         </button>
       ))}
+      {trailing !== undefined && <div className="tabs__trailing">{trailing}</div>}
     </div>
   );
 }

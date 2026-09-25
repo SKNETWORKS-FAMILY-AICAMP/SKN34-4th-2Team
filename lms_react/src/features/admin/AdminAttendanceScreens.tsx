@@ -20,7 +20,7 @@ import type { AttendanceStatusCode } from '../../domain/types';
 import { AdminTargets } from '../../tour/targets';
 import { useTourTarget } from '../../tour/useTourTarget';
 import { Icon } from '../../ui/Icon';
-import { Select } from '../../ui/components';
+import { PageHeader, Select } from '../../ui/components';
 import { useCurrentUser } from '../auth/session';
 
 /** 출석 관리 — features/admin/presentation/admin_attendance_screen.dart */
@@ -56,10 +56,10 @@ export function AdminAttendanceScreen() {
 
   return (
     <div className="admin-page admin-page--wide">
-      <h1 className="admin-page__title">{user.cohortName}</h1>
-      <p className="admin-page__desc">
-        고용24 입퇴실은 예시 데이터입니다. 지각·조퇴·외출·결석·공가는 당일 구글폼 선택값이 반영됩니다.
-      </p>
+      <PageHeader
+        title="출석 관리"
+        description={`${user.cohortName} · 고용24 입퇴실은 예시 데이터입니다. 지각·조퇴·외출·결석·공가는 당일 구글폼 선택값이 반영됩니다.`}
+      />
 
       {posted && (
         <div className="callout callout--success">오늘 출결 폼 공지를 게시판에 올렸습니다.</div>

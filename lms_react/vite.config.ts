@@ -1,7 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-const API_PROXY = { '/api': 'http://127.0.0.1:8000' };
+// 다른 Django 를 볼 때(예: 병합 브랜치 미리보기) LMS_API_PROXY=http://127.0.0.1:8010 npm run dev
+const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
+const API_PROXY = { '/api': env.LMS_API_PROXY || 'http://127.0.0.1:8000' };
 
 const COOP_COEP = {
   'Cross-Origin-Opener-Policy': 'same-origin',

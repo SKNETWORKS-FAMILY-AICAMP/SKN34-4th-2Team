@@ -4,6 +4,7 @@ import type { FormTask } from '../../domain/types';
 import { StudentTargets } from '../../tour/targets';
 import { useTourTarget } from '../../tour/useTourTarget';
 import { Icon } from '../../ui/Icon';
+import { PageHeader } from '../../ui/components';
 import { formatDate } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
 
@@ -24,13 +25,15 @@ export function FormTasksScreen() {
   const isDone = (task: FormTask) =>
     responses.some((r) => r.taskId === task.id && r.userId === user.uid);
 
-  const pending = tasks.filter((t) => !isDone(t));
+  // 마감이 지난 미제출 설문은 보이지 않는다 — 더 낼 수 없어 목록만 덮는다(대시보드와 같은 기준)
+  const pending = tasks.filter((t) => !isDone(t) && toTime(t.dueAt) >= Date.now());
   const done = tasks.filter((t) => isDone(t));
 
   return (
     <div className="form-page" ref={ref}>
-      {tasks.length === 0 ? (
-        <p className="form-page__empty">등록된 설문·제출 과제가 없습니다.</p>
+      <PageHeader title="설문 · 제출" description="기수에서 요청한 설문과 과제를 기한 안에 제출하세요." />
+      {pending.length === 0 && done.length === 0 ? (
+        <p className="form-page__empty">지금 제출할 설문·과제가 없습니다.</p>
       ) : (
         <div className="form-page__column">
           {pending.length > 0 && (
@@ -69,7 +72,11 @@ function FormTaskCard({ task, done }: { task: FormTask; done: boolean }) {
       <header className="form-card__head">
         <div>
           <strong className="form-card__title">{task.title}</strong>
-          {task.description !== '' && <p className="form-card__desc">{task.description}</p>}
+          {task.description !== '' && (
+            <p className="form-card__desc" title={task.description}>
+              {task.description}
+            </p>
+          )}
         </div>
         <span className={`form-chip form-chip--${tone}`}>{label}</span>
       </header>
@@ -77,7 +84,8 @@ function FormTaskCard({ task, done }: { task: FormTask; done: boolean }) {
       <p className={`form-card__due${overdue ? ' form-card__due--over' : ''}`}>
         <Icon name="schedule" size={14} />
         마감 {formatDate(task.dueAt)}
-        {!done && ` · D-${remaining}`}
+        {/* 마감이 지났으면 D-날짜는 뺀다 — 원본은 0 으로 막아 「D-0」이 남았다. 오른쪽 「마감」 표시로 충분하다 */}
+        {!done && !overdue && ` · D-${remaining}`}
       </p>
 
       <div className="form-card__actions">

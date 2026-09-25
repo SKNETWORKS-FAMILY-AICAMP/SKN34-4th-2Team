@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useQualExams } from '../../data/repository';
 import type { QualExamSchedule } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
-import { ErrorState, Skeleton } from '../../ui/components';
+import { ErrorState, PageHeader, Skeleton } from '../../ui/components';
 import { formatYmd, parseYmd } from '../../utils/format';
 
 /**
@@ -57,6 +57,7 @@ export function QualExamScreen() {
   return (
     <div className="qual-page">
       <div className="qual-column">
+        <PageHeader title="자격 시험 일정" description="다가오는 국가기술자격 시험의 접수 · 시험 · 발표 일정을 확인하세요." />
         <label className="study-search">
           <Icon name="search" size={20} />
           <input

@@ -7,7 +7,7 @@ import { ResumeSectionKeys, ResumeSectionLabels, ResumeStatusLabels } from '../.
 import type { Resume, ResumeContent } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { MoreMenu } from '../../ui/MoreMenu';
-import { Badge, Button, Card, Dialog, EmptyState, ErrorState, Skeleton } from '../../ui/components';
+import { Badge, Button, Card, Dialog, EmptyState, ErrorState, Skeleton, TabPage, Tabs } from '../../ui/components';
 import { formatDate, formatDateTime } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
 import { groupResumes, isTailored, type ResumeRow } from './resumeGroups';
@@ -115,37 +115,24 @@ export function ResumeScreen() {
   };
 
   return (
-    <div className="screen__inner">
-      <header className="page-head">
-        <div>
-          <h1 className="page-head__title">이력서 관리</h1>
-          <p className="page-head__desc">기본 이력서로 AI 첨삭과 공고 추천을 받습니다.</p>
-        </div>
-      </header>
+    <TabPage
+      title="이력서 관리"
+      description="기본 이력서로 AI 첨삭과 공고 추천을 받습니다."
+      tabs={
+        // 숫자 배지의 색은 뜻이다 — 작성 중은 주황, 피드백 요청은 늘 파랑, 승인은 초록.
+        <Tabs
+          active={tab}
+          onChange={(id) => setTab(id as typeof tab)}
+          items={[
+            { id: 'all', label: '전체', count: resumes.length, tone: 'neutral' },
+            { id: 'draft', label: '작성 중', count: count('draft'), tone: 'warning' },
+            { id: 'feedbackRequested', label: '피드백 요청', count: count('feedbackRequested'), tone: 'info' },
+            { id: 'approved', label: '승인', count: count('approved'), tone: 'success' },
+          ]}
+        />
+      }
+    >
       {createError && <ErrorState message="이력서를 만들지 못했습니다. 다시 시도해 주세요." onRetry={() => void create()} />}
-
-      {/* 숫자 배지의 색은 뜻이다 — 작성 중은 주황, 피드백 요청은 늘 파랑, 승인은 초록. */}
-      <div className="resume-tabs">
-        {(
-          [
-            ['all', '전체', resumes.length, 'neutral'],
-            ['draft', '작성 중', count('draft'), 'warning'],
-            ['feedbackRequested', '피드백 요청', count('feedbackRequested'), 'info'],
-            ['approved', '승인', count('approved'), 'success'],
-          ] as const
-        ).map(([id, label, n, tone]) => (
-          <button
-            key={id}
-            type="button"
-            data-tone={tone}
-            className={`resume-tab${tab === id ? ' resume-tab--on' : ''}`}
-            onClick={() => setTab(id)}
-          >
-            {label}
-            <span className="resume-tab__count">{n}</span>
-          </button>
-        ))}
-      </div>
 
       {base === undefined ? (
         <Card>
@@ -197,7 +184,7 @@ export function ResumeScreen() {
           }}
         />
       )}
-    </div>
+    </TabPage>
   );
 }
 

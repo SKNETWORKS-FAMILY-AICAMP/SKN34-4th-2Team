@@ -65,6 +65,10 @@ export function InstructorAssessmentsScreen({ readOnly = false }: { readOnly?: b
 
   return (
     <div className="assess-page assess-page--manage">
+      <PageHeader
+        title="성취도평가"
+        description={readOnly ? '기수의 성취도평가와 응시 현황입니다.' : '평가를 만들어 발행하고 학생 응시를 채점합니다.'}
+      />
       {assessments.length === 0 ? (
         <div className="list-page__empty">
           <Icon name="quiz" size={44} />
