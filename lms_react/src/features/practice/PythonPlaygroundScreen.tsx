@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
+import { usePageCrumbs } from '../../app/crumbs';
 import { RoutePaths } from '../../app/routePaths';
 import { Icon } from '../../ui/Icon';
 import { NotebookCellView } from './NotebookCellView';
@@ -22,7 +23,7 @@ const STATUS_TEXT: Record<RunnerStatus, string> = {
 };
 
 /**
- * 파이썬 연습장 — 노트북처럼 셀을 나눠 돌린다.
+ * 연습장 — 노트북처럼 셀을 나눠 돌린다.
  *
  * ?set= 없이 열면 자유 연습장, ?set=<세트 id> 면 그날 복습 문제, ?set=retry 면 다시 풀 문제.
  * 세트가 바뀌면 통째로 다시 그린다(key).
@@ -65,8 +66,32 @@ function Playground({ setId, focusProblem }: { setId: string | null; focusProble
   }, []);
   const lastId = nb.cells[nb.cells.length - 1]?.id ?? '';
 
+  usePageCrumbs(
+    mode.set
+      ? [
+          { label: '학습실', to: RoutePaths.studyRoom },
+          { label: '공부방', to: RoutePaths.studyRoomNotes },
+          { label: mode.isRetry ? '다시 풀 문제' : '복습 문제' },
+        ]
+      : [{ label: '학습실', to: RoutePaths.studyRoom }, { label: '연습장' }],
+  );
+
   const tutor = useTutor();
   const tutorOpen = Boolean(tutor?.target);
+
+  // 들어오면 튜터를 열어 둔다 — 지금 고른 셀(없으면 앞 셀부터). 한 번만 연다: 사용자가 닫으면 그대로 둔다.
+  // 복습 세트는 문제 셀이 늦게 오므로 셀이 튜터에 올라올 때까지 기다린다.
+  // 좁은 화면에서는 튜터가 노트북을 덮는 서랍이라 열지 않는다(styles.css 의 1100px 기준과 같다).
+  const autoOpened = useRef(false);
+  const openFor = tutor?.openFor;
+  useEffect(() => {
+    if (autoOpened.current || !openFor) return;
+    if (!window.matchMedia('(min-width: 1101px)').matches) {
+      autoOpened.current = true;
+      return;
+    }
+    if (openFor([nb.activeId, ...nb.cells.map((c) => c.id)])) autoOpened.current = true;
+  }, [openFor, nb.activeId, nb.cells]);
 
   // 튜터가 열려 있으면 고른 셀을 따라간다
   const follow = tutor?.follow;
@@ -147,28 +172,15 @@ function PlaygroundTitle({ mode }: { mode: PracticeSetMode }) {
   const { set, isRetry, passedCount, visibleCount } = mode;
   return (
     <div>
-      <nav className="py-crumbs" aria-label="위치">
-        <Link to={RoutePaths.studyRoom}>학습실</Link>
-        <Icon name="chevron_right" size={16} />
-        {set ? (
-          <>
-            <Link to={RoutePaths.studyRoomNotes}>공부방</Link>
-            <Icon name="chevron_right" size={16} />
-            <span>{isRetry ? '다시 풀 문제' : '복습 문제'}</span>
-          </>
-        ) : (
-          <span>파이썬 연습장</span>
-        )}
-      </nav>
       <h1 className="study-head__title">
-        {isRetry ? '다시 풀 문제' : set ? `${set.dayLabel} 복습 · ${set.title}` : '파이썬 연습장'}
+        {isRetry ? '다시 풀 문제' : set ? `${set.dayLabel} 복습 · ${set.title}` : '연습장'}
       </h1>
       <p className="study-head__desc">
         {isRetry && set
           ? `지난 복습에서 통과하지 못한 문제 ${set.problems.length}개입니다. 통과하면 다음에 열 때 목록에서 빠져요.`
           : set
             ? `${set.lessonDate} 수업 코드로 만든 문제 ${set.problems.length}개. 문제 사이에 셀을 추가해 자유롭게 시험해 봐도 됩니다.`
-            : '노트북처럼 셀을 나눠 실행합니다. 앞 셀에서 만든 변수는 다음 셀에서 그대로 쓸 수 있어요. 코드는 이 브라우저 안에서만 돕니다.'}
+            : '셀을 나눠 실행합니다. 코드는 이 브라우저 안에서만 돕니다.'}
       </p>
       {set && (
         <div className="pb-progress" aria-label={`통과 ${passedCount} / ${visibleCount}`}>

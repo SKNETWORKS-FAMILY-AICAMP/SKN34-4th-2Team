@@ -238,6 +238,45 @@ html {
   min-height: 64px;
 }
 
+/* 위치 줄 — 시작점을 본문 틀(가운데 1080px)의 왼쪽 끝에 맞춘다. 제목과 같은 세로줄에 선다 */
+.appbar__crumbs {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin-left: max(0px, calc((100% - 1080px) / 2));
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.appbar__crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.appbar__crumb + .appbar__crumb {
+  margin-left: 2px;
+}
+
+.appbar__crumb a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.appbar__crumb a:hover {
+  color: var(--primary);
+}
+
+.appbar__crumb [aria-current='page'] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 .appbar__menu {
   display: none;
   border: 0;
@@ -3957,7 +3996,7 @@ html {
 }
 
 .study-head__desc {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   font-size: 13px;
   color: var(--text-secondary);
 }
@@ -4040,19 +4079,6 @@ html {
   margin: 0 auto;
   width: 100%;
   gap: 14px;
-}
-
-.py-crumbs {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-bottom: 4px;
-  font-size: 12.5px;
-  color: var(--text-secondary);
-}
-
-.py-crumbs a:hover {
-  color: var(--primary);
 }
 
 .py-status {

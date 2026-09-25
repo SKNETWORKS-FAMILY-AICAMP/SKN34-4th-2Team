@@ -1176,7 +1176,7 @@ button.chip {
 /* ── 화면 한 폭 ──────────────────────────────────────────
    모든 화면을 이력서 관리 · 탭 화면(.tab-page)과 같은 비율로 — 가운데 1080px, 좌우 여백 없음.
    화면마다 1240 · 1120 · 980 · 860 · 700px, 꽉 채움, 16 · 20 · 24px 여백으로 달랐다.
-   예외: 이력서 편집(.resume-edit) · 공고 원문(.posting) · 로그인 · 연습장은 제 모양을 둔다.
+   예외: 이력서 편집(.resume-edit) · 공고 원문(.posting) · 로그인은 제 모양을 둔다. 연습장은 아래에 따로.
    ui.css 가 styles.css 뒤에 불려서 여기(맨 끝)에 둔다 — 앞에 두면 .admin-dash 1240px 가 이긴다. */
 .screen__inner,
 .assess-page,
@@ -1240,4 +1240,44 @@ button.chip {
 .form-page > .page-head,
 .admin-page:not(.admin-page--wide) > .page-head {
   margin-bottom: 16px; /* gap 없음 */
+}
+
+/* 연습장 — 튜터가 닫혀 있으면 다른 화면과 같은 가운데 1080px.
+   튜터가 열리면 노트북 왼쪽 끝은 그 자리에 두고 튜터가 오른쪽 여백으로 나간다. 제목이 옮겨 가지 않는다.
+   1100px 아래에서는 튜터가 서랍으로 덮으므로 틀은 그대로다. */
+.py-layout {
+  max-width: 1080px;
+}
+
+@media (min-width: 1101px) {
+  .py-layout--tutor {
+    width: auto;
+    max-width: none;
+    margin-left: max(0px, calc((100% - 1080px) / 2));
+    margin-right: 16px;
+  }
+}
+
+.py-playground > header:first-child {
+  margin-bottom: 2px; /* gap 14 */
+}
+
+/* 셀 번호([3] · Q1)는 왼쪽 여백에 건다 — 셀 카드가 제목 · 도구 줄과 같은 세로줄에 선다.
+   여백은 (본문 폭 - 1080) / 2 라서 창이 1416px 은 돼야 번호 칸(58px)이 들어간다. 그보다 좁으면 전처럼 셀 안쪽에 둔다. */
+@media (min-width: 1416px) {
+  .py-nb-cell {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .py-nb-cell__prompt {
+    position: absolute;
+    top: 0;
+    right: calc(100% + 6px);
+    width: 52px;
+  }
+
+  .py-add-row {
+    margin-left: 0;
+  }
 }

@@ -30,7 +30,7 @@ import { MyPageScreen } from '../features/mypage/MyPageScreen';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
 
 /*
- * 강사 · 관리자 화면과 파이썬 연습장은 필요할 때 받는다(화면 파일마다 청크 하나).
+ * 강사 · 관리자 화면과 연습장은 필요할 때 받는다(화면 파일마다 청크 하나).
  * 학생은 강사·관리자 코드를 받지 않고, CodeMirror(원본 1MB 남짓)는 연습장을 열 때만 온다.
  * 받는 동안은 App 의 Suspense 가 자리 표시를 띄운다.
  */

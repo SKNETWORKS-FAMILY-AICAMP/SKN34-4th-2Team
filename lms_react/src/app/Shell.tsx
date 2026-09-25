@@ -11,6 +11,7 @@ import { RoutePaths, homeFor } from './routePaths';
 import { AlertPopupHost } from '../features/board/AlertPopupHost';
 import { ChatbotHost } from '../features/chatbot/ChatbotHost';
 import { useCohorts } from '../data/repository';
+import { AppbarCrumbs, CrumbsProvider } from './crumbs';
 
 function RailItem({ item, selected }: { item: NavItem; selected: boolean }) {
   const ref = useTourTarget(item.targetId ?? '');
@@ -92,98 +93,102 @@ export function Shell() {
         : RoutePaths.myPage;
 
   return (
-    <div className={`shell${menuOpen ? ' shell--menu-open' : ''}`}>
-      <nav className="rail" aria-label="주 메뉴">
-        <button type="button" className="rail__brand" onClick={() => navigate(home)}>
-          <img className="rail__logo" src="/brand/playdata.jpg" alt="" />
-          <span className="rail__wordmark">PLAYDATA</span>
-        </button>
-
-        <div className="rail__items">
-          {sections.map((section) => (
-            <RailSection key={section.id} section={section} location={location} />
-          ))}
-        </div>
-
-        <div className="rail__foot">
-          <button type="button" className="rail__me" onClick={() => navigate(myPagePath)}>
-            <span className="rail__me-avatar">
-              {user.role === 'student' ? <Icon name="person" size={16} /> : user.displayName.slice(0, 1)}
-            </span>
-            <span>{user.displayName}</span>
-          </button>
-          <button
-            type="button"
-            className="rail__logout"
-            onClick={() => {
-              signOut();
-              navigate(RoutePaths.login);
-            }}
-          >
-            <Icon name="logout" size={18} />
-            <span>로그아웃</span>
-          </button>
-        </div>
-      </nav>
-
-      <div className="main">
-        <header className="appbar">
-          <button
-            type="button"
-            className="appbar__menu"
-            onClick={() => setMenuOpen((v) => !v)}
-            aria-label="메뉴"
-          >
-            <Icon name="menu" size={22} />
+    <CrumbsProvider>
+      <div className={`shell${menuOpen ? ' shell--menu-open' : ''}`}>
+        <nav className="rail" aria-label="주 메뉴">
+          <button type="button" className="rail__brand" onClick={() => navigate(home)}>
+            <img className="rail__logo" src="/brand/playdata.jpg" alt="" />
+            <span className="rail__wordmark">PLAYDATA</span>
           </button>
 
-          {user.role === 'admin' && (
-            <button type="button" className="cohort-select">
-              <span>{cohorts.find((c) => c.cohortId === user.cohortId)?.name ?? user.cohortName}</span>
-              <Icon name="expand_more" size={18} />
-            </button>
-          )}
+          <div className="rail__items">
+            {sections.map((section) => (
+              <RailSection key={section.id} section={section} location={location} />
+            ))}
+          </div>
 
-          <span className="spacer" />
-
-          {user.role === 'student' && (
-            <a
-              className="appbar__action"
-              ref={attendanceFormRef}
-              href={AttendanceForm.url}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <Icon name="open_in_new" size={18} />
-              출결 폼
-            </a>
-          )}
-
-          <button
-            type="button"
-            className="profile"
-            ref={user.role === 'student' ? myPageRef : undefined}
-            onClick={() => navigate(myPagePath)}
-          >
-            {user.role === 'student' && (
-              <span className="profile__avatar">
-                <Icon name="person" size={16} />
+          <div className="rail__foot">
+            <button type="button" className="rail__me" onClick={() => navigate(myPagePath)}>
+              <span className="rail__me-avatar">
+                {user.role === 'student' ? <Icon name="person" size={16} /> : user.displayName.slice(0, 1)}
               </span>
+              <span>{user.displayName}</span>
+            </button>
+            <button
+              type="button"
+              className="rail__logout"
+              onClick={() => {
+                signOut();
+                navigate(RoutePaths.login);
+              }}
+            >
+              <Icon name="logout" size={18} />
+              <span>로그아웃</span>
+            </button>
+          </div>
+        </nav>
+
+        <div className="main">
+          <header className="appbar">
+            <button
+              type="button"
+              className="appbar__menu"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-label="메뉴"
+            >
+              <Icon name="menu" size={22} />
+            </button>
+
+            {user.role === 'admin' && (
+              <button type="button" className="cohort-select">
+                <span>{cohorts.find((c) => c.cohortId === user.cohortId)?.name ?? user.cohortName}</span>
+                <Icon name="expand_more" size={18} />
+              </button>
             )}
-            <span className="profile__text">
-              <strong>{user.displayName}</strong>
-              <span>{user.cohortName}</span>
-            </span>
-          </button>
-        </header>
 
-        <main className="screen" onClick={() => menuOpen && setMenuOpen(false)}>
-          <Outlet />
-        </main>
+            <AppbarCrumbs />
+
+            <span className="spacer" />
+
+            {user.role === 'student' && (
+              <a
+                className="appbar__action"
+                ref={attendanceFormRef}
+                href={AttendanceForm.url}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Icon name="open_in_new" size={18} />
+                출결 폼
+              </a>
+            )}
+
+            <button
+              type="button"
+              className="profile"
+              ref={user.role === 'student' ? myPageRef : undefined}
+              onClick={() => navigate(myPagePath)}
+            >
+              {user.role === 'student' && (
+                <span className="profile__avatar">
+                  <Icon name="person" size={16} />
+                </span>
+              )}
+              <span className="profile__text">
+                <strong>{user.displayName}</strong>
+                <span>{user.cohortName}</span>
+              </span>
+            </button>
+          </header>
+
+          <main className="screen" onClick={() => menuOpen && setMenuOpen(false)}>
+            <Outlet />
+          </main>
+        </div>
+
+        <AlertPopupHost />
+        <ChatbotHost />
       </div>
-
-      <AlertPopupHost />
-      <ChatbotHost />
-    </div>
+    </CrumbsProvider>
   );
 }

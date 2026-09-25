@@ -32,6 +32,7 @@ import { formatDate } from '../../utils/format';
 import { retryItems } from '../practice/review';
 import { MakeProblems } from '../practice/MakeProblems';
 import { useIsHidden } from '../practice/useIsHidden';
+import { usePageCrumbs } from '../../app/crumbs';
 import { useCurrentUser } from '../auth/session';
 import { LessonDaysSection, practicePath, setProgress } from './LessonDaysSection';
 import { noteDate, noteLabel } from './noteScope';
@@ -89,10 +90,10 @@ export function StudyRoomScreen() {
         </Link>
       </section>
 
-      {/* 파이썬 연습장 — 문제 없이 코드를 바로 돌려 보는 곳 */}
+      {/* 연습장 — 문제 없이 코드를 바로 돌려 보는 곳 */}
       <section className="study-entry study-entry--quiet">
         <div>
-          <strong className="study-entry__title">파이썬 연습장</strong>
+          <strong className="study-entry__title">연습장</strong>
           <p className="study-entry__desc">수업 코드를 옮겨 적고 브라우저에서 바로 실행해 봅니다.</p>
         </div>
         <Link className="btn btn--outline btn--md" to={RoutePaths.studyRoomPlayground}>
@@ -292,16 +293,12 @@ function CourseRow({ title, url }: { title: string; url: string }) {
 /** 공부방 — study_room_notes_screen.dart. 오늘 복습 · 다시 풀 문제 · 과목별 목록(LessonDaysSection) */
 export function StudyNotesScreen() {
   const user = useCurrentUser();
+  usePageCrumbs([{ label: '학습실', to: RoutePaths.studyRoom }, { label: '공부방' }]);
 
   return (
     <div className="screen__inner study-room">
       <header className="study-head">
         <div>
-          <nav className="py-crumbs" aria-label="위치">
-            <Link to={RoutePaths.studyRoom}>학습실</Link>
-            <Icon name="chevron_right" size={16} />
-            <span>공부방</span>
-          </nav>
           <h1 className="study-head__title">공부방</h1>
           <p className="study-head__desc">수업이 끝나면 그날 복습 문제가 생겨요. 문제로 확인하고, 필요하면 노트로 다시 읽으세요.</p>
         </div>
@@ -333,6 +330,11 @@ export function StudyNoteSourceScreen() {
   const [scopeMode, setScopeMode] = useState<'date' | 'folder' | 'file'>('date');
   const [scopeValue, setScopeValue] = useState(initialDate);
   const user = useCurrentUser();
+  usePageCrumbs([
+    { label: '학습실', to: RoutePaths.studyRoom },
+    { label: '공부방', to: RoutePaths.studyRoomNotes },
+    { label: source?.title ?? '학습 노트' },
+  ]);
   const sets = usePracticeSets(user.cohortId);
   const attempts = useMyPracticeAttempts(user.uid);
   const isHidden = useIsHidden();
