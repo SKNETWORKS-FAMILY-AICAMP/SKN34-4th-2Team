@@ -728,16 +728,34 @@ def resume_review_promote(request, body: TailoredPromoteIn):
 class JobRecommendIn(Schema):
     resumeId: str
     topK: int = 10
+    # 코치 대화에서 "프로젝트만 보고 추천해줘"처럼 좁혀 부를 때. 서버 챗봇이 정해 준 값이다.
+    scope: str = "전체"
 
 
-@api.post("/jobs/recommend")
-def jobs_recommend(request, body: JobRecommendIn):
-    """공고 추천 — 이력서를 DB 에서 읽어 추천 서버(job_matching_bot)로 넘긴다.
+# 좁혀 읽을 때 지우는 칸 — ai_job_coach_panel.dart 의 _scopedResume 그대로.
+# 학력 · 자격증 · 기본정보는 남긴다. 조건 판정(build_profile)은 어차피 이력서 전체에서 뽑는다.
+# 자기소개서에는 핵심역량을 남긴다. 자기소개서만으로는 글이 너무 짧아 검색이 흐려진다.
+_SCOPE_DROP = {
+    "프로젝트": ("experience", "techStack", "awards", "trainingExperience", "otherActivities", "coreCompetencies", "selfIntroduction"),
+    "기술스택": ("experience", "projects", "awards", "trainingExperience", "otherActivities", "coreCompetencies", "selfIntroduction"),
+    "자기소개서": ("experience", "projects", "techStack", "awards", "trainingExperience", "otherActivities"),
+    "경력": ("projects", "techStack", "awards", "trainingExperience", "otherActivities", "coreCompetencies", "selfIntroduction"),
+}
+
+
+def _scoped_content(content: dict, scope: str) -> dict:
+    """추천 서버가 **읽을 글**만 남긴 이력서. 모르는 범위면 전체를 쓴다."""
+    drop = _SCOPE_DROP.get(scope)
+    if drop is None:
+        return content
+    return {key: value for key, value in content.items() if key not in drop}
+
+
+def _jobs_resume(request, resume_id: str):
+    """공고 추천 · 코치 대화에 쓸 이력서 → (행, 내용, 오류 응답).
 
     이력서 평문을 화면에서 받지 않는다. 남의 이력서로 추천을 받거나, 화면이 보낸 글이
-    DB 와 달라지는 것을 막는다. 희망 조건은 마이페이지(`user_job_preferences`)에서 읽는다.
-
-    추천은 15초쯤 걸린다. 서버가 없으면(`JOBS_URL` 없음) 무엇이 빠졌는지 알려 준다.
+    DB 와 달라지는 것을 막는다. 본인 이력서이거나 그 기수를 맡은 강사 · 관리자만 읽는다.
     """
     user = _require_user(request)
     with connection.cursor() as cur:
@@ -746,21 +764,32 @@ def jobs_recommend(request, body: JobRecommendIn):
                FROM resumes r JOIN users u ON u.id = r.user_id
                LEFT JOIN user_job_preferences p ON p.user_id = u.id
                WHERE r.legacy_id = %s OR r.id::text = %s""",
-            [body.resumeId, body.resumeId],
+            [resume_id, resume_id],
         )
         row = _one(cur)
     if not row:
-        return Response({"detail": "이력서를 찾을 수 없습니다."}, status=404)
-    # 본인 이력서이거나, 그 기수를 맡은 강사 · 관리자여야 한다
+        return None, None, Response({"detail": "이력서를 찾을 수 없습니다."}, status=404)
     if row["firebase_uid"] != user["firebase_uid"] and not (
         user["role"] in ("admin", "instructor") and can_access_cohort(user, row["cohort_id"])
     ):
-        return Response({"detail": "본인 이력서만 추천받을 수 있습니다."}, status=403)
-
+        return None, None, Response({"detail": "본인 이력서만 추천받을 수 있습니다."}, status=403)
     content = row["content"] or {}
     if isinstance(content, str):
         content = json.loads(content or "{}")
-    resume_text = build_resume_text(content)
+    return row, content, None
+
+
+@api.post("/jobs/recommend")
+def jobs_recommend(request, body: JobRecommendIn):
+    """공고 추천 — 이력서를 DB 에서 읽어 추천 서버(job_matching_bot)로 넘긴다.
+
+    희망 조건은 마이페이지(`user_job_preferences`)에서 읽는다.
+    추천은 15초쯤 걸린다. 서버가 없으면(`JOBS_URL` 없음) 무엇이 빠졌는지 알려 준다.
+    """
+    row, content, error = _jobs_resume(request, body.resumeId)
+    if error is not None:
+        return error
+    resume_text = build_resume_text(_scoped_content(content, body.scope))
     if len(resume_text) < 20:
         return Response({"detail": "이력서 내용이 너무 적습니다. 먼저 이력서를 채워 주세요."}, status=400)
 
@@ -799,6 +828,65 @@ def jobs_recommend(request, body: JobRecommendIn):
         return Response({"detail": detail or "공고를 추천하지 못했습니다."}, status=exc.code)
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         return Response({"detail": "공고 추천 서버에 연결하지 못했습니다."}, status=503)
+
+
+class JobChatIn(Schema):
+    message: str = Field(min_length=1, max_length=500)
+    # 직전 답의 filters 를 그대로 되돌려 보낸다. 서버가 대화를 저장하지 않아서다.
+    filters: dict[str, Any] | None = None
+    # 공고 하나를 놓고 묻는 중이면 그 공고
+    jobId: str | None = None
+    # 있으면 이 이력서의 평문을 서버가 만들어 붙인다. "나한테 맞아?"는 이력서를 봐야 답한다
+    resumeId: str | None = None
+    lastJobIds: list[str] = []
+    lastAnswerJobIds: list[str] = []
+    seenJobIds: list[str] = []
+
+
+@api.post("/jobs/chat")
+def jobs_chat(request, body: JobChatIn):
+    """코치에게 묻기 — 말로 공고를 찾고 채용을 묻는다(job_matching_bot `/api/v1/jobs/chat`).
+
+    조건 해석 · 검색 · 집계는 공고 서버가 한다. 여기서는 로그인을 확인하고 이력서 평문을
+    DB 에서 만들어 붙인다. 화면이 보낸 이력서 글은 받지 않는다(추천과 같은 이유).
+    """
+    _require_user(request)
+    payload: dict[str, Any] = {
+        "message": body.message,
+        "filters": body.filters,
+        "job_id": body.jobId,
+        "last_job_ids": body.lastJobIds[:20],
+        "last_answer_job_ids": body.lastAnswerJobIds[:20],
+        "seen_job_ids": body.seenJobIds[:3000],
+    }
+    if body.resumeId:
+        _row, content, error = _jobs_resume(request, body.resumeId)
+        if error is not None:
+            return error
+        payload["resume_text"] = build_resume_text(content)[:50_000] or None
+
+    base = (os.environ.get("JOBS_URL") or "").rstrip("/")
+    if not base:
+        return Response({"detail": "공고 서버가 연결되어 있지 않습니다(JOBS_URL)."}, status=503)
+    req = urllib.request.Request(
+        f"{base}/api/v1/jobs/chat",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("detail")
+        except Exception:
+            detail = None
+        if not isinstance(detail, str):
+            detail = None
+        return Response({"detail": detail or "답을 찾지 못했습니다. 잠시 후 다시 물어봐 주세요."}, status=exc.code)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return Response({"detail": "공고 서버에 연결하지 못했습니다."}, status=503)
 
 
 @api.get("/postings/{job_id}", auth=None)

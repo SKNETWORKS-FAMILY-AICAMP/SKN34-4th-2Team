@@ -283,3 +283,62 @@ class BootstrapJsonTests(SimpleTestCase):
         rows = _dicts(cur)
         self.assertEqual(rows[0]["content"]["section_status"], {"intro": True})
         self.assertEqual(rows[0]["title"], "Resume")
+
+
+class JobChatProxyTests(SimpleTestCase):
+    """코치에게 묻기 — 공고 서버로 넘기는 말과 이력서 평문."""
+
+    content = {
+        "techStack": [{"name": "Kubernetes"}],
+        "projects": [{"name": "주문 API 서버", "description": "FastAPI 로 주문 처리 API 를 만들었다"}],
+        "coreCompetencies": {"text": "백엔드 설계"},
+    }
+    row = {"job_preferences": None, "firebase_uid": "student-a", "cohort_id": 1}
+
+    def _call(self, handler, body, resume=None):
+        request = Mock(auth={"id": 42, "role": "student", "firebase_uid": "student-a"})
+        resume = resume if resume is not None else (self.row, self.content, None)
+        with patch.dict(os.environ, {"JOBS_URL": "http://jobs:8001"}), \
+             patch("lms.api._jobs_resume", return_value=resume) as read_resume, \
+             patch("lms.api.urllib.request.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = b'{"mode":"\xea\xb2\x80\xec\x83\x89","reply":"ok"}'
+            response = handler(request, body)
+        sent = json.loads(urlopen.call_args.args[0].data) if urlopen.called else None
+        return response, sent, read_resume, urlopen
+
+    def test_chat_sends_snake_case_and_builds_resume_on_server(self):
+        from lms.api import JobChatIn, jobs_chat
+
+        response, sent, _read, _ = self._call(
+            jobs_chat,
+            JobChatIn(message="2번 나한테 맞아?", resumeId="r1", lastJobIds=["a", "b"], filters={"regions": ["서울"]}),
+        )
+        self.assertEqual(response["reply"], "ok")
+        self.assertEqual(sent["last_job_ids"], ["a", "b"])
+        self.assertEqual(sent["filters"], {"regions": ["서울"]})
+        self.assertIn("주문 API 서버", sent["resume_text"])
+        self.assertNotIn("resumeId", sent)
+
+    def test_chat_without_resume_does_not_read_one(self):
+        from lms.api import JobChatIn, jobs_chat
+
+        _response, sent, read_resume, _ = self._call(jobs_chat, JobChatIn(message="서울 백엔드 신입"))
+        read_resume.assert_not_called()
+        self.assertNotIn("resume_text", sent)
+
+    def test_chat_with_someone_elses_resume_is_blocked(self):
+        from lms.api import JobChatIn, jobs_chat
+        from ninja.responses import Response
+
+        blocked = (None, None, Response({"detail": "본인 이력서만 추천받을 수 있습니다."}, status=403))
+        response, _sent, _read, urlopen = self._call(jobs_chat, JobChatIn(message="맞아?", resumeId="other"), resume=blocked)
+        self.assertEqual(response.status_code, 403)
+        urlopen.assert_not_called()
+
+    def test_scoped_recommend_reads_only_that_part(self):
+        from lms.api import JobRecommendIn, jobs_recommend
+
+        _response, sent, _read, _ = self._call(jobs_recommend, JobRecommendIn(resumeId="r1", scope="프로젝트"))
+        self.assertIn("주문 API 서버", sent["resume_text"])
+        self.assertNotIn("Kubernetes", sent["resume_text"])
+        self.assertNotIn("백엔드 설계", sent["resume_text"])

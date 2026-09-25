@@ -22,13 +22,13 @@ import { reviewWorkCopy } from './resumeGroups';
  * 한 번 받아 둔 추천은 이력서별로 남겨 둔다. 다른 패널을 보다 돌아와도 목록이
  * 그대로 있고, 다시 받고 싶을 때만 「다시 추천」을 누른다.
  */
-interface Reason {
+export interface Reason {
   claim: string;
   resumeQuote: string;
   jobQuote: string;
 }
 
-interface JobPick {
+export interface JobPick {
   jobId: string;
   title: string;
   company: string;
@@ -43,7 +43,7 @@ interface JobPick {
   bodyIsImage: boolean;
 }
 
-interface JobResult {
+export interface JobResult {
   jobs: JobPick[];
   searchQuery: string;
   notice: string;
@@ -59,18 +59,25 @@ const jobCache = new Map<string, JobResult>();
  */
 const pending = new Map<string, Promise<JobResult>>();
 
-function requestJobs(resumeId: string): Promise<JobResult> {
-  const going = pending.get(resumeId);
+/**
+ * 추천을 받아 이력서별로 남긴다.
+ *
+ * `scope` 는 코치에게 묻기에서 "프로젝트만 보고"처럼 좁혀 부를 때 쓴다. 좁혀 받은 결과도
+ * 같은 자리에 남긴다 — 대화의 「근거 전체 보기」가 이 화면으로 넘어와 그 목록을 보여 준다.
+ */
+export function requestJobs(resumeId: string, scope = '전체'): Promise<JobResult> {
+  const key = `${resumeId}|${scope}`;
+  const going = pending.get(key);
   if (going !== undefined) return going;
   const promise = http
-    .post<Record<string, unknown>>('/jobs/recommend', { resumeId, topK: 10 })
+    .post<Record<string, unknown>>('/jobs/recommend', { resumeId, topK: 10, scope })
     .then(({ data }) => {
       const next = toResult(data);
       jobCache.set(resumeId, next);
       return next;
     })
-    .finally(() => pending.delete(resumeId));
-  pending.set(resumeId, promise);
+    .finally(() => pending.delete(key));
+  pending.set(key, promise);
   return promise;
 }
 
@@ -154,7 +161,7 @@ function toResult(data: Record<string, unknown>): JobResult {
  * - 근거는 접어 둔다. 「추천 근거 보기」를 눌러야 이력서 ↔ 공고 인용이 나온다
  */
 /** 마감은 날짜까지만 — 원본 _deadlineDate. 시각·시간대는 지원 여부를 정하는 데 쓰이지 않는다 */
-function deadlineDate(value: string): string {
+export function deadlineDate(value: string): string {
   return /^\d{4}-\d{2}-\d{2}/.exec(value)?.[0] ?? value;
 }
 

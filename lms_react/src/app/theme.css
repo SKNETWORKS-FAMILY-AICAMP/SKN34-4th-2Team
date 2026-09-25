@@ -64,6 +64,7 @@
   --text-hint: #9ca3af;
 
   --border: #e5e7eb;
+  --scrollbar-thumb: rgb(0 0 0 / 28%);
   --divider: #f3f4f6;
 
   --success: #10b981;
@@ -100,6 +101,7 @@
   --text-hint: #6b7280;
 
   --border: #2a2f37;
+  --scrollbar-thumb: rgb(255 255 255 / 26%);
   --divider: #232830;
 
   --success: #34d399;
