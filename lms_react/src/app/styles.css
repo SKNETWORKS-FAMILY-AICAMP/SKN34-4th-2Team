@@ -365,6 +365,12 @@ html {
   font-weight: 600;
 }
 
+/* 좁아지면 앞 단계(「이력서 관리」 등)는 그대로 두고 마지막 제목만 … 으로 줄인다.
+   모두 줄어들게 두면 앞 단계 글자가 화살표 밑으로 파고들어 겹쳐 보였다 */
+.appbar__crumb:not(:last-child) {
+  flex: none;
+}
+
 .appbar__menu {
   display: none;
   border: 0;
@@ -399,11 +405,13 @@ html {
 
 .appbar__action {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 6px;
   color: var(--primary);
   font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
   padding: 8px 10px;
   border-radius: 8px;
 }
@@ -424,6 +432,8 @@ html {
   font: inherit;
   cursor: pointer;
   text-align: left;
+  min-width: 0;
+  max-width: 260px;
 }
 
 .profile__avatar {
@@ -440,7 +450,16 @@ html {
 .profile__text {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   line-height: 1.25;
+}
+
+/* 좁아도 두 줄로 접지 않는다 — 이름 · 기수는 한 줄에서 … 으로 줄인다 */
+.profile__text strong,
+.profile__text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .profile__text strong {
@@ -6499,29 +6518,31 @@ html {
 }
 
 /* 이력서 편집 — 다른 화면처럼 셸 안에 선다. 제목은 가운데 1080px 틀의 왼쪽 끝에 맞추고,
-   편집기는 오른쪽 끝까지 쓴다(이력서와 패널이 나란히 서야 해서). 남는 높이를 채우고 안에서 스크롤한다.
-   높이 = 창 - 상단 막대(70) - .screen 위 여백(4) - 아래 여백(16). 페이지 자체는 스크롤하지 않는다.
-   아래 여백은 챗봇 단추 자리(120px)보다 앞서야 해서 .shell 을 붙여 이긴다. */
-.shell .screen:has(> .resume-edit) {
-  padding-bottom: 16px;
-}
-
+   편집기는 오른쪽 끝까지 쓴다(이력서와 패널이 나란히 서야 해서).
+   연습장처럼 페이지 전체가 스크롤하고, 오른쪽 패널은 상단 막대 아래에 붙어 따라온다(.resume-panel). */
 .resume-edit {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 90px);
-  min-height: 480px;
   margin-left: max(0px, calc((100% - 1080px) / 2));
 }
 
-.resume-edit > .page-head {
+/* 머리글 · 진행 막대 · 칩 — 스크롤해도 상단 막대(70) 밑에 붙어 있다. 높이는 --top-h 로 잰다 */
+.resume-edit__top {
+  position: sticky;
+  top: 70px;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+}
+
+.resume-edit__top > .page-head {
   margin-bottom: 12px;
 }
 
-/* 좁은 화면에서는 .screen 위 여백이 16 이 된다 */
-@media (max-width: 900px) {
-  .resume-edit {
-    height: calc(100dvh - 102px);
+@media (max-width: 640px) {
+  .resume-edit__top {
+    top: 64px;
   }
 }
 
@@ -6611,22 +6632,36 @@ html {
 }
 
 /* 이력서 | 손잡이 | 패널. 패널 크기는 손잡이로 끌어 바꾼다(--panel-w, --panel-h).
-   창 크기가 바뀌어도 본문 520 · 패널 최소값을 지키도록 여기서 한 번 더 자른다. */
+   창 크기가 바뀌어도 본문 520 · 패널 최소값을 지키도록 여기서 한 번 더 자른다.
+   overflow 를 자르지 않는다 — 잘라 두면 패널이 상단에 붙지(sticky) 못한다. 모서리는 칸마다 둥글린다. */
 .resume-edit__body {
-  flex: 1;
-  min-height: 0;
   display: flex;
-  align-items: stretch;
+  align-items: flex-start;
   border: 1px solid var(--border);
   border-radius: 12px;
-  overflow: hidden;
   background: var(--surface);
 }
 
 .resume-edit__body > .resume-doc {
   flex: 1 1 0;
   min-width: 0;
+  align-self: stretch;
   border-right: 0;
+  border-radius: 12px 0 0 12px;
+}
+
+/* 넓은 화면 — 손잡이 · 패널 · 접은 자리는 연습장 튜터처럼 붙어서 따라온다.
+   상단 막대(70)와 붙어 있는 머리글(--top-h) 아래에 서고, 남은 창 높이를 채운다 */
+.resume-edit__body:not(.resume-edit__body--stack) > :is(.panel-handle, .resume-panel, .resume-edit__edge) {
+  position: sticky;
+  top: calc(70px + var(--top-h, 0px));
+  height: calc(100vh - 70px - var(--top-h, 0px) - 16px);
+  min-height: 320px;
+}
+
+.resume-edit__body:not(.resume-edit__body--stack) > .resume-panel {
+  border-radius: 0 12px 12px 0;
+  overflow: hidden;
 }
 
 .resume-panel {
@@ -6675,21 +6710,63 @@ html {
    이력서 본문과 패널 모두 200을 남긴다. */
 .resume-edit__body--stack {
   flex-direction: column;
+  align-items: stretch;
 }
 
 .resume-edit__body--stack > .resume-doc {
-  min-height: 0;
+  border-radius: 12px 12px 0 0;
 }
 
+/* 좁은 화면 — 패널은 이력서 밑이 아니라 연습장 튜터처럼 오른쪽에서 밀려 나오는 서랍이다.
+   머리글의 「AI 코치」 단추나 서랍의 × · Esc 로 닫는다 */
 .resume-edit__body--stack > .resume-panel {
-  width: auto;
-  height: clamp(200px, var(--panel-h), max(200px, min(900px, calc(100% - 228px))));
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 70;
+  width: min(420px, 100vw);
+  flex-direction: column;
   background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -12px 0 32px var(--shadow);
 }
 
+.resume-edit__body--stack > .resume-panel[hidden] {
+  display: none;
+}
+
+.resume-edit__body--stack > .resume-doc {
+  border-radius: 12px;
+}
+
+.resume-panel__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 12px 12px 12px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 15px;
+}
+
+/* 서랍이 열리면 오른쪽 아래 로봇을 숨긴다 — 서랍을 덮지 않게(연습장과 같다) */
+body:has(.resume-edit__body--stack > .resume-panel:not([hidden])) .chatbot-launcher {
+  display: none;
+}
+
+/* 머리글 「AI 코치」 단추 — 서랍이 열려 있으면 켜진 모양 */
+.resume-edit__coach-on {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+/* 서랍 머리 · 항목 목록 · 피드백 창 */
 .resume-edit__body--stack > .resume-panel--review {
+  display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .resume-edit__body--stack .review-feedback {
@@ -6779,16 +6856,19 @@ html {
   outline: none;
 }
 
-/* 이력서 본문만 스크롤한다. 오른쪽 패널은 제자리에 머문다. */
+/* 이력서 본문은 페이지와 함께 스크롤한다. */
 .resume-doc {
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding: 16px 24px 64px;
   border-right: 1px solid var(--border);
-  min-height: 0;
-  overflow-y: auto;
   background: var(--background);
+}
+
+/* 칩을 눌러 내려간 항목의 제목이 상단 막대 · 붙어 있는 머리글에 가리지 않게 */
+.resume-doc > :is(.doc-section, .resume-doc__field) {
+  scroll-margin-top: calc(70px + var(--top-h, 0px) + 12px);
 }
 
 .resume-doc__field {
