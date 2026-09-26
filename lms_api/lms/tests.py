@@ -14,6 +14,7 @@ from lms.commands import (
     _validate_record_submission_write, _validate_resume_write, op_add_todo,
     op_delete_todo, op_set_seat_presence, op_toggle_todo, op_upsert_sql,
 )
+from lms.seating_layout import seating_payload
 from lms.services import sync_notice_vector
 
 
@@ -66,6 +67,39 @@ class SeatPresenceTests(TestCase):
                 "state": "confirmed",
             })
         self.assertEqual(cur.execute.call_count, 1)
+
+
+class SeatingPayloadTests(TestCase):
+    """cohort_seating(기수당 한 줄, layout jsonb)을 화면이 받는 강의실 · 칸 · 배치 · 좌석으로 편다."""
+
+    def _row(self, published):
+        return {
+            "cohort_id": 1, "room_number": "강의실 1", "published": published, "updated_at": None,
+            "layout": json.dumps({
+                "rows": 2, "cols": 3, "sourceRoomId": "room-1",
+                "cells": [
+                    {"row": 0, "col": 0, "type": "empty", "seatId": ""},
+                    {"row": 0, "col": 1, "type": "instructor", "seatId": "", "groupId": "__instructor__"},
+                    {"row": 1, "col": 0, "type": "seat", "seatId": "1", "label": "1"},
+                    {"row": 1, "col": 1, "type": "seat", "seatId": "2", "label": "2"},
+                ],
+                "assignments": {"1": "uid-a", "9": "uid-gone"},
+            }),
+        }
+
+    def test_layout_unfolds_into_room_cells_and_seats(self):
+        view = seating_payload([self._row(True)], {1: "cohort_34"})
+        room = view["seatingRooms"][0]
+        self.assertEqual((room["id"], room["cohortId"], room["rows"], room["cols"]), ("room-1", "cohort_34", 2, 3))
+        self.assertEqual([c["type"] for c in view["seatingCells"]], ["instructor", "seat", "seat"])
+        self.assertEqual(view["seatAssignments"], [{"roomId": "room-1", "cellId": "room-1:1_0", "userId": "uid-a"}])
+        self.assertEqual(view["seatingAssignments"][0]["status"], "published")
+        self.assertEqual(view["publishedSeatingRooms"], {"cohort_34": "room-1"})
+
+    def test_draft_is_not_listed_as_published(self):
+        view = seating_payload([self._row(False)], {1: "cohort_34"})
+        self.assertEqual(view["seatingAssignments"][0]["status"], "draft")
+        self.assertEqual(view["publishedSeatingRooms"], {})
 
 
 class NoticeVectorCountTests(TestCase):
