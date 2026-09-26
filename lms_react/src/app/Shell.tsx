@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { useSession } from '../features/auth/session';
-import { AttendanceForm } from '../domain/constants';
+import { AttendanceForm, CohortStatusLabels } from '../domain/constants';
+import { selectCohort } from '../data/cohortSelection';
 import { Icon } from '../ui/Icon';
+import { MoreMenu } from '../ui/MoreMenu';
 import { StudentTargets } from '../tour/targets';
 import { useTourTarget } from '../tour/useTourTarget';
 import { isNavSelected, navFor, type NavItem, type NavSection } from './navigation';
@@ -20,6 +22,8 @@ function RailItem({ item, selected, mini }: { item: NavItem; selected: boolean; 
       to={item.path}
       ref={item.targetId === undefined ? undefined : ref}
       className={`rail__item${selected ? ' rail__item--on' : ''}`}
+      // 지금 화면의 탭을 다시 눌러도 맨 위로 올라간다(다른 화면으로 가는 경우는 셸이 올린다)
+      onClick={() => window.scrollTo(0, 0)}
       // 접힌 메뉴는 아이콘만 보인다. 올려 두면 이름이 뜬다
       title={mini ? item.label : undefined}
       aria-label={mini ? item.label : undefined}
@@ -32,10 +36,10 @@ function RailItem({ item, selected, mini }: { item: NavItem; selected: boolean; 
 
 function RailSection({ section, location, mini }: { section: NavSection; location: string; mini: boolean }) {
   const hasSelected = section.items.some((i) => isNavSelected(location, i.path));
-  const [open, setOpen] = useState(hasSelected);
+  // 첫 화면에서는 모든 묶음을 펼쳐 둔다(학생 · 강사 · 관리자 모두). 접는 것은 사용자가 한다
+  const [open, setOpen] = useState(true);
 
-  // 한 번 들어간 묶음은 열린 채로 둔다. 원본도 그렇게 쌓인다 — 방을 나왔다고
-  // 서랍이 저절로 닫히지는 않는다.
+  // 지금 화면이 든 묶음은 접혀 있었어도 연다
   useEffect(() => {
     if (hasSelected) setOpen(true);
   }, [hasSelected]);
@@ -77,32 +81,20 @@ export function Shell() {
   const navigate = useNavigate();
   const cohorts = useCohorts();
   const [menuOpen, setMenuOpen] = useState(false);
-  // 넓은 화면에서 왼쪽 메뉴를 아이콘만 남기고 접는다(지메일처럼). 다음에 와도 그대로
-  const [mini, setMini] = useState(() => {
-    try {
-      return window.localStorage.getItem('rail_mini') === 'true';
-    } catch {
-      return false;
-    }
-  });
+  // 넓은 화면에서 왼쪽 메뉴를 아이콘만 남기고 접는다(지메일처럼). 로그인한 첫 화면은 늘 펼친 채로 시작한다
+  const [mini, setMini] = useState(false);
   const toggleRail = () => {
     // 좁은 화면에서는 메뉴가 서랍이다. 같은 단추가 서랍을 닫는다
     if (window.matchMedia('(max-width: 900px)').matches) {
       setMenuOpen(false);
       return;
     }
-    setMini((v) => {
-      try {
-        window.localStorage.setItem('rail_mini', String(!v));
-      } catch {
-        /* 못 남겨도 이번에는 접힌다 */
-      }
-      return !v;
-    });
+    setMini((v) => !v);
   };
-  // 좁은 화면에서 연 메뉴는 다른 화면으로 가면 닫는다(메뉴 · 로고 · 마이페이지 무엇을 눌러도)
+  // 다른 화면으로 가면 좁은 화면의 메뉴는 닫고, 새 화면은 맨 위부터 보인다
   useEffect(() => {
     setMenuOpen(false);
+    window.scrollTo(0, 0);
   }, [location]);
 
   const attendanceFormRef = useTourTarget(StudentTargets.attendanceForm);
@@ -178,10 +170,22 @@ export function Shell() {
             </button>
 
             {user.role === 'admin' && (
-              <button type="button" className="cohort-select">
-                <span>{cohorts.find((c) => c.cohortId === user.cohortId)?.name ?? user.cohortName}</span>
-                <Icon name="expand_more" size={18} />
-              </button>
+              <div className="appbar__cohort-slot">
+                <MoreMenu
+                  className="cohort-select"
+                  label="기수 선택"
+                  align="left"
+                  items={cohorts.map((c) => ({
+                    key: c.cohortId,
+                    label: c.name,
+                    hint: CohortStatusLabels[c.status],
+                    icon: c.cohortId === user.cohortId ? 'check_circle' : 'circle',
+                    onSelect: () => selectCohort(user.uid, c.cohortId),
+                  }))}
+                >
+                  <span>{cohorts.find((c) => c.cohortId === user.cohortId)?.name ?? user.cohortName}</span>
+                </MoreMenu>
+              </div>
             )}
 
             <AppbarCrumbs />

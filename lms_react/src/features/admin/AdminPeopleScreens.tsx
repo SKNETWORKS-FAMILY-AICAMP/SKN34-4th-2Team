@@ -23,6 +23,7 @@ import {
   saveStudentIntake,
   type AccountCredentials,
 } from '../../data/repository';
+import { selectCohort } from '../../data/cohortSelection';
 import { readApiError } from '../../data/http';
 import { nextId } from '../../data/store';
 import { CohortStatusLabels, RecordTypeLabels, attendanceLabel } from '../../domain/constants';
@@ -754,6 +755,7 @@ export function AdminInstructorCreateScreen() {
 export function AdminCohortsScreen() {
   const user = useCurrentUser();
   const cohorts = useCohorts();
+  const navigate = useNavigate();
   const [filter, setFilter] = useState<'active' | 'planned' | 'closed'>('active');
 
   const count = (status: string) => cohorts.filter((c) => c.status === status).length;
@@ -791,8 +793,14 @@ export function AdminCohortsScreen() {
         <div className="list-page__body">
           {shown.map((c) => {
             const current = c.cohortId === user.cohortId;
+            const selectable = c.status === 'active' || c.status === 'planned';
             return (
-              <article key={c.cohortId} className={`cohort-card${current ? ' cohort-card--on' : ''}`}>
+              <article
+                key={c.cohortId}
+                className={`cohort-card cohort-card--link${current ? ' cohort-card--on' : ''}`}
+                // 카드를 누르면 수정으로 간다(Flutter InkWell). 안의 단추는 제 일만 한다
+                onClick={() => navigate(adminCohortEditPath(c.cohortId))}
+              >
                 <header className="cohort-card__head">
                   <Badge
                     tone={
@@ -814,7 +822,12 @@ export function AdminCohortsScreen() {
                   {formatDate(c.startDate)} ~ {formatDate(c.endDate)}
                 </p>
 
-                <div>
+                <div className="cohort-card__actions" onClick={(e) => e.stopPropagation()}>
+                  {selectable && !current && (
+                    <Button variant="outline" size="sm" onClick={() => selectCohort(user.uid, c.cohortId)}>
+                      이 기수로 전환
+                    </Button>
+                  )}
                   <Link className="btn btn--outline btn--sm" to={adminCohortEditPath(c.cohortId)}>
                     수정
                   </Link>

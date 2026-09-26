@@ -45,6 +45,7 @@ import { remapAssignments } from '../domain/seatingLayout';
 import { http, readApiError } from './http';
 import { fetchBootstrap, lastBootstrapSession, mapStudyNote } from './bootstrap';
 import { getBootstrapDb, subscribeBootstrap } from './bootstrapStore';
+import { selectedCohortFor } from './cohortSelection';
 import { queryClient, queryKeys } from './queryClient';
 import { demoTutorAsk, demoTutorReset, demoTutorThread } from './tutorDemo';
 
@@ -74,7 +75,9 @@ function isApiId(id: string | undefined): id is string {
 }
 
 export function apiCohortId(): string {
-  return lastBootstrapSession().cohortId;
+  const session = lastBootstrapSession();
+  // 관리자가 상단에서 고른 기수가 있으면 쓰기도 그 기수로(data/cohortSelection)
+  return selectedCohortFor(session.uid) ?? session.cohortId;
 }
 
 async function invalidateBootstrap(): Promise<void> {
