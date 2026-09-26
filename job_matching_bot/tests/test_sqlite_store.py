@@ -132,6 +132,54 @@ class SqliteVersusRulesTest(unittest.TestCase):
             self.assertEqual(STATUS_OPEN, self.store.get(job.job_id).status)
 
 
+class UnchangedFastPathTest(unittest.TestCase):
+    """변경 없는 공고는 통째로 다시 쓰지 않고 생애주기만 고친다 — RDS 에서 누적 상세를 매일 다시 쓰던 것."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.store = SqliteJobStore(Path(self.temp.name) / "store.sqlite")
+        self.jobs = mock_jobs()
+        self.writes: list[str] = []
+        original = self.store._write_record
+
+        def counting(record):
+            self.writes.append(record.job.job_id)
+            original(record)
+
+        self.store._write_record = counting
+
+    def tearDown(self):
+        self.store.close()
+        self.temp.cleanup()
+
+    def test_unchanged_is_not_rewritten_but_last_seen_moves(self):
+        self.store.upsert(self.jobs, source="MOCK")
+        self.writes.clear()
+        later = AS_OF + timedelta(hours=12)
+        report = self.store.upsert(self.jobs, source="MOCK", as_of=later)
+        self.assertEqual([], self.writes)
+        self.assertEqual(sorted(j.job_id for j in self.jobs), sorted(report.unchanged))
+        record = self.store.get(self.jobs[0].job_id)
+        self.assertEqual(later.isoformat(), record.last_seen_at)
+        self.assertEqual((0, 0), (record.missing_runs, record.revisions))
+
+    def test_new_parser_version_rewrites(self):
+        self.store.upsert(self.jobs, source="MOCK")
+        self.writes.clear()
+        reparsed = [replace(self.jobs[0], parser_version=f"{self.jobs[0].parser_version}+next")] + self.jobs[1:]
+        self.store.upsert(reparsed, source="MOCK", as_of=AS_OF + timedelta(hours=12))
+        self.assertEqual([self.jobs[0].job_id], self.writes)
+        self.assertEqual(reparsed[0].parser_version, self.store.get(self.jobs[0].job_id).job.parser_version)
+
+    def test_deadline_passing_still_expires_without_rewrite(self):
+        soon = replace(self.jobs[0], deadline=(AS_OF + timedelta(days=1)).isoformat())
+        self.store.upsert([soon], source="MOCK")
+        self.writes.clear()
+        self.store.upsert([soon], source="MOCK", as_of=AS_OF + timedelta(days=3))
+        self.assertEqual([], self.writes)
+        self.assertEqual(STATUS_EXPIRED, self.store.get(soon.job_id).status)
+
+
 class RoundTripTest(unittest.TestCase):
     def test_every_field_survives(self):
         # Windows는 열린 SQLite 파일을 못 지운다. 실패해도 연결을 닫도록 with로 감싼다.

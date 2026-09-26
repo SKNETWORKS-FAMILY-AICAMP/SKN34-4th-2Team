@@ -8,8 +8,10 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -187,6 +189,96 @@ class ObservedTest(unittest.TestCase):
         self.store.upsert([], source="SARAMIN_POC", as_of=later, observed_ids={"it-1"}, missing_run_limit=1)
         self.assertEqual({"it-1"}, self.store.source_job_ids("SARAMIN_POC", statuses=[STATUS_OPEN]))
         self.assertEqual({"sales-1", "unknown-1"}, self.store.source_job_ids("SARAMIN_POC", statuses=[STATUS_REMOVED]))
+
+
+class JobkoreaObservationTest(unittest.TestCase):
+    """잡코리아 사라짐 판정 — 상세 대분류를 모두 끝까지 훑은 밤에만, 오늘 목록의 상세만 적재한다."""
+
+    def setUp(self):
+        from job_matching_bot.crawling import jobkorea
+
+        self.temp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.temp.name)
+        self.store = SqliteJobStore(self.dir / "s.sqlite")
+        base = mock_jobs()[0]
+        self.jobs = [
+            replace(base, source="JOBKOREA_POC", source_job_id=sid, job_id=f"JOBKOREA-{sid}", deadline=None)
+            for sid in ("a", "b")
+        ]
+        self.store.upsert(self.jobs, source="JOBKOREA_POC", as_of=DAY1 - timedelta(days=1))
+        self.cats = list(jobkorea.DETAIL_CATEGORIES)
+        # 어제는 a · b 둘 다 상세 대분류에서 봤다
+        self.store.record_list_seen({c: {"a", "b"} for c in self.cats}, {c: 2 for c in self.cats},
+                                    DAY1 - timedelta(days=1), source="JOBKOREA_POC")
+        self.details = self.dir / "details.jsonl"
+        self.details.write_text(
+            "".join(json.dumps({"source_job_id": sid, "title": sid}) + "\n" for sid in ("a", "b")), encoding="utf-8"
+        )
+
+    def tearDown(self):
+        self.store.close()
+        self.temp.cleanup()
+
+    def _run(self, payload):
+        from job_matching_bot.crawling import nightly
+
+        list_path = self.dir / "list.json"
+        list_path.write_text(json.dumps(payload), encoding="utf-8")
+        with patch.object(nightly, "JOBKOREA_DETAIL_FILE", self.details):
+            info = nightly.record_jobkorea_list(self.store, list_path, DAY1)
+            return info, *nightly.jobkorea_observation(self.store, list_path, info, DAY1, self.dir)
+
+    def _payload(self, totals):
+        return {"list": [{"source_job_id": "a", "categories": self.cats}], "site_totals": totals}
+
+    def test_complete_sweep_loads_only_today_and_marks_the_missing(self):
+        # 사람인에 같은 번호 b 가 오늘 보였어도 잡코리아 b 의 근거가 되면 안 된다
+        self.store.record_list_seen({"2": {"b"}}, {}, DAY1, source="SARAMIN_POC")
+        info, detail_input, args = self._run(self._payload({c: 1 for c in self.cats}))
+        self.assertNotEqual(self.details, detail_input)
+        self.assertEqual(["a"], [json.loads(l)["source_job_id"] for l in detail_input.read_text(encoding="utf-8").splitlines()])
+        self.assertEqual("--observed", args[0])
+        observed = {r["source_job_id"] for r in json.loads(Path(args[1]).read_text(encoding="utf-8"))}
+        self.assertEqual({"a"}, observed)
+        self.assertEqual({"seen_today": 1, "input": 1, "observed": 1}, info["observation"])
+
+    def test_cut_off_sweep_changes_nothing(self):
+        # 사이트는 5건이라는데 1건만 받았다 — 도중에 끊긴 훑기
+        info, detail_input, args = self._run(self._payload({c: 5 for c in self.cats}))
+        self.assertEqual((self.details, []), (detail_input, args))
+        self.assertIn("skipped", info["observation"])
+
+    def test_old_list_file_without_totals_changes_nothing(self):
+        info, detail_input, args = self._run({"list": [{"source_job_id": "a", "categories": self.cats}]})
+        self.assertEqual((self.details, []), (detail_input, args))
+
+
+class ExpirePastDeadlineTest(unittest.TestCase):
+    """배치 끝의 마감 정리 — 배치 도중 마감 시각이 지난 열린 공고만."""
+
+    def test_only_open_jobs_past_deadline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = SqliteJobStore(Path(temp) / "s.sqlite")
+            try:
+                base = mock_jobs()[0]
+                at = DAY1 + timedelta(hours=5)  # 새벽 4시 — 배치 끝
+                jobs = {
+                    "past": (at - timedelta(hours=4)).isoformat(),   # 23:59 마감 같은 것
+                    "future": (at + timedelta(days=2)).isoformat(),
+                    "unreadable": "상시채용",
+                    "none": None,
+                }
+                store.upsert(
+                    [replace(base, source="S", source_job_id=k, job_id=f"S-{k}", deadline=v) for k, v in jobs.items()],
+                    source="S", as_of=DAY1,
+                )
+                self.assertEqual(["S-past"], store.expire_past_deadline(at))
+                self.assertEqual("EXPIRED", store.get("S-past").status)
+                for k in ("future", "unreadable", "none"):
+                    self.assertEqual(STATUS_OPEN, store.get(f"S-{k}").status, k)
+                self.assertEqual([], store.expire_past_deadline(at))  # 다시 불러도 그대로
+            finally:
+                store.close()
 
 
 class LinkCheckTest(unittest.TestCase):

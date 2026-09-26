@@ -16,7 +16,7 @@ import json
 import os
 import re
 import sqlite3
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
@@ -481,14 +481,16 @@ class SqliteJobStore:
         return {"total": self.count(), "by_status": by_status}
 
     # ── 쓰기 ──────────────────────────────────────────────────
-    def _write_record(self, record: JobRecord) -> None:
-        job = record.job
-        # 읽을 때 뒤집을 값이면 쓸 때 미리 뒤집는다. 쓴 지문과 읽은 지문이 같아야
-        # 적재가 "바뀐 것 없음"을 믿을 수 있다. 읽을 때만 뒤집던 동안 4,316건의
-        # 지문이 어긋나 바뀐 것이 없는데도 다시 올릴 대상으로 잡혔다.
+    @staticmethod
+    def _as_stored(job: Job) -> Job:
+        """쓸 때의 모양. 읽을 때 뒤집을 값이면 쓸 때 미리 뒤집는다. 쓴 지문과 읽은 지문이 같아야
+        적재가 "바뀐 것 없음"을 믿을 수 있다. 읽을 때만 뒤집던 동안 4,316건의
+        지문이 어긋나 바뀐 것이 없는데도 다시 올릴 대상으로 잡혔다."""
         flag = _effective_image_flag(job.description, job.body_is_image)
-        if flag != job.body_is_image:
-            job = replace(job, body_is_image=flag)
+        return replace(job, body_is_image=flag) if flag != job.body_is_image else job
+
+    def _write_record(self, record: JobRecord) -> None:
+        job = self._as_stored(record.job)
         values = {name: _encode(name, getattr(job, name)) for name in JOB_FIELDS}
         values["status"] = record.status
         # 인덱스에 올라갈 내용의 지문. indexed_embed_hash는 여기서 건드리지 않는다 —
@@ -530,7 +532,7 @@ class SqliteJobStore:
             params = [v for key in chunk for v in key]
             rows = self.conn.execute(
                 "SELECT source, source_job_id, content_hash, first_seen_at, revisions, "
-                "company, title, deadline "
+                "company, title, deadline, parser_version, embed_hash "
                 f"FROM jobs WHERE (source, source_job_id) IN (VALUES {marks})",
                 params,
             )
@@ -616,6 +618,11 @@ class SqliteJobStore:
         # ① 이번에 받은 공고: 신규 / 갱신 / 변경 없음
         keys = [(job.source, job.source_job_id) for job in collected]
         existing = self._existing_light(list(dict.fromkeys(keys)))
+        # 변경 없음은 통째로 다시 쓰지 않고 생애주기(상태 · 마지막 확인 · 미관측 0)만 한꺼번에 고친다.
+        # 공고 하나를 다시 쓰면 DB 왕복이 세 번이다. RDS(왕복 약 0.2초)에서는 잡코리아 누적 상세
+        # 2.3만 건을 매일 다시 쓰느라 적재가 3시간 54분 걸렸다(2026-09-25 밤).
+        # 파서 판 · 인덱스 지문까지 같을 때만 건너뛴다 — 다르면 다시 파싱한 내용을 써야 한다.
+        lifecycle_only: list[tuple[str, str, str]] = []  # (status, last_seen_at, job_id)
         with self.conn:
             for job in collected:
                 key = (job.source, job.source_job_id)
@@ -643,7 +650,17 @@ class SqliteJobStore:
                         revisions=int(previous["revisions"]) + (1 if changed else 0),
                     )
                     (report.updated if changed else report.unchanged).append(job.job_id)
-                self._write_record(record)
+                stored = self._as_stored(job)
+                embed = _embed_hash(stored)
+                if (
+                    previous is not None
+                    and previous["content_hash"] == job.content_hash
+                    and previous["parser_version"] == job.parser_version
+                    and previous["embed_hash"] == embed
+                ):
+                    lifecycle_only.append((status, timestamp, job.job_id))
+                else:
+                    self._write_record(record)
                 # 같은 공고가 collected에 두 번 오면 두 번째는 '기존'으로 보이게 한다 (reconcile과 동일).
                 existing[key] = {
                     "content_hash": job.content_hash,
@@ -652,7 +669,12 @@ class SqliteJobStore:
                     "company": job.company,
                     "title": job.title,
                     "deadline": job.deadline,
+                    "parser_version": job.parser_version,
+                    "embed_hash": embed,
                 }
+            self.conn.executemany(
+                "UPDATE jobs SET status = ?, last_seen_at = ?, missing_runs = 0 WHERE job_id = ?", lifecycle_only
+            )
 
             # ② 이번에 안 보인 같은 소스의 공고: 만료 / 목록에서 봄 / 미관측 누적 / 삭제
             rows = self.conn.execute(
@@ -934,10 +956,14 @@ class SqliteJobStore:
         candidates = self.source_job_ids(source) - observed
         if not candidates:
             return observed
-        cutoff = (as_of - timedelta(days=within_days)).isoformat()
+        # 저장소가 돌려주는 시각은 UTC 글자다(`+00:00`). 글자로 견주므로 기준도 UTC 로 맞춘다 —
+        # 한국 시각(+09:00) 글자와 견주면 경계가 9시간 어긋난다.
+        cutoff_at = as_of - timedelta(days=within_days)
+        cutoff = (cutoff_at.astimezone(timezone.utc) if cutoff_at.tzinfo else cutoff_at).isoformat()
         swept = {row["cat_mcls"]: row["swept_at"] for row in self.conn.execute("SELECT cat_mcls, swept_at FROM list_sweeps")}
         evidence: dict[str, bool] = {}
-        for row in self.conn.execute("SELECT source_job_id, cat_mcls, seen_at FROM list_seen"):
+        # 같은 출처의 기록만 — 사람인 · 잡코리아 공고번호가 겹치면 남의 기록이 근거가 된다.
+        for row in self.conn.execute("SELECT source_job_id, cat_mcls, seen_at FROM list_seen WHERE source = ?", (source,)):
             job_id = row["source_job_id"]
             if job_id not in candidates:
                 continue
@@ -950,6 +976,27 @@ class SqliteJobStore:
             elif not authoritative:
                 observed.add(job_id)
         return observed
+
+    def expire_past_deadline(self, at: datetime) -> list[str]:
+        """마감 시각이 `at` 보다 앞선 **열린** 공고를 마감(EXPIRED)으로. 바꾼 job_id 목록.
+
+        적재(`upsert`)는 배치 시작 시각으로 판정하므로, 배치 도중에 마감 시각이 지나는 공고
+        (그날 23:59 마감)는 다음 적재까지 열림으로 남는다. 야간 배치가 끝에서 지금 시각으로 부른다.
+        판정은 적재와 같은 `_is_expired` — 마감일 글자를 못 읽는 공고는 건드리지 않는다.
+        """
+        rows = self.conn.execute(
+            "SELECT job_id, deadline FROM jobs WHERE status = ? AND deadline IS NOT NULL AND deadline <> ''",
+            (STATUS_OPEN,),
+        ).fetchall()
+        expired = []
+        for row in rows:
+            probe = Job.__new__(Job)
+            probe.deadline = row["deadline"]
+            if _is_expired(probe, at):
+                expired.append(row["job_id"])
+        with self.conn:
+            self.conn.executemany("UPDATE jobs SET status = 'EXPIRED' WHERE job_id = ?", [(j,) for j in expired])
+        return expired
 
     def removal_candidates(self, source: str, observed: set[str], missing_run_limit: int = DEFAULT_MISSING_RUN_LIMIT) -> list[str]:
         """이번 upsert에서 REMOVED로 넘어갈 진행 중 공고. 링크 확인 대상이다."""
