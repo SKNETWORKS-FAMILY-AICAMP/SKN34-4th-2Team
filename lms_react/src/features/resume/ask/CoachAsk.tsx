@@ -16,6 +16,7 @@ import {
   sameChatConditions,
   shouldSendResume,
 } from './chatRefs';
+import { StreamFailed, StreamUnavailable, streamChat } from './chatStream';
 import { parseChatText } from './chatText';
 
 /**
@@ -90,6 +91,7 @@ function toChatJob(raw: Record<string, unknown>): ChatJob {
 }
 
 function errorDetail(err: unknown): string | null {
+  if (err instanceof StreamFailed) return err.message;
   const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
   return typeof detail === 'string' && detail !== '' ? detail : null;
 }
@@ -116,6 +118,8 @@ export function CoachAsk({
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [busyLabels, setBusyLabels] = useState<string[]>([]);
+  /** 서버가 쓰고 있는 답. 다 쓰면 최종 답으로 바꿔 끼운다 */
+  const [streaming, setStreaming] = useState<string | null>(null);
   /** 공고 하나를 놓고 묻는 중이면 그 공고. 이 동안의 말은 전부 이 공고에 대한 물음으로 간다 */
   const [askingAbout, setAskingAbout] = useState<ChatJob | null>(null);
   const [viewing, setViewing] = useState<string | null>(null);
@@ -139,7 +143,7 @@ export function CoachAsk({
     const list = listRef.current;
     if (list === null || hidden) return;
     list.scrollTo?.({ top: list.scrollHeight, behavior: 'smooth' });
-  }, [messages.length, busy, hidden]);
+  }, [messages.length, busy, hidden, streaming]);
 
   const push = (message: ChatMessage) => setMessages((m) => [...m, message]);
 
@@ -179,17 +183,29 @@ export function CoachAsk({
     setBusyLabels(about !== null ? ASK_ABOUT_BUSY : CHAT_BUSY);
 
     let recommendScope: string | null = null;
+    const body = {
+      message: text,
+      filters: mem.filters,
+      jobId: about?.jobId ?? null,
+      // 이력서 평문은 서버가 DB 에서 만든다. 화면은 어느 이력서인지만 알린다
+      resumeId: shouldSendResume(about !== null, mem.shown.length > 0) ? resume.id : null,
+      lastJobIds: mem.shown,
+      lastAnswerJobIds: mem.answered,
+      seenJobIds: mem.seen,
+    };
     try {
-      const { data } = await http.post<ChatResponse>('/jobs/chat', {
-        message: text,
-        filters: mem.filters,
-        jobId: about?.jobId ?? null,
-        // 이력서 평문은 서버가 DB 에서 만든다. 화면은 어느 이력서인지만 알린다
-        resumeId: shouldSendResume(about !== null, mem.shown.length > 0) ? resume.id : null,
-        lastJobIds: mem.shown,
-        lastAnswerJobIds: mem.answered,
-        seenJobIds: mem.seen,
-      });
+      let data: ChatResponse;
+      try {
+        // 서버가 실제로 하는 일을 띄우고, 답을 쓰는 동안의 글을 그대로 보인다
+        data = await streamChat<ChatResponse>(body, {
+          onProgress: (label) => setBusyLabels([label]),
+          onText: (delta) => setStreaming((t) => (t ?? '') + delta),
+        });
+      } catch (err) {
+        if (!(err instanceof StreamUnavailable)) throw err;
+        setStreaming(null);
+        ({ data } = await http.post<ChatResponse>('/jobs/chat', body));
+      }
       const mode = String(data.mode ?? '검색');
       const jobs = (data.jobs ?? []).map(toChatJob);
       const ids = jobs.map((j) => j.jobId);
@@ -206,6 +222,7 @@ export function CoachAsk({
     } finally {
       setBusy(false);
       setBusyLabels([]);
+      setStreaming(null);
     }
     if (recommendScope !== null) await recommendInChat(recommendScope);
   };
@@ -252,7 +269,8 @@ export function CoachAsk({
             onOpenPosting={setViewing}
           />
         ))}
-        {busy && <Typing labels={busyLabels.length === 0 ? ['답을 찾는 중…'] : busyLabels} />}
+        {busy && streaming !== null && <Bubble message={coach(streaming)} onOpenPosting={setViewing} />}
+        {busy && streaming === null && <Typing labels={busyLabels.length === 0 ? ['답을 찾는 중…'] : busyLabels} />}
       </div>
 
       {/* 무엇에 대해 묻는 중인지. 이게 없으면 짧은 말이 어디로 가는지 알 수 없다 */}

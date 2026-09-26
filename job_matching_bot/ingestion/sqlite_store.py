@@ -16,6 +16,8 @@ import json
 import os
 import re
 import sqlite3
+import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator
@@ -185,9 +187,11 @@ def _adapt_sql(sql: str) -> str:
 class _PgConn:
     """기존 sqlite3 SQL(?, :name, INSERT OR IGNORE)을 psycopg로 돌린다."""
 
-    def __init__(self, conn: psycopg.Connection):
+    def __init__(self, conn: psycopg.Connection, on_close: Any = None):
         self._pg = conn
         self._tx = None
+        # 연결을 돌려 쓰는 경우 닫지 않고 돌려준다(`_release_managed`)
+        self._on_close = on_close
 
     def execute(self, sql: str, params: Any = None) -> _Result:
         adapted = _adapt_sql(sql)
@@ -220,6 +224,10 @@ class _PgConn:
         self._pg.commit()
 
     def close(self) -> None:
+        if self._on_close is not None:
+            release, self._on_close = self._on_close, None
+            release(self._pg)
+            return
         self._pg.close()
 
     def __enter__(self) -> "_PgConn":
@@ -291,6 +299,74 @@ def job_id_prefix(source: str) -> str:
     return _JOB_ID_PREFIX.get(source, source.removesuffix("_POC"))
 
 
+# ── 운영 스키마 연결 재사용 ──────────────────────────────────
+# RDS 는 새 연결에 1.4초, 스키마 확인(표 여덟 개 · 칸 목록)까지 합치면 4초 가까이 걸린다. 조회 한 번은
+# 0.2초다. AI 서버는 공고 하나를 볼 때마다 저장소를 열어서 질문마다 4초가 붙었다(2026-09-26 측정).
+# 운영 스키마(`jobs`)만 연결을 모아 두고 돌려 쓰고, 스키마 확인은 프로세스에서 한 번만 한다.
+# 테스트 격리 스키마는 경로마다 달라 모아 두면 연결이 쌓이므로 전처럼 매번 열고 닫는다.
+_POOL_MAX_IDLE = 4
+# 오래 쉰 연결은 RDS 쪽에서 끊겼을 수 있다. 확인 쿼리(0.2초)를 치르느니 버리고 새로 연다.
+_POOL_IDLE_SECONDS = 300.0
+_pool: list[tuple[psycopg.Connection, float]] = []
+_pool_lock = threading.Lock()
+_managed_schema_verified = False
+_sqlite_import_checked: set[str] = set()
+
+
+def _close_quietly(conn: psycopg.Connection) -> None:
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+
+def _acquire_managed() -> psycopg.Connection:
+    """운영 스키마 연결 하나. 쉬고 있는 것이 있으면 그것을, 없으면 새로 연다."""
+    with _pool_lock:
+        while _pool:
+            conn, since = _pool.pop()
+            if conn.closed or conn.broken or time.monotonic() - since > _POOL_IDLE_SECONDS:
+                _close_quietly(conn)
+                continue
+            return conn
+    # autocommit=True 인 이유는 아래 `SqliteJobStore.__init__` 주석 참고
+    raw = connect_postgres(
+        fallback_url=os.environ.get("JOBS_DATABASE_URL"),
+        use_db_host=True,
+        row_factory=dict_row,
+        autocommit=True,
+    )
+    try:
+        raw.execute(SQL("SET search_path TO {}, public").format(Identifier("jobs")))
+    except Exception:
+        _close_quietly(raw)
+        raise
+    return raw
+
+
+def _release_managed(conn: psycopg.Connection) -> None:
+    """다 쓴 연결을 돌려 둔다. 트랜잭션이 걸려 있거나 깨졌으면 버린다."""
+    if conn.closed or conn.broken or conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
+        _close_quietly(conn)
+        return
+    with _pool_lock:
+        if len(_pool) < _POOL_MAX_IDLE:
+            _pool.append((conn, time.monotonic()))
+            return
+    _close_quietly(conn)
+
+
+def is_managed_store(path: Path) -> bool:
+    """운영 스키마(`jobs`)를 쓰는 저장소인가. 테스트 격리 스키마면 False."""
+    return _schema_for_path(Path(path)) == "jobs"
+
+
+def store_available(path: Path) -> bool:
+    """저장소를 쓸 수 있나. 운영 스키마는 파일이 아니라 DB 에 있으니 파일이 없어도 된다."""
+    path = Path(path)
+    return path.name in _DEFAULT_STORE_NAMES or path.exists()
+
+
 class SqliteJobStore:
     """`JobStore`와 같은 겉모습. 실제 저장은 Postgres `jobs` 스키마(또는 테스트 격리 스키마)."""
 
@@ -310,31 +386,50 @@ class SqliteJobStore:
         # 빠져나와도 바깥 트랜잭션이 남아 close() 에서 통째로 되돌아간다 — 2026-09-22 밤
         # 상세 적재가 "신규 1,778" 이라 찍히고도 한 건도 안 남은 이유다.
         # True 면 `with self.conn:` 마다 진짜 트랜잭션이 열리고 나올 때 커밋된다.
+        if self.schema == "jobs":
+            self._open_managed()
+        else:
+            self._open_isolated()
+        # 옛 공유 SQLite 파일을 들일지는 경로마다 한 번만 본다. 볼 때마다 파일을 열고 행을 셌다.
+        key = f"{self.schema}:{self.path.resolve()}"
+        if key not in _sqlite_import_checked:
+            if _looks_like_sqlite(self.path):
+                self._import_sqlite_file(self.path)
+            _sqlite_import_checked.add(key)
+
+    def _open_managed(self) -> None:
+        global _managed_schema_verified
+        raw = _acquire_managed()
+        self._pg = raw
+        self.conn = _PgConn(raw, on_close=_release_managed)
+        if not _managed_schema_verified:
+            try:
+                self._verify_managed_schema()
+            except Exception:
+                self.conn = _PgConn(raw)
+                _close_quietly(raw)
+                raise
+            _managed_schema_verified = True
+
+    def _open_isolated(self) -> None:
         raw = connect_postgres(
             fallback_url=os.environ.get("JOBS_DATABASE_URL"),
-            use_db_host=self.schema == "jobs",
+            use_db_host=False,
             row_factory=dict_row,
             autocommit=True,
         )
         try:
-            if self.schema != "jobs":
-                # Test stores use isolated schemas and may bootstrap them locally.
-                raw.execute(SQL("CREATE SCHEMA IF NOT EXISTS {}").format(Identifier(self.schema)))
+            # Test stores use isolated schemas and may bootstrap them locally.
+            raw.execute(SQL("CREATE SCHEMA IF NOT EXISTS {}").format(Identifier(self.schema)))
             raw.execute(SQL("SET search_path TO {}, public").format(Identifier(self.schema)))
-            if self.schema != "jobs":
-                for stmt in _sql_statements(_JOBS_SCHEMA_PATH.read_text(encoding="utf-8")):
-                    raw.execute(stmt)
+            for stmt in _sql_statements(_JOBS_SCHEMA_PATH.read_text(encoding="utf-8")):
+                raw.execute(stmt)
             self._pg = raw
             self.conn = _PgConn(raw)
-            if self.schema == "jobs":
-                self._verify_managed_schema()
-            else:
-                self._add_missing_columns()
+            self._add_missing_columns()
         except Exception:
             raw.close()
             raise
-        if _looks_like_sqlite(self.path):
-            self._import_sqlite_file(self.path)
 
     def _verify_managed_schema(self) -> None:
         """Production schema comes from Django migrations, never crawler DDL."""
@@ -652,11 +747,16 @@ class SqliteJobStore:
                     (report.updated if changed else report.unchanged).append(job.job_id)
                 stored = self._as_stored(job)
                 embed = _embed_hash(stored)
+                # 마감 · 제목 · 회사도 견준다. 내용 지문은 수집기마다 만들어 마감이 빠진 경우가 있다 —
+                # 마감만 연장 · 단축된 공고를 「변경 없음」으로 건너뛰면 옛 마감이 남는다.
                 if (
                     previous is not None
                     and previous["content_hash"] == job.content_hash
                     and previous["parser_version"] == job.parser_version
                     and previous["embed_hash"] == embed
+                    and previous["deadline"] == job.deadline
+                    and previous["title"] == job.title
+                    and previous["company"] == job.company
                 ):
                     lifecycle_only.append((status, timestamp, job.job_id))
                 else:

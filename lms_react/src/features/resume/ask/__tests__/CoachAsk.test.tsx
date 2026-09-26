@@ -5,9 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Resume } from '../../../../domain/types';
 
 const post = vi.hoisted(() => vi.fn());
-vi.mock('../../../../data/http', () => ({ http: { post, get: vi.fn() } }));
+vi.mock('../../../../data/http', () => ({ http: { post, get: vi.fn() }, API_BASE: '/api' }));
+// 스트림은 따로 갈아끼운다. 기본은 「열 수 없음」이라 예전처럼 `/jobs/chat`으로 물러난다
+const streamChat = vi.hoisted(() => vi.fn());
+vi.mock('../chatStream', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../chatStream')>()),
+  streamChat,
+}));
 
 const { CoachAsk } = await import('../CoachAsk');
+const { StreamFailed, StreamUnavailable } = await import('../chatStream');
 
 Element.prototype.scrollTo ??= function scrollTo() {};
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -56,6 +63,8 @@ const onOpenDetail = vi.fn();
 
 beforeEach(() => {
   post.mockReset();
+  streamChat.mockReset();
+  streamChat.mockRejectedValue(new StreamUnavailable('off'));
   onOpenDetail.mockReset();
   host = document.createElement('div');
   document.body.append(host);
@@ -149,6 +158,42 @@ describe('코치에게 묻기', () => {
 
     await click('근거 전체 보기 →');
     expect(onOpenDetail).toHaveBeenCalled();
+  });
+
+  it('답을 쓰는 동안 서버가 하는 일과 쓰는 글을 보이고, 다 쓰면 최종 답으로 바꾼다', async () => {
+    type Handlers = { onProgress(label: string): void; onText(delta: string): void };
+    let handlers!: Handlers;
+    let finish!: (result: unknown) => void;
+    streamChat.mockImplementationOnce((_body: unknown, h: Handlers) => {
+      handlers = h;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    });
+    await click('백엔드 신입은 뭘 준비해야 해?');
+
+    await act(async () => handlers.onProgress('공고를 세어 보는 중…'));
+    expect(host.textContent).toContain('공고를 세어 보는 중…');
+
+    await act(async () => {
+      handlers.onText('백엔드 신입은 ');
+      handlers.onText('API 하나를 끝까지');
+    });
+    expect(host.textContent).toContain('백엔드 신입은 API 하나를 끝까지');
+    expect(host.textContent).not.toContain('공고를 세어 보는 중…');
+
+    await act(async () => finish({ mode: '질문', reply: '백엔드 신입은 API 하나를 끝까지 만들어 보세요.', filters: {}, jobs: [], suggestions: ['면접은?'] }));
+    expect(host.textContent).toContain('백엔드 신입은 API 하나를 끝까지 만들어 보세요.');
+    expect(host.querySelectorAll('.coach-ask__bubble--coach')).toHaveLength(2);
+    expect(button('면접은?')).toBeDefined();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('스트림 도중 서버가 실패를 알리면 물러나지 않고 그 말을 보인다', async () => {
+    streamChat.mockRejectedValueOnce(new StreamFailed('답을 만들지 못했습니다: Timeout'));
+    await click('서울 백엔드 신입');
+    expect(host.textContent).toContain('답을 만들지 못했습니다: Timeout');
+    expect(post).not.toHaveBeenCalled();
   });
 
   it('서버가 거절하면 그 말을 코치 답으로 보인다', async () => {

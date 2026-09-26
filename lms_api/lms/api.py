@@ -10,7 +10,7 @@ from typing import Any
 
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import connection, transaction
-from django.http import HttpRequest
+from django.http import HttpRequest, StreamingHttpResponse
 from django.views.decorators.csrf import ensure_csrf_cookie
 from ninja import Body, File, NinjaAPI, Schema, UploadedFile
 from ninja.responses import Response
@@ -843,14 +843,8 @@ class JobChatIn(Schema):
     seenJobIds: list[str] = []
 
 
-@api.post("/jobs/chat")
-def jobs_chat(request, body: JobChatIn):
-    """코치에게 묻기 — 말로 공고를 찾고 채용을 묻는다(job_matching_bot `/api/v1/jobs/chat`).
-
-    조건 해석 · 검색 · 집계는 공고 서버가 한다. 여기서는 로그인을 확인하고 이력서 평문을
-    DB 에서 만들어 붙인다. 화면이 보낸 이력서 글은 받지 않는다(추천과 같은 이유).
-    """
-    _require_user(request)
+def _jobs_chat_payload(request, body: JobChatIn) -> tuple[dict[str, Any] | None, Response | None]:
+    """공고 서버에 넘길 대화 한 턴. 이력서 평문은 화면이 보낸 글이 아니라 DB 에서 만든다."""
     payload: dict[str, Any] = {
         "message": body.message,
         "filters": body.filters,
@@ -862,8 +856,22 @@ def jobs_chat(request, body: JobChatIn):
     if body.resumeId:
         _row, content, error = _jobs_resume(request, body.resumeId)
         if error is not None:
-            return error
+            return None, error
         payload["resume_text"] = build_resume_text(content)[:50_000] or None
+    return payload, None
+
+
+@api.post("/jobs/chat")
+def jobs_chat(request, body: JobChatIn):
+    """코치에게 묻기 — 말로 공고를 찾고 채용을 묻는다(job_matching_bot `/api/v1/jobs/chat`).
+
+    조건 해석 · 검색 · 집계는 공고 서버가 한다. 여기서는 로그인을 확인하고 이력서 평문을
+    DB 에서 만들어 붙인다. 화면이 보낸 이력서 글은 받지 않는다(추천과 같은 이유).
+    """
+    _require_user(request)
+    payload, error = _jobs_chat_payload(request, body)
+    if error is not None:
+        return error
 
     base = (os.environ.get("JOBS_URL") or "").rstrip("/")
     if not base:
@@ -887,6 +895,52 @@ def jobs_chat(request, body: JobChatIn):
         return Response({"detail": detail or "답을 찾지 못했습니다. 잠시 후 다시 물어봐 주세요."}, status=exc.code)
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         return Response({"detail": "공고 서버에 연결하지 못했습니다."}, status=503)
+
+
+@api.post("/jobs/chat/stream")
+def jobs_chat_stream(request, body: JobChatIn):
+    """`/jobs/chat`과 같은 대화를, 공고 서버가 만드는 동안 흘려받아 그대로 넘긴다.
+
+    공고 서버의 `/api/v1/jobs/chat/stream`(Server-Sent Events)을 줄 단위로 중계한다.
+    열기 전에 막히면(로그인 · 이력서 · 연결) 평소처럼 JSON 오류를 준다. 화면은 그때
+    `/jobs/chat`으로 물러난다.
+    """
+    _require_user(request)
+    payload, error = _jobs_chat_payload(request, body)
+    if error is not None:
+        return error
+
+    base = (os.environ.get("JOBS_URL") or "").rstrip("/")
+    if not base:
+        return Response({"detail": "공고 서버가 연결되어 있지 않습니다(JOBS_URL)."}, status=503)
+    req = urllib.request.Request(
+        f"{base}/api/v1/jobs/chat/stream",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Accept": "text/event-stream"},
+        method="POST",
+    )
+    try:
+        upstream = urllib.request.urlopen(req, timeout=90)
+    except urllib.error.HTTPError as exc:
+        return Response({"detail": "답을 찾지 못했습니다. 잠시 후 다시 물어봐 주세요."}, status=exc.code)
+    except (urllib.error.URLError, TimeoutError):
+        return Response({"detail": "공고 서버에 연결하지 못했습니다."}, status=503)
+
+    def relay():
+        # 한 줄씩 넘긴다. 모아 두었다 보내면 단계 표시와 글 조각이 한꺼번에 온다.
+        try:
+            for line in upstream:
+                yield line
+        except (urllib.error.URLError, TimeoutError, OSError):
+            failed = {"event": "error", "status": 503, "detail": "공고 서버와 연결이 끊겼습니다."}
+            yield f"data: {json.dumps(failed, ensure_ascii=False)}\n\n".encode("utf-8")
+        finally:
+            upstream.close()
+
+    response = StreamingHttpResponse(relay(), content_type="text/event-stream; charset=utf-8")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
 
 
 @api.get("/postings/{job_id}", auth=None)
