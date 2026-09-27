@@ -69,6 +69,60 @@ function RailSection({ section, location, mini }: { section: NavSection; locatio
   );
 }
 
+/** 이만큼 넘게 한 방향으로 움직여야 숨기고 · 보인다(손가락 떨림에 깜빡이지 않게) */
+const BAR_SCROLL_STEP = 8;
+/** 맨 위에서 이만큼 안쪽이면 늘 보인다 */
+const BAR_TOP_ZONE = 80;
+
+/**
+ * 작은 화면(폭 900 이하, 또는 data-autohide-bar 를 단 쌓인 배치)의 상단 막대 — 내려 읽을 때는 숨고, 조금이라도 올리면 다시 나온다
+ * (모바일 브라우저 주소창처럼). 고정해 두면 휴대폰에서 이력서 칸이 너무 좁아졌다.
+ * 넓은 화면 · 맨 위 근처 · 메뉴를 연 동안 · 화면을 옮긴 직후에는 늘 보인다.
+ * 셸에 `shell--bar-hidden` 을 달면 CSS 가 상단 막대와 화면의 붙어 있는 머리글을 함께 올린다.
+ */
+function useHideOnScroll(location: string, menuOpen: boolean): boolean {
+  const [hidden, setHidden] = useState(false);
+
+  useEffect(() => {
+    setHidden(false);
+  }, [location, menuOpen]);
+
+  useEffect(() => {
+    const narrow = window.matchMedia('(max-width: 900px)');
+    let last = window.scrollY;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const y = window.scrollY;
+      // 창이 900 보다 넓어도 화면이 모바일처럼 쌓인 배치를 알리면(data-autohide-bar — 이력서 편집 ·
+      // 연습장 튜터의 아래 시트) 똑같이 숨긴다
+      const small = narrow.matches || document.querySelector('[data-autohide-bar]') !== null;
+      if (!small || menuOpen || y < BAR_TOP_ZONE) {
+        setHidden(false);
+      } else if (y > last + BAR_SCROLL_STEP) {
+        setHidden(true);
+      } else if (y < last - BAR_SCROLL_STEP) {
+        setHidden(false);
+      } else {
+        return; // 조금 움직인 것은 쌓아 두고 기준점을 옮기지 않는다
+      }
+      last = y;
+    };
+    const onScroll = () => {
+      if (frame === 0) frame = window.requestAnimationFrame(update);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    narrow.addEventListener?.('change', onScroll); // 옛 Safari 는 없다 — 없으면 스크롤할 때만 다시 본다
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      narrow.removeEventListener?.('change', onScroll);
+      if (frame !== 0) window.cancelAnimationFrame(frame);
+    };
+  }, [menuOpen]);
+
+  return hidden;
+}
+
 /**
  * 셸 — Flutter의 MainShell / InstructorShell / AdminShell 셋을 하나로 합쳤다.
  *
@@ -96,6 +150,7 @@ export function Shell() {
     setMenuOpen(false);
     window.scrollTo(0, 0);
   }, [location]);
+  const barHidden = useHideOnScroll(location, menuOpen);
 
   const attendanceFormRef = useTourTarget(StudentTargets.attendanceForm);
   const myPageRef = useTourTarget(StudentTargets.navMyPage);
@@ -113,7 +168,11 @@ export function Shell() {
 
   return (
     <CrumbsProvider>
-      <div className={`shell${menuOpen ? ' shell--menu-open' : ''}${mini ? ' shell--rail-mini' : ''}`}>
+      <div
+        className={`shell${menuOpen ? ' shell--menu-open' : ''}${mini ? ' shell--rail-mini' : ''}${
+          barHidden ? ' shell--bar-hidden' : ''
+        }`}
+      >
         <nav className="rail" aria-label="주 메뉴">
           <div className="rail__top">
             <button
