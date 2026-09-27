@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { resumeEditPath } from '../../../app/routePaths';
 import { applyBootstrap } from '../../../data/repository';
+import { useYieldToOtherWindows } from '../../../ui/floatingWindows';
 import { Icon } from '../../../ui/Icon';
 import './review.css';
 import type { ReviewDockStatus } from './reviewSession';
@@ -136,6 +137,10 @@ export function ReviewDockHost({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(() => ({ openReview }), [openReview]);
+
+  // 복습 · 연습장 창이 펼쳐지면 이 창은 내려놓는다(둘이 겹쳐 펼쳐지지 않게)
+  const minimizeReview = useCallback(() => setMinimized(true), []);
+  useYieldToOtherWindows('review', panel !== null && !minimized, minimizeReview);
 
   // 복습 · 연습장 막대(PracticeDock)가 이 막대 옆으로 비켜 서게 알린다
   const docked = panel !== null && minimized;

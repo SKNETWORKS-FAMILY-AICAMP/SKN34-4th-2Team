@@ -123,3 +123,16 @@ describe('복습 · 연습장 창', () => {
     expect(host.querySelector('.pd-window')).toBeNull();
   });
 });
+
+describe('첨삭 창과 함께', () => {
+  it('첨삭 창이 펼쳐지면 이 창은 내려놓는다', async () => {
+    await render();
+    await click(link('A 풀기'));
+    expect(host.querySelector('.rv-layer')?.hasAttribute('hidden')).toBe(false);
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('lms:floating-window-expanded', { detail: 'review' }));
+    });
+    expect(host.querySelector('.rv-layer')?.hasAttribute('hidden')).toBe(true);
+    expect(host.querySelector('.pd-dockbar')).not.toBeNull();
+  });
+});

@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { RoutePaths } from '../../app/routePaths';
 import { usePracticeSet } from '../../data/repository';
+import { useYieldToOtherWindows } from '../../ui/floatingWindows';
 import { Icon } from '../../ui/Icon';
 import './practiceDock.css';
 import { RETRY_SET_ID } from './review';
@@ -136,6 +137,10 @@ export function PracticeDockHost({ children }: { children: ReactNode }) {
     const timer = window.setTimeout(() => setNotice(null), 4000);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  // 첨삭 창이 펼쳐지면 이 창은 내려놓는다(둘이 겹쳐 펼쳐지지 않게)
+  const minimizeDock = useCallback(() => setMinimized(true), []);
+  useYieldToOtherWindows('practice', tabs.length > 0 && !minimized, minimizeDock);
 
   // 첨삭 막대와 나란히 놓으려고 알린다(practiceDock.css)
   const docked = tabs.length > 0 && minimized;
