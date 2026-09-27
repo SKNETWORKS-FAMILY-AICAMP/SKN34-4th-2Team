@@ -21,6 +21,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from lms.bootstrap_service import build_bootstrap
 from lms.commands import dispatch, resolve_cohort
+from lms.holidays import holidays_of
 from lms.jwt_auth import AuthError, issue_tokens, load_lms_user, user_from_access
 from lms.permissions import can_access_cohort
 from lms.publish import publish_scheduled_notices
@@ -206,6 +207,15 @@ def password(request, body: dict[str, Any] = Body(...)):
 @api.post("/logout", auth=None)
 def logout(request):
     return {"ok": True}
+
+
+@api.get("/holidays")
+def holidays(request, year: int):
+    """그 해 공휴일 {"YYYY-MM-DD": 이름} — 출석 달력이 일요일처럼 칠한다(lms/holidays.py)."""
+    _require_user(request)
+    if not 2000 <= year <= 2100:
+        return Response({"detail": "year 는 2000~2100 사이여야 합니다."}, status=400)
+    return {"year": year, "days": holidays_of(year)}
 
 
 @api.get("/me")
