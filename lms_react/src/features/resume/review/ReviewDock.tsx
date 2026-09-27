@@ -137,6 +137,13 @@ export function ReviewDockHost({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => ({ openReview }), [openReview]);
 
+  // 복습 · 연습장 막대(PracticeDock)가 이 막대 옆으로 비켜 서게 알린다
+  const docked = panel !== null && minimized;
+  useEffect(() => {
+    document.body.classList.toggle('rv-docked', docked);
+    return () => document.body.classList.remove('rv-docked');
+  }, [docked]);
+
   return (
     <DockContext.Provider value={value}>
       {children}

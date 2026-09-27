@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { NotebookMarkdown } from '../practice/NotebookMarkdown';
+import { PracticeLink } from '../practice/PracticeDock';
 
 import { RoutePaths } from '../../app/routePaths';
 import {
@@ -36,7 +37,7 @@ import { MakeProblems } from '../practice/MakeProblems';
 import { useIsHidden } from '../practice/useIsHidden';
 import { usePageCrumbs } from '../../app/crumbs';
 import { useCurrentUser } from '../auth/session';
-import { LessonDaysSection, practicePath, setProgress } from './LessonDaysSection';
+import { LessonDaysSection, setProgress } from './LessonDaysSection';
 import { noteDate, noteLabel } from './noteScope';
 
 const packageTypeLabels: Record<string, string> = {
@@ -98,9 +99,9 @@ export function StudyRoomScreen() {
           <strong className="study-entry__title">연습장</strong>
           <p className="study-entry__desc">수업 코드를 옮겨 적고 브라우저에서 바로 실행해 봅니다.</p>
         </div>
-        <Link className="btn btn--outline btn--md" to={RoutePaths.studyRoomPlayground}>
+        <PracticeLink className="btn btn--outline btn--md" setId={null}>
           연습장 열기
-        </Link>
+        </PracticeLink>
       </section>
 
       <YoutubeRecommendations cohortName={user.cohortName} />
@@ -559,9 +560,9 @@ export function StudyNoteSourceScreen() {
                   <strong>이 날 복습 문제 {dayProgress.total}개</strong> · 통과 {dayProgress.passed} / {dayProgress.total}
                 </span>
                 <Spacer />
-                <Link className="btn btn--filled btn--sm" to={practicePath(daySet.id)}>
+                <PracticeLink className="btn btn--filled btn--sm" setId={daySet.id}>
                   복습 문제 풀기
-                </Link>
+                </PracticeLink>
               </div>
             )}
             <MakeProblems

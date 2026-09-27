@@ -4,6 +4,7 @@ import { RoutePaths, studyRoomNoteSourcePath } from '../../app/routePaths';
 import { useMyPracticeAttempts, usePracticeSets, useStudyNotes, useStudySources } from '../../data/repository';
 import type { PracticeAttempt, PracticeSet } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
+import { PracticeLink } from '../practice/PracticeDock';
 import { isLessonSet, RETRY_SET_ID, retryDates, retryItems, retryTopics } from '../practice/review';
 import { useIsHidden } from '../practice/useIsHidden';
 import { reviewBoard, type Subject, type SubjectDay } from './lessonDays';
@@ -77,7 +78,7 @@ export function LessonDaysSection({ cohortId, uid }: { cohortId: string; uid: st
       )}
 
       {retries.length > 0 && (
-        <Link className="review-retry" to={`${RoutePaths.studyRoomPlayground}?set=${RETRY_SET_ID}`}>
+        <PracticeLink className="review-retry" setId={RETRY_SET_ID}>
           <Icon name="replay" size={18} />
           <strong>다시 풀 문제 {retries.length}개</strong>
           <span className="review-retry__meta">
@@ -87,7 +88,7 @@ export function LessonDaysSection({ cohortId, uid }: { cohortId: string; uid: st
             다시 풀기
             <Icon name="arrow_forward" size={16} />
           </span>
-        </Link>
+        </PracticeLink>
       )}
 
       <header className="study-section__head">
@@ -131,9 +132,9 @@ export function LessonDaysSection({ cohortId, uid }: { cohortId: string; uid: st
                     </span>
                   </span>
                   <span className="review-day__actions">
-                    <Link className="btn btn--outline btn--sm" to={practicePath(set.id)}>
+                    <PracticeLink className="btn btn--outline btn--sm" setId={set.id}>
                       {actionText(p)}
-                    </Link>
+                    </PracticeLink>
                   </span>
                 </li>
               );
@@ -165,10 +166,10 @@ function TodayHero({ subject, day, progress }: { subject: Subject; day: SubjectD
         </div>
       </div>
       <div className="review-hero__actions">
-        <Link className="btn btn--filled btn--md" to={practicePath(set.id)}>
+        <PracticeLink className="btn btn--filled btn--md" setId={set.id}>
           {actionText(progress)}
           <Icon name="arrow_forward" size={18} />
-        </Link>
+        </PracticeLink>
         {note && (
           <Link className="btn btn--text btn--sm" to={note}>
             <Icon name={day.note ? 'description' : 'note_add'} size={16} />
@@ -250,9 +251,9 @@ function SubjectRow({
               )}
               <span className="review-day__actions">
                 {day.set && p && (
-                  <Link className="btn btn--outline btn--sm" to={practicePath(day.set.id)}>
+                  <PracticeLink className="btn btn--outline btn--sm" setId={day.set.id}>
                     {actionText(p)}
-                  </Link>
+                  </PracticeLink>
                 )}
                 {note && (
                   <Link className="btn btn--text btn--sm" to={note}>

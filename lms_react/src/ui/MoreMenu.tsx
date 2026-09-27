@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 
 import { Icon } from './Icon';
 
@@ -48,7 +48,23 @@ export function MoreMenu({
   children?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const [side, setSide] = useState(align);
   const root = useRef<HTMLSpanElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+
+  // 열면 잘리는지 본다. 단추가 줄 왼쪽 끝으로 내려오거나(좁은 창) 창 가장자리에 붙으면
+  // 목록이 그쪽 밖으로 나가 잘렸다 — 그러면 반대쪽으로 펼친다.
+  useLayoutEffect(() => {
+    if (!open) {
+      setSide(align);
+      return;
+    }
+    const box = pop.current?.getBoundingClientRect();
+    if (!box) return;
+    const bounds = clipBounds(root.current);
+    if (box.left < bounds.left + 4) setSide('left');
+    else if (box.right > bounds.right - 4) setSide('right');
+  }, [open, align]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -86,7 +102,7 @@ export function MoreMenu({
       </button>
 
       {open && (
-        <div className={`more__pop more__pop--${align}`} role="menu">
+        <div ref={pop} className={`more__pop more__pop--${side}`} role="menu">
           {items.map((item) => (
             <Fragment key={item.key}>
               {item.heading !== undefined && (
@@ -123,4 +139,16 @@ export function MoreMenu({
       )}
     </span>
   );
+}
+
+/** 목록을 잘라 낼 수 있는 가장 가까운 상자(스크롤 · 넘침 숨김)의 가장자리. 없으면 화면 */
+function clipBounds(from: HTMLElement | null): { left: number; right: number } {
+  for (let el = from?.parentElement ?? null; el; el = el.parentElement) {
+    const { overflowX } = window.getComputedStyle(el);
+    if (overflowX !== 'visible') {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, right: r.right };
+    }
+  }
+  return { left: 0, right: window.innerWidth };
 }

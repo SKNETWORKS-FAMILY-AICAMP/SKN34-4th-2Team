@@ -1,0 +1,191 @@
+/* 복습 문제 · 연습장 창 — 첨삭 창(review.css 의 .rv-window · .rv-dockbar)과 같은 크기 · 모양 */
+
+.pd-window {
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(1180px, 100%);
+  height: min(760px, 100%);
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text-primary);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 24%);
+}
+
+.pd-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 10px 20px;
+}
+
+.pd-head__icon {
+  display: grid;
+  place-items: center;
+  color: var(--primary);
+}
+
+.pd-head__text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.pd-head__text strong {
+  font-size: 17px;
+}
+
+.pd-head__text span {
+  font-size: 12px;
+  color: var(--text-hint);
+}
+
+/* 탭 — 브라우저 탭처럼 창 머리 아래에 */
+.pd-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.pd-tab {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 2px;
+  margin-bottom: -1px;
+  padding: 0 4px 0 12px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.pd-tab--on {
+  border-color: var(--border);
+  background: var(--background);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.pd-tab__label {
+  padding: 9px 4px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pd-tab__close {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-hint);
+  cursor: pointer;
+}
+
+.pd-tab__close:hover {
+  background: var(--surface-variant);
+  color: var(--text-primary);
+}
+
+.pd-tab--add {
+  padding: 8px 12px;
+  color: var(--primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+/* 몸통 — 노트북은 여기서 스크롤하고 튜터는 오른쪽에 붙어 있다 */
+.pd-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--background);
+}
+
+.pd-pane {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: 16px 16px 20px;
+}
+
+.pd-pane[hidden] {
+  display: none;
+}
+
+.pd-pane .py-layout {
+  max-width: none;
+}
+
+/* 창은 화면보다 좁다 — 튜터를 조금 줄여 노트북 도구 줄이 한 줄에 들어가게 */
+.pd-pane .py-layout--tutor {
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 16px;
+}
+
+/* 화면용 튜터는 위 막대 아래(top 80px)에 붙고 화면 높이를 쓴다. 창 안에서는 창 몸통 높이를 쓴다 */
+.pd-pane .tutor {
+  top: 0;
+  height: calc(760px - 132px);
+  max-height: calc(100vh - 48px - 132px);
+}
+
+.pd-loading {
+  padding: 40px;
+  color: var(--text-hint);
+  text-align: center;
+}
+
+/* 내려놓은 막대 — 첨삭 막대(.rv-dockbar)와 같은 모양. 첨삭 막대도 내려가 있으면 왼쪽으로 비켜 선다 */
+.pd-dockbar-wrap {
+  position: fixed;
+  right: 12px;
+  bottom: 18px;
+  left: 12px;
+  z-index: 902;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.rv-docked .pd-dockbar-wrap {
+  padding-right: 700px;
+}
+
+.pd-dockbar__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 12px 10px;
+}
+
+.pd-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-variant);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+@media (max-width: 760px) {
+  .rv-docked .pd-dockbar-wrap {
+    padding-right: 0;
+    bottom: 96px;
+  }
+}

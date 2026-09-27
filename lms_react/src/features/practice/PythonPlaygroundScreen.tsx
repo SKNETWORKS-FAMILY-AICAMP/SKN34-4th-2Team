@@ -48,7 +48,29 @@ export function PythonPlaygroundScreen() {
   );
 }
 
-function Playground({ setId, focusProblem }: { setId: string | null; focusProblem: number }) {
+/**
+ * 창(PracticeDock) 안의 연습장 탭 하나. 화면(route)과 같은 연습장이다 — 다른 것은 둘.
+ * 위 경로 표시(crumbs)를 건드리지 않고, 보이는 탭일 때만 로봇을 숨긴다.
+ */
+export function EmbeddedPlayground({ setId, focusProblem, active }: { setId: string | null; focusProblem: number; active: boolean }) {
+  return (
+    <TutorProvider>
+      <Playground setId={setId} focusProblem={focusProblem} embedded active={active} />
+    </TutorProvider>
+  );
+}
+
+function Playground({
+  setId,
+  focusProblem,
+  embedded = false,
+  active = true,
+}: {
+  setId: string | null;
+  focusProblem: number;
+  embedded?: boolean;
+  active?: boolean;
+}) {
   const { runner, status } = usePythonRunner();
   const mode = usePracticeSetMode(setId);
   const nb = useNotebook(runner, mode.set);
@@ -65,16 +87,6 @@ function Playground({ setId, focusProblem }: { setId: string | null; focusProble
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const lastId = nb.cells[nb.cells.length - 1]?.id ?? '';
-
-  usePageCrumbs(
-    mode.set
-      ? [
-          { label: '학습실', to: RoutePaths.studyRoom },
-          { label: '공부방', to: RoutePaths.studyRoomNotes },
-          { label: mode.isRetry ? '다시 풀 문제' : '복습 문제' },
-        ]
-      : [{ label: '학습실', to: RoutePaths.studyRoom }, { label: '연습장' }],
-  );
 
   const tutor = useTutor();
   const tutorOpen = Boolean(tutor?.target);
@@ -101,12 +113,16 @@ function Playground({ setId, focusProblem }: { setId: string | null; focusProble
 
   // 튜터가 열려 있으면 오른쪽 아래 로봇(학습 도우미)을 숨긴다 — 패널 입력칸을 가린다. 패널의 「학습 도우미」 탭으로 연다
   useEffect(() => {
-    document.body.classList.toggle('py-tutor-open', tutorOpen);
-    return () => document.body.classList.remove('py-tutor-open');
-  }, [tutorOpen]);
+    const hide = tutorOpen && active;
+    document.body.classList.toggle('py-tutor-open', hide);
+    return () => {
+      if (hide) document.body.classList.remove('py-tutor-open');
+    };
+  }, [tutorOpen, active]);
 
   return (
     <div className={`py-layout${tutorOpen ? ' py-layout--tutor' : ''}`}>
+      {!embedded && <PlaygroundCrumbs mode={mode} />}
       <div className="screen__inner py-playground">
         <header className="study-head">
           <PlaygroundTitle mode={mode} />
@@ -165,6 +181,20 @@ function Playground({ setId, focusProblem }: { setId: string | null; focusProble
       <TutorPanel />
     </div>
   );
+}
+
+/** 위 경로 표시 — 화면으로 열었을 때만. 창 안에서는 뒤 화면의 경로를 덮지 않는다 */
+function PlaygroundCrumbs({ mode }: { mode: PracticeSetMode }) {
+  usePageCrumbs(
+    mode.set
+      ? [
+          { label: '학습실', to: RoutePaths.studyRoom },
+          { label: '공부방', to: RoutePaths.studyRoomNotes },
+          { label: mode.isRetry ? '다시 풀 문제' : '복습 문제' },
+        ]
+      : [{ label: '학습실', to: RoutePaths.studyRoom }, { label: '연습장' }],
+  );
+  return null;
 }
 
 /** 위치 · 제목 · 설명, 문제 세트면 진행 막대 */

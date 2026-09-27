@@ -9,6 +9,7 @@ import { startPracticeFromFile, useMyPracticeAttempts, usePracticeSets } from '.
 import { useCurrentUser } from '../auth/session';
 import { practicePath } from '../study/LessonDaysSection';
 import { MakeProblems } from './MakeProblems';
+import { useInPracticeDock, usePracticeDock } from './PracticeDock';
 import { useNotebookFile } from './NotebookFileMenu';
 import { toPy } from './notebookFile';
 import { EXAMPLES, MINI_HEADING, MINI_LEVELS, MINI_PROBLEMS } from './notebookExamples';
@@ -232,6 +233,8 @@ function ProblemPicker({ nb }: { nb: Notebook }) {
   const attempts = useMyPracticeAttempts(user.uid);
   const mine = usePracticeSets(user.cohortId).filter((s) => !isLessonSet(s)).reverse();
   const navigate = useNavigate();
+  const dock = usePracticeDock();
+  const inDock = useInPracticeDock();
   const passedIn = (set: PracticeSet) => attempts.filter((a) => a.setId === set.id && a.passed).length;
   return (
     <span className="py-picker">
@@ -257,7 +260,8 @@ function ProblemPicker({ nb }: { nb: Notebook }) {
             hint: `${set.origin === 'note' ? '노트' : '파일'} · 통과 ${passedIn(set)} / ${set.problems.length}`,
             heading: i === 0 ? '내가 만든 문제' : undefined,
             done: set.problems.length > 0 && passedIn(set) === set.problems.length,
-            onSelect: () => navigate(practicePath(set.id)),
+            // 창 안이면 탭을 하나 더 연다. 화면으로 연 연습장이면 예전처럼 옮긴다
+            onSelect: () => (inDock && dock ? dock.open({ setId: set.id }) : navigate(practicePath(set.id))),
           })),
           ...MINI_PROBLEMS.map((m, i) => ({
             key: m.id,

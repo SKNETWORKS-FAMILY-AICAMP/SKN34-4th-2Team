@@ -1,10 +1,8 @@
-import { Link } from 'react-router-dom';
-
-import { RoutePaths } from '../../app/routePaths';
 import { useMyPracticeAttempts, usePracticeSets } from '../../data/repository';
 import { todayKey } from '../../data/store';
 import type { PracticeKind, PracticeProblem } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
+import { PracticeLink } from './PracticeDock';
 import { useCurrentUser } from '../auth/session';
 import { KIND_LABEL } from './practiceLabels';
 import { useIsHidden } from './useIsHidden';
@@ -63,7 +61,7 @@ export function TodayReviewCard() {
           </p>
         )}
         {retries.length > 0 && (
-          <Link className="today-review__retry" to={`${RoutePaths.studyRoomPlayground}?set=${RETRY_SET_ID}`}>
+          <PracticeLink className="today-review__retry" setId={RETRY_SET_ID}>
             <Icon name="history" size={16} />
             지난번에 틀린 문제 {retries.length}개 · {retryTopics(retries)}
             <span className="today-review__retry-date">({retryDates(retries)})</span>
@@ -71,7 +69,7 @@ export function TodayReviewCard() {
               다시 풀기
               <Icon name="chevron_right" size={16} />
             </span>
-          </Link>
+          </PracticeLink>
         )}
       </div>
       <div className="today-review__side">
@@ -84,13 +82,10 @@ export function TodayReviewCard() {
           </span>
           <span>{state === 'done' ? '모두 통과했어요' : state === 'partial' ? `통과 ${passed} / ${total}` : '아직 안 풀었어요'}</span>
         </div>
-        <Link
-          className={`btn ${state === 'done' ? 'btn--outline' : 'btn--filled'} btn--md`}
-          to={`${RoutePaths.studyRoomPlayground}?set=${encodeURIComponent(set.id)}`}
-        >
+        <PracticeLink className={`btn ${state === 'done' ? 'btn--outline' : 'btn--filled'} btn--md`} setId={set.id}>
           {action}
           <Icon name="arrow_forward" size={18} />
-        </Link>
+        </PracticeLink>
       </div>
     </section>
   );
