@@ -4356,6 +4356,11 @@ html {
 }
 
 @media (max-width: 480px) {
+  /* 390 폭에서 「···」 이 7px 넘쳐 페이지가 옆으로 밀렸다 — 간격을 줄여 한 줄에 넣는다 */
+  .py-toolbar {
+    gap: 4px;
+  }
+
   .py-toolbar__label--main {
     display: none;
   }
@@ -10782,7 +10787,8 @@ a.coach-ask__card-title:hover {
   color: var(--primary);
 }
 
-/* 좁은 화면 — 오른쪽에서 밀려 나오는 서랍 */
+/* 좁은 화면 — 이력서 코치처럼 셀 아래에서 올라와 화면 아래에 붙는 시트다. 위에서는 코드를 보고
+   아래에서 묻는다(오른쪽 서랍이던 때는 휴대폰에서 코드를 통째로 덮었다). 맨 위 막대로 높이를 끈다(--tutor-h) */
 @media (max-width: 1100px) {
   .py-layout--tutor {
     grid-template-columns: minmax(0, 1fr);
@@ -10790,15 +10796,42 @@ a.coach-ask__card-title:hover {
   }
 
   .tutor {
-    position: fixed;
-    top: 0;
-    right: 0;
+    position: sticky;
+    top: auto;
     bottom: 0;
-    z-index: 70;
-    width: min(400px, 100vw);
-    height: auto;
-    border-radius: 0;
+    z-index: 16;
+    height: clamp(200px, var(--tutor-h, 45vh), max(200px, calc(100vh - 270px)));
+    min-height: 0;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -10px 28px var(--shadow);
   }
+}
+
+.tutor__grip {
+  position: relative;
+  flex: none;
+  height: 18px;
+  cursor: row-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.tutor__grip::before {
+  content: '';
+  position: absolute;
+  top: 7px;
+  left: 50%;
+  width: 40px;
+  height: 4px;
+  border-radius: 4px;
+  transform: translateX(-50%);
+  background: var(--text-hint);
+}
+
+/* 튜터가 열리면 로봇을 숨기므로(.py-tutor-open) 그 자리 아래 여백도 거둔다. 남기면 끝까지 내렸을 때
+   빈 칸이 생기고, 붙어 따라오던 튜터가 끝에서 밀려 올라간다 */
+.shell .main > .screen:has(.py-layout--tutor) {
+  padding-bottom: 16px;
 }
 
 /* 튜터 답이 풀리는 동안 끝에 깜빡이는 막대 */

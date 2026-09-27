@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from 'react';
 
 import { readApiError } from '../../data/http';
 import { askTutor, fetchTutorThread, resetTutorThread, type TutorQuestion, type TutorTurn } from '../../data/repository';
@@ -23,8 +31,94 @@ function threadKey(t: TutorTarget | null) {
  *
  * 한도는 없다. 잡담은 서버가 LLM 없이 돌려보내고, 이어지면 잠시 멈춘다.
  */
+/** 이 폭 이하에서는 튜터가 오른쪽 패널이 아니라 아래 시트다(이력서 코치와 같다). CSS 의 1100 과 맞춘다 */
+const SHEET_QUERY = '(max-width: 1100px)';
+const SHEET_HEIGHT_KEY = 'py_tutor_sheet_height';
+const SHEET_MIN = 200;
+/** 위에 남길 높이 — 상단 막대(70) + 코드가 보일 최소 200 */
+const SHEET_KEEP_ABOVE = 270;
+
+function useSheet(): boolean {
+  const [sheet, setSheet] = useState(() => window.matchMedia(SHEET_QUERY).matches);
+  useEffect(() => {
+    const query = window.matchMedia(SHEET_QUERY);
+    const onChange = () => setSheet(query.matches);
+    // 옛 Safari(14 전)는 addListener 만 있다. 둘 다 없으면(테스트의 가짜 matchMedia) 처음 값으로 둔다
+    if (typeof query.addEventListener === 'function') {
+      query.addEventListener('change', onChange);
+      return () => query.removeEventListener('change', onChange);
+    }
+    query.addListener?.(onChange);
+    return () => query.removeListener?.(onChange);
+  }, []);
+  return sheet;
+}
+
+/** 처음 높이 — 창의 45%, 낮은 휴대폰에서도 380 은 준다(탭 · 대상 · 입력칸이 고정으로 자리를 먹어 대화가 안 보였다) */
+function sheetDefault(): number {
+  return clampSheet(Math.max(380, window.innerHeight * 0.45));
+}
+
+function clampSheet(height: number): number {
+  return Math.round(Math.min(Math.max(height, SHEET_MIN), Math.max(SHEET_MIN, window.innerHeight - SHEET_KEEP_ABOVE)));
+}
+
+/**
+ * 좁은 화면 시트의 높이 — 맨 위 막대를 위아래로 끈다. 끄는 동안은 CSS 변수만 고치고 손을 떼면 남긴다.
+ * 두 번 누르면 처음 높이(sheetDefault).
+ */
+function useSheetHeight(root: RefObject<HTMLElement | null>) {
+  const [height, setHeight] = useState<number>(() => {
+    try {
+      const saved = Number(window.localStorage.getItem(SHEET_HEIGHT_KEY));
+      return saved > 0 ? saved : sheetDefault();
+    } catch {
+      return sheetDefault();
+    }
+  });
+  const drag = useRef<{ startY: number; from: number; last: number } | null>(null);
+
+  const commit = (next: number) => {
+    setHeight(next);
+    try {
+      window.localStorage.setItem(SHEET_HEIGHT_KEY, String(next));
+    } catch {
+      /* 못 남겨도 이번에는 이 높이 */
+    }
+  };
+
+  const grip = {
+    onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      const from = clampSheet(height);
+      drag.current = { startY: e.clientY, from, last: from };
+    },
+    onPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+      const d = drag.current;
+      if (d === null) return;
+      // 위로 끌면(거리가 음수) 시트가 커진다
+      d.last = clampSheet(d.from - (e.clientY - d.startY));
+      root.current?.style.setProperty('--tutor-h', `${d.last}px`);
+    },
+    onPointerUp() {
+      const d = drag.current;
+      drag.current = null;
+      if (d !== null) commit(d.last);
+    },
+    onDoubleClick() {
+      commit(sheetDefault());
+    },
+  };
+  return { height: clampSheet(height), grip };
+}
+
 export function TutorPanel() {
   const tutor = useTutor();
+  const sheet = useSheet();
+  const rootRef = useRef<HTMLElement>(null);
+  const { height: sheetHeight, grip } = useSheetHeight(rootRef);
   const target = tutor?.target ?? null;
   const key = threadKey(target);
   const [tab, setTab] = useState<'tutor' | 'helper'>('tutor');
@@ -136,7 +230,27 @@ export function TutorPanel() {
   };
 
   return (
-    <aside className="tutor" aria-label="튜터">
+    <aside
+      ref={rootRef}
+      className={`tutor${sheet ? ' tutor--sheet' : ''}`}
+      aria-label="튜터"
+      // 좁은 화면 — 아래 시트. 셸이 이 표시를 보고 내려 읽을 때 상단 막대를 숨긴다
+      data-autohide-bar={sheet ? '' : undefined}
+      style={sheet ? ({ '--tutor-h': `${sheetHeight}px` } as CSSProperties) : undefined}
+    >
+      {sheet && (
+        <div
+          className="tutor__grip"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="튜터 높이 조절 · 두 번 누르면 처음 높이"
+          onPointerDown={grip.onPointerDown}
+          onPointerMove={grip.onPointerMove}
+          onPointerUp={grip.onPointerUp}
+          onPointerCancel={grip.onPointerUp}
+          onDoubleClick={grip.onDoubleClick}
+        />
+      )}
       <header className="tutor__head">
         <div className="tutor__tabs" role="tablist">
           <button type="button" role="tab" aria-selected={tab === 'tutor'} onClick={() => setTab('tutor')}>
