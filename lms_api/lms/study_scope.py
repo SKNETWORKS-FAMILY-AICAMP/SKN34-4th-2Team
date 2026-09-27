@@ -10,12 +10,15 @@ Django 를 끌어오지 않는다 — 테스트가 DB 없이 부를 수 있게.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from datetime import datetime
 from typing import Any
 
 MAX_FILES = 8
-SCOPE_TYPES = ("date", "prefix", "files")
+SCOPE_TYPES = ("date", "prefix", "files", "subject")
+# 과목 전체 요약 — 저장소(과목) 하나에 하나. 날짜별 노트를 모아 만든다(study_note_service.start_subject_note).
+SUBJECT_KEY = "subject"
 
 
 class ScopeError(ValueError):
@@ -31,7 +34,9 @@ def _path(raw: Any) -> str:
 
 def normalize_scope(scope_type: str, raw: Any) -> str | list[str]:
     if scope_type not in SCOPE_TYPES:
-        raise ScopeError("scopeType은 date, prefix, files만 가능합니다.")
+        raise ScopeError("scopeType은 date, prefix, files, subject만 가능합니다.")
+    if scope_type == "subject":
+        return "all"
     if scope_type == "files":
         if not isinstance(raw, list) or not raw:
             raise ScopeError("파일을 1개 이상 선택하세요.")
@@ -53,6 +58,8 @@ def normalize_scope(scope_type: str, raw: Any) -> str | list[str]:
 
 
 def scope_key(scope_type: str, value: str | list[str]) -> str:
+    if scope_type == "subject":
+        return SUBJECT_KEY
     if scope_type == "date":
         return str(value)
     if scope_type == "prefix":
@@ -60,3 +67,35 @@ def scope_key(scope_type: str, value: str | list[str]) -> str:
         return f"prefix_{safe or 'root'}"
     digest = hashlib.sha1("\n".join(value).encode("utf-8")).hexdigest()[:12]
     return f"files_{digest}"
+
+
+def _file_list(raw: Any) -> list[dict]:
+    """노트 행의 files(jsonb). Django 드라이버는 JSON 글자로 주기도 한다."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return []
+    return [item for item in (raw or []) if isinstance(item, dict) and item.get("path")]
+
+
+def same_material(stored: Any, current: Any) -> bool:
+    """두 노트가 같은 수업 자료로 만든 것인가 — 파일이 같고, 파일마다 내용이 같은가.
+
+    내용은 내용 해시(blob)로 견준다. 폴더 · 파일 범위는 커밋이 저장소 HEAD 라서 다른 파일이
+    바뀌어도 커밋이 달라지기 때문이다. 해시가 없는 예전 노트는 커밋으로 견준다(다르면 한 번 다시 만든다).
+    """
+    old, new = _file_list(stored), _file_list(current)
+    if not old or not new:
+        return False
+    now = {item["path"]: item for item in new}
+    if {item["path"] for item in old} != set(now):
+        return False
+    for item in old:
+        other = now[item["path"]]
+        if item.get("blob") and other.get("blob"):
+            if item["blob"] != other["blob"]:
+                return False
+        elif item.get("commit") != other.get("commit"):
+            return False
+    return True

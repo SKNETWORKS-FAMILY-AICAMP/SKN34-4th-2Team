@@ -267,7 +267,7 @@ function SubjectRow({
 
       {(subject.looseNotes.length > 0 || subject.source) && (
         <div className="review-subject__foot">
-          {subject.looseNotes.map((n) => (
+          {subject.looseNotes.filter((n) => n.scopeType !== 'subject').map((n) => (
             <Link
               key={n.id}
               className="chip"
@@ -279,9 +279,9 @@ function SubjectRow({
           ))}
           <span className="spacer" />
           {subject.source && (
-            <Link className="btn btn--text btn--sm" to={studyRoomNoteSourcePath(subject.source.id)}>
-              <Icon name="note_add" size={16} />
-              이 과목 노트 만들기
+            <Link className="btn btn--text btn--sm" to={`${studyRoomNoteSourcePath(subject.source.id)}?summary=1`}>
+              <Icon name="description" size={16} />
+              과목 전체 요약
             </Link>
           )}
         </div>

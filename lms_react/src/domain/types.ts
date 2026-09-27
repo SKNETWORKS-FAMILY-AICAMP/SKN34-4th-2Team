@@ -479,7 +479,8 @@ export interface StudySource {
 }
 
 /** 노트 범위 종류 — study_notes.scope_type. prefix 는 폴더 */
-export type StudyNoteScopeType = 'date' | 'prefix' | 'files';
+/** subject — 과목(저장소) 전체 요약. 날짜별 노트를 모아 만든다 */
+export type StudyNoteScopeType = 'date' | 'prefix' | 'files' | 'subject';
 
 export interface StudyNote {
   id: string;

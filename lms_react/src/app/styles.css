@@ -4759,6 +4759,11 @@ html {
   padding-left: 22px;
 }
 
+/* 번호 항목 아래 들여 쓴 목록 */
+.nb-md .nb-md__nested {
+  margin-left: 22px;
+}
+
 .nb-md code {
   padding: 1px 6px;
   border-radius: 5px;

@@ -15,7 +15,7 @@ type Block =
   | { kind: 'heading'; level: number; text: string }
   | { kind: 'code'; lang: string; text: string }
   | { kind: 'quote'; lines: string[] }
-  | { kind: 'list'; ordered: boolean; items: string[] }
+  | { kind: 'list'; ordered: boolean; items: string[]; start: number; nested: boolean }
   | { kind: 'hr' }
   | { kind: 'para'; lines: string[] };
 
@@ -56,9 +56,12 @@ export function parseBlocks(source: string): Block[] {
     if (bullet.test(line) || numbered.test(line)) {
       const ordered = numbered.test(line);
       const marker = ordered ? numbered : bullet;
+      // 「1. 제목 → 들여 쓴 - 항목 → 2. 제목」이면 번호 목록이 끊겨도 2부터 이어 세고, 들여 쓴 목록은 들여 보인다
+      const start = ordered ? Number(/\d+/.exec(line)![0]) : 1;
+      const nested = /^\s{2,}/.test(line);
       const items: string[] = [];
       while (i < lines.length && marker.test(lines[i])) items.push(lines[i++].replace(marker, ''));
-      blocks.push({ kind: 'list', ordered, items });
+      blocks.push({ kind: 'list', ordered, items, start, nested });
       continue;
     }
     if (line.trim() === '') {
@@ -99,7 +102,16 @@ function renderBlocks(source: string): ReactNode[] {
         return <blockquote key={i}>{inline(block.lines.join(' '))}</blockquote>;
       case 'list': {
         const items = block.items.map((item, k) => <li key={k}>{inline(item)}</li>);
-        return block.ordered ? <ol key={i}>{items}</ol> : <ul key={i}>{items}</ul>;
+        const nested = block.nested ? 'nb-md__nested' : undefined;
+        return block.ordered ? (
+          <ol key={i} start={block.start} className={nested}>
+            {items}
+          </ol>
+        ) : (
+          <ul key={i} className={nested}>
+            {items}
+          </ul>
+        );
       }
       case 'hr':
         return <hr key={i} />;

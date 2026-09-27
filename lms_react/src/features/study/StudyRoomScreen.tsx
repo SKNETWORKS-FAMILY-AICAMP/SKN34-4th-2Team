@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+
+import { NotebookMarkdown } from '../practice/NotebookMarkdown';
 
 import { RoutePaths } from '../../app/routePaths';
 import {
@@ -325,6 +327,8 @@ export function StudyNoteSourceScreen() {
   // 공부방 수업 카드의 「노트 만들기」로 오면 그 날짜를 미리 고른다
   const askedDate = query.get('date') ?? '';
   const initialDate = /^\d{4}-\d{2}-\d{2}$/.test(askedDate) ? askedDate : '';
+  // 과목 카드의 「과목 전체 요약」으로 오면 있던 요약을 열거나 새로 만든다
+  const askedSummary = query.get('summary') === '1';
   const [selectedId, setSelectedId] = useState<string | null>(initialNoteId);
   const [tab, setTab] = useState('report');
   const [scopeMode, setScopeMode] = useState<'date' | 'folder' | 'file'>('date');
@@ -376,6 +380,16 @@ export function StudyNoteSourceScreen() {
     }, POLL_MS);
     return () => window.clearInterval(timer);
   }, [pollId]);
+
+  const summaryAsked = useRef(false);
+  useEffect(() => {
+    if (!askedSummary || summaryAsked.current) return;
+    summaryAsked.current = true;
+    const existing = allNotes.find((n) => n.sourceId === sourceId && n.scopeType === 'subject');
+    if (existing) setSelectedId(existing.id);
+    else void request('subject', 'all');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askedSummary, sourceId]);
 
   const files = candidates ?? tree?.files ?? [];
   const dateChoices = [...new Set([...(initialDate ? [initialDate] : []), ...(tree?.dates ?? [])])].sort().reverse();
@@ -507,7 +521,10 @@ export function StudyNoteSourceScreen() {
           ) : note.status === 'generating' ? (
             <Card className="split__main" title={noteLabel(note)} actions={<NoteDelete id={note.id} onDeleted={() => setSelectedId(null)} />}>
               <div className="callout" role="status">
-                정리 중이에요. 저장소를 읽고 AI 가 요약하느라 몇 분 걸려요. 이 화면을 떠나도 계속 만들고, 끝나면 여기에 나타나요.
+                {note.scopeType === 'subject' && note.message
+                  ? note.message
+                  : '정리 중이에요. 저장소를 읽고 AI 가 요약하느라 몇 분 걸려요.'}{' '}
+                이 화면을 떠나도 계속 만들고, 끝나면 여기에 나타나요.
               </div>
             </Card>
           ) : note.status === 'failed' ? (
@@ -556,7 +573,8 @@ export function StudyNoteSourceScreen() {
             <Tabs
               items={[
                 { id: 'report', label: '요약' },
-                { id: 'review', label: '복습' },
+                // 노트에는 이제 문제를 넣지 않는다(복습은 위의 그날 복습 문제). 예전 노트에만 남아 있다
+                ...(note.reviewMarkdown.trim() === '' ? [] : [{ id: 'review', label: '복습' }]),
                 { id: 'files', label: '파일', count: note.files.length },
               ]}
               active={tab}
@@ -621,18 +639,15 @@ function NoteDelete({ id, onDeleted }: { id: string; onDeleted(): void }) {
   );
 }
 
-/** 아주 작은 마크다운 표시기 — 제목·목록·문단만 다룬다. */
+/**
+ * 노트 표시 — 연습장 마크다운 표시기(굵게 · 인라인 코드 · 코드 블록 · 목록 · 인용)를 그대로 쓴다.
+ * 예전 표시기는 제목 · 목록 · 문단만 알아서 `**굵게**` · `코드` · 코드 블록이 기호째 보였다.
+ * 예전 노트는 소제목을 「**오늘의 핵심 한 문장**」처럼 굵은 줄로 썼다 — 그런 줄은 소제목으로 바꿔 보인다.
+ */
 export function Markdown({ text }: { text: string }) {
-  return (
-    <div className="markdown">
-      {text.split('\n').map((line, i) => {
-        if (line.startsWith('## ')) return <h3 key={i}>{line.slice(3)}</h3>;
-        if (line.startsWith('# ')) return <h2 key={i}>{line.slice(2)}</h2>;
-        if (line.startsWith('- ')) return <li key={i}>{line.slice(2)}</li>;
-        if (/^\d+\.\s/.test(line)) return <li key={i}>{line.replace(/^\d+\.\s/, '')}</li>;
-        if (line.trim() === '') return null;
-        return <p key={i}>{line}</p>;
-      })}
-    </div>
-  );
+  return <NotebookMarkdown source={boldLinesAsHeadings(text)} />;
+}
+
+export function boldLinesAsHeadings(text: string): string {
+  return text.replace(/^[ \t]*\*\*([^*\n]{1,60})\*\*[ \t]*:?[ \t]*$/gm, '## $1');
 }

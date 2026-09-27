@@ -6,6 +6,8 @@
   여기서는 그 결과를 practice_sets · practice_problems 에 넣고, 출제 범위 기록(practice_coverage)을 이어 간다.
 - 같은 날짜의 세트가 이미 있으면(손으로 넣은 세트 포함) 새 세트를 만들지 않고 그 세트 뒤에 문제를 붙인다.
 - 같은 저장소를 두 번 동시에 돌리지 않는다(study_practice_runs 의 running 줄 + 트랜잭션 잠금).
+- 문제를 낸 수업 날짜는 그날 수업 노트도 만들어 기수 학생 모두의 공부방에 넣는다(study_note_service.publish_lesson_notes).
+  학생이 날짜를 눌러 몇 분 기다리지 않게. 노트가 실패해도 출제 결과는 그대로 둔다.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from django.db import connection, transaction
 from django.utils import timezone
 
 from lms.practice_service import get_coverage, insert_problems, save_coverage
-from lms.study_note_service import StudyNoteError, _call, _dicts, _one, _source_payload
+from lms.study_note_service import StudyNoteError, _call, _dicts, _one, _source_payload, publish_lesson_notes
 from lms.study_source_service import StudySourceError, _check_schema, _cohort, _repo_key
 
 logger = logging.getLogger(__name__)
@@ -144,7 +146,8 @@ def run_source(source: dict, *, trigger: str = "schedule", today: str | None = N
         # 새로 낸 문제가 없으면 왜 없는지(끝난 과목 · 이미 출제함 · 새 내용 없음)를 남긴다 — 강사 화면이 그대로 보여 준다
         message = error or str(result.get("note") or "")
         _finish_run(run_id, "failed" if error and not added else "done", problems=added, dates=made, message=message)
-        return {"status": "done", "problems": added, "dates": made, "message": message}
+        notes = _publish_notes(source, made)
+        return {"status": "done", "problems": added, "dates": made, "message": message, "notes": notes}
     except StudyNoteError as exc:
         _finish_run(run_id, "failed", message=exc.detail)
         return {"status": "failed", "problems": 0, "dates": [], "message": exc.detail}
@@ -152,6 +155,17 @@ def run_source(source: dict, *, trigger: str = "schedule", today: str | None = N
         logger.exception("practice auto failed: %s", source.get("repo_url"))
         _finish_run(run_id, "failed", message=f"출제하지 못했습니다: {str(exc)[:300]}")
         raise
+
+
+def _publish_notes(source: dict, dates: list[str]) -> list[str]:
+    """문제를 낸 날짜의 수업 노트. 실패해도 출제는 끝난 것이라 로그만 남긴다."""
+    if not dates:
+        return []
+    try:
+        return publish_lesson_notes(source, dates)["notes"]
+    except Exception:  # noqa: BLE001
+        logger.exception("lesson notes failed: %s", source.get("repo_url"))
+        return []
 
 
 def run_daily(today: str | None = None) -> dict:

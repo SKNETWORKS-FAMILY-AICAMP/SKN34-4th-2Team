@@ -345,6 +345,18 @@ def _collect(cache: RepoCache, source: StudySource, scope_type: ScopeType,
     return [head], files, False
 
 
+def _with_blobs(cache: RepoCache, files: list[dict[str, str]]) -> list[dict[str, str]]:
+    """파일마다 내용 해시(blob)를 붙인다. LMS 는 이것으로 「같은 수업 자료로 만든 노트」를 알아본다.
+
+    폴더 · 파일 범위는 커밋이 저장소 HEAD 라서 다른 파일이 바뀌어도 커밋이 달라진다. 내용 해시는
+    그 파일이 그대로면 같다 — 그래서 커밋이 아니라 이것으로 견준다.
+    """
+    if not files:
+        return files
+    blobs = cache.blob_ids(files)
+    return [{**item, "blob": blobs.get((item["commit"], item["path"]), "")} for item in files]
+
+
 def _load_materials(cache: RepoCache, files: list[dict[str, str]]) -> list[Material]:
     def one(item: dict[str, str]) -> Material:
         raw = cache.read_file(item["commit"], item["path"])
@@ -361,6 +373,49 @@ def _load_materials(cache: RepoCache, files: list[dict[str, str]]) -> list[Mater
         return list(pool.map(one, files))
 
 
+TOO_BROAD_MESSAGE = f"파일을 선택하세요. 한 번에 최대 {MAX_FILES}개까지 정리할 수 있습니다."
+
+
+def _resolve_files(cache: RepoCache, source: StudySource, scope_type: ScopeType,
+                   scope_value: str | list[str]) -> tuple[list[str], list[dict[str, str]], bool]:
+    """범위의 파일(내용 해시 포함)을 정한다. 본문은 읽지 않는다. 너무 넓으면 해시 없이 목록만."""
+    commits, files, too_broad = _collect(cache, source, scope_type, scope_value)
+    if too_broad:
+        return commits, files, True
+    if not files:
+        raise HTTPException(status_code=404, detail="이 범위에서 분석 가능한 .ipynb/.py/.md 파일이 없습니다.")
+    return commits, _with_blobs(cache, files), False
+
+
+def resolve_note_for_lms(cohort_id: str, source: StudySource, scope_type_raw: str,
+                         scope_value_raw: Any) -> dict[str, Any]:
+    """LMS 창구 — 노트를 만들지 않고, 지금 이 범위가 어떤 파일(내용 해시)로 되어 있는지만 알린다.
+
+    LLM 을 부르지 않는다(저장소 동기화 + 트리 읽기, 1~2초). LMS 는 이것으로 같은 기수 학생이
+    같은 자료로 이미 만든 노트를 찾아 나눠 주고, 수업 파일이 바뀌었으면 다시 만든다.
+    """
+    scope_type = parse_scope_type(scope_type_raw)
+    scope_value = normalize_scope_value(scope_type, scope_value_raw)
+    assert_scope_allowed(source, scope_type, scope_value)
+    try:
+        _commits, files, too_broad = _resolve_files(repo_cache(cohort_id, source), source, scope_type, scope_value)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        status = 502 if isinstance(exc, GitToolError) else 500
+        raise HTTPException(status_code=status, detail=failure_message(exc)) from exc
+    out: dict[str, Any] = {
+        "status": "too_broad" if too_broad else "ready",
+        "files": files,
+        "scopeType": scope_type,
+        "scopeValue": scope_value,
+        "scopeKey": build_scope_key(scope_type, scope_value),
+    }
+    if too_broad:
+        out["message"] = TOO_BROAD_MESSAGE
+    return out
+
+
 def build_note(cohort_id: str, source: StudySource, scope_type: ScopeType,
                scope_value: str | list[str]) -> dict[str, Any]:
     """저장소에서 범위의 파일을 모아 노트를 만든다. 저장은 하지 않는다 — 부르는 쪽(Firestore · LMS DB)이 한다.
@@ -368,15 +423,13 @@ def build_note(cohort_id: str, source: StudySource, scope_type: ScopeType,
     파일이 너무 많으면 {"status": "too_broad", "message", "files"}, 아니면 {"status": "ready", commits, files, …}.
     범위(scope_value)는 normalize_scope_value · assert_scope_allowed 를 이미 거친 값이어야 한다."""
     cache = repo_cache(cohort_id, source)
-    commits, files, too_broad = _collect(cache, source, scope_type, scope_value)
+    commits, files, too_broad = _resolve_files(cache, source, scope_type, scope_value)
     if too_broad:
         return {
             "status": "too_broad",
-            "message": f"파일을 선택하세요. 한 번에 최대 {MAX_FILES}개까지 정리할 수 있습니다.",
+            "message": TOO_BROAD_MESSAGE,
             "files": files,
         }
-    if not files:
-        raise HTTPException(status_code=404, detail="이 범위에서 분석 가능한 .ipynb/.py/.md 파일이 없습니다.")
 
     materials = _load_materials(cache, files)
     report, review = generate_study_note(

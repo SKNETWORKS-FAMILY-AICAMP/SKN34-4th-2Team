@@ -330,6 +330,25 @@ class RepoCache:
     def read_file(self, commit: str, path: str) -> str:
         return run_git(["show", f"{commit}:{path}"], cwd=self.dir)
 
+    def blob_ids(self, files: list[dict[str, str]]) -> dict[tuple[str, str], str]:
+        """{(commit, path): 내용 해시(blob id)}. 파일 본문은 받지 않는다.
+
+        같은 내용이면 커밋이 달라도 blob id 가 같다. 그래서 「수업 파일이 바뀌었나」를
+        커밋이 아니라 내용으로 가를 수 있다. 트리만 읽으므로 blob:none 클론에서도 네트워크를 쓰지 않는다.
+        """
+        by_commit: dict[str, list[str]] = {}
+        for item in files:
+            by_commit.setdefault(item["commit"], []).append(item["path"])
+        found: dict[tuple[str, str], str] = {}
+        for commit, paths in by_commit.items():
+            out = run_git(["ls-tree", commit, "--", *paths], cwd=self.dir)
+            for line in out.splitlines():
+                meta, _, path = line.partition("\t")
+                parts = meta.split()
+                if len(parts) == 3 and parts[1] == "blob":
+                    found[(commit, path)] = parts[2]
+        return found
+
 
 def notebook_to_text(raw: str) -> str:
     """ipynb에서 Markdown·코드 셀만 추출하고 실행 출력은 제외한다."""
