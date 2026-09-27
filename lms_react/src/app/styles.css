@@ -6526,6 +6526,13 @@ html {
 /* 이력서 편집 — 다른 화면처럼 셸 안에 선다. 제목은 가운데 1080px 틀의 왼쪽 끝에 맞추고,
    편집기는 오른쪽 끝까지 쓴다(이력서와 패널이 나란히 서야 해서).
    연습장처럼 페이지 전체가 스크롤하고, 오른쪽 패널은 상단 막대 아래에 붙어 따라온다(.resume-panel). */
+
+/* 아래 여백은 16 만. 챗봇 단추 자리(120 · 모바일 100)를 그대로 두면 끝까지 내렸을 때 빈 칸이 남고,
+   붙어 따라오던 오른쪽 패널이 카드 끝에 밀려 머리글 밑으로 파고들었다. 챗봇 단추 규칙보다 앞서도록 한 겹 더 붙인다 */
+.shell .main > .screen:has(> .resume-edit) {
+  padding-bottom: 16px;
+}
+
 .resume-edit {
   display: flex;
   flex-direction: column;
@@ -6546,9 +6553,47 @@ html {
   margin-bottom: 12px;
 }
 
+/* 좁은 화면(이력서 · 코치가 위아래로 쌓일 때) — 모바일과 똑같이 둔다.
+   머리글 전체가 붙으면 화면의 40% 를 가려서, 칩 줄만 상단 막대 밑에 붙이고 제목 · 단추는 함께 스크롤한다.
+   내려 읽을 때는 상단 막대 · 칩 줄이 위로 숨고 올리면 다시 나온다(Shell.tsx useHideOnScroll 이 .shell--bar-hidden).
+   넓은 화면은 머리글 전체가 늘 붙어 있다 */
+.resume-edit__chips {
+  transition: transform 0.22s ease;
+}
+
+.resume-edit:has(> .resume-edit__body--stack) > .resume-edit__top {
+  display: contents;
+}
+
+.resume-edit:has(> .resume-edit__body--stack) .resume-edit__chips {
+  position: sticky;
+  top: 70px;
+  z-index: 15;
+  background: var(--background);
+}
+
+/* 막대(70) + 칩 줄 높이만큼 올려야 다 숨는다 */
+.shell--bar-hidden .resume-edit:has(> .resume-edit__body--stack) .resume-edit__chips {
+  transform: translateY(calc(-100% - 70px));
+}
+
+/* 칩으로 내려간 항목 제목은 칩 줄 아래에 선다 */
+.resume-edit:has(> .resume-edit__body--stack) .resume-doc > :is(.doc-section, .resume-doc__field) {
+  scroll-margin-top: 136px;
+}
+
+/* 모바일은 상단 막대가 64 */
 @media (max-width: 640px) {
-  .resume-edit__top {
+  .resume-edit:has(> .resume-edit__body--stack) .resume-edit__chips {
     top: 64px;
+  }
+
+  .shell--bar-hidden .resume-edit:has(> .resume-edit__body--stack) .resume-edit__chips {
+    transform: translateY(calc(-100% - 64px));
+  }
+
+  .resume-edit:has(> .resume-edit__body--stack) .resume-doc > :is(.doc-section, .resume-doc__field) {
+    scroll-margin-top: 130px;
   }
 }
 
@@ -6723,26 +6768,52 @@ html {
   border-radius: 12px 12px 0 0;
 }
 
-/* 좁은 화면 — 패널은 이력서 밑이 아니라 연습장 튜터처럼 오른쪽에서 밀려 나오는 서랍이다.
-   머리글의 「AI 코치」 단추나 서랍의 × · Esc 로 닫는다 */
+/* 좁은 화면 — 원본처럼 패널은 화면 아래에 붙는 시트다. 위의 손잡이를 끌어 높이를 바꾼다
+   (200 ~ 창 - 상단 막대 - 이력서 최소 200). 이력서 카드 폭을 그대로 따라 메뉴를 덮지 않는다.
+   머리글의 「AI 코치」 단추나 시트의 × · Esc 로 닫는다 */
+.resume-edit__body--stack {
+  --sheet-h: clamp(200px, var(--panel-h), max(200px, min(900px, calc(100vh - 298px))));
+}
+
 .resume-edit__body--stack > .resume-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
+  position: sticky;
   bottom: 0;
-  z-index: 70;
-  width: min(420px, 100vw);
+  z-index: 16;
+  width: auto;
+  height: var(--sheet-h);
   flex-direction: column;
   background: var(--surface);
-  border-left: 1px solid var(--border);
-  box-shadow: -12px 0 32px var(--shadow);
+  border-top: 1px solid var(--border);
+  border-radius: 16px 16px 12px 12px;
+  box-shadow: 0 -10px 28px var(--shadow);
 }
 
 .resume-edit__body--stack > .resume-panel[hidden] {
   display: none;
 }
 
+/* 시트 맨 위 손잡이 — 가운데 짧은 막대를 잡아 위아래로 끈다 */
+.resume-panel > .panel-handle--y {
+  flex: none;
+  height: 20px;
+}
+
+.resume-panel > .panel-handle--y::before {
+  left: 50%;
+  right: auto;
+  top: 8px;
+  width: 40px;
+  height: 4px;
+  border-radius: 4px;
+  transform: translateX(-50%);
+  background: var(--text-hint);
+}
+
 .resume-edit__body--stack > .resume-doc {
+  border-radius: 12px 12px 0 0;
+}
+
+.resume-edit__body--stack:not(:has(> .resume-panel:not([hidden]))) > .resume-doc {
   border-radius: 12px;
 }
 
@@ -6751,28 +6822,29 @@ html {
   align-items: center;
   gap: 8px;
   flex: none;
-  padding: 12px 12px 12px 18px;
+  /* 위는 손잡이(20)가 자리를 내준다 */
+  padding: 0 12px 10px 18px;
   border-bottom: 1px solid var(--border);
   font-size: 15px;
 }
 
-/* 서랍이 열리면 오른쪽 아래 로봇을 숨긴다 — 서랍을 덮지 않게(연습장과 같다) */
+/* 시트가 열리면 오른쪽 아래 로봇을 숨긴다 — 시트를 덮지 않게(연습장과 같다) */
 body:has(.resume-edit__body--stack > .resume-panel:not([hidden])) .chatbot-launcher {
   display: none;
 }
 
-/* 머리글 「AI 코치」 단추 — 서랍이 열려 있으면 켜진 모양 */
+/* 머리글 「AI 코치」 단추 — 시트가 열려 있으면 켜진 모양 */
 .resume-edit__coach-on {
   border-color: var(--primary);
   color: var(--primary);
   background: color-mix(in srgb, var(--primary) 10%, transparent);
 }
 
-/* 서랍 머리 · 항목 목록 · 피드백 창 */
+/* 손잡이 · 시트 머리 · 항목 목록 · 피드백 창 */
 .resume-edit__body--stack > .resume-panel--review {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 
 .resume-edit__body--stack .review-feedback {
@@ -6867,7 +6939,7 @@ body:has(.resume-edit__body--stack > .resume-panel:not([hidden])) .chatbot-launc
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 16px 24px 64px;
+  padding: 16px 24px 24px;
   border-right: 1px solid var(--border);
   background: var(--background);
 }

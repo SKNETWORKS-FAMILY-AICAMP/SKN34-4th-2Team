@@ -126,9 +126,9 @@ function useStickyTopHeight(root: HTMLElement | null, topRef: RefObject<HTMLDivE
  * AI 코치 패널을 보일지.
  *
  * 넓으면 기본으로 열어 두고(지난번에 접어 뒀다면 그대로 접힌 채로), 좁으면 본문을
- * 먼저 보인다 — 좁은 화면의 코치는 오른쪽 서랍이라 늘 닫힌 채로 시작한다. 원본과 같다.
- * 창을 줄여 좁아질 때도 서랍을 닫는다(열린 채면 이력서를 갑자기 덮는다). 다시 넓어지면
- * 넓은 화면에서 남긴 대로 연다. 서랍을 여닫은 것은 남기지 않는다.
+ * 먼저 보인다 — 좁은 화면의 코치는 아래 시트라 늘 닫힌 채로 시작한다. 원본과 같다.
+ * 창을 줄여 좁아질 때도 시트를 닫는다(열린 채면 이력서를 갑자기 덮는다). 다시 넓어지면
+ * 넓은 화면에서 남긴 대로 연다. 시트를 여닫은 것은 남기지 않는다.
  */
 function useCoachVisible(wide: boolean): [boolean, (visible: boolean) => void] {
   const [visible, setVisible] = useState(wide);
@@ -231,7 +231,7 @@ export function ResumeEditScreen() {
   const headActions = (
     <>
       {/* 좁을 때만 나온다. 넓으면 패널 가장자리의 단추로 접고 편다. */}
-      {/* 좁은 화면 — 연습장 「튜터」 단추처럼 글자를 단다. 누르면 오른쪽 서랍이 열린다 */}
+      {/* 좁은 화면 — 연습장 「튜터」 단추처럼 글자를 단다. 누르면 원본처럼 아래에서 시트가 올라온다 */}
       {!wide && (
         <button
           type="button"
@@ -312,6 +312,37 @@ export function ResumeEditScreen() {
     </>
   );
 
+  // 넓으면 이력서와 패널 사이에서 좌우로, 좁으면 아래 시트 안 맨 위에서 위아래로 끈다(원본처럼)
+  const panelHandle = (
+    <PanelHandle
+      axis={wide ? 'x' : 'y'}
+      bodyRef={bodyRef}
+      size={wide ? panelWidth : panelHeight}
+      range={
+        wide
+          ? (body) => [
+              widthRange.min,
+              Math.max(
+                widthRange.min,
+                Math.min(PANEL.maxWidth, body.width - PANEL.minResumeWidth - PANEL.handle),
+              ),
+            ]
+          : () => [
+              // 페이지가 스크롤하므로 카드가 아니라 창 높이에서 상단 막대(70) · 이력서 최소 높이를 남긴다
+              PANEL.minHeight,
+              Math.max(
+                PANEL.minHeight,
+                Math.min(PANEL.maxHeight, window.innerHeight - 70 - PANEL.minResumeHeight - PANEL.handle),
+              ),
+            ]
+      }
+      onCommit={wide ? setPanelWidth : setPanelHeight}
+      onReset={() => (wide ? setPanelWidth(widthRange.initial) : setPanelHeight(PANEL.initialHeight))}
+      onToggle={wide ? () => setCoachVisible(false) : undefined}
+      toggleLabel={reviewer ? '피드백 접기' : 'AI 코치 접기'}
+    />
+  );
+
   return (
     <div className="resume-edit" ref={setRoot}>
       {/* 머리글 · 진행 막대 · 칩은 스크롤해도 상단 막대 밑에 붙어 있다. 높이는 --top-h 로 패널 · 칩 이동에 알린다 */}
@@ -365,6 +396,8 @@ export function ResumeEditScreen() {
       <div
         ref={bodyRef}
         className={`resume-edit__body${wide ? '' : ' resume-edit__body--stack'}`}
+        // 위아래로 쌓이면 모바일처럼 — 셸이 이 표시를 보고 내려 읽을 때 상단 막대를 숨긴다
+        data-autohide-bar={wide ? undefined : ''}
         style={
           {
             '--panel-min': `${widthRange.min}px`,
@@ -434,34 +467,9 @@ export function ResumeEditScreen() {
           ))}
         </div>
 
-        {/* 손잡이는 나란히 설 때만. 좁으면 패널이 오른쪽 서랍으로 떠서 끌 필요가 없다 */}
+        {/* 넓으면 이력서 | 손잡이 | 패널. 좁으면 손잡이는 아래 시트 안 맨 위에 선다(아래) */}
         {showCoach ? (
-          wide && <PanelHandle
-            axis={wide ? 'x' : 'y'}
-            bodyRef={bodyRef}
-            size={wide ? panelWidth : panelHeight}
-            range={
-              wide
-                ? (body) => [
-                    widthRange.min,
-                    Math.max(
-                      widthRange.min,
-                      Math.min(PANEL.maxWidth, body.width - PANEL.minResumeWidth - PANEL.handle),
-                    ),
-                  ]
-                : (body) => [
-                    PANEL.minHeight,
-                    Math.max(
-                      PANEL.minHeight,
-                      Math.min(PANEL.maxHeight, body.height - PANEL.minResumeHeight - PANEL.handle),
-                    ),
-                  ]
-            }
-            onCommit={wide ? setPanelWidth : setPanelHeight}
-            onReset={() => (wide ? setPanelWidth(widthRange.initial) : setPanelHeight(PANEL.initialHeight))}
-            onToggle={wide ? () => setCoachVisible(false) : undefined}
-            toggleLabel={reviewer ? '피드백 접기' : 'AI 코치 접기'}
-          />
+          wide && panelHandle
         ) : (
           wide && (
             <div className="resume-edit__edge">
@@ -480,6 +488,7 @@ export function ResumeEditScreen() {
         {reviewer ? (
           showCoach && (
             <div className="resume-panel resume-panel--review">
+              {!wide && panelHandle}
               {!wide && <DrawerBar title="피드백" onClose={() => setCoachVisible(false)} />}
               <ReviewPanel
                 resume={resume}
@@ -492,6 +501,7 @@ export function ResumeEditScreen() {
           )
         ) : (
           <div className="resume-panel" hidden={!showCoach}>
+            {!wide && panelHandle}
             {!wide && <DrawerBar title="AI 코치" onClose={() => setCoachVisible(false)} />}
             <CoachAsk
               resume={resume}
@@ -855,7 +865,7 @@ function FeedbackBell({ resume, onGoTo }: { resume: Resume; onGoTo(key: string):
   );
 }
 
-/** 좁은 화면의 오른쪽 서랍 머리 — 연습장 튜터처럼 제목과 닫기. Esc 로도 닫는다. */
+/** 좁은 화면의 아래 시트 머리 — 제목과 닫기(스크롤하면 머리글 단추가 올라가 버려서). Esc 로도 닫는다. */
 function DrawerBar({ title, onClose }: { title: string; onClose(): void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
