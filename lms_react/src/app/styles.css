@@ -9981,6 +9981,26 @@ a.coach-ask__card-title:hover {
   border-top: 1px solid var(--divider);
 }
 
+/* 줄 = 여는 링크 + ⋯(삭제). 메뉴는 링크 밖에 둔다 — 링크 안의 단추는 누르면 이력서가 열린다 */
+.tailored__row {
+  display: flex;
+  align-items: center;
+  padding-right: 8px;
+}
+
+.tailored__row:hover {
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+}
+
+.tailored__row .tailored__item {
+  flex: 1;
+  min-width: 0;
+}
+
+.tailored__row .tailored__item:hover {
+  background: none;
+}
+
 .tailored__item {
   display: flex;
   align-items: center;

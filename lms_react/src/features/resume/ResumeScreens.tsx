@@ -10,6 +10,7 @@ import { MoreMenu } from '../../ui/MoreMenu';
 import { Badge, Button, Card, Dialog, EmptyState, ErrorState, Skeleton, TabPage, Tabs } from '../../ui/components';
 import { formatDate, formatDateTime } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
+import { DeleteResumeDialog } from './DeleteResumeDialog';
 import { groupResumes, isApplyCopy, isTailored, type ResumeRow } from './resumeGroups';
 
 /**
@@ -302,9 +303,10 @@ function BaseResumeCard({ resume, tailored, onChangeBase }: { resume: Resume; ta
   );
 }
 
-/** 기본 이력서 카드 밑 — 이 이력서로 만든 공고 맞춤 이력서. 많으면 접어 둔다 */
+/** 기본 이력서 카드 밑 — 이 이력서로 만든 공고 맞춤 이력서. 많으면 접어 둔다. 승인된 것 말고는 ⋯ 로 지운다 */
 function TailoredList({ resumes }: { resumes: Resume[] }) {
   const [open, setOpen] = useState(resumes.length <= 3);
+  const [deleting, setDeleting] = useState<Resume | null>(null);
   return (
     <div className="tailored">
       <button type="button" className="tailored__head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
@@ -316,16 +318,23 @@ function TailoredList({ resumes }: { resumes: Resume[] }) {
       {open && (
         <ul className="tailored__list">
           {resumes.map((r) => (
-            <li key={r.id}>
+            <li key={r.id} className="tailored__row">
               <Link className="tailored__item" to={resumeEditPath(r.id)}>
                 <span className="tailored__title">{r.title}</span>
                 <StatusBadge resume={r} />
                 <span className="hint">{formatDate(r.updatedAt)}</span>
               </Link>
+              {r.status !== 'approved' && (
+                <MoreMenu
+                  label={`${r.title} 더보기`}
+                  items={[{ key: 'delete', label: '삭제', danger: true, onSelect: () => setDeleting(r) }]}
+                />
+              )}
             </li>
           ))}
         </ul>
       )}
+      {deleting !== null && <DeleteResumeDialog resume={deleting} onClose={() => setDeleting(null)} />}
     </div>
   );
 }

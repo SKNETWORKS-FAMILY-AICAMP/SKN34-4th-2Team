@@ -801,3 +801,21 @@
   flex-direction: column;
   gap: 6px;
 }
+
+/* 자소서 줄 = 여는 링크 + ⋯(삭제). 메뉴는 링크 밖에 둔다 */
+.apply-made__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.apply-made li:last-child.apply-made__row {
+  border-bottom: 0;
+}
+
+.apply-made__row .apply-made__item {
+  flex: 1;
+  min-width: 0;
+  border-bottom: 0;
+}

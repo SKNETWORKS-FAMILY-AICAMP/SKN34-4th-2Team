@@ -7,6 +7,7 @@ import { applyBootstrap, updateResume, useMyResumes } from '../../data/repositor
 import { nextId } from '../../data/store';
 import type { Resume, ResumeContent } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
+import { MoreMenu } from '../../ui/MoreMenu';
 import { Badge, Button, Card, Select, TabPage, TextInput } from '../../ui/components';
 import { formatDate } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
@@ -14,6 +15,7 @@ import { JobPostingDialog } from '../jobs/JobPostingDialog';
 import { careerLabel, type Posting } from '../jobs/JobPostingScreen';
 import { closedReason } from '../jobs/postingStatus';
 import { reviewApi, type Json } from '../resume/review/reviewApi';
+import { DeleteResumeDialog } from '../resume/DeleteResumeDialog';
 import { applyCopyTitle, isApplyCopy, isTailored, reviewWorkCopy } from '../resume/resumeGroups';
 import {
   addEvidencedSkills,
@@ -583,6 +585,7 @@ function DraftDone({ draft, onEdit }: { draft: Draft; onEdit(): void }) {
 
 /** 공고로 만든 이력서 — 링크를 붙여 넣기 전 화면. 누르면 이 탭에서 이어서 작업한다 */
 function MadeList({ resumes }: { resumes: Resume[] }) {
+  const [deleting, setDeleting] = useState<Resume | null>(null);
   if (resumes.length === 0) return null;
   const sorted = [...resumes].sort((a, b) => (b.updatedAt?.getTime() ?? 0) - (a.updatedAt?.getTime() ?? 0));
   return (
@@ -592,7 +595,7 @@ function MadeList({ resumes }: { resumes: Resume[] }) {
           // 공고용 사본은 이 탭에서 이어 간다(문항 답변). 이력서 관리의 첨삭을 마쳐 옮긴 이력서는 편집기로 연다
           const here = reviewWorkCopy(r) !== undefined;
           return (
-            <li key={r.id}>
+            <li key={r.id} className="apply-made__row">
               <Link className="apply-made__item" to={here ? jobApplyPath(r.id) : resumeEditPath(r.id)}>
                 <Icon name="work" size={16} />
                 <span className="apply-made__title">{applyCopyTitle(r.title)}</span>
@@ -602,10 +605,19 @@ function MadeList({ resumes }: { resumes: Resume[] }) {
                 )}
                 <span className="hint">{formatDate(r.updatedAt)}</span>
               </Link>
+              {r.status !== 'approved' && (
+                <MoreMenu
+                  label={`${applyCopyTitle(r.title)} 더보기`}
+                  items={[{ key: 'delete', label: '삭제', danger: true, onSelect: () => setDeleting(r) }]}
+                />
+              )}
             </li>
           );
         })}
       </ul>
+      {deleting !== null && (
+        <DeleteResumeDialog resume={deleting} title={applyCopyTitle(deleting.title)} onClose={() => setDeleting(null)} />
+      )}
     </Card>
   );
 }
