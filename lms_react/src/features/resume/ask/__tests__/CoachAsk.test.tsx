@@ -201,4 +201,27 @@ describe('코치에게 묻기', () => {
     await click('서울 백엔드 신입');
     expect(host.textContent).toContain('공고 서버에 연결하지 못했습니다.');
   });
+
+  it('기본(편집기)에는 공고 설정 단추가 없고, 뒤로 단추는 있다', async () => {
+    post.mockResolvedValueOnce({ data: { mode: '검색', reply: '찾았어요', filters: {}, jobs: [job('J1', 'A')], suggestions: [] } });
+    await click('서울 백엔드 신입');
+    expect(host.querySelector('.coach-ask__card-pick')).toBeNull();
+    expect(button('코치 화면으로')).toBeDefined();
+  });
+
+  it('onPickJob 을 주면 찾은 공고 카드에 고르기 단추가 붙고, 누르면 그 공고 번호를 넘긴다', async () => {
+    const onPickJob = vi.fn();
+    act(() => root.render(<CoachAsk resume={resume} hidden={false} onPickJob={onPickJob} pickLabel="이 공고 고르기" />));
+    // 공고 맞춤 지원에는 돌아갈 코치 첫 화면이 없다 — 뒤로 단추를 두지 않는다
+    expect(button('코치 화면으로')).toBeUndefined();
+    post.mockResolvedValueOnce({
+      data: { mode: '검색', reply: '찾았어요', filters: {}, jobs: [job('J1', 'A'), job('J2', 'B')], suggestions: [] },
+    });
+    await click('서울 백엔드 신입');
+    expect(host.querySelectorAll('.coach-ask__card-pick')).toHaveLength(2);
+    await act(async () => {
+      (host.querySelectorAll('.coach-ask__card-pick')[1] as HTMLButtonElement).click();
+    });
+    expect(onPickJob).toHaveBeenCalledWith('J2');
+  });
 });

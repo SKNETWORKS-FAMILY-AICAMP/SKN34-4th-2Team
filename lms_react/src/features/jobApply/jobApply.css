@@ -819,3 +819,16 @@
   min-width: 0;
   border-bottom: 0;
 }
+
+/* 1단계 코치에게 묻기 — 편집기 코치 패널과 같은 대화를 카드 안 고정 높이로. 목록만 스크롤한다 */
+.apply-coach {
+  display: flex;
+  height: min(620px, 70vh);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.apply-coach[hidden] {
+  display: none;
+}

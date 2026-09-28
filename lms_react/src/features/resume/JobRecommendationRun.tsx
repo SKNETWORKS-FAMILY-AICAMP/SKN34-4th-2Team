@@ -1,7 +1,7 @@
 import { useEffect, useState, type MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 
-import { jobApplyPath } from '../../app/routePaths';
+import { jobApplyPath, jobApplyPostingPath } from '../../app/routePaths';
 import { http } from '../../data/http';
 import { Icon } from '../../ui/Icon';
 import type { Resume } from '../../domain/types';
@@ -174,9 +174,12 @@ function JobCard({
   reviewLabel,
   showReasons = true,
   onOpenPosting,
+  applyTo,
 }: {
   index: number;
   job: JobPick;
+  /** 이 공고로 공고 맞춤 지원(자소서)을 여는 주소. 없으면 두지 않는다 */
+  applyTo?: string;
   onReview?(job: JobPick): void;
   /** 공고 원문을 화면 위 창으로 연다 */
   onOpenPosting?(job: JobPick): void;
@@ -312,6 +315,12 @@ function JobCard({
           </button>
         ) : (
           <span />
+        )}
+        {applyTo !== undefined && (
+          <Link className="job-card__toggle" to={applyTo} title="이 공고로 공고 맞춤 지원에서 자소서를 써요">
+            <Icon name="edit_note" size={14} />
+            자소서 쓰기
+          </Link>
         )}
         {!open && reviewButton}
       </div>
@@ -472,6 +481,7 @@ export function JobRecommendationRun({ resume }: { resume: Resume }) {
                 reviewLabel={linkedJobId !== '' ? '재첨삭' : undefined}
                 showReasons={linkedJobId === ''}
                 onOpenPosting={(job) => setViewing(job.jobId)}
+                applyTo={applyCopy || job.jobId === '' ? undefined : jobApplyPostingPath(job.jobId)}
               />
             ))}
           </div>

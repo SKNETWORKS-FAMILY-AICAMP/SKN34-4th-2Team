@@ -26,6 +26,7 @@ import {
   type SkillCoverage,
 } from './alignDraft';
 import { defaultQuestions } from './companyQuestions';
+import { CoachAsk } from '../resume/ask/CoachAsk';
 import { QuestionAnswers } from './QuestionAnswers';
 import { QuestionsStep, type QuestionChoice } from './QuestionsStep';
 import './jobApply.css';
@@ -122,10 +123,15 @@ export function JobApplyScreen() {
   /** 회사 자소서 문항 — null 이면 아직 안 정했다 */
   const [questions, setQuestions] = useState<QuestionChoice | null>(null);
   const [viewing, setViewing] = useState(false);
-  // 만든 공고용 이력서는 주소(?resume=…)에 남긴다. 편집기에 갔다 와도, 목록에서 다시 열어도 문항 답변으로 돌아온다
+  /** 1단계 — 링크를 붙여 넣거나, 코치에게 물어 찾는다 */
+  const [findBy, setFindBy] = useState<'link' | 'coach'>('link');
+  // 만든 공고용 이력서는 주소(?resume=…)에 남긴다. 편집기에 갔다 와도, 목록에서 다시 열어도 문항 답변으로 돌아온다.
+  // 코치 대화 · 추천에서 고른 공고는 ?job=… 로 들어온다(1단계를 건너뛴다)
   const [params, setParams] = useSearchParams();
   const openId = params.get('resume') ?? '';
+  const openJob = params.get('job') ?? '';
   const restoredId = useRef('');
+  const openedJob = useRef('');
 
   const source = sources.find((r) => r.id === pickedSource) ?? defaultSource;
   const skills = useMemo(
@@ -158,8 +164,43 @@ export function JobApplyScreen() {
 
   const leaveResume = () => {
     restoredId.current = '';
-    if (openId !== '') setParams({}, { replace: true });
+    openedJob.current = '';
+    if (openId !== '' || openJob !== '') setParams({}, { replace: true });
   };
+
+  /** 공고 번호로 공고를 읽는다. 저장소 상태가 틀릴 수 있어(REMOVED · 늘어난 마감일) 링크로 불러올 때처럼 페이지를 열어 확인한다 */
+  const readPosting = async (jobId: string): Promise<Posting> => {
+    const { data } = await http.get<Posting>(`/postings/${encodeURIComponent(jobId)}`);
+    if (data.status === 'OPEN' || !data.source_url.startsWith('http')) return data;
+    return (await http.get<Posting>('/posting-link', { params: { url: data.source_url } })).data;
+  };
+
+  /** 코치 대화 · 추천에서 고른 공고로 연다 — 링크를 붙여 넣은 것과 같은 자리(2단계)에서 시작한다 */
+  const openPosting = async (jobId: string) => {
+    setFinding(true);
+    setFindError(null);
+    try {
+      const data = await readPosting(jobId);
+      setPosting(data);
+      setLink(data.source_url);
+      setDraft(null);
+      setQuestions(null);
+      setCreateError(null);
+      if (data.status === 'OPEN') loadRequirements(data.job_id);
+    } catch (err) {
+      const status = (err as { response?: { status?: number } }).response?.status;
+      setFindError(status === 404 ? '공고를 찾을 수 없어요. 수집 목록에서 빠진 공고일 수 있어요.' : errorDetail(err, '공고를 불러오지 못했어요.'));
+    } finally {
+      setFinding(false);
+    }
+  };
+
+  useEffect(() => {
+    if (openJob === '' || openId !== '' || openedJob.current === openJob) return;
+    openedJob.current = openJob;
+    void openPosting(openJob);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openJob, openId]);
 
   /** 주소의 공고용 이력서로 이어 간다 — 연결된 공고를 다시 읽고, 문항이 담겨 있으면 문항 답변(5단계)을 연다 */
   const restore = async (resume: Resume) => {
@@ -171,11 +212,7 @@ export function JobApplyScreen() {
     setFinding(true);
     setFindError(null);
     try {
-      let { data } = await http.get<Posting>(`/postings/${encodeURIComponent(resume.linkedJobId)}`);
-      if (data.status !== 'OPEN' && data.source_url.startsWith('http')) {
-        // 저장소 상태가 틀릴 수 있다(REMOVED · 늘어난 마감일). 링크로 불러올 때처럼 페이지를 열어 확인한다
-        data = (await http.get<Posting>('/posting-link', { params: { url: data.source_url } })).data;
-      }
+      const data = await readPosting(resume.linkedJobId);
       setPosting(data);
       setLink(data.source_url);
       setPickedSource(copy.base);
@@ -317,8 +354,35 @@ export function JobApplyScreen() {
         done={[posting !== null, requirements.state === 'ready' && posting !== null, questions !== null, draft !== null, false]}
       />
       <Card className="apply-step">
-        <StepHead no={1} title="공고 링크" done={posting !== null} />
+        <StepHead no={1} title="공고 설정" done={posting !== null} />
+        {posting === null && (
+          <div className="apply-tabs" role="tablist" aria-label="공고 찾는 방법">
+            <button type="button" role="tab" aria-selected={findBy === 'link'} className={`apply-tab${findBy === 'link' ? ' is-on' : ''}`} onClick={() => setFindBy('link')}>
+              <Icon name="link" size={18} />
+              링크 붙여넣기
+            </button>
+            <button type="button" role="tab" aria-selected={findBy === 'coach'} className={`apply-tab${findBy === 'coach' ? ' is-on' : ''}`} onClick={() => setFindBy('coach')}>
+              <Icon name="forum" size={18} />
+              코치에게 묻기
+            </button>
+          </div>
+        )}
+        {/* 대화는 공고를 고른 뒤에도 숨겨 둘 뿐 남긴다 — 「다른 공고」로 돌아오면 이어서 고른다 */}
+        {findBy === 'coach' &&
+          (source === undefined ? (
+            posting === null && <p className="hint">바탕 이력서가 있어야 코치에게 물을 수 있어요. 이력서 관리에서 먼저 작성해 주세요.</p>
+          ) : (
+            <div className="apply-coach" hidden={posting !== null}>
+              <CoachAsk
+                resume={source}
+                hidden={posting !== null}
+                pickLabel="이 공고 고르기"
+                onPickJob={(jobId) => setParams({ job: jobId })}
+              />
+            </div>
+          ))}
         {posting === null ? (
+          findBy === 'link' && (
           <form className="apply-link" onSubmit={find}>
             <TextInput
               value={link}
@@ -331,12 +395,14 @@ export function JobApplyScreen() {
               {finding ? '찾는 중…' : '공고 불러오기'}
             </Button>
           </form>
+          )
         ) : (
           <PostingSummary posting={posting} onOpen={() => setViewing(true)} onChange={reset} />
         )}
-        {posting === null && (
+        {posting === null && findBy === 'link' && (
           <p className="hint">사람인 · 잡코리아 공고 상세 페이지 주소를 붙여 넣으세요. 우리가 수집해 둔 공고만 불러올 수 있어요.</p>
         )}
+        {posting === null && findBy === 'coach' && finding && <p className="hint">고른 공고를 불러오고 있어요…</p>}
         {findError !== null && <p className="apply-error">{findError}</p>}
       </Card>
 
@@ -454,7 +520,7 @@ export function JobApplyScreen() {
   );
 }
 
-const STEPS = ['공고 링크', '요건 확인', '자소서 문항', '자소서 만들기', 'AI 첨삭'];
+const STEPS = ['공고 설정', '요건 확인', '자소서 문항', '자소서 만들기', 'AI 첨삭'];
 
 /** 맨 위 단계 줄 — 끝난 단계는 체크, 처음으로 안 끝난 단계가 지금 단계 */
 function Stepper({ done }: { done: boolean[] }) {

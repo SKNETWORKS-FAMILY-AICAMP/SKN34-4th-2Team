@@ -7,9 +7,9 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
-import { jobApplyPath, RoutePaths } from '../../app/routePaths';
+import { jobApplyPath, jobApplyPostingPath, RoutePaths } from '../../app/routePaths';
 import {
   addResumeFeedback,
   applyBootstrap,
@@ -174,6 +174,7 @@ export function ResumeEditScreen() {
   const feedbacks = useResumeFeedbacks(resumeId ?? '');
   const user = useCurrentUser();
   const reviewer = user.role !== 'student';
+  const navigate = useNavigate();
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
   const wide = useWide(root, reviewer);
   const [coachVisible, setCoachVisible] = useCoachVisible(wide);
@@ -515,6 +516,8 @@ export function ResumeEditScreen() {
               resume={resume}
               hidden={!asking}
               onBack={() => setAsking(false)}
+              // 대화로 찾은 공고로 공고 맞춤 지원(자소서)을 연다
+              onPickJob={reviewer ? undefined : (jobId) => navigate(jobApplyPostingPath(jobId))}
               onOpenDetail={() => {
                 setPanel('jobs');
                 setJobsView((v) => v + 1);

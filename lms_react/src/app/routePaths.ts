@@ -93,6 +93,9 @@ export const resumeEditPath = (
 export const jobApplyPath = (resumeId?: string): string =>
   resumeId === undefined || resumeId === '' ? '/job-apply' : `/job-apply?resume=${encodeURIComponent(resumeId)}`;
 
+/** 공고 맞춤 지원 — 코치 대화 · 추천에서 고른 공고로 바로 연다(1단계를 건너뛴다) */
+export const jobApplyPostingPath = (jobId: string): string => `/job-apply?job=${encodeURIComponent(jobId)}`;
+
 export const assessmentTakePath = (id: string) => `/assessments/${id}/take`;
 export const assessmentResultPath = (id: string) => `/assessments/${id}/result`;
 
