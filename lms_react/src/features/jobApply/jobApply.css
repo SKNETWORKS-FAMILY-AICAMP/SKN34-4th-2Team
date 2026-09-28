@@ -795,3 +795,9 @@
 .apply-attach-link .apply-q-input {
   min-width: 240px;
 }
+
+.qa-memo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

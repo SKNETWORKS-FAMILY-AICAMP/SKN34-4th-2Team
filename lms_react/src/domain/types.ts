@@ -319,6 +319,10 @@ export interface ResumeCompanyQuestion {
   /** 글자 수 제한(공백 포함). 모르면 null */
   limit: number | null;
   answer: string;
+  /** 쓰고 싶은 내용 메모 — 문항 답변 첨삭이 근거로 쓴다 */
+  memo?: string;
+  /** 첨삭이 물은 질문과 답 — 다음 초안의 근거. 다시 열어도 이어 쓴다 */
+  notes?: { question: string; answer: string }[];
 }
 
 export type ResumeStatus = 'draft' | 'submitted' | 'feedbackRequested' | 'approved';
