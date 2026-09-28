@@ -5873,7 +5873,8 @@ html {
   position: fixed;
   right: 8px;
   bottom: 12px;
-  z-index: 60;
+  /* 첨삭 · 복습/연습장 창(900~902 층)보다 위 — 창을 연 채로 챗봇을 열면 창 뒤에 떠서 안 보였다 */
+  z-index: 905;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -5931,7 +5932,8 @@ html {
   right: 20px;
   /* 로봇 위에 뜬다. 로봇(104)과 아래 여백만큼 띄운다. */
   bottom: 124px;
-  z-index: 60;
+  /* 첨삭 · 복습/연습장 창보다 위(.chatbot-launcher 와 같은 층) */
+  z-index: 905;
   width: min(360px, calc(100vw - 32px));
   height: min(560px, calc(100vh - 160px));
   display: flex;
