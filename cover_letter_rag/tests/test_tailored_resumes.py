@@ -7,11 +7,13 @@ class Gateway:
     def __init__(self):
         self.items = {}
 
-    def create_tailored_resume(self, cohort_id, resume_id, uid, source):
+    def create_tailored_resume(self, cohort_id, resume_id, uid, source, purpose='review'):
         key = (cohort_id, resume_id, source['job_id'], source['snapshot_hash'])
+        if purpose == 'apply':
+            key += ('apply',)
         if key not in self.items:
             self.items[key] = {
-                'tailored_resume_id': 'tailored-1', 'baseResumeId': resume_id,
+                'tailored_resume_id': 'apply-1' if purpose == 'apply' else 'tailored-1', 'baseResumeId': resume_id,
                 'jobId': source['job_id'], 'companyName': source['company'], 'jobTitle': source['title'],
                 'sourceResumeHash': 'resume-hash', 'jobSnapshotHash': source['snapshot_hash'],
                 'status': 'draft', 'title': 'A사 맞춤 이력서',
@@ -88,6 +90,22 @@ def test_tailored_title_uses_company_value():
         '토마토에이아이 맞춤 이력서'
     )
     assert tailored_resume_title(base, '') == '백엔드 기본 이력서'
+    # 공고 맞춤 지원 사본은 「자소서」 — 이력서 관리의 공고 맞춤 이력서와 목록에서 헷갈리지 않게
+    assert tailored_resume_title(base, '토마토에이아이', 'apply') == '토마토에이아이 자소서'
+
+
+def test_apply_copy_is_separate_from_review_copy_for_the_same_job():
+    gateway = Gateway()
+    service = TailoredResumeService(gateway, lambda job_id: {'source': {
+        'job_id': job_id, 'company': 'A사', 'title': '백엔드', 'snapshot_hash': 'h1',
+    }})
+    review = service.create('user-1', TailoredResumeCreateRequest(cohort_id='c', resume_id='r', selected_job_id='j'))
+    apply = service.create('user-1', TailoredResumeCreateRequest(
+        cohort_id='c', resume_id='r', selected_job_id='j', purpose='apply',
+    ))
+    assert review.tailored_resume_id == 'tailored-1'
+    assert apply.tailored_resume_id == 'apply-1'
+    assert len(gateway.items) == 2
 
 
 def test_tailored_title_does_not_invent_missing_student_name():

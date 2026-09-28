@@ -12,13 +12,16 @@ from app.review_workflow import ReviewConflict
 from app.config import Settings
 
 
-def tailored_resume_title(base: dict[str, Any], company: str) -> str:
-    """Name only a company-specific copy; never synthesize missing identity."""
+def tailored_resume_title(base: dict[str, Any], company: str, purpose: str = 'review') -> str:
+    """Name only a company-specific copy; never synthesize missing identity.
+
+    공고 맞춤 지원(apply) 사본은 「자소서」로 부른다. 이력서 관리의 공고 맞춤 이력서와 목록에서 헷갈리지 않게.
+    """
     company = str(company or '').strip()
     base_title = str(base.get('title') or '').strip()
     if not company:
         return base_title
-    return f'{company} 맞춤 이력서'
+    return f'{company} 자소서' if purpose == 'apply' else f'{company} 맞춤 이력서'
 
 
 class FirebaseAuthenticationError(Exception):
@@ -115,8 +118,14 @@ class FirebaseGateway:
         )
         return parent.collection(self._settings.firestore_ai_reviews_collection).document(review_id)
 
-    def create_tailored_resume(self, cohort_id: str, resume_id: str, uid: str, job_source: dict[str, Any]) -> dict[str, Any]:
-        """Clone an owned base resume once per immutable job snapshot."""
+    def create_tailored_resume(
+        self, cohort_id: str, resume_id: str, uid: str, job_source: dict[str, Any], purpose: str = 'review',
+    ) -> dict[str, Any]:
+        """Clone an owned base resume once per immutable job snapshot.
+
+        purpose 마다 따로 뜬다. apply(공고 맞춤 지원) 사본은 id 가 `apply_` 로 시작한다 — 같은 공고라도
+        이력서 관리의 맞춤 첨삭 사본(`tailored_`)과 섞이지 않고, 화면은 id 로 어느 쪽인지 가른다.
+        """
         from psycopg.types.json import Jsonb
 
         base = self.get_owned_resume(cohort_id, resume_id, uid)
@@ -126,8 +135,8 @@ class FirebaseGateway:
         if not job_id or not snapshot_hash:
             raise ValueError('job_source_is_incomplete')
         company_name = str(job_source.get('company') or '').strip()
-        title = tailored_resume_title(base, company_name)
-        tailored_id = 'tailored_' + hashlib.sha256(
+        title = tailored_resume_title(base, company_name, purpose)
+        tailored_id = ('apply_' if purpose == 'apply' else 'tailored_') + hashlib.sha256(
             f'{resume_id}:{job_id}:{snapshot_hash}'.encode()
         ).hexdigest()[:24]
         legacy = f"{resume_id}/tailored/{tailored_id}"

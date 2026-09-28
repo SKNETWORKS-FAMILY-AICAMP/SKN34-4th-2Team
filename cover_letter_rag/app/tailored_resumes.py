@@ -34,7 +34,9 @@ class TailoredResumeService:
 
     def create(self, uid: str, request: TailoredResumeCreateRequest) -> TailoredResumeResponse:
         job = self._job_loader(request.selected_job_id)
-        data = self._gateway.create_tailored_resume(request.cohort_id, request.resume_id, uid, job['source'])
+        data = self._gateway.create_tailored_resume(
+            request.cohort_id, request.resume_id, uid, job['source'], purpose=request.purpose,
+        )
         return TailoredResumeResponse(
             **_summary(data).model_dump(),
             content=data.get('content') or {},

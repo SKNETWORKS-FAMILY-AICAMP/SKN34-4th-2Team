@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings, get_settings
 from app.main import app, get_context_gateway, get_resume_review_service
+from app.firebase_gateway import ResumeNotFoundError
 from app.matching_handoff import load_selected_job
 from job_matching_bot.env import ensure_loaded
 from job_matching_bot.ingestion.sqlite_store import SqliteJobStore
@@ -362,3 +363,74 @@ def test_integrated_routes_preserve_matching_contract():
     assert '/api/v1/resumes/reviews' in review['paths']
     assert '/api/v1/resumes/reviews/apply' in review['paths']
     assert client.post('/api/v1/jobs/recommend', json={}).status_code == 422
+
+
+class _CachedRequirementsGateway(FakeFirebase):
+    """요건 저장본이 이미 있는 게이트웨이 — 모델을 부르지 않고 저장본을 돌려줘야 한다."""
+
+    def get_job_requirements(self, key):
+        return [{'id': 'req-1', 'group': 'must', 'label': 'Python API 개발', 'posting_quote': 'Python API 개발 경험',
+                 'kind': 'skill', 'kind_basis': ''}]
+
+
+def test_job_requirements_proxy_returns_saved_requirements_and_blocks_closed_job(store):
+    app.dependency_overrides[get_context_gateway] = lambda: _CachedRequirementsGateway()
+    app.dependency_overrides[get_settings] = lambda: Settings(matching_job_store_path=store)
+    client = TestClient(app)
+    try:
+        ok = client.post('/api/v1/resumes/job-requirements/proxy', json={'job_id': 'saramin:1'})
+        assert ok.status_code == 200
+        assert ok.json() == {'job_id': 'saramin:1', 'requirements': [
+            {'id': 'req-1', 'group': 'must', 'label': 'Python API 개발', 'posting_quote': 'Python API 개발 경험'},
+        ]}
+        assert client.post('/api/v1/resumes/job-requirements/proxy', json={'job_id': 'nope'}).status_code == 422
+        with open_store(store) as db:
+            db.execute("UPDATE jobs SET status = 'CLOSED'")
+        closed = client.post('/api/v1/resumes/job-requirements/proxy', json={'job_id': 'saramin:1'})
+        assert closed.status_code == 409
+        assert closed.json()['detail'] == 'selected_job_closed'
+    finally: app.dependency_overrides.clear()
+
+
+class _TailoredGateway(_CachedRequirementsGateway):
+    """회사 문항이 담긴 공고 맞춤 사본을 가진 게이트웨이."""
+
+    def get_owned_tailored_resume(self, cohort_id, resume_id, tailored_resume_id, uid):
+        if (cohort_id, resume_id, tailored_resume_id, uid) != ('cohort-1', 'resume-1', 'tailored_1', 'user-1'):
+            raise ResumeNotFoundError('tailored resume not found')
+        content = {**SAMPLE_CONTENT, 'companyQuestions': [
+            {'id': 'cq1', 'question': '직무 역량을 쓰시오.', 'limit': 300, 'answer': ''},
+        ]}
+        return {'content': content, 'jobId': 'saramin:1'}
+
+
+def test_question_answer_proxy_writes_grounded_answer(store):
+    from app.main import get_question_answer_generator
+    from app.question_answers import AnswerSentenceOut, QuestionAnswerOut
+
+    seen = {}
+
+    def generator(variables):
+        seen.update(variables)
+        return QuestionAnswerOut(sentences=[
+            AnswerSentenceOut(text='Python으로 REST API를 개발했습니다.', basis='resume', quote='Python REST API 개발'),
+            AnswerSentenceOut(text='쿠버네티스로 서비스를 운영했습니다.', basis='resume', quote='쿠버네티스 운영'),
+        ])
+
+    app.dependency_overrides[get_context_gateway] = lambda: _TailoredGateway()
+    app.dependency_overrides[get_settings] = lambda: Settings(matching_job_store_path=store, openai_api_key='test')
+    app.dependency_overrides[get_question_answer_generator] = lambda: generator
+    client = TestClient(app)
+    body = {'uid': 'user-1', 'cohort_id': 'cohort-1', 'resume_id': 'resume-1',
+            'tailored_resume_id': 'tailored_1', 'question_id': 'cq1', 'answers': []}
+    try:
+        ok = client.post('/api/v1/resumes/question-answer/proxy', json=body)
+        assert ok.status_code == 200, ok.text
+        data = ok.json()
+        assert data['draft'] == 'Python으로 REST API를 개발했습니다.'
+        assert data['dropped'] == 1 and data['limit'] == 300
+        assert data['requirements'] == [{'id': 'req-1', 'group': 'must', 'label': 'Python API 개발'}]
+        assert seen['company'] == '테스트 회사'
+        assert client.post('/api/v1/resumes/question-answer/proxy', json={**body, 'question_id': 'nope'}).status_code == 422
+        assert client.post('/api/v1/resumes/question-answer/proxy', json={**body, 'uid': 'other'}).status_code == 404
+    finally: app.dependency_overrides.clear()
