@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -81,6 +82,12 @@ REASONING_EFFORT = "medium"
 CHAT_EFFORT = "low"
 # 구조화 결과를 몇 벌까지 들고 있을지. 이력서 한 건이 몇 KB라 넉넉해도 가볍다.
 PROFILE_CACHE_SIZE = 64
+# 같은 이력서 · 조건이면 추천 결과를 다시 쓴다(#23). 재정렬(LLM)이 20초 가까이 들어 한 번 받은 결과를
+# 그대로 보여 주는 편이 낫다. 공고가 새로 적재되면(runs 의 마지막 시각이 바뀌면) 버린다.
+RESULT_CACHE_SIZE = 64
+RESULT_CACHE_SECONDS = 6 * 3600
+# 공고 적재 시각은 이만큼 기억해 둔다 — 요청마다 RDS 에 물으면 왕복이 붙는다. 밤 배치로만 바뀐다
+STORE_VERSION_SECONDS = 300
 
 
 # 추천이 거치는 단계. 앱이 이 순서대로 줄을 세운다. 이름을 바꾸면 앱도 같이 고쳐야 한다.
@@ -182,6 +189,7 @@ STAGE_LABELS = {
     "pre_rank": "사전 순위",
     "rerank": "재정렬",
     "verify": "근거 검증",
+    "cache": "결과 재사용",
     "total": "합계",
 }
 
@@ -342,13 +350,17 @@ class _LivenessMixin:
 
 
 class RecommendService(_LivenessMixin):
-    def __init__(self, profiler=None, reranker=None, store_path: Path | None = None) -> None:
+    def __init__(self, profiler=None, reranker=None, store_path: Path | None = None, result_cache: bool = False) -> None:
         self._profiler = profiler
         self._reranker = reranker
         self._store_path = store_path
         # 같은 이력서로 다시 추천하면 구조화를 건너뛴다. 앱은 범위(프로젝트·기술스택 …)를
         # 바꿔 가며 여러 번 부르는데, 범위마다 글이 다르므로 글 자체를 열쇠로 쓴다.
         self._profiles: OrderedDict[str, schemas.ResumeProfileOut] = OrderedDict()
+        # 추천 결과 재사용 — 서버(api/main.py)만 켠다. 켜면 공고 적재 시각을 DB 에서 읽는다
+        self._result_cache = result_cache
+        self._results: OrderedDict[str, tuple[float, str, schemas.RecommendResponse]] = OrderedDict()
+        self._version: tuple[float, str | None] | None = None
 
     @property
     def store_path(self) -> Path:
@@ -397,6 +409,54 @@ class RecommendService(_LivenessMixin):
                 career_years=request.career_years,
                 summary="",
             )
+
+    # ── 결과 재사용 ──────────────────────────────────
+    @staticmethod
+    def result_key(request: schemas.RecommendRequest) -> str:
+        """요청 전체(이력서 글 · 조건 · 앱이 보낸 구조화 · 개수)의 해시. 하나라도 다르면 다른 추천이다."""
+        body = json.dumps(request.model_dump(mode="json"), ensure_ascii=False, sort_keys=True)
+        return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+    def store_version(self) -> str | None:
+        """공고가 마지막으로 적재된 시각(`runs`). 모르면 None — 그때는 재사용하지 않는다."""
+        now = time.monotonic()
+        if self._version is not None and now - self._version[0] < STORE_VERSION_SECONDS:
+            return self._version[1]
+        from job_matching_bot.ingestion.sqlite_store import SqliteJobStore
+
+        try:
+            with SqliteJobStore(self.store_path) as store:
+                row = store.conn.execute("SELECT max(finished_at) AS at FROM runs").fetchone()
+            version = str(row["at"]) if row and row["at"] else None
+        except Exception:  # noqa: BLE001 — 모르면 새로 추천하면 된다
+            version = None
+        self._version = (now, version)
+        return version
+
+    def cached_result(self, key: str) -> schemas.RecommendResponse | None:
+        """재사용할 수 있는 지난 결과. 그 사이 마감된 공고는 뺀다(마감 확인은 새로 한다)."""
+        entry = self._results.get(key)
+        if entry is None:
+            return None
+        saved_at, version, response = entry
+        if time.monotonic() - saved_at > RESULT_CACHE_SECONDS or version != self.store_version():
+            del self._results[key]
+            return None
+        self._results.move_to_end(key)
+        alive = self.drop_dead([r.job_id for r in response.recommendations])
+        return response.model_copy(update={
+            "recommendations": [r for r in response.recommendations if r.job_id in alive],
+        })
+
+    def remember_result(self, key: str, response: schemas.RecommendResponse) -> None:
+        """재정렬까지 제대로 끝난 결과만 둔다. 실패해 검색 순서로 물러난 결과는 다음에 다시 해 본다."""
+        version = self.store_version()
+        if version is None or not response.reranked or not response.recommendations:
+            return
+        self._results[key] = (time.monotonic(), version, response)
+        self._results.move_to_end(key)
+        if len(self._results) > RESULT_CACHE_SIZE:
+            self._results.popitem(last=False)
 
     # ── ③ 하드 필터용 프로필 ─────────────────────────
     @staticmethod
@@ -463,16 +523,18 @@ class RecommendService(_LivenessMixin):
             raise SearchUnavailable('공고 원문 저장소를 찾을 수 없습니다.')
         resolved: list[tuple[retrieval.Hit, Job]] = []
         missing = inactive = 0
+        # 한 번에 읽는다 — 한 건씩이면 RDS 왕복이 25번이라 필터 단계가 6초였다(SqliteJobStore.get_many)
         with SqliteJobStore(DEFAULT_STORE) as store:
-            for hit in hits:
-                record = store.get(hit.job_id)
-                if record is None:
-                    missing += 1
-                    continue
-                if record.status != 'OPEN':
-                    inactive += 1
-                    continue
-                resolved.append((hit, record.job))
+            records = store.get_many(hit.job_id for hit in hits)
+        for hit in hits:
+            record = records.get(hit.job_id)
+            if record is None:
+                missing += 1
+                continue
+            if record.status != 'OPEN':
+                inactive += 1
+                continue
+            resolved.append((hit, record.job))
         if missing:
             warnings.append(f'원문 저장소에 없는 이전 검색 결과 {missing}건을 제외했습니다.')
         if inactive:
@@ -583,9 +645,21 @@ class RecommendService(_LivenessMixin):
         def finish(response: schemas.RecommendResponse) -> schemas.RecommendResponse:
             timings = clock.timings()
             print(format_timings(timings, profile_source))
+            if key is not None and profile_source != "결과 재사용":
+                self.remember_result(key, response)
             return response.model_copy(
                 update={"timings_ms": timings, "profile_source": profile_source}
             )
+
+        # 같은 이력서 · 조건으로 이미 추천했으면 그 결과를 쓴다 — 검색 · 재정렬을 건너뛴다
+        key = self.result_key(request) if self._result_cache else None
+        if key is not None:
+            reused = self.cached_result(key)
+            if reused is not None:
+                profile_source = "결과 재사용"
+                say("judge", f"같은 이력서 · 조건으로 추천한 결과 {len(reused.recommendations)}건을 다시 보여 줘요")
+                clock.lap("cache")
+                return finish(reused)
 
         say("resume")
         profile = self.build_profile(request, warnings)
