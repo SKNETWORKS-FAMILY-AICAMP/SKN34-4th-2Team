@@ -28,26 +28,5 @@
         "npm --prefix \"$RESOURCE_DIR\" run build"
       ]
     }
-  ],
-  "flutter": {
-    "platforms": {
-      "android": {
-        "default": {
-          "projectId": "skn34-3rd-2team",
-          "appId": "1:737679563447:android:c08172132e8b68848bcb32",
-          "fileOutput": "android/app/google-services.json"
-        }
-      },
-      "dart": {
-        "lib/firebase_options.dart": {
-          "projectId": "skn34-3rd-2team",
-          "configurations": {
-            "android": "1:737679563447:android:c08172132e8b68848bcb32",
-            "web": "1:737679563447:web:9c0a512bc37811f48bcb32",
-            "windows": "1:737679563447:web:8e02f32dcee1167b8bcb32"
-          }
-        }
-      }
-    }
-  }
+  ]
 }
