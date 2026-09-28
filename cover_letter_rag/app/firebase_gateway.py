@@ -479,12 +479,15 @@ class FirebaseGateway:
                     raise ResumeNotFoundError()
                 after, changed = build_application(before, review_row[0] or {}, request)
             result = ApplyResponse(operation_id=request.request_id, input_hash=digest(after), changed_fields=changed)
+            # payload 는 RDS 스키마(lms.0001)에서 필수다 — resume_ai_reviews 처럼 받은 요청을 그대로 남긴다.
+            # 빠져 있어 반영 · 되돌리기가 NotNullViolation 으로 500 이 났다
             conn.execute(
-                """INSERT INTO resume_ai_applications (legacy_id, resume_id, user_id, fingerprint, kind, before, after_hash, response, source_id, created_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s, now())""",
+                """INSERT INTO resume_ai_applications (legacy_id, resume_id, user_id, fingerprint, kind, before, after_hash, response, source_id, payload, created_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, now())""",
                 (op_legacy, resume[0], ident["user_pk"], fingerprint, "undo" if undo else "apply",
                  Jsonb(before), digest(after), Jsonb(result.model_dump()),
-                 request.application_id if undo else request.review_id),
+                 request.application_id if undo else request.review_id,
+                 Jsonb({**request.model_dump(mode="json"), "userId": uid})),
             )
             conn.execute("UPDATE resumes SET content=%s, updated_at=now() WHERE id=%s", (Jsonb(after), resume[0]))
             if not undo and review_row:
