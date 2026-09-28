@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 import { Icon } from '../../ui/Icon';
 import { JobPostingView, jobPostingPath } from './JobPostingScreen';
@@ -8,6 +9,9 @@ import { JobPostingView, jobPostingPath } from './JobPostingScreen';
  *
  * 보던 이력서 · 추천 목록 위에 겹쳐 열고, 닫으면 그 자리로 돌아온다. 다른 공고와 나란히 두고
  * 보고 싶으면 머리줄의 「새 탭으로 열기」로 같은 원문을 브라우저 탭에 연다.
+ *
+ * body 에 바로 붙인다(포털). 이력서 편집 화면의 오른쪽 칸 안에 그리면 그 칸이 fixed 의 기준이 돼
+ * 창이 화면 전체가 아니라 칸 안에 자리 잡고, 위의 이력서 머리줄(제목 · 탭) 밑에 깔려 잘렸다.
  */
 export function JobPostingDialog({ jobId, onClose }: { jobId: string; onClose(): void }) {
   // Esc 로 닫는다. 창이 떠 있는 동안 뒤 화면이 스크롤되지 않게 한다
@@ -24,7 +28,7 @@ export function JobPostingDialog({ jobId, onClose }: { jobId: string; onClose():
     };
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div className="posting-layer" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="posting-window" role="dialog" aria-modal="true" aria-label="공고 원문">
         <header className="posting-window__head">
@@ -43,6 +47,7 @@ export function JobPostingDialog({ jobId, onClose }: { jobId: string; onClose():
           <JobPostingView jobId={jobId} />
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
