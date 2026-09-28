@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
+import type { ImportedCell } from '../practice/notebookFile';
 import { NotebookMarkdown } from '../practice/NotebookMarkdown';
 import { PracticeLink, usePracticeDock } from '../practice/PracticeDock';
-import { findCodeInFiles, lessonCells, lessonSlice, significantLines, type LessonFile } from './lessonCode';
+import { findCodeInFiles, isSqlBlock, lessonCells, lessonSlice, significantLines, type LessonFile } from './lessonCode';
 
 import { RoutePaths } from '../../app/routePaths';
 import {
@@ -660,7 +661,7 @@ export function Markdown({ text, note }: { text: string; note?: NoteRef }) {
   return (
     <NotebookMarkdown
       source={boldLinesAsHeadings(text)}
-      codeAction={note ? (code) => <NoteCodeActions code={code} note={note} /> : undefined}
+      codeAction={note ? (code, lang) => <NoteCodeActions code={code} sql={isSqlBlock(code, lang)} note={note} /> : undefined}
     />
   );
 }
@@ -689,18 +690,18 @@ function loadLessonFiles(sourceId: string, files: StudyNote['files']) {
  * - 수업 파일에서 보기: 이 코드가 든 수업 파일 셀과 앞뒤 몇 셀만 가져온다. 파일을 통째로 열면 너무 길다.
  *   노트가 설명하려고 새로 쓴 코드면 수업 파일에 없다고 알린다.
  */
-function NoteCodeActions({ code, note }: { code: string; note: NoteRef }) {
+function NoteCodeActions({ code, sql, note }: { code: string; sql: boolean; note: NoteRef }) {
   const dock = usePracticeDock();
   const [state, setState] = useState<'idle' | 'busy' | 'missing' | 'failed'>('idle');
-  if (!dock || significantLines(code).length === 0) return null;
-  const openCells = (cells: { type: 'code' | 'markdown'; source: string }[], focusText: string) =>
+  if (!dock || significantLines(code, sql).length === 0) return null;
+  const openCells = (cells: ImportedCell[], focusText: string) =>
     dock.open({ setId: null, note: { noteId: note.id, title: note.title, cells, focusText, seq: Date.now() } });
 
   const openLesson = async () => {
     setState('busy');
     try {
       const files = await loadLessonFiles(note.sourceId, note.files);
-      const match = findCodeInFiles(code, files);
+      const match = findCodeInFiles(code, files, sql);
       if (!match) {
         setState('missing');
         return;
@@ -719,7 +720,7 @@ function NoteCodeActions({ code, note }: { code: string; note: NoteRef }) {
   };
   return (
     <div className="nb-md__codeaction">
-      <button type="button" className="btn btn--text btn--sm" onClick={() => openCells([{ type: 'code', source: code }], code)}>
+      <button type="button" className="btn btn--text btn--sm" onClick={() => openCells([{ type: sql ? 'sql' : 'code', source: code }], code)}>
         <Icon name="terminal" size={16} />
         연습장에서 열기
       </button>

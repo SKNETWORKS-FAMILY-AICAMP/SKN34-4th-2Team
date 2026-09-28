@@ -87,3 +87,22 @@ describe('노트북 불러오기', () => {
     expect(() => parseNotebookFile('a.txt', '')).toThrow(/\.ipynb/);
   });
 });
+
+describe('SQL 셀 파일', () => {
+  const cells = [newCell('## 조회', 'markdown'), newCell('SELECT *\nFROM tbl_menu;', 'sql'), newCell('x = 1')];
+
+  it('.ipynb 에는 %%sql 셀로 내보내고, 다시 불러오면 SQL 셀이 된다', () => {
+    const back = parseIpynb(toIpynb(cells, undefined)).cells;
+    expect(back.map((c) => c.type)).toEqual(['markdown', 'sql', 'code']);
+    expect(back[1].source).toBe('SELECT *\nFROM tbl_menu;');
+  });
+
+  it('.py 에는 # %% [sql] 주석으로 내보내고, 다시 불러오면 SQL 셀이 된다', () => {
+    const back = parsePy(toPy(cells, undefined)).cells;
+    expect(back[1]).toEqual({ type: 'sql', source: 'SELECT *\nFROM tbl_menu;' });
+  });
+
+  it('수업 .sql 파일은 통째로 SQL 셀 하나', () => {
+    expect(parseNotebookFile('2_11 join.sql', 'SELECT 1;\r\nSELECT 2;\r\n').cells).toEqual([{ type: 'sql', source: 'SELECT 1;\nSELECT 2;' }]);
+  });
+});

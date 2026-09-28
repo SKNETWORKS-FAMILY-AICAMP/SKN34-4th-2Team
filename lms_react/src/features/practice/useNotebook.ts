@@ -17,6 +17,7 @@ import {
 import type { RunResult } from './pythonProtocol';
 import { canPromptInput, type PythonRunner, type RunOptions } from './pythonRunner';
 import { RETRY_SET_ID } from './review';
+import { planSql } from './sqlDialect';
 
 const SESSION = 'playground';
 const TIMEOUT_MS = 10_000;
@@ -121,12 +122,18 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined, 
   /** 채점은 세션 밖 새 공간에서. 노트북에 남은 변수가 테스트에 섞이지 않는다. */
   const gradeProblem = (steps: string[]) => runQueued(steps, { timeoutMs: GRADE_TIMEOUT_MS });
 
+  /** SQL 문제 — 실행은 노트북 세션의 DB(sql_conn)에서(아래 SQL 셀에서 그 테이블을 조회해 볼 수 있다), 채점은 새 DB 에서 */
+  const runSqlProblemInSession = (steps: string[]) => runQueued(steps, { session: SESSION, sql: true, timeoutMs: TIMEOUT_MS });
+  const gradeSqlProblem = (steps: string[]) => runQueued(steps, { sql: true, timeoutMs: GRADE_TIMEOUT_MS });
+
   /** 셀 하나를 실제로 돌린다. 줄 서 있다가 차례가 오면 불린다. */
   const execute = async (id: string, token: number) => {
     if (token !== cancel.current) return;
     const cell = cellsRef.current.find((c) => c.id === id);
-    if (!cell || cell.type !== 'code') return;
+    if (!cell || (cell.type !== 'code' && cell.type !== 'sql')) return;
     const cold = runner.status === 'idle' || runner.status === 'error';
+    // SQL 셀 — 수업(MySQL) 문법을 SQLite 에 맞춰 문장 목록으로 넘긴다. 무엇을 고쳤는지는 셀 아래에 알린다
+    const plan = cell.type === 'sql' ? planSql(cell.code) : null;
     const heavy = /^\s*(import|from)\s+(matplotlib|pandas)/m.test(cell.code);
     patch(id, {
       state: 'running',
@@ -139,8 +146,9 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined, 
         : [],
     });
 
-    const result = await runner.run([cell.code], {
+    const result = await runner.run(plan ? [JSON.stringify(plan.statements)] : [cell.code], {
       session: SESSION,
+      sql: plan !== null,
       stdin: stdinRef.current,
       displayLast: true,
       timeoutMs: TIMEOUT_MS,
@@ -169,6 +177,7 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined, 
     noteGeneration(id);
 
     const tail: Line[] = [];
+    if (plan?.notes.length) tail.push({ kind: 'sys', text: `MySQL 문법을 SQLite 에 맞췄어요 — ${plan.notes.join(' · ')}` });
     if (result.timedOut) tail.push({ kind: 'err', text: `${TIMEOUT_MS / 1000}초가 지나 멈췄습니다. 반복문이 끝나는지 확인해 보세요.` });
     else if (result.stopped) tail.push({ kind: 'err', text: '실행을 중단했습니다. 변수도 함께 초기화됩니다.' });
     else if (result.error) tail.push({ kind: 'err', text: errorText(result) });
@@ -406,6 +415,8 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined, 
     fileName,
     runProblemInSession,
     gradeProblem,
+    runSqlProblemInSession,
+    gradeSqlProblem,
     answerInput,
   };
 }

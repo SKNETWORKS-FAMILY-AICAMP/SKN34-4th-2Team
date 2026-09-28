@@ -4,8 +4,9 @@ import { Icon } from '../../ui/Icon';
 import { CodeEditor } from './CodeEditor';
 import type { Cell, CellType } from './notebookModel';
 import { NotebookMarkdown } from './NotebookMarkdown';
+import { OutputTable } from './OutputTable';
 import { ProblemCell } from './ProblemCell';
-import type { TableData } from './pythonProtocol';
+import { sqlSchema } from './sqlDialect';
 import { useTutor, useTutorCell, useTutorMarks, type TutorSnapshot, type TutorTarget } from './TutorContext';
 import type { Notebook } from './useNotebook';
 import type { PracticeSetMode } from './usePracticeSetMode';
@@ -80,6 +81,8 @@ function ProblemCellRow({ cell, nb, mode }: { cell: Cell; nb: Notebook; mode: Pr
           onAttempt={(passed) => mode.record(index, passed)}
           runInSession={nb.runProblemInSession}
           grade={nb.gradeProblem}
+          runSql={nb.runSqlProblemInSession}
+          gradeSql={nb.gradeSqlProblem}
           onFocus={() => nb.setActiveId(cell.id)}
           focusSignal={nb.focusSignalOf(cell.id)}
           onRunAndNext={() => nb.focusNext(cell.id)}
@@ -154,6 +157,7 @@ function CodeOrMarkdownCell({ cell, index, total, nb }: { cell: Cell; index: num
           >
             <option value="code">코드</option>
             <option value="markdown">마크다운</option>
+            <option value="sql">SQL</option>
           </select>
           <span className="py-grow" />
           {cell.ms !== null && cell.ms >= 10 && <span className="py-nb-cell__ms">{(cell.ms / 1000).toFixed(2)}초</span>}
@@ -198,7 +202,7 @@ function CodeOrMarkdownCell({ cell, index, total, nb }: { cell: Cell; index: num
         ) : (
           <CodeEditor
             value={cell.code}
-            language={isMarkdown ? 'markdown' : 'python'}
+            language={isMarkdown ? 'markdown' : cell.type === 'sql' ? 'sql' : 'python'}
             onChange={(code) => nb.patch(cell.id, { code })}
             onRun={() => nb.enqueue(cell.id)}
             onRunAndNext={() => nb.runAndNext(cell.id)}
@@ -206,9 +210,16 @@ function CodeOrMarkdownCell({ cell, index, total, nb }: { cell: Cell; index: num
             onFocus={() => nb.setActiveId(cell.id)}
             focusSignal={nb.focusSignalOf(cell.id)}
             markedLines={isMarkdown ? undefined : marked}
+            sqlSchema={cell.type === 'sql' ? () => sqlSchema(nb.cells.filter((c) => c.type === 'sql').map((c) => c.code)) : undefined}
             minLines={2}
-            label={`셀 ${index + 1} ${isMarkdown ? '마크다운' : '코드'}`}
-            placeholder={isMarkdown ? '## 제목, - 목록, **굵게**, `코드` … Shift+Enter 로 보기' : '코드를 입력하고 Shift+Enter'}
+            label={`셀 ${index + 1} ${isMarkdown ? '마크다운' : cell.type === 'sql' ? 'SQL' : '코드'}`}
+            placeholder={
+              isMarkdown
+                ? '## 제목, - 목록, **굵게**, `코드` … Shift+Enter 로 보기'
+                : cell.type === 'sql'
+                  ? 'SELECT … 를 입력하고 Shift+Enter (수업의 MySQL 문법 그대로 써도 돼요)'
+                  : '코드를 입력하고 Shift+Enter'
+            }
           />
         )}
 
@@ -276,48 +287,13 @@ function CellOutput({ cell }: { cell: Cell }) {
       {cell.images.map((src, i) => (
         <img key={i} className="py-nb-out__img" src={src} alt={`그래프 ${i + 1}`} />
       ))}
-      {cell.table && <OutputTable table={cell.table} count={cell.count} />}
+      {cell.table && <OutputTable table={cell.table} label={`Out[${cell.count}]`} />}
       {cell.value !== null && (
         <div className="py-nb-out__value">
           <span className="py-nb-out__label">Out[{cell.count}]</span>
           <span>{cell.value}</span>
         </div>
       )}
-    </div>
-  );
-}
-
-/** DataFrame 표 — 앞 50행까지. 글자로만 그린다. */
-function OutputTable({ table, count }: { table: TableData; count: number | null }) {
-  const [rows, cols] = table.shape;
-  return (
-    <div className="py-nb-table">
-      <span className="py-nb-out__label">Out[{count}]</span>
-      <div className="py-nb-table__scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>{table.indexName}</th>
-              {table.columns.map((c, i) => (
-                <th key={i}>{c}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {table.rows.map((row, r) => (
-              <tr key={r}>
-                <th>{table.index[r]}</th>
-                {row.map((v, c) => (
-                  <td key={c}>{v}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <span className="py-nb-table__shape">
-        {rows}행 × {cols}열{rows > table.rows.length ? ` · 앞 ${table.rows.length}행만 표시` : ''}
-      </span>
     </div>
   );
 }

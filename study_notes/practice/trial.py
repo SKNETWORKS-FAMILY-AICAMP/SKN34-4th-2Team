@@ -29,6 +29,7 @@ from study_notes.git_tools import RepoCache, cache_root, is_learning_file, noteb
 from study_notes.pipeline import MAX_CHARS_PER_FILE, Material
 from study_notes.practice.build import BuildResult, build_practice_set
 from study_notes.practice.generate import practice_model_name
+from study_notes.practice.increments import DAY_QUOTA, is_sql_file, kind_counts_text, kind_mix
 from study_notes.practice.runner import REPO_ROOT, PyodideRunner
 
 MAX_FILES = 8
@@ -58,7 +59,7 @@ def _from_repo(args: argparse.Namespace) -> tuple[str, list[Material]]:
         files = [(p, head) for p in args.files]
         label = ", ".join(args.files)
     if not files:
-        raise SystemExit("고른 범위에 .ipynb · .py · .md 파일이 없습니다.")
+        raise SystemExit("고른 범위에 .ipynb · .py · .md · .sql 파일이 없습니다.")
     if len(files) > MAX_FILES:
         listing = "\n  ".join(p for p, _ in files)
         raise SystemExit(f"파일이 {len(files)}개라 너무 많습니다(최대 {MAX_FILES}). --files 로 고르세요:\n  {listing}")
@@ -70,7 +71,7 @@ def _from_local(paths: list[str]) -> tuple[str, list[Material]]:
     for raw_path in paths:
         path = Path(raw_path)
         if not is_learning_file(path.name):
-            raise SystemExit(f".ipynb · .py · .md 만 읽습니다: {path}")
+            raise SystemExit(f".ipynb · .py · .md · .sql 만 읽습니다: {path}")
         materials.append(_material(path.name, "local", path.read_text(encoding="utf-8")))
     return ", ".join(m["path"] for m in materials), materials
 
@@ -131,8 +132,11 @@ def main(argv: list[str] | None = None) -> int:
 
     runner = PyodideRunner()
     started = time.monotonic()
+    # SQL 수업 파일이 있으면 코드 문제 대신 SQL 조회 문제(하루 구성과 같다 — increments.DayPlan.kind_counts)
+    sql = any(is_sql_file(m["path"]) for m in materials)
     result = build_practice_set(
         scope_label=label, materials=materials, runner=runner, repair=not args.no_repair,
+        kind_counts=kind_counts_text(kind_mix(DAY_QUOTA, sql=sql)) if sql else "",
     )
     seconds = time.monotonic() - started
 

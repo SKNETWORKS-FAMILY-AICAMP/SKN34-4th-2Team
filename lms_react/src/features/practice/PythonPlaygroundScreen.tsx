@@ -186,6 +186,10 @@ function Playground({
               <Icon name="notes" size={18} />
               마크다운 셀
             </button>
+            <button type="button" className="py-add-cell" onClick={() => nb.addCellAfter(lastId, 'sql')}>
+              <Icon name="database" size={18} />
+              SQL 셀
+            </button>
           </div>
         </div>
 

@@ -187,7 +187,7 @@ def assert_scope_allowed(source: StudySource, scope_type: ScopeType, value: str 
     elif scope_type == "files":
         for path in value:  # type: ignore[union-attr]
             if not is_learning_file(path):
-                raise _bad_request("분석 가능한 파일은 .ipynb, .py, .md 뿐입니다.")
+                raise _bad_request("분석 가능한 파일은 .ipynb, .py, .md, .sql 뿐입니다.")
             _assert_prefix_allowed(source.allowed_prefixes, path)
 
 
@@ -383,7 +383,7 @@ def _resolve_files(cache: RepoCache, source: StudySource, scope_type: ScopeType,
     if too_broad:
         return commits, files, True
     if not files:
-        raise HTTPException(status_code=404, detail="이 범위에서 분석 가능한 .ipynb/.py/.md 파일이 없습니다.")
+        raise HTTPException(status_code=404, detail="이 범위에서 분석 가능한 .ipynb/.py/.md/.sql 파일이 없습니다.")
     return commits, _with_blobs(cache, files), False
 
 
@@ -423,7 +423,7 @@ def lesson_file_for_lms(cohort_id: str, source: StudySource, path_raw: str, comm
     """LMS 창구 — 수업 파일 하나의 원문. 노트의 「연습장에서 열기」가 그 파일을 연습장 탭으로 연다.
 
     노트에 적힌 커밋 그대로 읽는다(노트를 만든 그 내용). 커밋이 없으면 저장소 HEAD.
-    허용 폴더 밖이거나 학습 파일(.ipynb · .py · .md)이 아니면 거절한다.
+    허용 폴더 밖이거나 학습 파일(.ipynb · .py · .md · .sql)이 아니면 거절한다.
     """
     path = sanitize_path(path_raw)
     assert_scope_allowed(source, "files", [path])

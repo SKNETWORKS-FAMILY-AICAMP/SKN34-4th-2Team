@@ -8,7 +8,34 @@ from datetime import date, datetime
 
 
 REASONS = {"unclear", "answer", "tests", "offtopic", "other"}
-KINDS = {"concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch"}
+KINDS = {"concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query"}
+# SQL 조회 문제(sql_query)는 DB 의 kind CHECK 제약에 없다 — 스키마를 바꾸지 않고 code_write 로 적고
+# packages 를 ["sqlite3"] 로 표시한다. 준비 스크립트(setupSql)는 hidden_tests 칸에 둔다(파이썬 문제의 숨긴 테스트 자리).
+SQL_MARK = ["sqlite3"]
+
+
+def _stored(problem: dict) -> dict:
+    """API 모양 → DB 칸. sql_query 만 바꾼다."""
+    if problem.get("kind") != "sql_query":
+        return problem
+    return {**problem, "kind": "code_write", "packages": SQL_MARK, "hiddenTests": problem.get("setupSql") or ""}
+
+
+def _problem_json(p: dict) -> dict:
+    """DB 줄 → API 모양. code_write + ["sqlite3"] 는 sql_query 로 되돌린다."""
+    packages = _json(p["packages"])
+    sql = p["kind"] == "code_write" and packages == SQL_MARK
+    return {
+        "kind": "sql_query" if sql else p["kind"], "topic": p["topic"], "prompt": p["prompt"],
+        "sourceFiles": _json(p["source_files"]), "explanation": p["explanation"],
+        "choices": _json(p["choices"]), "answerIndex": p["answer_index"],
+        "starterCode": p["starter_code"], "expectedStdout": p["expected_stdout"],
+        "blankAnswers": _json(p["blank_answers"]),
+        "referenceSolution": p["reference_solution"],
+        "hiddenTests": "" if sql else p["hidden_tests"],
+        "setupSql": p["hidden_tests"] if sql else "",
+        "packages": packages,
+    }
 
 
 def _rows(cur, sql, args=()):
@@ -84,18 +111,7 @@ def practice_snapshot(cur, user: dict, cohort_codes: list[str]) -> dict:
                 "dayLabel": s["day_label"], "title": s["title"],
                 "files": _json(s["source_files"]), "model": s["generation_model"],
                 "origin": s["origin"],
-                "problems": [
-                    {
-                        "kind": p["kind"], "topic": p["topic"], "prompt": p["prompt"],
-                        "sourceFiles": _json(p["source_files"]), "explanation": p["explanation"],
-                        "choices": _json(p["choices"]), "answerIndex": p["answer_index"],
-                        "starterCode": p["starter_code"], "expectedStdout": p["expected_stdout"],
-                        "blankAnswers": _json(p["blank_answers"]),
-                        "referenceSolution": p["reference_solution"], "hiddenTests": p["hidden_tests"],
-                        "packages": _json(p["packages"]),
-                    }
-                    for p in problems if p["problem_set_id"] == s["id"]
-                ],
+                "problems": [_problem_json(p) for p in problems if p["problem_set_id"] == s["id"]],
             }
             for s in sets
         ],
@@ -206,9 +222,10 @@ def insert_problems(cur, set_id: int, problems: list[dict]):
     cur.execute("SELECT COALESCE(max(position) + 1, 0) FROM practice_problems WHERE problem_set_id = %s", [set_id])
     start = cur.fetchone()[0]
     for offset, problem in enumerate(problems):
-        kind = problem.get("kind")
-        if kind not in KINDS:
+        if problem.get("kind") not in KINDS:
             raise ValueError("kind")
+        problem = _stored(problem)
+        kind = problem["kind"]
         cur.execute(
             """INSERT INTO practice_problems
                (problem_set_id, position, kind, topic, prompt, source_files, explanation, choices,

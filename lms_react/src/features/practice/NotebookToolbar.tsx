@@ -66,6 +66,7 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
           items={[
             { key: 'code', icon: 'code', label: '코드 셀', onSelect: () => nb.addCellAfter(nb.activeId) },
             { key: 'markdown', icon: 'notes', label: '마크다운 셀', onSelect: () => nb.addCellAfter(nb.activeId, 'markdown') },
+            { key: 'sql', icon: 'database', label: 'SQL 셀', onSelect: () => nb.addCellAfter(nb.activeId, 'sql') },
             ...EXAMPLES.map((e, i) => ({
               key: e.id,
               icon: e.type === 'markdown' ? 'notes' : 'code',
@@ -136,7 +137,7 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
               danger: true,
               onSelect: () => setConfirmClear(true),
             },
-            { key: 'open', icon: 'upload_file', label: '불러오기…', hint: '.ipynb · .py 파일', divider: true, onSelect: file.openPicker },
+            { key: 'open', icon: 'upload_file', label: '불러오기…', hint: '.ipynb · .py · .sql 파일', divider: true, onSelect: file.openPicker },
             { key: 'ipynb', icon: 'download', label: '내려받기 · .ipynb', hint: 'Jupyter 노트북 · 출력 포함', onSelect: () => file.download('ipynb') },
             { key: 'py', icon: 'download', label: '내려받기 · .py', hint: '# %% 로 셀 구분', onSelect: () => file.download('py') },
             { key: 'keys', icon: 'keyboard_command_key', label: showKeys ? '단축키 닫기' : '단축키', divider: true, onSelect: () => setShowKeys((v) => !v) },

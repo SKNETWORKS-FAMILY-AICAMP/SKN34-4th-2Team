@@ -16,16 +16,21 @@ export function compact(text: string): string {
 /** 코드처럼 생긴 줄 — 대입 · 호출 · 괄호 · 파이썬 예약어. 「입력: 1 × 28 × 28」 같은 설명용 구조도는 아니다 */
 const CODE_LIKE = /[=(){}[\]]|^(import|from|def|class|return|for|if|elif|else|while|with|try|except|print|lambda|yield|async|await)\b/;
 
-/** 견줄 만한 줄 — 주석 · 흐름도 · 설명 글 · 너무 짧은 줄은 뺀다 */
-export function significantLines(code: string): string[] {
+/**
+ * 견줄 만한 줄 — 주석 · 흐름도 · 설명 글 · 너무 짧은 줄은 뺀다.
+ * SQL 은 `SELECT a, b` 처럼 괄호 · = 없는 줄이 대부분이라 주석(--)과 짧은 줄만 뺀다.
+ */
+export function significantLines(code: string, sql = false): string[] {
   const lines = code.split('\n').map((line) => line.trim());
+  if (sql) return lines.filter((line) => line !== '' && !line.startsWith('--') && compact(line).length >= 6);
   return lines.filter(
     (line) => line !== '' && !line.startsWith('#') && !/^[→↓>\-*]/.test(line) && compact(line).length >= 6 && CODE_LIKE.test(line),
   );
 }
 
-/** 수업 파일을 셀로 — 노트북 · .py 는 셀마다, 그 밖(.md 등)은 글 셀 하나 */
+/** 수업 파일을 셀로 — 노트북 · .py 는 셀마다, .sql 은 SQL 셀 하나, 그 밖(.md 등)은 글 셀 하나 */
 export function lessonCells(path: string, raw: string): ImportedCell[] {
+  if (/\.sql$/i.test(path)) return [{ type: 'sql', source: raw }];
   if (!/\.(ipynb|py)$/i.test(path)) return [{ type: 'markdown', source: raw }];
   try {
     return parseNotebookFile(path, raw).cells;
@@ -51,12 +56,14 @@ export interface CodeMatch {
  * 코드 블록이 가장 많이 들어 있는 파일과 셀. 견줄 만한 줄의 절반 넘게 있어야 그 파일로 본다 —
  * 아니면 null(노트가 설명하려고 새로 쓴 코드).
  */
-export function findCodeInFiles(code: string, files: LessonFile[]): CodeMatch | null {
-  const lines = significantLines(code).map(compact);
+export function findCodeInFiles(code: string, files: LessonFile[], sql = false): CodeMatch | null {
+  // SQL 은 대소문자를 섞어 쓴다(select · SELECT) — 소문자로 견준다
+  const norm = (text: string) => (sql ? compact(text).toLowerCase() : compact(text));
+  const lines = significantLines(code, sql).map(norm);
   if (lines.length === 0) return null;
   let best: CodeMatch | null = null;
   for (const file of files) {
-    const cells = file.cells.map((c) => compact(c.source));
+    const cells = file.cells.map((c) => norm(c.source));
     const haystack = cells.join('');
     const hits = lines.filter((line) => haystack.includes(line));
     const ratio = hits.length / lines.length;
@@ -65,6 +72,15 @@ export function findCodeInFiles(code: string, files: LessonFile[]): CodeMatch | 
     best = { path: file.path, cellIndex: Math.max(0, cellIndex), ratio };
   }
   return best !== null && best.ratio >= 0.5 ? best : null;
+}
+
+/** 노트 코드 블록이 SQL 인지 — ```sql 로 적었거나, 언어 표시 없이 SQL 문장으로 시작한다 */
+export function isSqlBlock(code: string, lang: string): boolean {
+  if (/^(sql|mysql|sqlite|postgres(ql)?)$/i.test(lang.trim())) return true;
+  if (lang.trim() !== '') return false;
+  return /^\s*(SELECT|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+(TABLE|VIEW|INDEX|DATABASE)|ALTER\s+TABLE|DROP\s+TABLE|WITH\s+\w+\s+AS)\b/i.test(
+    code.replace(/^\s*(--[^\n]*\n)+/, ''),
+  );
 }
 
 /** 수업 파일에서 가져올 셀 — 그 셀과 앞 두 셀(변수 · import) · 뒤 한 셀. 파일을 통째로 열면 너무 길다 */

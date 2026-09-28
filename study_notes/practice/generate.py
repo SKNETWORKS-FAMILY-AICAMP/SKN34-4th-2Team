@@ -55,19 +55,27 @@ KIND_GUIDE = (
     "  수업 코드의 핵심 흐름(반복·조건·자료 구조 다루기)을 학생이 직접 구현하게 한다.\n"
     "  starterCode는 학생이 「뼈대 받기」를 눌렀을 때만 보이는 함수 이름·인자·docstring과 pass만 있는 코드,\n"
     "  referenceSolution은 5~20줄의 완성 함수, hiddenTests는 assert 문 3~5개 (prompt의 예시 하나, 경계값 하나 포함)\n"
+    "- sql_query: SQL 조회 문제(수업 자료가 SQL일 때만). 브라우저의 SQLite에서 채점한다.\n"
+    "  setupSql은 수업에 나온 테이블 이름·열 이름 그대로 2~3개 테이블을 만들고 행을 5~15개씩 넣는 스크립트.\n"
+    "  SQLite에서 도는 표준 SQL로 쓴다(AUTO_INCREMENT · ENGINE · COMMENT · USE 금지, 기본 키는 INTEGER PRIMARY KEY).\n"
+    "  referenceSolution은 SELECT 문 하나(수업에서 배운 WHERE · ORDER BY · GROUP BY · JOIN 등을 쓴다). 결과는 1~20행.\n"
+    "  NOW() · RAND() 처럼 실행할 때마다 달라지는 함수는 쓰지 않는다.\n"
+    "  채점은 결과 값만 비교한다(열 이름은 안 본다). 그래서 prompt에 쓸 테이블, 결과에 낼 열과 그 순서,\n"
+    "  정렬 기준을 모두 적는다(예: 「tbl_menu에서 가격이 10000원 이상인 메뉴의 이름과 가격을 가격 높은 순으로」).\n"
+    "  starterCode는 비워 두거나 `-- 여기에 조회문을 쓰세요` 한 줄\n"
     "hiddenTests는 starterCode·referenceSolution 뒤에 같은 변수 공간에서 이어서 실행된다.\n"
     "hiddenTests에 정답 코드를 다시 쓰지 않는다.\n"
 )
 
 SCHEMA = (
     '{{"problems": [{{\n'
-    '  "kind": "concept | code_output | code_blank | code_fix | code_write | code_scratch",\n'
+    '  "kind": "concept | code_output | code_blank | code_fix | code_write | code_scratch | sql_query",\n'
     '  "topic": "짧은 주제 (예: 딕셔너리 컴프리헨션)",\n'
     '  "sourceFiles": ["근거가 된 수업 파일 경로"],\n'
     '  "prompt": "학생에게 보일 문제 문장",\n'
     '  "choices": [], "answerIndex": 0,\n'
     '  "starterCode": "", "expectedStdout": "", "blankAnswers": [],\n'
-    '  "referenceSolution": "", "hiddenTests": "",\n'
+    '  "referenceSolution": "", "hiddenTests": "", "setupSql": "",\n'
     '  "explanation": "정답 해설 2~3문장"\n'
     "}}]}}"
 )

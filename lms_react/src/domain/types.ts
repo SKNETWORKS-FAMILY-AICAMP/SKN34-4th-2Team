@@ -505,7 +505,8 @@ export interface StudyNote {
 // study_notes/practice 가 수업 저장소로 만들고 Pyodide 로 검증한 문제. 모양은 PracticeProblem.to_json() 그대로다.
 
 /** code_scratch — 뼈대 없이 빈 에디터에서 함수를 처음부터 짠다. starterCode 는 「뼈대 받기」를 눌렀을 때만 쓴다 */
-export type PracticeKind = 'concept' | 'code_output' | 'code_blank' | 'code_fix' | 'code_write' | 'code_scratch';
+/** sql_query — 예제 테이블(setupSql)에 조회문을 쓴다. 결과 표가 기대 결과(expectedStdout, JSON)와 같으면 통과 */
+export type PracticeKind = 'concept' | 'code_output' | 'code_blank' | 'code_fix' | 'code_write' | 'code_scratch' | 'sql_query';
 
 export interface PracticeProblem {
   kind: PracticeKind;
@@ -526,6 +527,8 @@ export interface PracticeProblem {
   referenceSolution: string;
   /** 브라우저가 학생 코드 뒤에 이어 돌려 채점한다 */
   hiddenTests: string;
+  /** sql_query — 예제 테이블을 만드는 스크립트. 학생 조회문보다 먼저 돈다(예전 데이터에는 없다) */
+  setupSql?: string;
   packages: string[];
 }
 

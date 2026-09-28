@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { findCodeInFiles, lessonCells, lessonSlice, significantLines } from '../lessonCode';
+import { findCodeInFiles, isSqlBlock, lessonCells, lessonSlice, significantLines } from '../lessonCode';
 
 const code = (source: string) => ({ type: 'code' as const, source });
 
@@ -38,5 +38,20 @@ describe('노트 코드가 어느 수업 파일 · 셀에서 왔나', () => {
     expect(lessonSlice(many, 5)).toMatchObject({ from: 4, to: 7 });
     expect(lessonSlice(many, 5).cells.map((c) => c.source)).toEqual(['x3 = 3', 'x4 = 4', 'x5 = 5', 'x6 = 6']);
     expect(lessonSlice(many, 0)).toMatchObject({ from: 1, to: 2 });
+  });
+});
+
+describe('노트의 SQL 코드 블록', () => {
+  it('```sql 이거나 언어 표시 없이 SQL 문장으로 시작하면 SQL', () => {
+    expect(isSqlBlock('select 1', 'sql')).toBe(true);
+    expect(isSqlBlock('-- 메뉴 조회\nSELECT menu_name FROM tbl_menu', '')).toBe(true);
+    expect(isSqlBlock('SELECT = 1', 'python')).toBe(false);
+    expect(isSqlBlock('print(1)', '')).toBe(false);
+  });
+
+  it('SQL 은 괄호 없는 줄도 견주고 대소문자를 가리지 않는다 · .sql 파일은 SQL 셀', () => {
+    const cells = lessonCells('2일차/2_11 join.sql', 'select\n\ta.menu_name,\n\tb.category_name\nfrom\n\ttbl_menu a');
+    expect(cells[0].type).toBe('sql');
+    expect(findCodeInFiles('SELECT a.menu_name, b.category_name\nFROM tbl_menu a', [{ path: 'join.sql', cells }], true)?.path).toBe('join.sql');
   });
 });

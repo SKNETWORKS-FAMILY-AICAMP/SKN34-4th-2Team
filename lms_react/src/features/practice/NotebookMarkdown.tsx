@@ -7,7 +7,7 @@ import type { ReactNode } from 'react';
  * 다루는 것: 제목(#~######), 목록(-, *, 1.), 인용(>), 코드 블록(```), 구분선(---),
  * 인라인 코드·굵게·기울임·링크(http/https 만). 표·중첩 목록·수식은 다루지 않는다.
  */
-export function NotebookMarkdown({ source, codeAction }: { source: string; codeAction?: (code: string) => ReactNode }) {
+export function NotebookMarkdown({ source, codeAction }: { source: string; codeAction?: (code: string, lang: string) => ReactNode }) {
   return <div className="nb-md">{renderBlocks(source, codeAction)}</div>;
 }
 
@@ -85,8 +85,8 @@ export function parseBlocks(source: string): Block[] {
   return blocks;
 }
 
-/** `codeAction` 은 코드 블록 아래에 붙일 것(공부방 노트의 「연습장에서 열기」) */
-function renderBlocks(source: string, codeAction?: (code: string) => ReactNode): ReactNode[] {
+/** `codeAction` 은 코드 블록 아래에 붙일 것(공부방 노트의 「연습장에서 열기」). lang 은 ``` 뒤에 적은 언어 */
+function renderBlocks(source: string, codeAction?: (code: string, lang: string) => ReactNode): ReactNode[] {
   return parseBlocks(source).map((block, i) => {
     switch (block.kind) {
       case 'heading': {
@@ -99,7 +99,7 @@ function renderBlocks(source: string, codeAction?: (code: string) => ReactNode):
             <code>{block.text}</code>
           </pre>
         );
-        const action = codeAction?.(block.text);
+        const action = codeAction?.(block.text, block.lang);
         return action ? (
           <div key={i} className="nb-md__codewrap">
             {pre}
@@ -134,7 +134,9 @@ function renderBlocks(source: string, codeAction?: (code: string) => ReactNode):
 
 /** 인라인: `코드`, **굵게**, *기울임* / _기울임_, [글](http주소) */
 export function inline(text: string): ReactNode[] {
-  const re = /(`[^`]+`)|(\*\*[^*]+\*\*|__[^_]+__)|(\*[^*\s][^*]*\*|_[^_\s][^_]*_)|(\[[^\]]+\]\([^)\s]+\))/g;
+  // 밑줄(_ · __)은 단어 안에서는 기울임 · 굵게로 보지 않는다(CommonMark) — `tbl_menu와 tbl_category`, `__init__` 이 깨지지 않게
+  const re =
+    /(`[^`]+`)|(\*\*[^*]+\*\*|(?<![\p{L}\p{N}_])__[^_]+__(?![\p{L}\p{N}_]))|(\*[^*\s][^*]*\*|(?<![\p{L}\p{N}_])_[^_\s][^_]*_(?![\p{L}\p{N}_]))|(\[[^\]]+\]\([^)\s]+\))/gu;
   const out: ReactNode[] = [];
   let last = 0;
   let key = 0;

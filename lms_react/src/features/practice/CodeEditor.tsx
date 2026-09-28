@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import {
+  acceptCompletion,
   autocompletion,
   closeBrackets,
   closeBracketsKeymap,
@@ -8,10 +9,11 @@ import {
   type CompletionContext,
   type CompletionResult,
 } from '@codemirror/autocomplete';
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, indentLess, indentMore } from '@codemirror/commands';
 import { python, pythonLanguage } from '@codemirror/lang-python';
+import { MySQL, schemaCompletionSource, sql, type SQLNamespace } from '@codemirror/lang-sql';
 import { bracketMatching, HighlightStyle, indentOnInput, indentUnit, syntaxHighlighting } from '@codemirror/language';
-import { EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
+import { EditorSelection, EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import {
   Decoration,
   type DecorationSet,
@@ -32,7 +34,10 @@ import { tags as t } from '@lezer/highlight';
  * - 자동완성: 코드 안의 변수·함수 이름, 파이썬 키워드·내장 함수(언어 팩 기본),
  *   그리고 수업에서 자주 쓰는 `np.` `re.` `pd.` 뒤의 함수 이름
  * - 단축키는 Jupyter 와 같다: Ctrl/⌘+Enter 실행, Shift+Enter 실행 후 다음 셀, Alt+Enter 실행 후 아래에 새 셀
- * - Tab·Shift+Tab 들여쓰기/내어쓰기, Ctrl/⌘+/ 주석 켜고 끄기, Ctrl/⌘+Z 되돌리기
+ * - Tab 은 커서 자리에 공백(다음 4칸 자리까지)을 넣는다 — 줄 전체를 밀지 않는다. 여러 줄을 고르면 그 줄들을 들여쓴다.
+ *   Shift+Tab 내어쓰기, Ctrl/⌘+/ 주석 켜고 끄기, Ctrl/⌘+Z 되돌리기
+ *   자동완성 목록이 떠 있으면 Tab 은 들여쓰기 대신 고른 것을 넣는다(Enter 와 같다)
+ * - SQL 셀: SQL 예약어(대문자로), 그리고 노트북에서 만든 테이블 · 열 이름(sqlSchema)
  *
  * 색은 styles.css 의 --py-tok-* 변수에서 가져와 밝은·어두운 테마를 따라간다.
  */
@@ -50,6 +55,7 @@ export function CodeEditor({
   minLines = 8,
   placeholder,
   markedLines,
+  sqlSchema,
 }: {
   value: string;
   onChange?: (value: string) => void;
@@ -61,20 +67,22 @@ export function CodeEditor({
   onFocus?: () => void;
   /** 값이 바뀔 때마다 편집기에 포커스를 준다(노트북에서 다음 셀로 넘어갈 때). */
   focusSignal?: number;
-  /** markdown 이면 파이썬 색칠·자동완성·괄호 자동 닫기를 끈다 */
-  language?: 'python' | 'markdown';
+  /** markdown 이면 파이썬 색칠·자동완성·괄호 자동 닫기를 끈다. sql 은 SQL 셀(수업이 MySQL 이라 그 말로 색칠) */
+  language?: 'python' | 'markdown' | 'sql';
   readOnly?: boolean;
   label?: string;
   minLines?: number;
   placeholder?: string;
   /** 튜터가 가리킨 줄(1부터) — 옅게 칠한다 */
   markedLines?: number[];
+  /** SQL 셀 자동완성에 쓸 테이블 → 열 이름. 칠 때마다 불러 지금 노트북의 테이블을 따른다 */
+  sqlSchema?: () => SQLNamespace;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   // 편집기는 한 번만 만든다. 최신 콜백은 ref 로 넘긴다.
-  const latest = useRef({ onChange, onRun, onRunAndNext, onRunAndInsert, onFocus });
-  latest.current = { onChange, onRun, onRunAndNext, onRunAndInsert, onFocus };
+  const latest = useRef({ onChange, onRun, onRunAndNext, onRunAndInsert, onFocus, sqlSchema });
+  latest.current = { onChange, onRun, onRunAndNext, onRunAndInsert, onFocus, sqlSchema };
 
   useEffect(() => {
     if (!host.current) return;
@@ -100,15 +108,35 @@ export function CodeEditor({
                 autocompletion({ activateOnTyping: true, icons: false }),
                 syntaxHighlighting(pyHighlight),
               ]
-            : [EditorView.lineWrapping]),
+            : language === 'sql'
+              ? [
+                  bracketMatching(),
+                  closeBrackets(),
+                  sql({ dialect: MySQL, upperCaseKeywords: true }),
+                  MySQL.language.data.of({
+                    autocomplete: (context: CompletionContext) =>
+                      schemaCompletionSource({ dialect: MySQL, schema: latest.current.sqlSchema?.() ?? {} })(context),
+                  }),
+                  autocompletion({ activateOnTyping: true, icons: false }),
+                  syntaxHighlighting(pyHighlight),
+                ]
+              : [EditorView.lineWrapping]),
           Prec.highest(
             keymap.of([
               { key: 'Mod-Enter', run: () => fire(latest.current.onRun) },
               { key: 'Shift-Enter', run: () => fire(latest.current.onRunAndNext ?? latest.current.onRun) },
               { key: 'Alt-Enter', run: () => fire(latest.current.onRunAndInsert ?? latest.current.onRun) },
+              // 자동완성 목록이 있으면 Tab 으로 고른다. 없으면 false 라 아래 insertTab 이 공백을 넣는다
+              { key: 'Tab', run: acceptCompletion },
             ]),
           ),
-          keymap.of([...closeBracketsKeymap, ...completionKeymap, ...historyKeymap, ...defaultKeymap, indentWithTab]),
+          keymap.of([
+            ...closeBracketsKeymap,
+            ...completionKeymap,
+            ...historyKeymap,
+            ...defaultKeymap,
+            { key: 'Tab', run: insertTab, shift: indentLess },
+          ]),
           EditorState.readOnly.of(readOnly),
           EditorView.editable.of(!readOnly),
           EditorView.contentAttributes.of({ 'aria-label': label }),
@@ -164,6 +192,25 @@ export function CodeEditor({
   }, [marked]);
 
   return <div className="py-editor" ref={host} style={{ minHeight: `calc(${minLines} * 1.65em + 28px)` }} />;
+}
+
+/**
+ * Tab — 커서 자리에 공백을 넣어 다음 4칸 자리로 간다(VS Code 와 같다). CodeMirror 기본(indentWithTab)은
+ * 커서가 줄 중간에 있어도 줄 전체를 밀어 `x =|1` 에서 누르면 앞 글자부터 통째로 밀렸다.
+ * 고른 글자가 있으면(여러 줄 등) 그 줄들을 들여쓴다.
+ */
+function insertTab(view: EditorView): boolean {
+  const { state } = view;
+  if (state.selection.ranges.some((r) => !r.empty)) return indentMore(view);
+  view.dispatch(
+    state.changeByRange((range) => {
+      const column = range.head - state.doc.lineAt(range.head).from;
+      const spaces = ' '.repeat(4 - (column % 4));
+      return { changes: { from: range.head, insert: spaces }, range: EditorSelection.cursor(range.head + spaces.length) };
+    }),
+    { scrollIntoView: true, userEvent: 'input' },
+  );
+  return true;
 }
 
 /** 단축키 처리 — 넘길 함수가 없으면 CodeMirror 기본 동작(줄바꿈)으로 둔다. */

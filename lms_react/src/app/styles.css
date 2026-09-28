@@ -4692,6 +4692,11 @@ html {
   font-size: 12px;
 }
 
+/* SQL 셀 — 왼쪽 띠로 파이썬 셀과 가른다 */
+.py-nb-cell--sql .py-nb-cell__main {
+  box-shadow: inset 4px 0 0 var(--py-tok-fn);
+}
+
 /* 마크다운 셀 — 편집 칸 대신 글로 보인다 */
 .py-nb-cell--markdown .py-nb-cell__main {
   background: var(--surface);
@@ -9130,7 +9135,27 @@ a.coach-ask__card-title:hover {
   color: var(--text-secondary);
 }
 
+/* SQL 조회 문제 — 예제 테이블 이름 · 열과 기대 결과 표 */
+.pb__sql {
+  padding: 0 16px 10px;
+}
+
+.pb__sql-tables {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.pb__sql .py-nb-table {
+  margin-top: 6px;
+}
+
 .pb__hint code,
+.pb__sql-tables code,
 .pb__verdict code,
 .pb__tests code {
   padding: 1px 6px;

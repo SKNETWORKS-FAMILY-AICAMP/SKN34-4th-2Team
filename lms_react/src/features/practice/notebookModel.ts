@@ -15,8 +15,16 @@ import { RETRY_SET_ID } from './review';
  */
 const STORE_KEY = 'lxp.pythonNotebook.v2';
 const OLD_STORE_KEY = 'lxp.pythonNotebook.v1';
-/** problem — 복습 세트의 문제 셀. 학생이 새로 만들 수는 없고 세트를 열면 채워진다 */
-export type CellType = 'code' | 'markdown' | 'problem';
+/**
+ * problem — 복습 세트의 문제 셀. 학생이 새로 만들 수는 없고 세트를 열면 채워진다.
+ * sql — SQL 셀. 세션의 SQLite(sql_conn)에서 돈다(sqlDialect.ts · pythonWorker.ts 의 run_sql).
+ */
+export type CellType = 'code' | 'markdown' | 'sql' | 'problem';
+
+/** 저장본 · 파일의 셀 종류 — 모르는 값은 코드 셀로 */
+export function plainCellType(type: unknown): 'code' | 'markdown' | 'sql' {
+  return type === 'markdown' || type === 'sql' ? type : 'code';
+}
 
 export type LineKind = 'out' | 'sys' | 'err';
 export interface Line {
@@ -114,7 +122,7 @@ export function loadNoteCodeNotebook(key: string): { cells: Cell[]; stdin: strin
     const saved = JSON.parse(raw) as { cells?: { type?: CellType; source?: string }[]; stdin?: string };
     if (!Array.isArray(saved.cells) || saved.cells.length === 0) return null;
     return {
-      cells: saved.cells.map((c) => newCell(String(c.source ?? ''), c.type === 'markdown' ? 'markdown' : 'code')),
+      cells: saved.cells.map((c) => newCell(String(c.source ?? ''), plainCellType(c.type))),
       stdin: saved.stdin ?? '',
     };
   } catch {
@@ -139,7 +147,7 @@ export function loadNotebook(set: PracticeSet | undefined): { cells: Cell[]; std
             .map((c) =>
               c.type === 'problem'
                 ? newCell(String(c.source ?? ''), 'problem', c.problemIndex ?? 0)
-                : newCell(String(c.source ?? ''), c.type === 'markdown' ? 'markdown' : 'code'),
+                : newCell(String(c.source ?? ''), plainCellType(c.type)),
             ),
           stdin: saved.stdin ?? '',
         };
