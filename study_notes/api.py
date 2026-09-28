@@ -189,6 +189,51 @@ def proxy_generate(request: ProxyGenerateRequest) -> dict[str, Any]:
     return service.build_note_for_lms(request.cohortId, source, request.scopeType, request.scopeValue)
 
 
+@router.post("/proxy/resolve")
+def proxy_resolve(request: ProxyGenerateRequest) -> dict[str, Any]:
+    """노트를 만들지 않고 범위의 파일 · 내용 해시만 — LLM 없음, 1~2초. Django 가 같은 자료로 만든 노트를 찾는 데 쓴다."""
+    source = service.source_from_payload(request.source.model_dump())
+    return service.resolve_note_for_lms(request.cohortId, source, request.scopeType, request.scopeValue)
+
+
+class ProxyFileRequest(ProxyTreeRequest):
+    path: str = Field(min_length=1, max_length=500)
+    commit: str = Field(default="", max_length=64)
+
+
+@router.post("/proxy/file")
+def proxy_file(request: ProxyFileRequest) -> dict[str, Any]:
+    """수업 파일 하나의 원문 — 노트의 「연습장에서 열기」. LLM 없음."""
+    source = service.source_from_payload(request.source.model_dump())
+    return service.lesson_file_for_lms(request.cohortId, source, request.path, request.commit)
+
+
+class ProxySubjectDay(BaseModel):
+    date: str = Field(min_length=10, max_length=10)
+    report: str = Field(max_length=60_000)
+
+
+class ProxySubjectRequest(BaseModel):
+    subject: str = Field(min_length=1, max_length=200)
+    days: list[ProxySubjectDay] = Field(min_length=1, max_length=120)
+
+
+@router.post("/proxy/subject")
+def proxy_subject(request: ProxySubjectRequest) -> dict[str, Any]:
+    """과목 전체 요약 — Django 가 모은 날짜별 노트를 한 장으로. 저장소는 읽지 않는다. LLM 1회."""
+    from study_notes.pipeline import generate_subject_summary
+
+    try:
+        report = generate_subject_summary(
+            subject=request.subject, days=[{"date": d.date, "report": d.report} for d in request.days],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=service.failure_message(exc)) from exc
+    return {"status": "ready", "reportMarkdown": report}
+
+
 @router.post("/proxy/repos")
 def proxy_repos(request: ProxyReposRequest) -> dict[str, Any]:
     """GitHub 계정·조직의 수업 저장소 목록 — LMS 가 새 저장소를 공부방에 자동으로 올릴 때 쓴다."""

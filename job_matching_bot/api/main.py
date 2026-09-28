@@ -37,6 +37,7 @@ from job_matching_bot.api.ops_meta import (
     reasoning_effort,
 )
 from job_matching_bot.api.service import (
+    CHAT_PROGRESS_LABELS,
     ChatService,
     RecommendService,
     SearchUnavailable,
@@ -242,6 +243,73 @@ def chat(request: schemas.JobChatRequest) -> schemas.JobChatResponse:
         return _with_chat_ops(_chat.chat(request))
     except StoreUnavailable as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/api/v1/jobs/chat/stream")
+async def chat_stream(request: schemas.JobChatRequest) -> StreamingResponse:
+    """`/api/v1/jobs/chat`과 같은 답을, 만드는 동안 흘려보낸다. 마지막 줄에 결과가 온다.
+
+    답 하나가 5~20초 걸린다. 한 번에 주면 화면은 그동안 정해 둔 문구만 돌린다. 여기서는
+    실제로 무엇을 하는지와, 답을 쓰는 동안의 글을 보낸다. 형식은 추천 스트림과 같다.
+
+        {"event": "progress", "stage": "search", "label": "조건에 맞는 공고를 찾는 중…"}
+        {"event": "text", "delta": "백엔드 신입은"}          답 글 조각(질문 · 공고 · 비교 답만)
+        {"event": "done", "result": {...}}                   `/api/v1/jobs/chat` 응답 그대로
+        {"event": "error", "status": 503, "detail": "..."}   실패
+
+    `done`의 `reply`가 최종 답이다. 화면은 흘려받은 글을 그것으로 바꿔 끼운다.
+    """
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def push(payload: dict | None) -> None:
+        loop.call_soon_threadsafe(queue.put_nowait, payload)
+
+    def progress(stage: str, _detail: str | None) -> None:
+        push({"event": "progress", "stage": stage, "label": CHAT_PROGRESS_LABELS.get(stage, "")})
+
+    def on_text(delta: str) -> None:
+        push({"event": "text", "delta": delta})
+
+    def work() -> None:
+        try:
+            result = _with_chat_ops(_chat.chat(request, progress=progress, on_text=on_text))
+            push({"event": "done", "result": result.model_dump(mode="json")})
+        except StoreUnavailable as error:
+            push({"event": "error", "status": 503, "detail": str(error)})
+        except Exception as error:  # noqa: BLE001 — 끊긴 응답보다 이유 한 줄이 낫다
+            push({"event": "error", "status": 500, "detail": f"답을 만들지 못했습니다: {type(error).__name__}"})
+        finally:
+            push(None)
+
+    async def stream():
+        threading.Thread(target=work, daemon=True).start()
+        while True:
+            payload = await queue.get()
+            if payload is None:
+                return
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/api/v1/jobs/verify", response_model=schemas.JobVerifyResponse)
+def verify_job(request: schemas.JobVerifyRequest) -> schemas.JobVerifyResponse:
+    """공고 하나가 지금도 사이트에 있는지 페이지를 열어 본다.
+
+    저장소의 REMOVED는 목록에서 몇 번 안 보였다는 뜻일 뿐이라, 살아 있는 공고가 「내려간 공고」로
+    막혔다. 사용자가 링크로 골라 온 공고는 여기서 확인해 살아 있으면 OPEN으로 되돌린다.
+    확인이 실패해도 오류로 막지 않는다(alive=None). 판정은 부른 쪽이 저장소 상태로 한다.
+    """
+    try:
+        alive = _service.liveness.verify(request.job_id)
+    except Exception:  # noqa: BLE001 — 확인 실패가 공고 보기를 막을 이유는 아니다
+        alive = None
+    return schemas.JobVerifyResponse(job_id=request.job_id, alive=alive)
 
 
 @app.post("/api/v1/jobs/search", response_model=schemas.JobSearchResponse)

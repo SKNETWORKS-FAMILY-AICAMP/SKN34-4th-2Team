@@ -12,6 +12,7 @@ import {
   useQualExams,
   useYoutubeRecommendations,
 } from '../../data/repository';
+import { useHolidays } from '../../data/holidays';
 import { dateKeyOf } from '../../data/seed';
 import { toTime } from '../../utils/format';
 import { AttendanceColorVars, RecordTypeLabels, SubmissionStatusLabels } from '../../domain/constants';
@@ -169,6 +170,9 @@ function AttendanceCalendarCard() {
     return map;
   }, [rows]);
 
+  // 공휴일은 일요일처럼 칠하고, 올려 두면 이름이 보인다(원본 attendance_calendar_card._dayColor)
+  const holidays = useHolidays(month.getFullYear());
+
   const first = month.getDay();
   const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
   const cells: (Date | null)[] = [
@@ -215,11 +219,13 @@ function AttendanceCalendarCard() {
           const key = dateKeyOf(date);
           const status = byDate.get(key);
           const weekday = date.getDay();
+          const holiday = holidays[key];
           return (
             <span
               key={key}
+              title={holiday}
               className={`cal__day${key === todayKey ? ' cal__day--today' : ''}${
-                weekday === 0 ? ' cal__day--sun' : weekday === 6 ? ' cal__day--sat' : ''
+                weekday === 0 || holiday !== undefined ? ' cal__day--sun' : weekday === 6 ? ' cal__day--sat' : ''
               }`}
             >
               {date.getDate()}

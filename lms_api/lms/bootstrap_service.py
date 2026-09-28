@@ -8,6 +8,7 @@ from django.db import connection
 
 from lms.jsonutil import public_row
 from lms.practice_service import practice_snapshot
+from lms.seating_layout import seating_payload
 from lms.storage import read_url, signed_read_url
 
 
@@ -203,9 +204,8 @@ def build_bootstrap(user: dict) -> dict:
             "SELECT * FROM cohort_seating WHERE cohort_id = ANY(%s) AND (%s = false OR published = true)",
             [cohort_ids, is_student],
         )
-        cells = []
-        assignments = []
-        seats = []
+        # 기수당 한 줄(layout jsonb)을 화면이 받는 강의실 · 칸 · 배치 · 좌석 목록으로 편다
+        seating_view = seating_payload(rooms, code_by_pk)
         teams = q("SELECT * FROM project_teams WHERE cohort_id = ANY(%s)", [cohort_ids])
         team_ids = [t["id"] for t in teams] or [-1]
         members = q("SELECT * FROM project_team_members WHERE team_id = ANY(%s)", [team_ids])
@@ -269,7 +269,7 @@ def build_bootstrap(user: dict) -> dict:
                     "assignment": {"status": "published" if room.get("published") else "draft"},
                     "seats": layout.get("assignments", {}),
                 }
-                published = str(room["cohort_id"])
+                published = seating_view["publishedSeatingRooms"].get(code_by_pk.get(room["cohort_id"]))
 
     pub = lambda rows: _pub_list(rows, uid_by_pk, code_by_pk)
     public_users = pub(users)
@@ -322,10 +322,11 @@ def build_bootstrap(user: dict) -> dict:
         "mileageSettings": pub(mileage_settings),
         "mileageCartItems": pub(cart),
         "systemCache": pub(cache),
-        "seatingRooms": pub(rooms),
-        "seatingCells": pub(cells),
-        "seatingAssignments": pub(assignments),
-        "seatAssignments": pub(seats),
+        "seatingRooms": seating_view["seatingRooms"],
+        "seatingCells": seating_view["seatingCells"],
+        "seatingAssignments": seating_view["seatingAssignments"],
+        "seatAssignments": seating_view["seatAssignments"],
+        "publishedSeatingRooms": seating_view["publishedSeatingRooms"],
         "projectTeams": pub(teams),
         "projectTeamMembers": pub(members),
         "studentIntakes": pub(intakes),

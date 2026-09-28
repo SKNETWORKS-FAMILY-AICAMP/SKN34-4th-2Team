@@ -7,15 +7,15 @@ import type { ReactNode } from 'react';
  * 다루는 것: 제목(#~######), 목록(-, *, 1.), 인용(>), 코드 블록(```), 구분선(---),
  * 인라인 코드·굵게·기울임·링크(http/https 만). 표·중첩 목록·수식은 다루지 않는다.
  */
-export function NotebookMarkdown({ source }: { source: string }) {
-  return <div className="nb-md">{renderBlocks(source)}</div>;
+export function NotebookMarkdown({ source, codeAction }: { source: string; codeAction?: (code: string, lang: string) => ReactNode }) {
+  return <div className="nb-md">{renderBlocks(source, codeAction)}</div>;
 }
 
 type Block =
   | { kind: 'heading'; level: number; text: string }
   | { kind: 'code'; lang: string; text: string }
   | { kind: 'quote'; lines: string[] }
-  | { kind: 'list'; ordered: boolean; items: string[] }
+  | { kind: 'list'; ordered: boolean; items: string[]; start: number; nested: boolean }
   | { kind: 'hr' }
   | { kind: 'para'; lines: string[] };
 
@@ -56,9 +56,12 @@ export function parseBlocks(source: string): Block[] {
     if (bullet.test(line) || numbered.test(line)) {
       const ordered = numbered.test(line);
       const marker = ordered ? numbered : bullet;
+      // 「1. 제목 → 들여 쓴 - 항목 → 2. 제목」이면 번호 목록이 끊겨도 2부터 이어 세고, 들여 쓴 목록은 들여 보인다
+      const start = ordered ? Number(/\d+/.exec(line)![0]) : 1;
+      const nested = /^\s{2,}/.test(line);
       const items: string[] = [];
       while (i < lines.length && marker.test(lines[i])) items.push(lines[i++].replace(marker, ''));
-      blocks.push({ kind: 'list', ordered, items });
+      blocks.push({ kind: 'list', ordered, items, start, nested });
       continue;
     }
     if (line.trim() === '') {
@@ -82,24 +85,44 @@ export function parseBlocks(source: string): Block[] {
   return blocks;
 }
 
-function renderBlocks(source: string): ReactNode[] {
+/** `codeAction` 은 코드 블록 아래에 붙일 것(공부방 노트의 「연습장에서 열기」). lang 은 ``` 뒤에 적은 언어 */
+function renderBlocks(source: string, codeAction?: (code: string, lang: string) => ReactNode): ReactNode[] {
   return parseBlocks(source).map((block, i) => {
     switch (block.kind) {
       case 'heading': {
         const Tag = `h${Math.min(block.level + 1, 6)}` as 'h2';
         return <Tag key={i}>{inline(block.text)}</Tag>;
       }
-      case 'code':
-        return (
+      case 'code': {
+        const pre = (
           <pre key={i} className="nb-md__code">
             <code>{block.text}</code>
           </pre>
         );
+        const action = codeAction?.(block.text, block.lang);
+        return action ? (
+          <div key={i} className="nb-md__codewrap">
+            {pre}
+            {action}
+          </div>
+        ) : (
+          pre
+        );
+      }
       case 'quote':
         return <blockquote key={i}>{inline(block.lines.join(' '))}</blockquote>;
       case 'list': {
         const items = block.items.map((item, k) => <li key={k}>{inline(item)}</li>);
-        return block.ordered ? <ol key={i}>{items}</ol> : <ul key={i}>{items}</ul>;
+        const nested = block.nested ? 'nb-md__nested' : undefined;
+        return block.ordered ? (
+          <ol key={i} start={block.start} className={nested}>
+            {items}
+          </ol>
+        ) : (
+          <ul key={i} className={nested}>
+            {items}
+          </ul>
+        );
       }
       case 'hr':
         return <hr key={i} />;
@@ -111,7 +134,9 @@ function renderBlocks(source: string): ReactNode[] {
 
 /** 인라인: `코드`, **굵게**, *기울임* / _기울임_, [글](http주소) */
 export function inline(text: string): ReactNode[] {
-  const re = /(`[^`]+`)|(\*\*[^*]+\*\*|__[^_]+__)|(\*[^*\s][^*]*\*|_[^_\s][^_]*_)|(\[[^\]]+\]\([^)\s]+\))/g;
+  // 밑줄(_ · __)은 단어 안에서는 기울임 · 굵게로 보지 않는다(CommonMark) — `tbl_menu와 tbl_category`, `__init__` 이 깨지지 않게
+  const re =
+    /(`[^`]+`)|(\*\*[^*]+\*\*|(?<![\p{L}\p{N}_])__[^_]+__(?![\p{L}\p{N}_]))|(\*[^*\s][^*]*\*|(?<![\p{L}\p{N}_])_[^_\s][^_]*_(?![\p{L}\p{N}_]))|(\[[^\]]+\]\([^)\s]+\))/gu;
   const out: ReactNode[] = [];
   let last = 0;
   let key = 0;

@@ -47,6 +47,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -192,12 +193,17 @@ def _section_name(section: Any) -> str:
 
 
 def _dl_pairs(section: Any) -> dict[str, str]:
-    """섹션 안의 dt/dd 쌍을 뽑는다. 사이트가 항목을 늘려도 그대로 담긴다."""
+    """섹션 안의 dt/dd 쌍을 뽑는다. 사이트가 항목을 늘려도 그대로 담긴다.
+
+    한 dl 에 쌍이 여럿일 수 있다. 「접수기간 및 방법」은 `<dl><dt>시작일</dt><dd>…</dd><dt>마감일</dt><dd>…</dd></dl>`
+    이다. 예전에는 dl 마다 첫 쌍만 읽어 마감일을 한 번도 담지 못했다(2026-09-28).
+    """
     pairs: dict[str, str] = {}
     for dl in section.select("dl"):
-        key = dl.select_one("dt")
-        value = dl.select_one("dd")
-        if key and value:
+        for key in dl.find_all("dt"):
+            value = key.find_next_sibling()
+            if value is None or value.name != "dd":
+                continue
             name = key.get_text(" ", strip=True)
             if name:
                 pairs[name] = value.get_text(" ", strip=True)
@@ -296,6 +302,29 @@ def parse_detail(html: str, rec_idx: str, url: str) -> dict[str, Any]:
         "closed": _closed_in_soup(soup),
         "parser_version": "saramin-detail-poc-0.3.0",
     }
+
+
+def page_deadline(detail: dict[str, Any]) -> tuple[str | None, str] | None:
+    """상세 페이지 「접수기간 및 방법」의 마감일 → (ISO 마감일 또는 None=상시, 근거 문구). 못 읽으면 None.
+
+    수집은 목록 문구("~09.20(일)")로 마감일을 정한다. 회사가 나중에 마감일을 늘리면 목록을 다시 볼 때까지
+    옛 날짜가 남아, 열려 있는 공고가 EXPIRED가 된다(2026-09-28, 9/20 → 9/30 연장 공고). 페이지의 날짜가 기준이다.
+    """
+    text = str((detail.get("apply") or {}).get("마감일") or "").strip()
+    if not text:
+        return None
+    if "상시" in text or "채용시" in text:
+        return None, f"마감일 {text}"
+    found = re.search(r"(\d{4})\.(\d{1,2})\.(\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?", text)
+    if found is None:
+        return None
+    year, month, day = int(found.group(1)), int(found.group(2)), int(found.group(3))
+    hour, minute = (int(found.group(4)), int(found.group(5))) if found.group(4) else (23, 59)
+    try:
+        moment = datetime(year, month, day, hour, minute, 59 if found.group(4) is None else 0, tzinfo=KST)
+    except ValueError:
+        return None
+    return moment.isoformat(), f"마감일 {text}"
 
 
 def fetch_detail(session: requests.Session, rec_idx: str, timeout: int = 30) -> dict[str, Any]:

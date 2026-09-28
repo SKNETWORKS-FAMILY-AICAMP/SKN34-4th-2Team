@@ -26,6 +26,7 @@ export const studentNav: NavSection[] = [
     items: [
       { icon: 'dashboard', label: '대시보드', path: RoutePaths.dashboard, targetId: StudentTargets.navDashboard },
       { icon: 'description', label: '이력서 관리', path: RoutePaths.resume, targetId: StudentTargets.navResume },
+      { icon: 'work', label: '공고 맞춤 지원', path: RoutePaths.jobApply },
       { icon: 'menu_book', label: '학습실', path: RoutePaths.studyRoom, targetId: StudentTargets.navStudyRoom },
       { icon: 'forum', label: '게시판', path: RoutePaths.board, targetId: StudentTargets.navBoard },
       { icon: 'event_seat', label: '자리 배치', path: RoutePaths.seating, targetId: StudentTargets.navSeating },

@@ -911,6 +911,30 @@ class LastAnswerTest(ChatTestCase):
         self.assertIn("1회사", self.compared["job_a"])
         self.assertIn("3회사", self.compared["job_b"])
 
+    def test_narrowing_the_list_is_a_search(self):
+        """"그중에 정규직만"은 목록을 좁히는 말이다. 다섯 건 중 어느 것이냐고 되묻지 않는다."""
+        ids = ["J1", "J2", "J3", "J4", "J5"]
+        result = self.ask(
+            turn(roles=["백엔드"], employment_types=["정규직"], refers_to_last_answer=True),
+            message="그중에 정규직만",
+            filters=schemas.ChatFilters(roles=["백엔드"]),
+            last_job_ids=ids,
+            last_answer_job_ids=ids,
+        )
+        self.assertEqual("검색", result.mode)
+        self.assertNotIn("번호로 알려 주세요", result.reply)
+        self.assertEqual(["정규직"], result.filters.employment_types)
+        self.assertTrue(result.jobs)
+
+    def test_narrowing_before_any_list_still_searches(self):
+        """앞 목록이 없어도 조건이 있으면 찾는다. "보여 드린 공고가 없어요"로 막지 않는다."""
+        result = self.ask(
+            turn(roles=["백엔드"], employment_types=["정규직"], refers_to_last_answer=True),
+            message="여기서 정규직만",
+        )
+        self.assertEqual("검색", result.mode)
+        self.assertNotIn("앞에 보여 드린 공고가 없어요", result.reply)
+
     def test_a_new_search_is_not_a_reference(self):
         response = self.ask(
             turn(roles=["백엔드"], refers_to_last_answer=False),

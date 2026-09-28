@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 
-import { RoutePaths } from '../../app/routePaths';
 import { readApiError } from '../../data/http';
 import {
   fetchPracticeJob,
@@ -11,6 +9,7 @@ import {
   type PracticeQuota,
 } from '../../data/repository';
 import { Icon } from '../../ui/Icon';
+import { PracticeLink } from './PracticeDock';
 import { Button } from '../../ui/components';
 
 /** 만드는 중이면 이만큼마다 끝났는지 묻는다 — LLM 출제 + 검증에 몇 분 걸린다 */
@@ -93,10 +92,10 @@ export function MakeProblems({
         {error !== '' && <span className="make-problems__error">{error}</span>}
       </div>
       {job?.status === 'done' && job.setId ? (
-        <Link className="btn btn--filled btn--sm" to={`${RoutePaths.studyRoomPlayground}?set=${encodeURIComponent(job.setId)}`}>
+        <PracticeLink className="btn btn--filled btn--sm" setId={job.setId}>
           문제 풀기
           <Icon name="arrow_forward" size={16} />
-        </Link>
+        </PracticeLink>
       ) : (
         <Button size="sm" variant="outline" disabled={starting || job?.status === 'running' || left === 0} onClick={() => void go()}>
           {job?.status === 'running' ? '만드는 중…' : job?.status === 'failed' ? '다시 만들기' : idleLabel}

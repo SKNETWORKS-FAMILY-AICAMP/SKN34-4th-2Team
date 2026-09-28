@@ -58,7 +58,8 @@ class ExportTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.source = self.root / "job_store.sqlite"
+        # job_store.sqlite 는 운영 저장소(RDS)로 붙는 이름이다. 테스트 저장소는 다른 이름을 쓴다.
+        self.source = self.root / "source_store.sqlite"
         base = mock_jobs()[0]
         self.job = replace(
             base,

@@ -13,7 +13,7 @@ from study_notes.git_tools import notebook_to_text
 from study_notes.pipeline import MAX_CHARS_PER_FILE, Material
 from study_notes.practice.build import build_practice_set
 from study_notes.practice.generate import practice_model_name
-from study_notes.practice.increments import kind_counts_text, kind_mix
+from study_notes.practice.increments import is_sql_file, kind_counts_text, kind_mix
 from study_notes.practice.runner import Runner
 
 MAX_UPLOADS = 3
@@ -47,7 +47,7 @@ def make_problems(materials: list[Material], *, scope_label: str, count: int, ru
         scope_label=scope_label,
         materials=materials,
         runner=runner,
-        kind_counts=kind_counts_text(kind_mix(count)),
+        kind_counts=kind_counts_text(kind_mix(count, sql=any(is_sql_file(m["path"]) for m in materials))),
     )
     return {
         "problems": [p.to_json() for p in result.problems],

@@ -25,13 +25,12 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from job_matching_bot.retrieval.store_search import KST, JobFilters, conditions, connect
+from job_matching_bot.retrieval.store_search import KST, JobFilters, cache_key, conditions, connect, remember
 
 # 집계에 훑을 최대 행. 저장소 전체가 이보다 작으므로 보통은 전수로 센다. 상한은
 # 저장소가 훨씬 커졌을 때를 위한 안전장치다. 걸리면 "대략"이라고 밝히고 답한다.
@@ -122,25 +121,29 @@ def summarize(
 ) -> MarketStats:
     """조건에 맞는 공고를 훑어 분포를 낸다."""
     as_of = as_of or datetime.now(KST)
+    # 공고는 밤에만 바뀐다. 같은 조건 · 같은 날이면 10분 동안 다시 쓴다(`store_search.remember`).
+    return remember(cache_key("stats", store_path, filters, as_of), lambda: _summarize(store_path, filters, as_of))
+
+
+def _summarize(store_path: Path, filters: JobFilters, as_of: datetime) -> MarketStats:
     where, params = conditions(filters, as_of)
     clause = " AND ".join(where)
     scope = describe(filters)
 
-    # 검색과 같은 연결 함수를 쓴다. 조건에 RE_HAS 가 들어갈 수 있어 등록이 필요하다.
+    # 검색과 같은 연결 · 같은 조건 함수를 쓴다. 말한 건수와 목록의 모수가 같아야 한다.
     connection = connect(store_path)
     try:
-        total = connection.execute(
-            f"SELECT COUNT(*) FROM jobs WHERE {clause}", params
-        ).fetchone()[0]
+        # 전체와 마감 임박을 한 번에 센다. RDS 는 왕복마다 0.2초에 전체 훑기가 붙는다.
+        until = _plus_days(as_of, CLOSING_DAYS)
+        counted = connection.execute(
+            "SELECT COUNT(*) AS total, COUNT(*) FILTER ("
+            "WHERE deadline IS NOT NULL AND substr(deadline, 1, 10) <= ?) AS closing "
+            f"FROM jobs WHERE {clause}",
+            [until, *params],
+        ).fetchone()
+        total, closing = counted[0], counted[1]
         if not total:
             return MarketStats(total=0, scanned=0, scope=scope)
-
-        until = _plus_days(as_of, CLOSING_DAYS)
-        closing = connection.execute(
-            f"SELECT COUNT(*) FROM jobs WHERE {clause} "
-            "AND deadline IS NOT NULL AND substr(deadline, 1, 10) <= ?",
-            [*params, until],
-        ).fetchone()[0]
 
         rows = connection.execute(
             f"SELECT title, tech_stack, keywords, region, career_type, employment_type, "
@@ -219,11 +222,15 @@ def _top(counter: Counter[str], scanned: int, limit: int = TOP_N) -> list[Share]
     ]
 
 
-def _tags(raw: str | None) -> list[str]:
-    try:
-        values = json.loads(raw or "[]")
-    except json.JSONDecodeError:
-        return []
+def _tags(raw) -> list[str]:
+    # 저장소 칸이 jsonb 라 목록으로 온다. 옛 글자열도 받는다.
+    if isinstance(raw, (list, tuple)):
+        values = list(raw)
+    else:
+        try:
+            values = json.loads(raw or "[]")
+        except (TypeError, json.JSONDecodeError):
+            return []
     return [str(value).strip() for value in values if str(value).strip()]
 
 

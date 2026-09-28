@@ -9,6 +9,7 @@ import { startPracticeFromFile, useMyPracticeAttempts, usePracticeSets } from '.
 import { useCurrentUser } from '../auth/session';
 import { practicePath } from '../study/LessonDaysSection';
 import { MakeProblems } from './MakeProblems';
+import { useInPracticeDock, usePracticeDock } from './PracticeDock';
 import { useNotebookFile } from './NotebookFileMenu';
 import { toPy } from './notebookFile';
 import { EXAMPLES, MINI_HEADING, MINI_LEVELS, MINI_PROBLEMS } from './notebookExamples';
@@ -65,6 +66,7 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
           items={[
             { key: 'code', icon: 'code', label: '코드 셀', onSelect: () => nb.addCellAfter(nb.activeId) },
             { key: 'markdown', icon: 'notes', label: '마크다운 셀', onSelect: () => nb.addCellAfter(nb.activeId, 'markdown') },
+            { key: 'sql', icon: 'database', label: 'SQL 셀', onSelect: () => nb.addCellAfter(nb.activeId, 'sql') },
             ...EXAMPLES.map((e, i) => ({
               key: e.id,
               icon: e.type === 'markdown' ? 'notes' : 'code',
@@ -135,7 +137,7 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
               danger: true,
               onSelect: () => setConfirmClear(true),
             },
-            { key: 'open', icon: 'upload_file', label: '불러오기…', hint: '.ipynb · .py 파일', divider: true, onSelect: file.openPicker },
+            { key: 'open', icon: 'upload_file', label: '불러오기…', hint: '.ipynb · .py · .sql 파일', divider: true, onSelect: file.openPicker },
             { key: 'ipynb', icon: 'download', label: '내려받기 · .ipynb', hint: 'Jupyter 노트북 · 출력 포함', onSelect: () => file.download('ipynb') },
             { key: 'py', icon: 'download', label: '내려받기 · .py', hint: '# %% 로 셀 구분', onSelect: () => file.download('py') },
             { key: 'keys', icon: 'keyboard_command_key', label: showKeys ? '단축키 닫기' : '단축키', divider: true, onSelect: () => setShowKeys((v) => !v) },
@@ -232,6 +234,8 @@ function ProblemPicker({ nb }: { nb: Notebook }) {
   const attempts = useMyPracticeAttempts(user.uid);
   const mine = usePracticeSets(user.cohortId).filter((s) => !isLessonSet(s)).reverse();
   const navigate = useNavigate();
+  const dock = usePracticeDock();
+  const inDock = useInPracticeDock();
   const passedIn = (set: PracticeSet) => attempts.filter((a) => a.setId === set.id && a.passed).length;
   return (
     <span className="py-picker">
@@ -257,7 +261,8 @@ function ProblemPicker({ nb }: { nb: Notebook }) {
             hint: `${set.origin === 'note' ? '노트' : '파일'} · 통과 ${passedIn(set)} / ${set.problems.length}`,
             heading: i === 0 ? '내가 만든 문제' : undefined,
             done: set.problems.length > 0 && passedIn(set) === set.problems.length,
-            onSelect: () => navigate(practicePath(set.id)),
+            // 창 안이면 탭을 하나 더 연다. 화면으로 연 연습장이면 예전처럼 옮긴다
+            onSelect: () => (inDock && dock ? dock.open({ setId: set.id }) : navigate(practicePath(set.id))),
           })),
           ...MINI_PROBLEMS.map((m, i) => ({
             key: m.id,

@@ -14,6 +14,18 @@ from unittest import mock
 
 from job_matching_bot.evaluation import recommend_check as check
 
+# 인용 대조는 저장소에서 공고를 다시 읽는다(`_record`). 그 저장소는 운영 RDS 라서
+# 테스트에서는 비워 둔다. 여기 공고는 전부 `row(description=...)`로 넘긴다.
+_no_store = mock.patch.object(check, "_record", return_value=None)
+
+
+def setUpModule():
+    _no_store.start()
+
+
+def tearDownModule():
+    _no_store.stop()
+
 
 def row(career_type="ANY", min_years=None, status="OPEN", deadline=None, description=""):
     """저장소 행 대신 쓰는 사전. sqlite3.Row 처럼 대괄호로 읽힌다."""

@@ -240,9 +240,7 @@ function FrameTab({
                 ))}
               </Select>
             </Field>
-            <Button variant="outline" icon={<Icon name="add" size={18} />} onClick={() => setCreating(true)}>
-              새 강의실
-            </Button>
+            {/* 강의실은 기수당 하나(서버 cohort_seating) — 이미 있으면 새로 만들지 않는다 */}
           </div>
 
           {draft !== undefined && (

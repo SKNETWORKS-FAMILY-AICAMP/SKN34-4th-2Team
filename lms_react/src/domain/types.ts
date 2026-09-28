@@ -309,6 +309,20 @@ export interface ResumeContent {
   otherActivities: ResumeActivityItem[];
   projects: ResumeProjectItem[];
   selfIntroduction: ResumeSelfIntroduction;
+  /** 공고 맞춤 이력서의 회사 자기소개서 문항. 없으면 기본 여섯 문항(selfIntroduction)을 쓴다 */
+  companyQuestions?: ResumeCompanyQuestion[];
+}
+
+export interface ResumeCompanyQuestion {
+  id: string;
+  question: string;
+  /** 글자 수 제한(공백 포함). 모르면 null */
+  limit: number | null;
+  answer: string;
+  /** 쓰고 싶은 내용 메모 — 문항 답변 첨삭이 근거로 쓴다 */
+  memo?: string;
+  /** 첨삭이 물은 질문과 답 — 다음 초안의 근거. 다시 열어도 이어 쓴다 */
+  notes?: { question: string; answer: string }[];
 }
 
 export type ResumeStatus = 'draft' | 'submitted' | 'feedbackRequested' | 'approved';
@@ -479,7 +493,8 @@ export interface StudySource {
 }
 
 /** 노트 범위 종류 — study_notes.scope_type. prefix 는 폴더 */
-export type StudyNoteScopeType = 'date' | 'prefix' | 'files';
+/** subject — 과목(저장소) 전체 요약. 날짜별 노트를 모아 만든다 */
+export type StudyNoteScopeType = 'date' | 'prefix' | 'files' | 'subject';
 
 export interface StudyNote {
   id: string;
@@ -504,7 +519,8 @@ export interface StudyNote {
 // study_notes/practice 가 수업 저장소로 만들고 Pyodide 로 검증한 문제. 모양은 PracticeProblem.to_json() 그대로다.
 
 /** code_scratch — 뼈대 없이 빈 에디터에서 함수를 처음부터 짠다. starterCode 는 「뼈대 받기」를 눌렀을 때만 쓴다 */
-export type PracticeKind = 'concept' | 'code_output' | 'code_blank' | 'code_fix' | 'code_write' | 'code_scratch';
+/** sql_query — 예제 테이블(setupSql)에 조회문을 쓴다. 결과 표가 기대 결과(expectedStdout, JSON)와 같으면 통과 */
+export type PracticeKind = 'concept' | 'code_output' | 'code_blank' | 'code_fix' | 'code_write' | 'code_scratch' | 'sql_query';
 
 export interface PracticeProblem {
   kind: PracticeKind;
@@ -525,6 +541,8 @@ export interface PracticeProblem {
   referenceSolution: string;
   /** 브라우저가 학생 코드 뒤에 이어 돌려 채점한다 */
   hiddenTests: string;
+  /** sql_query — 예제 테이블을 만드는 스크립트. 학생 조회문보다 먼저 돈다(예전 데이터에는 없다) */
+  setupSql?: string;
   packages: string[];
 }
 

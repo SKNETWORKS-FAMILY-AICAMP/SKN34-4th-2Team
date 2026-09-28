@@ -6,11 +6,13 @@ import type { StudyNote, StudyNoteScopeType } from '../../domain/types';
  *   date    scope_key = '2026-09-15'            이름 '2026-09-15 수업'
  *   prefix  scope_key = 'prefix_python_day01'   이름 '폴더 python/day01'
  *   files   scope_key = 'files_<해시>'           이름 '파일 a.py, b.py'
+ *   subject scope_key = 'subject'               이름 '과목 전체 요약'
  *
  * 백엔드는 files 해시에 sha1 앞 12자를 쓴다. 브라우저 데모는 같은 자리에 짧은 해시를 쓴다(데모에서만 만든다).
  */
 
 export function buildScopeKey(type: StudyNoteScopeType, value: string | string[]): string {
+  if (type === 'subject') return 'subject';
   if (type === 'date') return String(value);
   if (type === 'prefix') {
     const safe = String(value).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80);
@@ -24,6 +26,7 @@ export function buildScopeKey(type: StudyNoteScopeType, value: string | string[]
 
 /** 백엔드 scope_label 과 같은 이름 */
 export function scopeLabel(type: StudyNoteScopeType, value: string | string[]): string {
+  if (type === 'subject') return '과목 전체 요약';
   if (type === 'date') return `${value} 수업`;
   if (type === 'prefix') return `폴더 ${value}`;
   const names = (Array.isArray(value) ? value : [value]).map((p) => String(p).split('/').pop());

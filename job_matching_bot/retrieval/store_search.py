@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import json
 import re
-import sqlite3
-from dataclasses import dataclass, field
+import threading
+import time
+from collections import OrderedDict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -99,10 +101,10 @@ def _like_or_regex(column: str, term: str) -> tuple[str, list[object]]:
     """
     pattern = CONFUSABLE.get(term.strip().lower())
     if not pattern:
-        return f"{column} LIKE ?", [f"%{term}%"]
+        return f"{_text(column)} ILIKE ?", [f"%{term}%"]
     # 한 공고에 Java 와 Javascript 가 둘 다 있으면 Java 쪽이 걸린다. 빼면 진짜 Java
     # 공고를 잃는다.
-    return f"RE_HAS(?, {column})", [pattern]
+    return _regex(column), [pattern]
 
 
 def _match(column: str, term: str) -> tuple[str, list[object]]:
@@ -158,9 +160,9 @@ _SHORT_LATIN = re.compile(r"^[A-Za-z]{1,3}$")
 def _alternative_sql(column: str, word: str) -> tuple[str, list[object]]:
     """직무 말 한 낱말(또는 그 대체어)을 한 컬럼에서 찾는 조건."""
     if word == "개발":
-        return f"RE_HAS(?, {column})", [_DEVELOP]
+        return _regex(column), [_DEVELOP]
     if _SHORT_LATIN.match(word):
-        return f"RE_HAS(?, {column})", [rf"(?<![a-z]){re.escape(word)}(?![a-z])"]
+        return _regex(column), [rf"(?<![a-z]){re.escape(word)}(?![a-z])"]
     return _match(column, word)
 
 
@@ -256,21 +258,76 @@ def _text_keywords(filters: "JobFilters") -> list[str]:
     return [word for word in _dedupe(filters.keywords) if word.replace(" ", "") not in COMPANY_TYPES]
 
 
-def _re_has(pattern: str, text: str | None) -> int:
-    """SQLite에 등록해 쓰는 함수. 대소문자를 가리지 않는다."""
-    if not text:
-        return 0
-    return 1 if re.search(pattern, text, re.IGNORECASE) else 0
+def _text(column: str) -> str:
+    """글자로 견줄 칸. 태그 칸(`keywords` · `tech_stack`)은 jsonb 라 글자로 바꿔 본다."""
+    return f"COALESCE({column}::text, '')"
 
 
-def connect(store_path: Path) -> sqlite3.Connection:
-    """읽기 전용으로 열고 `RE_HAS` 를 등록한다. 검색과 집계가 같이 쓴다."""
-    connection = sqlite3.connect(
-        f"{Path(store_path).resolve().as_uri()}?mode=ro", uri=True
-    )
-    connection.row_factory = sqlite3.Row
-    connection.create_function("RE_HAS", 2, _re_has, deterministic=True)
-    return connection
+def _regex(column: str) -> str:
+    """정규식으로 찾는 조건. 대소문자를 가리지 않는다(`~*`). 앞뒤 보기(`(?<!…)`)도 PostgreSQL 이 읽는다."""
+    return f"{_text(column)} ~* ?"
+
+
+def connect(store_path: Path):
+    """공고 저장소(PostgreSQL)를 읽는 연결. 검색과 집계가 같이 쓴다. 다 쓰면 `close()`.
+
+    예전에는 이 경로의 SQLite 파일을 읽었다. 저장소가 PostgreSQL 로 옮겨 간 뒤에도 검색만
+    남아 있어, 밤마다 갱신되는 RDS 대신 9월 22일에 멈춘 파일을 보고 답했다. 운영 스키마는
+    연결을 돌려 쓰므로 여기서 여는 비용은 한 번뿐이다.
+    """
+    from job_matching_bot.ingestion.sqlite_store import SqliteJobStore
+
+    return SqliteJobStore(store_path).conn
+
+
+# ── 검색 결과 재사용 ─────────────────────────────────────────
+# 공고는 밤 배치 때만 바뀐다. 그런데 RDS 에서 조건 검색 한 번이 4~10초 걸린다(8만 건 전체 훑기,
+# 2026-09-26 측정). 같은 조건이면 10분 동안 결과를 다시 쓴다 — "이거 말고"는 같은 조건으로
+# 다음 공고를 달라는 말이라 여기서 바로 나간다. 날짜가 바뀌면 마감 판정이 달라지므로 날짜도 열쇠에 넣는다.
+# 운영 저장소만 담아 둔다. 테스트는 같은 경로에 공고를 더 넣고 다시 찾기 때문이다.
+_CACHE_SECONDS = 600.0
+_CACHE_MAX = 256
+_cache: "OrderedDict[tuple, tuple[float, object]]" = OrderedDict()
+_cache_lock = threading.Lock()
+
+
+def cache_key(kind: str, store_path: Path, filters: "JobFilters", as_of: datetime) -> tuple | None:
+    """재사용 열쇠. 운영 저장소가 아니면 None — 담아 두지 않는다."""
+    from job_matching_bot.ingestion.sqlite_store import is_managed_store
+
+    if not is_managed_store(store_path):
+        return None
+    return (kind, json.dumps(asdict(filters), sort_keys=True, ensure_ascii=False, default=str), as_of.date().isoformat())
+
+
+def remember(key: tuple | None, compute):
+    """열쇠가 있으면 10분 동안 결과를 다시 쓴다. 없으면 매번 계산한다."""
+    if key is None:
+        return compute()
+    now = time.monotonic()
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit is not None and now - hit[0] < _CACHE_SECONDS:
+            _cache.move_to_end(key)
+            return hit[1]
+    value = compute()
+    with _cache_lock:
+        _cache[key] = (now, value)
+        _cache.move_to_end(key)
+        while len(_cache) > _CACHE_MAX:
+            _cache.popitem(last=False)
+    return value
+
+
+def _json_list(value) -> list:
+    """jsonb 칸은 목록으로, 옛 글자열은 풀어서 목록으로."""
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    try:
+        loaded = json.loads(value or "[]")
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return loaded if isinstance(loaded, list) else []
 
 
 @dataclass
@@ -366,7 +423,7 @@ def _to_hit(row, relevance: int, has_detail: bool = True) -> JobHit:
         career_label=_career_label(row["career_type"] or "", row["min_career_years"]),
         employment_type=row["employment_type"] or "미기재",
         deadline=(row["deadline"] or None),
-        tech_stack=json.loads(row["tech_stack"] or "[]"),
+        tech_stack=_json_list(row["tech_stack"]),
         relevance=relevance,
         has_detail=has_detail,
     )
@@ -444,7 +501,7 @@ def conditions(filters: JobFilters, as_of: datetime, *, listing: bool = False) -
     params: list[object] = [today]
 
     if filters.regions:
-        where.append("(" + " OR ".join("region LIKE ?" for _ in filters.regions) + ")")
+        where.append("(" + " OR ".join("region ILIKE ?" for _ in filters.regions) + ")")
         params.extend(f"%{region}%" for region in filters.regions)
 
     types = CAREER_TYPES.get(filters.career)
@@ -466,7 +523,7 @@ def conditions(filters: JobFilters, as_of: datetime, *, listing: bool = False) -
             where.append("career_type != 'ENTRY'")
 
     if filters.employment_types:
-        where.append("(" + " OR ".join("employment_type LIKE ?" for _ in filters.employment_types) + ")")
+        where.append("(" + " OR ".join("employment_type ILIKE ?" for _ in filters.employment_types) + ")")
         params.extend(f"%{value}%" for value in filters.employment_types)
 
     if filters.deadline_within_days:
@@ -499,7 +556,7 @@ def conditions(filters: JobFilters, as_of: datetime, *, listing: bool = False) -
     # 빼 달라면 그쪽은 빼지 않는다 — 모르는 것을 스타트업이라고 단정하지 않는다.
     company_types = _company_type_keywords(filters)
     if company_types and not listing:
-        where.append("(" + " OR ".join("RE_HAS(?, company_type)" for _ in company_types) + ")")
+        where.append("(" + " OR ".join(_regex("company_type") for _ in company_types) + ")")
         params.extend(COMPANY_TYPES[word.replace(" ", "")] for word in company_types)
 
     # 빼 달라는 말. 기업형태는 기업 정보 칸, 고용형태는 고용형태 칸, 나머지는 제목·회사명에서 본다.
@@ -508,25 +565,26 @@ def conditions(filters: JobFilters, as_of: datetime, *, listing: bool = False) -
         key = word.replace(" ", "")
         if key in COMPANY_TYPES:
             if not listing:
-                where.append("NOT RE_HAS(?, company_type)")
+                where.append(f"NOT ({_regex('company_type')})")
                 params.append(COMPANY_TYPES[key])
             continue
         if key in EMPLOYMENT_WORDS:
-            where.append("(employment_type IS NULL OR employment_type NOT LIKE ?)")
+            where.append("(employment_type IS NULL OR employment_type NOT ILIKE ?)")
             params.append(f"%{EMPLOYMENT_WORDS[key]}%")
             continue
-        where.append("NOT (title LIKE ? OR company LIKE ?)")
+        where.append("NOT (title ILIKE ? OR company ILIKE ?)")
         params.extend([f"%{word}%", f"%{word}%"])
 
     # 최근에 올라온 것만. 우리가 그 공고를 처음 본 날로 세되, **오늘이 아니라 마지막 수집일에서**
     # 거꾸로 센다. 공고는 밤 23시 수집에서 처음 보므로, 낮에 "오늘 올라온"을 오늘 날짜로 세면
     # 늘 0건이었다. 0이면 마지막 수집에서 처음 본 공고다.
+    # 날짜는 한국 날짜로 센다. 세션 시간대(UTC)로 자르면 밤 9시 이후 수집분이 다음 날로 넘어간다.
     if filters.posted_within_days is not None:
         where.append(
-            "substr(first_seen_at, 1, 10) >= "
-            "date((SELECT MAX(substr(first_seen_at, 1, 10)) FROM jobs), ?)"
+            "(first_seen_at AT TIME ZONE 'Asia/Seoul')::date >= "
+            "(SELECT MAX(first_seen_at AT TIME ZONE 'Asia/Seoul')::date FROM jobs) - ?::int"
         )
-        params.append(f"-{filters.posted_within_days} days")
+        params.append(int(filters.posted_within_days))
 
     return where, params
 
@@ -582,7 +640,7 @@ def search(
         phrase_params: list[object] = []
         for term in (term for term, matcher in terms if matcher is _role_match and len(term.split()) > 1):
             for spelling in dict.fromkeys((term, term.replace(" ", ""))):
-                phrase_parts.append("title LIKE ?")
+                phrase_parts.append("title ILIKE ?")
                 phrase_params.append(f"%{spelling}%")
         phrase_case = f"WHEN {' OR '.join(phrase_parts)} THEN 4 " if phrase_parts else ""
         case_params = [*phrase_params, *case_params]
@@ -620,14 +678,14 @@ def search(
     with_listing = not _company_type_keywords(filters) and filters.posted_within_days is None
     body = detail_part + (" UNION ALL " + listing_part if with_listing else "")
     sql = (
-        f"SELECT * FROM ({body}) "
+        f"SELECT * FROM ({body}) AS hits "
         # 제목·태그에 직접 맞은 공고(관련도 2 이상)를 먼저 전부 세운다. 답이 말하는 건수가
         # 이 묶음이라, 넘겨 보다 보면 그 건수만큼 본 뒤에 본문에만 스친 공고로 넘어가야
         # 말과 목록이 맞는다. 묶음 안에서는 본문이 있는 공고가 먼저다.
         # 관련도가 같으면 태그를 적게 단 공고를 먼저. 직무 태그를 열 개씩 달아 둔
         # "전 직군 공개채용"은 무엇을 물어도 걸리므로, 그 일에 특화된 공고에 자리를 내준다.
         " ORDER BY (relevance >= 2) DESC, has_detail DESC, relevance DESC,"
-        " LENGTH(keywords) ASC, first_seen_at DESC LIMIT ?"
+        " LENGTH(keywords::text) ASC, first_seen_at DESC LIMIT ?"
     )
 
     # 값 순서는 상세 쪽 SELECT → WHERE, 목록 쪽 SELECT → WHERE, 그다음 LIMIT. 목록 쪽 WHERE는
@@ -635,13 +693,16 @@ def search(
     values = [*case_params, *params]
     if with_listing:
         values += [*case_params, *listing_params]
-    connection = connect(store_path)
-    try:
-        rows = connection.execute(sql, [*values, SCAN_LIMIT]).fetchall()
-    finally:
-        connection.close()
 
-    rows = _one_per_posting(rows)
+    def load() -> list:
+        connection = connect(store_path)
+        try:
+            rows = connection.execute(sql, [*values, SCAN_LIMIT]).fetchall()
+        finally:
+            connection.close()
+        return _one_per_posting(rows)
+
+    rows = remember(cache_key("search", store_path, filters, as_of), load)
     seen = set(exclude_ids)
     remaining = [row for row in rows if row["job_id"] not in seen]
     jobs = [_to_hit(row, int(row["relevance"] or 0), bool(row["has_detail"]))

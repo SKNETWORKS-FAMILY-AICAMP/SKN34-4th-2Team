@@ -8,6 +8,8 @@
   code_write   빈 함수 + 테스트는 실패, 모범답안 + 테스트는 통과
   code_scratch code_write 와 같고, 더해서 — 학생은 뼈대를 못 보므로 문제 문장에 함수 이름이 있어야 하고,
                테스트는 3개 이상, 모범답안은 한두 줄로 끝나지 않는 함수여야 한다
+  sql_query    준비 스크립트 + 모범 조회문을 돌려 결과 표를 얻는다 → 그 표가 정답(1~20행).
+               시작 코드만으로 같은 표가 나오면 버린다 (sql_problem.py)
   concept      실행하지 않는다 (models.parse_draft 가 모양만 본다)
 
 실행 전에 ast로 한 번 거른다. 파일·네트워크·입력·현재 시각을 쓰는 코드는 브라우저에서
@@ -20,6 +22,7 @@ import ast
 import re
 from dataclasses import dataclass
 
+from study_notes.practice import sql_problem
 from study_notes.practice.models import RUNNABLE, PracticeProblem, fill_blanks
 from study_notes.practice.runner import Job, RunResult, Runner
 
@@ -108,6 +111,11 @@ def _clean_stdout(stdout: str) -> str:
 
 def _jobs_for(index: int, problem: PracticeProblem) -> list[Job]:
     key = f"p{index}"
+    if problem.kind == "sql_query":
+        return [
+            Job(f"{key}:reference", [sql_problem.harness_code(problem.setup_sql, problem.reference_solution)], RUN_TIMEOUT_MS),
+            Job(f"{key}:starter", [sql_problem.harness_code(problem.setup_sql, problem.starter_code)], RUN_TIMEOUT_MS),
+        ]
     if problem.kind == "code_output":
         return [
             Job(f"{key}:run1", [problem.starter_code], RUN_TIMEOUT_MS),
@@ -143,6 +151,21 @@ def _judge_output(problem: PracticeProblem, r1: RunResult, r2: RunResult) -> Ver
     return Verdict(problem, True)
 
 
+def _judge_sql(problem: PracticeProblem, reference: RunResult, starter: RunResult) -> Verdict:
+    if reference.timed_out:
+        return Verdict(problem, False, "모범 조회문이 시간 제한 초과")
+    if not reference.ok:
+        return Verdict(problem, False, f"준비 스크립트나 모범 조회문 실행 오류 — {reference.describe()}")
+    expected, reason = sql_problem.judge_result(
+        problem.reference_solution, reference.stdout, starter.stdout if starter.ok else None,
+    )
+    if reason:
+        return Verdict(problem, False, reason)
+    problem.expected_stdout = expected
+    problem.verified = True
+    return Verdict(problem, True)
+
+
 def _judge_tests(problem: PracticeProblem, starter: RunResult, reference: RunResult) -> Verdict:
     if reference.timed_out:
         return Verdict(problem, False, "모범답안이 시간 제한 초과")
@@ -164,6 +187,14 @@ def verify_problems(problems: list[PracticeProblem], runner: Runner) -> list[Ver
         if problem.kind not in RUNNABLE:
             problem.verified = True
             verdicts[i] = Verdict(problem, True)
+            continue
+        if problem.kind == "sql_query":
+            reason = sql_problem.static_check(problem.setup_sql, problem.reference_solution)
+            if reason:
+                verdicts[i] = Verdict(problem, False, f"실행 전 거름 — {reason}")
+                continue
+            problem.packages = ["sqlite3"]
+            jobs += _jobs_for(i, problem)
             continue
         # 빈칸 문제는 빈칸이 남은 원본이 문법상 안 맞을 수 있다(`i __1__ step`). 채운 코드만 본다.
         codes = [] if problem.kind == "code_blank" else [problem.starter_code]
@@ -197,6 +228,8 @@ def verify_problems(problems: list[PracticeProblem], runner: Runner) -> list[Ver
         key = f"p{i}"
         if problem.kind == "code_output":
             verdicts[i] = _judge_output(problem, results[f"{key}:run1"], results[f"{key}:run2"])
+        elif problem.kind == "sql_query":
+            verdicts[i] = _judge_sql(problem, results[f"{key}:reference"], results[f"{key}:starter"])
         else:
             verdicts[i] = _judge_tests(problem, results[f"{key}:starter"], results[f"{key}:reference"])
     return [v for v in verdicts if v is not None]

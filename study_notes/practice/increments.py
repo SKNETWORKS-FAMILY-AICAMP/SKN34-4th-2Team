@@ -43,14 +43,24 @@ _FILL_ORDER = [
 ]
 
 
-def kind_mix(total: int) -> dict[str, int]:
-    """문제 total 개의 종류별 개수. total 이 하루 구성(12)이면 KIND_MIX 그대로."""
+def kind_mix(total: int, *, sql: bool = False) -> dict[str, int]:
+    """문제 total 개의 종류별 개수. total 이 하루 구성(12)이면 KIND_MIX 그대로.
+
+    sql — 그날 자료가 SQL(.sql)이면 코드 문제 대신 SQL 조회 문제를 낸다. 파이썬 코드 문제는 수업과 상관없어진다.
+    """
+    if sql:
+        concept = min(2, total // 4)
+        return {"concept": concept, "sql_query": total - concept}
     if total >= DAY_QUOTA:
         return dict(KIND_MIX)
     mix: dict[str, int] = {}
     for kind in _FILL_ORDER[:max(0, total)]:
         mix[kind] = mix.get(kind, 0) + 1
     return mix
+
+
+def is_sql_file(path: str) -> bool:
+    return path.lower().endswith(".sql")
 
 
 def kind_counts_text(mix: dict[str, int]) -> str:
@@ -129,8 +139,8 @@ class DayPlan:
         return sum(f.quota for f in self.targets)
 
     def kind_counts(self) -> str:
-        """종류별 개수 — 'concept 2개, code_output 2개, …'"""
-        return kind_counts_text(kind_mix(self.total))
+        """종류별 개수 — 'concept 2개, code_output 2개, …'. SQL 수업 파일이 있는 날은 SQL 조회 문제로"""
+        return kind_counts_text(kind_mix(self.total, sql=any(is_sql_file(f.path) for f in self.targets)))
 
     def materials(self) -> list[Material]:
         """LLM 에 넘길 자료 — 파일마다 「앞부분 요약 + 새 부분」"""
@@ -186,7 +196,7 @@ def split_cells(path: str, raw: str) -> list[Cell]:
             if text.strip():
                 cells.append(Cell(kind="markdown" if c.get("cell_type") == "markdown" else "code", text=text.strip("\n")))
         return cells
-    kind = "code" if path.lower().endswith(".py") else "text"
+    kind = "code" if path.lower().endswith((".py", ".sql")) else "text"
     return _split_blocks(raw, kind)
 
 

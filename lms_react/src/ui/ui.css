@@ -1287,6 +1287,7 @@ button.chip {
 }
 
 .shell--rail-mini .appbar__crumbs,
+.shell--rail-mini .appbar__cohort-slot,
 .shell--rail-mini .resume-edit {
   margin-left: 0;
 }

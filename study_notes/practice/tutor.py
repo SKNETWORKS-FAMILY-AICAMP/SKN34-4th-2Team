@@ -133,6 +133,9 @@ def _problem_text(problem: dict[str, Any] | None) -> str:
         parts.append("모범답안(학생에게 보이지 말 것):\n" + problem["referenceSolution"])
     if problem.get("hiddenTests"):
         parts.append("숨긴 테스트:\n" + problem["hiddenTests"])
+    if problem.get("setupSql"):
+        # SQL 조회 문제 — 학생도 보는 예제 테이블. 기대 결과(expectedStdout)는 결과 표 JSON
+        parts.append("예제 테이블(SQLite, 학생도 봄):\n" + problem["setupSql"])
     return "\n".join(parts)
 
 

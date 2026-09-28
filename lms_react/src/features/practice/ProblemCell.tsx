@@ -4,6 +4,7 @@ import type { PracticeAttempt, PracticeKind, PracticeProblem, PracticeReport, Pr
 import { Icon } from '../../ui/Icon';
 import { CodeEditor } from './CodeEditor';
 import { NotebookMarkdown } from './NotebookMarkdown';
+import { OutputTable } from './OutputTable';
 import { KIND_LABEL } from './practiceLabels';
 import {
   gradeReport,
@@ -13,8 +14,10 @@ import {
   type GradeReport,
   type TestStatus,
 } from './practiceGrading';
-import type { RunResult } from './pythonProtocol';
+import type { RunResult, TableData } from './pythonProtocol';
 import { HIDE_AT, REASON_LABEL } from './reports';
+import { sqlSchema } from './sqlDialect';
+import { expectedAsTable, gradeSql, parseExpected, sqlProblemSteps, type ExpectedTable } from './sqlGrading';
 import type { TutorSnapshot } from './TutorContext';
 
 export { KIND_LABEL };
@@ -24,6 +27,7 @@ const KIND_HINT: Partial<Record<PracticeKind, string>> = {
   code_fix: '먼저 실행해서 증상을 보고, 한 곳을 고친 뒤 채점하세요.',
   code_write: '함수를 완성하고 채점하세요. 실행해 보거나 아래 빈 셀에서 불러 시험해 봐도 됩니다.',
   code_scratch: '문제에 적힌 함수를 빈 칸에서부터 작성하세요. 이름이 같아야 채점됩니다. 막히면 「뼈대 받기」로 이름·인자를 받을 수 있어요.',
+  sql_query: '예제 테이블에 조회문을 쓰고 채점하세요. 결과의 값·열 순서가 기대 결과와 같으면 정답이에요(열 이름은 안 봐요). 수업의 MySQL 문법 그대로 써도 돼요.',
 };
 
 /** 이만큼 틀리면 모범답안을 볼 수 있게 한다 */
@@ -49,6 +53,8 @@ export function ProblemCell({
   onAttempt,
   runInSession,
   grade,
+  runSql,
+  gradeSql: gradeSqlSteps,
   onFocus,
   focusSignal,
   onRunAndNext,
@@ -69,6 +75,9 @@ export function ProblemCell({
   onAttempt: (passed: boolean) => void;
   runInSession: (code: string) => Promise<RunResult>;
   grade: (steps: string[]) => Promise<RunResult>;
+  /** SQL 문제 — 실행(노트북 세션 DB) · 채점(새 DB). steps 는 문장 목록 JSON */
+  runSql?: (steps: string[]) => Promise<RunResult>;
+  gradeSql?: (steps: string[]) => Promise<RunResult>;
   onFocus: () => void;
   focusSignal: number;
   onRunAndNext: () => void;
@@ -84,6 +93,7 @@ export function ProblemCell({
   const [submitted, setSubmitted] = useState<boolean | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [value, setValue] = useState<string | null>(null);
+  const [table, setTable] = useState<TableData | null>(null);
   const [report, setReport] = useState<GradeReport | null>(null);
   const [working, setWorking] = useState<'run' | 'grade' | null>(null);
   const [showSolution, setShowSolution] = useState(false);
@@ -93,14 +103,25 @@ export function ProblemCell({
   const passed = attempt?.passed ?? false;
   const tries = attempt?.tries ?? 0;
   const canReveal = problem.referenceSolution !== '' && (passed || tries >= REVEAL_AFTER_TRIES);
+  const isSql = problem.kind === 'sql_query';
   const isCode =
-    problem.kind === 'code_blank' || problem.kind === 'code_fix' || problem.kind === 'code_write' || problem.kind === 'code_scratch';
+    problem.kind === 'code_blank' ||
+    problem.kind === 'code_fix' ||
+    problem.kind === 'code_write' ||
+    problem.kind === 'code_scratch' ||
+    isSql;
+  const setupSql = problem.setupSql ?? '';
+  const expected = isSql ? parseExpected(problem.expectedStdout) : null;
 
   // 튜터는 물을 때 읽는다 — 그 사이 고친 코드 · 새 출력이 가야 한다
   const snapshot = useRef<TutorSnapshot>({ code: '', run: '', grade: '' });
   snapshot.current = {
     code: problem.kind === 'code_output' ? problem.starterCode : isCode ? code : '',
-    run: [...lines.map((l) => l.text), ...(value !== null ? [`Out: ${value}`] : [])].join('\n'),
+    run: [
+      ...lines.map((l) => l.text),
+      ...(value !== null ? [`Out: ${value}`] : []),
+      ...(table ? [`결과 ${table.shape[0]}행: ${table.columns.join(' | ')}`, ...table.rows.slice(0, 5).map((r) => r.join(' | '))] : []),
+    ].join('\n'),
     grade: report
       ? `${report.passed ? '통과' : '실패'} · ${report.headline}${report.detail ? `\n${report.detail}` : ''}`
       : submitted !== null
@@ -114,6 +135,11 @@ export function ProblemCell({
     setWorking('run');
     setLines([]);
     setValue(null);
+    setTable(null);
+    if (isSql) {
+      await runSqlProblem();
+      return;
+    }
     const r = await runInSession(problem.kind === 'code_output' ? problem.starterCode : code);
     const out: Line[] = r.stdout ? [{ kind: 'out', text: r.stdout.replace(/\n$/, '') }] : [];
     if (r.timedOut) out.push({ kind: 'err', text: '시간 제한에 걸려 멈췄어요.' });
@@ -130,8 +156,33 @@ export function ProblemCell({
     setWorking(null);
   };
 
+  /** SQL 문제 실행 — 예제 테이블을 다시 만들고 조회문을 돌려 표를 보인다 */
+  const runSqlProblem = async () => {
+    if (!runSql) return;
+    const { steps, notes } = sqlProblemSteps(setupSql, code);
+    const r = await runSql(steps);
+    const out: Line[] = notes.length ? [{ kind: 'sys', text: `MySQL 문법을 SQLite 에 맞췄어요 — ${notes.join(' · ')}` }] : [];
+    if (r.stdout) out.push({ kind: 'out', text: r.stdout.replace(/\n$/, '') });
+    if (r.timedOut) out.push({ kind: 'err', text: '시간 제한에 걸려 멈췄어요.' });
+    else if (r.error) out.push({ kind: 'err', text: `${r.error.step === 0 ? '예제 테이블 · ' : ''}${r.error.type}: ${r.error.message}` });
+    setLines(out);
+    setTable(r.table);
+    setWorking(null);
+  };
+
   const gradeCode = async () => {
     if (working) return;
+    if (isSql) {
+      if (!gradeSqlSteps || !expected) return;
+      setWorking('grade');
+      const r = await gradeSqlSteps(sqlProblemSteps(setupSql, code).steps);
+      const verdict = gradeSql(expected, r);
+      setReport({ passed: verdict.passed, statuses: [], headline: verdict.headline, detail: verdict.detail });
+      setTable(r.table);
+      if (!r.stopped) onAttempt(verdict.passed);
+      setWorking(null);
+      return;
+    }
     const left = remainingBlanks(code);
     if (problem.kind === 'code_blank' && left.length) {
       setReport({ passed: false, statuses: tests.map((): TestStatus => 'skip'), headline: `빈칸 ${left.join(', ')}이 남아 있어요`, detail: '' });
@@ -211,6 +262,8 @@ export function ProblemCell({
         <NotebookMarkdown source={problem.prompt} />
         {KIND_HINT[problem.kind] && <p className="pb__hint">{inlineHint(KIND_HINT[problem.kind]!)}</p>}
       </div>
+
+      {isSql && <SqlProblemInfo number={number} setupSql={setupSql} expected={expected} />}
 
       {problem.kind === 'concept' && (
         <div className="pb__choices" role="radiogroup" aria-label={`문제 ${number} 보기`}>
@@ -306,6 +359,8 @@ export function ProblemCell({
             markedLines={markedLines}
             minLines={3}
             label={`문제 ${number} 코드`}
+            language={isSql ? 'sql' : 'python'}
+            sqlSchema={isSql ? () => sqlSchema([setupSql]) : undefined}
           />
           <div className="pb__actions">
             <button type="button" className="btn btn--outline btn--sm" onClick={run} disabled={working !== null}>
@@ -314,7 +369,7 @@ export function ProblemCell({
             </button>
             <button type="button" className="btn btn--filled btn--sm" onClick={gradeCode} disabled={working !== null}>
               <Icon name={working === 'grade' ? 'hourglass_top' : 'task_alt'} size={18} />
-              {working === 'grade' ? '채점 중…' : `채점 · 테스트 ${tests.length}개`}
+              {working === 'grade' ? '채점 중…' : isSql ? '채점 · 결과 비교' : `채점 · 테스트 ${tests.length}개`}
             </button>
             <button
               type="button"
@@ -332,7 +387,7 @@ export function ProblemCell({
         </>
       )}
 
-      {(lines.length > 0 || value !== null) && (
+      {(lines.length > 0 || value !== null || table) && (
         <div className="py-nb-out">
           {lines.map((l, i) => (
             <div key={i} className={`py-line--${l.kind}`}>
@@ -345,6 +400,7 @@ export function ProblemCell({
               <span>{value}</span>
             </div>
           )}
+          {table && <OutputTable table={table} label="내 결과" />}
         </div>
       )}
 
@@ -363,16 +419,18 @@ export function ProblemCell({
       {report && (
         <Verdict ok={report.passed} title={report.headline}>
           {report.detail && <p className="pb__detail">{report.detail}</p>}
-          <ul className="pb__tests">
-            {tests.map((t, i) => (
-              <li key={i} className={`pb__test pb__test--${report.statuses[i]}`}>
-                <Icon name={report.statuses[i] === 'pass' ? 'check_circle' : report.statuses[i] === 'fail' ? 'cancel' : 'remove_circle_outline'} size={16} />
-                <span>테스트 {i + 1}</span>
-                {report.statuses[i] === 'fail' && <code>{t.expr}</code>}
-                {report.statuses[i] === 'skip' && <span className="pb__muted">실행 안 함</span>}
-              </li>
-            ))}
-          </ul>
+          {tests.length > 0 && (
+            <ul className="pb__tests">
+              {tests.map((t, i) => (
+                <li key={i} className={`pb__test pb__test--${report.statuses[i]}`}>
+                  <Icon name={report.statuses[i] === 'pass' ? 'check_circle' : report.statuses[i] === 'fail' ? 'cancel' : 'remove_circle_outline'} size={16} />
+                  <span>테스트 {i + 1}</span>
+                  {report.statuses[i] === 'fail' && <code>{t.expr}</code>}
+                  {report.statuses[i] === 'skip' && <span className="pb__muted">실행 안 함</span>}
+                </li>
+              ))}
+            </ul>
+          )}
           {report.passed && <NotebookMarkdown source={problem.explanation} />}
           {!report.passed && tries < REVEAL_AFTER_TRIES && problem.referenceSolution && (
             <p className="pb__muted">두 번 틀리면 모범답안을 볼 수 있어요.</p>
@@ -384,9 +442,39 @@ export function ProblemCell({
       {showSolution && canReveal && (
         <div className="pb__solution">
           <span className="pb__muted">모범답안</span>
-          <CodeEditor value={problem.referenceSolution} readOnly minLines={2} label={`문제 ${number} 모범답안`} />
+          <CodeEditor
+            value={problem.referenceSolution}
+            readOnly
+            minLines={2}
+            label={`문제 ${number} 모범답안`}
+            language={isSql ? 'sql' : 'python'}
+          />
         </div>
       )}
+    </div>
+  );
+}
+
+/** SQL 문제 — 예제 테이블 이름 · 열, 펼쳐 보는 스크립트, 기대 결과 표 */
+function SqlProblemInfo({ number, setupSql, expected }: { number: number; setupSql: string; expected: ExpectedTable | null }) {
+  const [open, setOpen] = useState(false);
+  const tables = Object.entries(sqlSchema([setupSql]));
+  return (
+    <div className="pb__sql">
+      <p className="pb__sql-tables">
+        <Icon name="database" size={15} />
+        <span>예제 테이블</span>
+        {tables.map(([name, cols]) => (
+          <code key={name}>
+            {name}({cols.join(', ')})
+          </code>
+        ))}
+        <button type="button" className="btn btn--text btn--sm" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+          {open ? '스크립트 숨기기' : '스크립트 보기'}
+        </button>
+      </p>
+      {open && <CodeEditor value={setupSql} readOnly minLines={2} label={`문제 ${number} 예제 테이블`} language="sql" />}
+      {expected && <OutputTable table={expectedAsTable(expected)} label={expected.ordered ? '기대 결과 (순서도 같아야 해요)' : '기대 결과'} />}
     </div>
   );
 }

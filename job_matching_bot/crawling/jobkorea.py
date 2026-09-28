@@ -52,6 +52,18 @@ Disallow인 `/login/` `/user/` `/my/` `/account/` `/RecrtMng/` `/corp/` `/text_c
 4. 목록 행에 조건이 이미 다 있다. 사람인과 같아서 `listing_conditions` 쪽 규칙을 그대로
    태울 수 있다.
 
+5. **목록 중간에 빈 쪽이 끼어 있다**(2026-09-28 확인). 인사·HR(총 2,738건)은 39쪽이 44건,
+   40·41쪽이 0건, 42쪽이 7건이고 43쪽부터 다시 50건씩 55쪽까지 온다. 정렬(1 · 2 · 20)을 바꿔도
+   같은 자리가 빈다 — 사이트가 쪽을 먼저 나누고 보여 주지 않을 공고를 뒤에 빼는 것으로 보인다.
+   빈 쪽을 끝으로 알고 멈추면 뒤의 공고를 통째로 놓친다(인사·HR 1,945건 → 끝 쪽까지 넘기면
+   2,588건). 그래서 **총 건수로 끝 쪽을 계산해 거기까지 넘긴다.** 빈 자리의 공고(약 5%)는
+   어느 정렬로도 안 보여 받을 수 없다 — 받은 수가 총 건수에 못 미치는 것은 그래서다.
+
+6. **한 목록은 1만 건(200쪽)까지만 보여 준다.** 201쪽부터는 200쪽이 그대로 되풀이된다.
+   1만이 넘는 대분류는 지역(`condition[local]`)으로, 그래도 넘으면 지역 × 경력
+   (`condition[career]`)으로 쪼개 받아 공고번호로 합친다. 제조·생산 27,883건 → 서울 1,792 ·
+   경기 10,226(경력으로 한 번 더) … 한 공고가 여러 지역에 걸치면 겹쳐 오지만 번호로 합친다.
+
 ## 수집 규칙
 
 사람인 쪽과 같다. UA 고정(돌리지 않음), 프록시 없음, 3~5초 간격, 차단 문구·403·429면
@@ -72,6 +84,8 @@ Disallow인 `/login/` `/user/` `/my/` `/account/` `/RecrtMng/` `/corp/` `/text_c
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 import argparse
 import json
@@ -205,6 +219,19 @@ WEEKLY_DAY = 6  # 일요일
 PAGE_SIZE = 50
 # 정렬 2=등록일순. 훑는 동안 순서가 덜 흔들린다(추천순 20은 매 요청 바뀐다).
 ORDER_REGISTERED = 2
+
+# 한 목록이 보여 주는 최대(200쪽 × 50). 넘으면 201쪽부터 200쪽이 되풀이된다.
+LIST_WALL = 10_000
+
+# 1만이 넘는 대분류를 쪼갤 거르기. 목록 화면의 거르기 칸 값 그대로(2026-09-28).
+# 지역: 시·도 17 + 전국 + 해외 8. 공고마다 적어도 하나에 걸린다.
+REGION_CODES: tuple[str, ...] = (
+    "I000", "B000", "K000", "G000", "1000", "O000", "P000", "L000", "M000",  # 서울 경기 인천 대전 세종 충남 충북 전남광주 전북
+    "F000", "D000", "H000", "J000", "C000", "A000", "N000",                  # 대구 경북 부산 울산 경남 강원 제주
+    "Q000", "R000", "X000", "Z000", "Y000", "S000", "T000", "U000", "V000", "W000",  # 전국 · 해외
+)
+# 경력: 신입 · 1~3년 · 4~6년 · 7~9년 · 10~15년 · 16~20년 · 21년 이상 · 경력무관
+CAREER_CODES: tuple[str, ...] = ("1", "2", "3", "4", "5", "6", "7", "8")
 
 GNO_RE = re.compile(r"GI_Read/(\d+)")
 TOTAL_RE = re.compile(r"\(([\d,]+)건\)")
@@ -353,8 +380,12 @@ def fetch_page(
     page_size: int = PAGE_SIZE,
     order: int = ORDER_REGISTERED,
     timeout: int = 30,
+    filters: dict[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], int | None]:
-    """목록 한 쪽. `(행 목록, 사이트가 말하는 총 건수)`를 준다."""
+    """목록 한 쪽. `(행 목록, 사이트가 말하는 총 건수)`를 준다.
+
+    `filters` 는 목록 화면의 거르기 — `{"local": "I000"}` · `{"career": "1"}` 처럼 준다.
+    """
     _guard(LIST_AJAX_URL)
     referer = category_url(duty)
     payload = {
@@ -369,6 +400,8 @@ def fetch_page(
         "confirm": 0,
         "profile": 0,
     }
+    for key, value in (filters or {}).items():
+        payload[f"condition[{key}]"] = value
     response = session.post(
         LIST_AJAX_URL, data=payload, headers=ajax_headers(referer), timeout=timeout
     )
@@ -386,6 +419,60 @@ def fetch_page(
     return rows, total
 
 
+@dataclass
+class SweepResult:
+    """대분류 하나를 훑은 결과. `complete` 는 모든 조각을 끝 쪽까지 넘겼는가다."""
+
+    total: int | None = None
+    complete: bool = True
+    slices: int = 0
+
+
+def _sweep_slice(
+    session: requests.Session,
+    duty: str,
+    filters: dict[str, str] | None,
+    result: SweepResult,
+    *,
+    first: tuple[list[dict[str, Any]], int | None] | None = None,
+    max_pages: int | None = None,
+    page_size: int = PAGE_SIZE,
+    min_delay: float = 3.0,
+    max_delay: float = 5.0,
+) -> Iterator[dict[str, Any]]:
+    """거르기 하나(없으면 대분류 전체)를 끝 쪽까지 넘긴다.
+
+    빈 쪽이 끼어 있어도 멈추지 않는다 — 끝은 사이트가 말한 총 건수로 정한다(모듈 설명 5).
+    같은 쪽이 되풀이되면 1만 벽이다(모듈 설명 6). 그때는 끝까지 못 받은 것으로 적는다.
+    총 건수를 못 읽으면 예전처럼 빈 쪽에서 멈춘다.
+    """
+    result.slices += 1
+    page = 1
+    rows, total = first if first is not None else fetch_page(session, duty, 1, page_size=page_size, filters=filters)
+    previous_head = None
+    while True:
+        if rows:
+            head = rows[0]["source_job_id"]
+            if head == previous_head:
+                result.complete = False
+                return
+            previous_head = head
+            yield from rows
+        if total is None:
+            if not rows:
+                return
+        elif page >= -(-total // page_size):
+            return
+        if max_pages is not None and page >= max_pages:
+            result.complete = False
+            return
+        page += 1
+        polite_delay(min_delay, max_delay)
+        rows, latest = fetch_page(session, duty, page, page_size=page_size, filters=filters)
+        # 훑는 사이에 새 공고가 붙으면 총 건수가 는다. 끝 쪽도 따라 늘린다
+        total = max(total or 0, latest or 0) or None
+
+
 def sweep_category(
     session: requests.Session,
     duty: str,
@@ -395,30 +482,44 @@ def sweep_category(
     min_delay: float = 3.0,
     max_delay: float = 5.0,
     totals: dict[str, int] | None = None,
+    swept: dict[str, bool] | None = None,
 ) -> Iterator[dict[str, Any]]:
-    """대분류 하나를 앞쪽부터 훑는다. 같은 쪽이 되풀이되면 끝으로 본다.
+    """대분류 하나를 끝까지 훑는다. 1만이 넘으면 지역, 그래도 넘으면 지역 × 경력으로 쪼갠다.
 
-    `totals` 를 넘기면 사이트가 말하는 이 대분류의 총 건수를 적는다. 받은 건수가 이와 같아야
-    「끝까지 훑었다」고 믿고 사라짐 판정에 쓴다(도중에 끊긴 훑기를 완전으로 세지 않게).
+    한 공고가 여러 조각에 걸쳐 오므로 공고번호로 한 번만 내보낸다.
+    `totals` 에는 사이트가 말하는 이 대분류의 총 건수를, `swept` 에는 **모든 조각을 끝 쪽까지
+    넘겼는지**를 적는다. 야간 배치는 `swept` 가 참인 대분류만 「끝까지 훑었다」고 믿고 사라짐
+    판정에 쓴다. 받은 수가 총 건수에 못 미쳐도(사이트가 숨긴 자리) 끝 쪽까지 넘겼으면 참이다.
     """
-    page = 1
+    result = SweepResult()
     seen: set[str] = set()
-    while max_pages is None or page <= max_pages:
-        rows, total = fetch_page(session, duty, page, page_size=page_size)
-        if totals is not None and total is not None:
-            totals[duty] = total
-        if not rows:
-            break
-        fresh = [row for row in rows if row["source_job_id"] not in seen]
-        if not fresh:
-            break
-        for row in fresh:
-            seen.add(row["source_job_id"])
-            yield row
-        if total is not None and len(seen) >= total:
-            break
-        page += 1
-        polite_delay(min_delay, max_delay)
+    options = dict(max_pages=max_pages, page_size=page_size, min_delay=min_delay, max_delay=max_delay)
+
+    def fresh(rows: Iterator[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+        for row in rows:
+            if row["source_job_id"] not in seen:
+                seen.add(row["source_job_id"])
+                yield row
+
+    first = fetch_page(session, duty, 1, page_size=page_size)
+    result.total = first[1]
+    if totals is not None and result.total is not None:
+        totals[duty] = result.total
+    if result.total is None or result.total <= LIST_WALL:
+        yield from fresh(_sweep_slice(session, duty, None, result, first=first, **options))
+    else:
+        for region in REGION_CODES:
+            polite_delay(min_delay, max_delay)
+            by_region = {"local": region}
+            head = fetch_page(session, duty, 1, page_size=page_size, filters=by_region)
+            if head[1] is None or head[1] <= LIST_WALL:
+                yield from fresh(_sweep_slice(session, duty, by_region, result, first=head, **options))
+                continue
+            for career in CAREER_CODES:
+                polite_delay(min_delay, max_delay)
+                yield from fresh(_sweep_slice(session, duty, {**by_region, "career": career}, result, **options))
+    if swept is not None:
+        swept[duty] = result.complete
 
 
 def read_done_ids(path: Path) -> set[str]:
@@ -459,6 +560,7 @@ def sweep_categories(
     max_delay: float = 5.0,
     on_category: Any = None,
     totals: dict[str, int] | None = None,
+    swept: dict[str, bool] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """여러 대분류를 훑어 공고번호로 합친다.
 
@@ -477,7 +579,7 @@ def sweep_categories(
         polite_delay(min_delay, max_delay)
 
         for row in sweep_category(
-            session, duty, max_pages=max_pages, min_delay=min_delay, max_delay=max_delay, totals=totals
+            session, duty, max_pages=max_pages, min_delay=min_delay, max_delay=max_delay, totals=totals, swept=swept
         ):
             count += 1
             gno = row["source_job_id"]
@@ -635,6 +737,8 @@ def main() -> int:
     # 대분류마다 사이트가 말한 총 건수 · 실제로 받은 건수. 둘이 같아야 끝까지 훑은 것이다(야간 배치의 사라짐 판정).
     site_totals: dict[str, int] = {}
     counts: dict[str, int] = {}
+    # 대분류마다 모든 조각을 끝 쪽까지 넘겼는지. 야간 배치의 사라짐 판정이 이것을 본다
+    swept: dict[str, bool] = {}
 
     def write_list(rows: list[dict[str, Any]], saved: int = 0, failed: int = 0) -> None:
         payload = {
@@ -645,6 +749,7 @@ def main() -> int:
             "collected_at": datetime.now(KST).isoformat(timespec="seconds"),
             "site_totals": site_totals,
             "counts": counts,
+            "swept": swept,
             "list_count": len(rows),
             "detail_saved": saved,
             "detail_failed": failed,
@@ -657,7 +762,12 @@ def main() -> int:
         name = DUTY_CATEGORIES.get(duty, duty)
         counts[duty] = count
         total = site_totals.get(duty)
-        whole = "" if total is None else (" · 끝까지" if count >= total else f" · 사이트 {total:,}건 중 일부")
+        if swept.get(duty):
+            # 끝 쪽까지 넘겼다. 사이트가 목록에서 숨긴 자리가 있어 총 건수보다 적을 수 있다
+            whole = " · 끝까지" + ("" if total is None or count >= total else f" (사이트 표시 {total:,}건)")
+        else:
+            whole = "" if total is None else f" · 사이트 {total:,}건 중 일부 — 끝 쪽까지 못 넘김"
+
         print(f"  {name} {count:,}건{whole} (누적 고유 {len(merged):,}건)", flush=True)
         # 대분류 하나 끝날 때마다 떨군다. 전 대분류 훑기가 다섯 시간이 넘어서,
         # 끝나고 한 번만 쓰면 도중에 연결이 끊길 때 그 다섯 시간이 통째로 날아간다.
@@ -672,6 +782,7 @@ def main() -> int:
             max_delay=args.max_delay,
             on_category=report,
             totals=site_totals,
+            swept=swept,
         )
     except BlockedByTargetSiteError as error:
         print(f"[중단] {error}")

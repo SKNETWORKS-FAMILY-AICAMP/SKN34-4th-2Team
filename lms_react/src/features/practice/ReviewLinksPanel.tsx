@@ -6,6 +6,7 @@ import type { AssessmentQuestion } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { useCurrentUser } from '../auth/session';
 import { shortDate } from './review';
+import { PracticeLink } from './PracticeDock';
 import { buildReviewLinks, relatedProblemIndexes, type LessonLink } from './reviewLinks';
 
 /** 세트를 열되 n번째 문제로 바로 간다 */
@@ -78,10 +79,10 @@ function LessonRow({ link, passedOf }: { link: LessonLink; passedOf: (index: num
           </Link>
         ))}
         {set ? (
-          <Link className="btn btn--filled btn--sm" to={playgroundProblemPath(set.id, indexes)}>
+          <PracticeLink className="btn btn--filled btn--sm" setId={set.id} focus={indexes.length ? indexes[0] + 1 : undefined}>
             <Icon name="fitness_center" size={16} />
             복습 문제 {target.length}개 풀기{passed ? ` · 통과 ${passed}` : ''}
-          </Link>
+          </PracticeLink>
         ) : (
           <span className="hint">이 수업의 복습 문제가 아직 없어요</span>
         )}

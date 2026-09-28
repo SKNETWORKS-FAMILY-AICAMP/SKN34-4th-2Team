@@ -45,6 +45,7 @@ import { remapAssignments } from '../domain/seatingLayout';
 import { http, readApiError } from './http';
 import { fetchBootstrap, lastBootstrapSession, mapStudyNote } from './bootstrap';
 import { getBootstrapDb, subscribeBootstrap } from './bootstrapStore';
+import { selectedCohortFor } from './cohortSelection';
 import { queryClient, queryKeys } from './queryClient';
 import { demoTutorAsk, demoTutorReset, demoTutorThread } from './tutorDemo';
 
@@ -74,7 +75,9 @@ function isApiId(id: string | undefined): id is string {
 }
 
 export function apiCohortId(): string {
-  return lastBootstrapSession().cohortId;
+  const session = lastBootstrapSession();
+  // 관리자가 상단에서 고른 기수가 있으면 쓰기도 그 기수로(data/cohortSelection)
+  return selectedCohortFor(session.uid) ?? session.cohortId;
 }
 
 async function invalidateBootstrap(): Promise<void> {
@@ -1271,6 +1274,13 @@ export async function fetchStudySourceTree(sourceId: string): Promise<StudySourc
   if (isTestMode()) return { dates: DEMO_DATES, files: demoFiles(sourceId) };
   const { data } = await http.post<{ dates?: string[]; entries?: { path: string }[] }>('/study-notes/tree', { sourceId });
   return { dates: data.dates ?? [], files: (data.entries ?? []).map((e) => e.path) };
+}
+
+/** 수업 파일 하나의 원문 — 노트의 「연습장에서 열기」. 노트를 만든 커밋 그대로 읽는다 */
+export async function fetchLessonFile(sourceId: string, path: string, commit: string): Promise<{ path: string; commit: string; text: string }> {
+  if (isTestMode()) throw new Error('데모에서는 수업 파일을 열 수 없어요.');
+  const { data } = await http.post<{ path: string; commit: string; text: string }>('/study-notes/file', { sourceId, path, commit });
+  return data;
 }
 
 function putStudyNote(note: StudyNote): StudyNote {

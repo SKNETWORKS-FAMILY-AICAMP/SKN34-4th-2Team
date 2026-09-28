@@ -306,6 +306,12 @@ html {
   top: 0;
   z-index: 20;
   min-height: 64px;
+  transition: transform 0.22s ease;
+}
+
+/* 작은 화면에서 내려 읽을 때는 위로 숨고, 올리면 다시 나온다(Shell.tsx useHideOnScroll 이 단다) */
+.shell--bar-hidden .appbar {
+  transform: translateY(-100%);
 }
 
 /* 위치 줄 — 시작점을 본문 틀(가운데 1080px)의 왼쪽 끝에 맞춘다. 제목과 같은 세로줄에 선다 */
@@ -318,6 +324,24 @@ html {
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
+}
+
+/* 관리자 기수 선택도 본문 틀의 왼쪽 끝(제목과 같은 세로줄)에 선다. 그 뒤의 위치 줄은 바로 옆에 붙인다 */
+.appbar__cohort-slot {
+  display: flex;
+  min-width: 0;
+  margin-left: max(0px, calc((100% - 1080px) / 2));
+}
+
+/* 좁은 화면에서는 틀 안에서 줄어들고 이름은 … 으로 줄인다(옆 프로필 칩을 덮지 않게) */
+.appbar__cohort-slot .more,
+.appbar__cohort-slot .cohort-select {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.appbar__cohort-slot ~ .appbar__crumbs {
+  margin-left: 0;
 }
 
 .appbar__crumb {
@@ -347,6 +371,12 @@ html {
   font-weight: 600;
 }
 
+/* 좁아지면 앞 단계(「이력서 관리」 등)는 그대로 두고 마지막 제목만 … 으로 줄인다.
+   모두 줄어들게 두면 앞 단계 글자가 화살표 밑으로 파고들어 겹쳐 보였다 */
+.appbar__crumb:not(:last-child) {
+  flex: none;
+}
+
 .appbar__menu {
   display: none;
   border: 0;
@@ -356,27 +386,38 @@ html {
   padding: 4px;
 }
 
+/* 관리자 기수 선택 — 같은 줄 오른쪽 프로필 칩(.profile)과 높이 · 모서리 · 글자를 맞춘다 */
 .cohort-select {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 9px 14px;
+  gap: 6px;
+  min-height: 46px;
+  padding: 0 12px 0 16px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--surface);
   color: var(--text-primary);
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
   cursor: pointer;
+}
+
+.cohort-select .more__caret {
+  margin: 0;
+  color: var(--text-secondary);
 }
 
 .appbar__action {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 6px;
   color: var(--primary);
   font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
   padding: 8px 10px;
   border-radius: 8px;
 }
@@ -397,6 +438,8 @@ html {
   font: inherit;
   cursor: pointer;
   text-align: left;
+  min-width: 0;
+  max-width: 260px;
 }
 
 .profile__avatar {
@@ -413,7 +456,16 @@ html {
 .profile__text {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   line-height: 1.25;
+}
+
+/* 좁아도 두 줄로 접지 않는다 — 이름 · 기수는 한 줄에서 … 으로 줄인다 */
+.profile__text strong,
+.profile__text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .profile__text strong {
@@ -3248,6 +3300,23 @@ html {
   border-color: var(--primary);
 }
 
+/* 카드를 누르면 수정으로 간다 */
+.cohort-card--link {
+  cursor: pointer;
+}
+
+.cohort-card--link:hover {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+}
+
+.cohort-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-self: flex-start;
+  cursor: default;
+}
+
 .cohort-card__head {
   display: flex;
   align-items: flex-start;
@@ -4287,6 +4356,11 @@ html {
 }
 
 @media (max-width: 480px) {
+  /* 390 폭에서 「···」 이 7px 넘쳐 페이지가 옆으로 밀렸다 — 간격을 줄여 한 줄에 넣는다 */
+  .py-toolbar {
+    gap: 4px;
+  }
+
   .py-toolbar__label--main {
     display: none;
   }
@@ -4618,6 +4692,11 @@ html {
   font-size: 12px;
 }
 
+/* SQL 셀 — 왼쪽 띠로 파이썬 셀과 가른다 */
+.py-nb-cell--sql .py-nb-cell__main {
+  box-shadow: inset 4px 0 0 var(--py-tok-fn);
+}
+
 /* 마크다운 셀 — 편집 칸 대신 글로 보인다 */
 .py-nb-cell--markdown .py-nb-cell__main {
   background: var(--surface);
@@ -4683,6 +4762,32 @@ html {
 .nb-md ul,
 .nb-md ol {
   padding-left: 22px;
+}
+
+/* 공부방 노트 — 코드 블록 아래 「연습장에서 열기」 */
+.nb-md__codewrap {
+  margin: 8px 0;
+}
+
+.nb-md__codewrap > .nb-md__code {
+  margin-bottom: 2px;
+}
+
+.nb-md__codeaction {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.nb-md__codeaction .hint {
+  font-size: 12px;
+}
+
+/* 번호 항목 아래 들여 쓴 목록 */
+.nb-md .nb-md__nested {
+  margin-left: 22px;
 }
 
 .nb-md code {
@@ -5794,7 +5899,8 @@ html {
   position: fixed;
   right: 8px;
   bottom: 12px;
-  z-index: 60;
+  /* 첨삭 · 복습/연습장 창(900~902 층)보다 위 — 창을 연 채로 챗봇을 열면 창 뒤에 떠서 안 보였다 */
+  z-index: 905;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -5802,6 +5908,14 @@ html {
   background: transparent;
   cursor: pointer;
   font: inherit;
+}
+
+/*
+ * 코치에게 묻기(이력서 편집기 · 공고 맞춤 지원)가 보이는 동안은 숨긴다. 오른쪽 아래에 떠서 코치 입력칸과
+ * 보내기 단추를 덮었다. 코치 대화가 접히거나 그 패널이 접히면(hidden) 다시 나온다.
+ */
+body:has(.coach-ask:not([hidden], [hidden] .coach-ask)) .chatbot-launcher {
+  display: none;
 }
 
 /*
@@ -5852,7 +5966,8 @@ html {
   right: 20px;
   /* 로봇 위에 뜬다. 로봇(104)과 아래 여백만큼 띄운다. */
   bottom: 124px;
-  z-index: 60;
+  /* 첨삭 · 복습/연습장 창보다 위(.chatbot-launcher 와 같은 층) */
+  z-index: 905;
   width: min(360px, calc(100vw - 32px));
   height: min(560px, calc(100vh - 160px));
   display: flex;
@@ -6455,29 +6570,76 @@ html {
 }
 
 /* 이력서 편집 — 다른 화면처럼 셸 안에 선다. 제목은 가운데 1080px 틀의 왼쪽 끝에 맞추고,
-   편집기는 오른쪽 끝까지 쓴다(이력서와 패널이 나란히 서야 해서). 남는 높이를 채우고 안에서 스크롤한다.
-   높이 = 창 - 상단 막대(70) - .screen 위 여백(4) - 아래 여백(16). 페이지 자체는 스크롤하지 않는다.
-   아래 여백은 챗봇 단추 자리(120px)보다 앞서야 해서 .shell 을 붙여 이긴다. */
-.shell .screen:has(> .resume-edit) {
+   편집기는 오른쪽 끝까지 쓴다(이력서와 패널이 나란히 서야 해서).
+   연습장처럼 페이지 전체가 스크롤하고, 오른쪽 패널은 상단 막대 아래에 붙어 따라온다(.resume-panel). */
+
+/* 아래 여백은 16 만. 챗봇 단추 자리(120 · 모바일 100)를 그대로 두면 끝까지 내렸을 때 빈 칸이 남고,
+   붙어 따라오던 오른쪽 패널이 카드 끝에 밀려 머리글 밑으로 파고들었다. 챗봇 단추 규칙보다 앞서도록 한 겹 더 붙인다 */
+.shell .main > .screen:has(> .resume-edit) {
   padding-bottom: 16px;
 }
 
 .resume-edit {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 90px);
-  min-height: 480px;
   margin-left: max(0px, calc((100% - 1080px) / 2));
 }
 
-.resume-edit > .page-head {
+/* 머리글 · 진행 막대 · 칩 — 스크롤해도 상단 막대(70) 밑에 붙어 있다. 높이는 --top-h 로 잰다 */
+.resume-edit__top {
+  position: sticky;
+  top: 70px;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+}
+
+.resume-edit__top > .page-head {
   margin-bottom: 12px;
 }
 
-/* 좁은 화면에서는 .screen 위 여백이 16 이 된다 */
-@media (max-width: 900px) {
-  .resume-edit {
-    height: calc(100dvh - 102px);
+/* 좁은 화면(이력서 · 코치가 위아래로 쌓일 때) — 모바일과 똑같이 둔다.
+   머리글 전체가 붙으면 화면의 40% 를 가려서, 칩 줄만 상단 막대 밑에 붙이고 제목 · 단추는 함께 스크롤한다.
+   내려 읽을 때는 상단 막대 · 칩 줄이 위로 숨고 올리면 다시 나온다(Shell.tsx useHideOnScroll 이 .shell--bar-hidden).
+   넓은 화면은 머리글 전체가 늘 붙어 있다 */
+.resume-edit__chips {
+  transition: transform 0.22s ease;
+}
+
+.resume-edit:has(> .resume-edit__body--stack) > .resume-edit__top {
+  display: contents;
+}
+
+.resume-edit:has(> .resume-edit__body--stack) .resume-edit__chips {
+  position: sticky;
+  top: 70px;
+  z-index: 15;
+  background: var(--background);
+}
+
+/* 막대(70) + 칩 줄 높이만큼 올려야 다 숨는다 */
+.shell--bar-hidden .resume-edit:has(> .resume-edit__body--stack) .resume-edit__chips {
+  transform: translateY(calc(-100% - 70px));
+}
+
+/* 칩으로 내려간 항목 제목은 칩 줄 아래에 선다 */
+.resume-edit:has(> .resume-edit__body--stack) .resume-doc > :is(.doc-section, .resume-doc__field) {
+  scroll-margin-top: 136px;
+}
+
+/* 모바일은 상단 막대가 64 */
+@media (max-width: 640px) {
+  .resume-edit:has(> .resume-edit__body--stack) .resume-edit__chips {
+    top: 64px;
+  }
+
+  .shell--bar-hidden .resume-edit:has(> .resume-edit__body--stack) .resume-edit__chips {
+    transform: translateY(calc(-100% - 64px));
+  }
+
+  .resume-edit:has(> .resume-edit__body--stack) .resume-doc > :is(.doc-section, .resume-doc__field) {
+    scroll-margin-top: 130px;
   }
 }
 
@@ -6567,22 +6729,36 @@ html {
 }
 
 /* 이력서 | 손잡이 | 패널. 패널 크기는 손잡이로 끌어 바꾼다(--panel-w, --panel-h).
-   창 크기가 바뀌어도 본문 520 · 패널 최소값을 지키도록 여기서 한 번 더 자른다. */
+   창 크기가 바뀌어도 본문 520 · 패널 최소값을 지키도록 여기서 한 번 더 자른다.
+   overflow 를 자르지 않는다 — 잘라 두면 패널이 상단에 붙지(sticky) 못한다. 모서리는 칸마다 둥글린다. */
 .resume-edit__body {
-  flex: 1;
-  min-height: 0;
   display: flex;
-  align-items: stretch;
+  align-items: flex-start;
   border: 1px solid var(--border);
   border-radius: 12px;
-  overflow: hidden;
   background: var(--surface);
 }
 
 .resume-edit__body > .resume-doc {
   flex: 1 1 0;
   min-width: 0;
+  align-self: stretch;
   border-right: 0;
+  border-radius: 12px 0 0 12px;
+}
+
+/* 넓은 화면 — 손잡이 · 패널 · 접은 자리는 연습장 튜터처럼 붙어서 따라온다.
+   상단 막대(70)와 붙어 있는 머리글(--top-h) 아래에 서고, 남은 창 높이를 채운다 */
+.resume-edit__body:not(.resume-edit__body--stack) > :is(.panel-handle, .resume-panel, .resume-edit__edge) {
+  position: sticky;
+  top: calc(70px + var(--top-h, 0px));
+  height: calc(100vh - 70px - var(--top-h, 0px) - 16px);
+  min-height: 320px;
+}
+
+.resume-edit__body:not(.resume-edit__body--stack) > .resume-panel {
+  border-radius: 0 12px 12px 0;
+  overflow: hidden;
 }
 
 .resume-panel {
@@ -6631,21 +6807,90 @@ html {
    이력서 본문과 패널 모두 200을 남긴다. */
 .resume-edit__body--stack {
   flex-direction: column;
+  align-items: stretch;
 }
 
 .resume-edit__body--stack > .resume-doc {
-  min-height: 0;
+  border-radius: 12px 12px 0 0;
+}
+
+/* 좁은 화면 — 원본처럼 패널은 화면 아래에 붙는 시트다. 위의 손잡이를 끌어 높이를 바꾼다
+   (200 ~ 창 - 상단 막대 - 이력서 최소 200). 이력서 카드 폭을 그대로 따라 메뉴를 덮지 않는다.
+   머리글의 「AI 코치」 단추나 시트의 × · Esc 로 닫는다 */
+.resume-edit__body--stack {
+  --sheet-h: clamp(200px, var(--panel-h), max(200px, min(900px, calc(100vh - 298px))));
 }
 
 .resume-edit__body--stack > .resume-panel {
+  position: sticky;
+  bottom: 0;
+  z-index: 16;
   width: auto;
-  height: clamp(200px, var(--panel-h), max(200px, min(900px, calc(100% - 228px))));
+  height: var(--sheet-h);
+  flex-direction: column;
   background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-radius: 16px 16px 12px 12px;
+  box-shadow: 0 -10px 28px var(--shadow);
 }
 
+.resume-edit__body--stack > .resume-panel[hidden] {
+  display: none;
+}
+
+/* 시트 맨 위 손잡이 — 가운데 짧은 막대를 잡아 위아래로 끈다 */
+.resume-panel > .panel-handle--y {
+  flex: none;
+  height: 20px;
+}
+
+.resume-panel > .panel-handle--y::before {
+  left: 50%;
+  right: auto;
+  top: 8px;
+  width: 40px;
+  height: 4px;
+  border-radius: 4px;
+  transform: translateX(-50%);
+  background: var(--text-hint);
+}
+
+.resume-edit__body--stack > .resume-doc {
+  border-radius: 12px 12px 0 0;
+}
+
+.resume-edit__body--stack:not(:has(> .resume-panel:not([hidden]))) > .resume-doc {
+  border-radius: 12px;
+}
+
+.resume-panel__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  /* 위는 손잡이(20)가 자리를 내준다 */
+  padding: 0 12px 10px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 15px;
+}
+
+/* 시트가 열리면 오른쪽 아래 로봇을 숨긴다 — 시트를 덮지 않게(연습장과 같다) */
+body:has(.resume-edit__body--stack > .resume-panel:not([hidden])) .chatbot-launcher {
+  display: none;
+}
+
+/* 머리글 「AI 코치」 단추 — 시트가 열려 있으면 켜진 모양 */
+.resume-edit__coach-on {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+/* 손잡이 · 시트 머리 · 항목 목록 · 피드백 창 */
 .resume-edit__body--stack > .resume-panel--review {
+  display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 
 .resume-edit__body--stack .review-feedback {
@@ -6735,16 +6980,19 @@ html {
   outline: none;
 }
 
-/* 이력서 본문만 스크롤한다. 오른쪽 패널은 제자리에 머문다. */
+/* 이력서 본문은 페이지와 함께 스크롤한다. */
 .resume-doc {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 16px 24px 64px;
+  padding: 16px 24px 24px;
   border-right: 1px solid var(--border);
-  min-height: 0;
-  overflow-y: auto;
   background: var(--background);
+}
+
+/* 칩을 눌러 내려간 항목의 제목이 상단 막대 · 붙어 있는 머리글에 가리지 않게 */
+.resume-doc > :is(.doc-section, .resume-doc__field) {
+  scroll-margin-top: calc(70px + var(--top-h, 0px) + 12px);
 }
 
 .resume-doc__field {
@@ -7569,6 +7817,28 @@ a.coach-ask__card-title:hover {
   font-family: inherit;
   font-size: 11px;
   cursor: pointer;
+}
+
+/* 찾은 공고를 공고 맞춤 지원으로 — 카드 맨 아래 한 줄 */
+.coach-ask__card-pick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  color: var(--primary);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.coach-ask__card-pick:hover {
+  background: color-mix(in srgb, var(--primary) 14%, var(--surface));
 }
 
 .coach-ask__card-ask {
@@ -8895,7 +9165,27 @@ a.coach-ask__card-title:hover {
   color: var(--text-secondary);
 }
 
+/* SQL 조회 문제 — 예제 테이블 이름 · 열과 기대 결과 표 */
+.pb__sql {
+  padding: 0 16px 10px;
+}
+
+.pb__sql-tables {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.pb__sql .py-nb-table {
+  margin-top: 6px;
+}
+
 .pb__hint code,
+.pb__sql-tables code,
 .pb__verdict code,
 .pb__tests code {
   padding: 1px 6px;
@@ -9146,7 +9436,8 @@ a.coach-ask__card-title:hover {
   .cohort-select {
     min-width: 0;
     max-width: 52vw;
-    padding: 8px 10px;
+    min-height: 0;
+    padding: 6px 8px 6px 12px;
   }
 
   .cohort-select > span {
@@ -9155,7 +9446,9 @@ a.coach-ask__card-title:hover {
     white-space: nowrap;
   }
 
+  /* 이름만 남기므로 줄이지 않는다 — 줄이면 이름이 한 글자로 잘렸다. 좁은 폭은 위치 줄이 내준다 */
   .profile {
+    flex: none;
     padding: 6px 12px 6px 8px;
   }
 
@@ -9716,6 +10009,26 @@ a.coach-ask__card-title:hover {
 
 .tailored__list li + li {
   border-top: 1px solid var(--divider);
+}
+
+/* 줄 = 여는 링크 + ⋯(삭제). 메뉴는 링크 밖에 둔다 — 링크 안의 단추는 누르면 이력서가 열린다 */
+.tailored__row {
+  display: flex;
+  align-items: center;
+  padding-right: 8px;
+}
+
+.tailored__row:hover {
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+}
+
+.tailored__row .tailored__item {
+  flex: 1;
+  min-width: 0;
+}
+
+.tailored__row .tailored__item:hover {
+  background: none;
 }
 
 .tailored__item {
@@ -10577,7 +10890,8 @@ a.coach-ask__card-title:hover {
   color: var(--primary);
 }
 
-/* 좁은 화면 — 오른쪽에서 밀려 나오는 서랍 */
+/* 좁은 화면 — 이력서 코치처럼 셀 아래에서 올라와 화면 아래에 붙는 시트다. 위에서는 코드를 보고
+   아래에서 묻는다(오른쪽 서랍이던 때는 휴대폰에서 코드를 통째로 덮었다). 맨 위 막대로 높이를 끈다(--tutor-h) */
 @media (max-width: 1100px) {
   .py-layout--tutor {
     grid-template-columns: minmax(0, 1fr);
@@ -10585,15 +10899,42 @@ a.coach-ask__card-title:hover {
   }
 
   .tutor {
-    position: fixed;
-    top: 0;
-    right: 0;
+    position: sticky;
+    top: auto;
     bottom: 0;
-    z-index: 70;
-    width: min(400px, 100vw);
-    height: auto;
-    border-radius: 0;
+    z-index: 16;
+    height: clamp(200px, var(--tutor-h, 45vh), max(200px, calc(100vh - 270px)));
+    min-height: 0;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -10px 28px var(--shadow);
   }
+}
+
+.tutor__grip {
+  position: relative;
+  flex: none;
+  height: 18px;
+  cursor: row-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.tutor__grip::before {
+  content: '';
+  position: absolute;
+  top: 7px;
+  left: 50%;
+  width: 40px;
+  height: 4px;
+  border-radius: 4px;
+  transform: translateX(-50%);
+  background: var(--text-hint);
+}
+
+/* 튜터가 열리면 로봇을 숨기므로(.py-tutor-open) 그 자리 아래 여백도 거둔다. 남기면 끝까지 내렸을 때
+   빈 칸이 생기고, 붙어 따라오던 튜터가 끝에서 밀려 올라간다 */
+.shell .main > .screen:has(.py-layout--tutor) {
+  padding-bottom: 16px;
 }
 
 /* 튜터 답이 풀리는 동안 끝에 깜빡이는 막대 */

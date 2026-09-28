@@ -76,3 +76,17 @@ export function groupResumes(resumes: Resume[], base: Resume | undefined): { bas
   });
   return { baseTailored, rows: [...rows, ...orphans.map((r) => ({ resume: r, children: [] }))] };
 }
+
+/**
+ * 공고 맞춤 지원(문항 답변)에서 만든 자소서 — 이력서 관리의 공고 맞춤 이력서와 따로 둔다.
+ * id 가 「원본/tailored/apply_…」다. 그렇게 나누기 전에 만든 것은 회사 문항이 담긴 사본으로 가른다.
+ */
+export function isApplyCopy(resume: Resume): boolean {
+  if (/\/tailored\/apply_[^/]+$/.test(resume.id)) return true;
+  return /\/tailored\/[^/]+$/.test(resume.id) && (resume.content.companyQuestions?.length ?? 0) > 0;
+}
+
+/** 자소서 이름 — 나누기 전에 만든 것은 「OO 맞춤 이력서」 · 「OO 지원서」로 저장돼 있다. 목록에서는 「OO 자소서」로 부른다 */
+export function applyCopyTitle(title: string): string {
+  return title.replace(/\s*(맞춤 이력서|지원서)$/, ' 자소서');
+}

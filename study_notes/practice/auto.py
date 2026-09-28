@@ -65,7 +65,7 @@ def nothing_to_do(lesson_dates: list[str], today: str) -> str:
     """자동 출제할 날이 없을 때 강사에게 보일 이유"""
     past = [d for d in lesson_dates if d <= today]
     if not past:
-        return "아직 수업 파일(.ipynb · .py · .md)이 올라온 날이 없어요."
+        return "아직 수업 파일(.ipynb · .py · .md · .sql)이 올라온 날이 없어요."
     return (
         f"최근 {FIRST_RUN_DAYS}일 안에 수업이 없어 자동 출제 대상이 아니에요(마지막 수업 {past[-1]}). "
         "「지금 만들기」에서 날짜를 골라 만들 수 있어요."

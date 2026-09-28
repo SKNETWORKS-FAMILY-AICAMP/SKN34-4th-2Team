@@ -1,9 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+
+import type { ImportedCell } from '../practice/notebookFile';
+import { NotebookMarkdown } from '../practice/NotebookMarkdown';
+import { PracticeLink, usePracticeDock } from '../practice/PracticeDock';
+import { findCodeInFiles, isSqlBlock, lessonCells, lessonSlice, significantLines, type LessonFile } from './lessonCode';
 
 import { RoutePaths } from '../../app/routePaths';
 import {
   deleteStudyNote,
+  fetchLessonFile,
   fetchStudySourceTree,
   refreshStudyNote,
   requestStudyNote,
@@ -17,7 +23,7 @@ import {
   type StudySourceTree,
 } from '../../data/repository';
 import { readApiError } from '../../data/http';
-import type { InflearnPackage, PracticeSet, StudyNoteScopeType } from '../../domain/types';
+import type { InflearnPackage, PracticeSet, StudyNote, StudyNoteScopeType } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import {
   Button,
@@ -34,7 +40,7 @@ import { MakeProblems } from '../practice/MakeProblems';
 import { useIsHidden } from '../practice/useIsHidden';
 import { usePageCrumbs } from '../../app/crumbs';
 import { useCurrentUser } from '../auth/session';
-import { LessonDaysSection, practicePath, setProgress } from './LessonDaysSection';
+import { LessonDaysSection, setProgress } from './LessonDaysSection';
 import { noteDate, noteLabel } from './noteScope';
 
 const packageTypeLabels: Record<string, string> = {
@@ -96,9 +102,9 @@ export function StudyRoomScreen() {
           <strong className="study-entry__title">연습장</strong>
           <p className="study-entry__desc">수업 코드를 옮겨 적고 브라우저에서 바로 실행해 봅니다.</p>
         </div>
-        <Link className="btn btn--outline btn--md" to={RoutePaths.studyRoomPlayground}>
+        <PracticeLink className="btn btn--outline btn--md" setId={null}>
           연습장 열기
-        </Link>
+        </PracticeLink>
       </section>
 
       <YoutubeRecommendations cohortName={user.cohortName} />
@@ -325,6 +331,8 @@ export function StudyNoteSourceScreen() {
   // 공부방 수업 카드의 「노트 만들기」로 오면 그 날짜를 미리 고른다
   const askedDate = query.get('date') ?? '';
   const initialDate = /^\d{4}-\d{2}-\d{2}$/.test(askedDate) ? askedDate : '';
+  // 과목 카드의 「과목 전체 요약」으로 오면 있던 요약을 열거나 새로 만든다
+  const askedSummary = query.get('summary') === '1';
   const [selectedId, setSelectedId] = useState<string | null>(initialNoteId);
   const [tab, setTab] = useState('report');
   const [scopeMode, setScopeMode] = useState<'date' | 'folder' | 'file'>('date');
@@ -376,6 +384,16 @@ export function StudyNoteSourceScreen() {
     }, POLL_MS);
     return () => window.clearInterval(timer);
   }, [pollId]);
+
+  const summaryAsked = useRef(false);
+  useEffect(() => {
+    if (!askedSummary || summaryAsked.current) return;
+    summaryAsked.current = true;
+    const existing = allNotes.find((n) => n.sourceId === sourceId && n.scopeType === 'subject');
+    if (existing) setSelectedId(existing.id);
+    else void request('subject', 'all');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askedSummary, sourceId]);
 
   const files = candidates ?? tree?.files ?? [];
   const dateChoices = [...new Set([...(initialDate ? [initialDate] : []), ...(tree?.dates ?? [])])].sort().reverse();
@@ -507,7 +525,10 @@ export function StudyNoteSourceScreen() {
           ) : note.status === 'generating' ? (
             <Card className="split__main" title={noteLabel(note)} actions={<NoteDelete id={note.id} onDeleted={() => setSelectedId(null)} />}>
               <div className="callout" role="status">
-                정리 중이에요. 저장소를 읽고 AI 가 요약하느라 몇 분 걸려요. 이 화면을 떠나도 계속 만들고, 끝나면 여기에 나타나요.
+                {note.scopeType === 'subject' && note.message
+                  ? note.message
+                  : '정리 중이에요. 저장소를 읽고 AI 가 요약하느라 몇 분 걸려요.'}{' '}
+                이 화면을 떠나도 계속 만들고, 끝나면 여기에 나타나요.
               </div>
             </Card>
           ) : note.status === 'failed' ? (
@@ -542,9 +563,9 @@ export function StudyNoteSourceScreen() {
                   <strong>이 날 복습 문제 {dayProgress.total}개</strong> · 통과 {dayProgress.passed} / {dayProgress.total}
                 </span>
                 <Spacer />
-                <Link className="btn btn--filled btn--sm" to={practicePath(daySet.id)}>
+                <PracticeLink className="btn btn--filled btn--sm" setId={daySet.id}>
                   복습 문제 풀기
-                </Link>
+                </PracticeLink>
               </div>
             )}
             <MakeProblems
@@ -556,13 +577,14 @@ export function StudyNoteSourceScreen() {
             <Tabs
               items={[
                 { id: 'report', label: '요약' },
-                { id: 'review', label: '복습' },
+                // 노트에는 이제 문제를 넣지 않는다(복습은 위의 그날 복습 문제). 예전 노트에만 남아 있다
+                ...(note.reviewMarkdown.trim() === '' ? [] : [{ id: 'review', label: '복습' }]),
                 { id: 'files', label: '파일', count: note.files.length },
               ]}
               active={tab}
               onChange={setTab}
             />
-            {tab === 'report' && <Markdown text={note.reportMarkdown} />}
+            {tab === 'report' && <Markdown text={note.reportMarkdown} note={{ id: note.id, title: noteLabel(note), sourceId: note.sourceId, files: note.files }} />}
             {tab === 'review' && <Markdown text={note.reviewMarkdown} />}
             {tab === 'files' && (
               <ul className="list">
@@ -621,18 +643,99 @@ function NoteDelete({ id, onDeleted }: { id: string; onDeleted(): void }) {
   );
 }
 
-/** 아주 작은 마크다운 표시기 — 제목·목록·문단만 다룬다. */
-export function Markdown({ text }: { text: string }) {
+/**
+ * 노트 표시 — 연습장 마크다운 표시기(굵게 · 인라인 코드 · 코드 블록 · 목록 · 인용)를 그대로 쓴다.
+ * 예전 표시기는 제목 · 목록 · 문단만 알아서 `**굵게**` · `코드` · 코드 블록이 기호째 보였다.
+ * 예전 노트는 소제목을 「**오늘의 핵심 한 문장**」처럼 굵은 줄로 썼다 — 그런 줄은 소제목으로 바꿔 보인다.
+ */
+/** 노트 코드 블록에 버튼을 달 때 필요한 노트 정보 */
+interface NoteRef {
+  id: string;
+  /** 「09/11 수업」 — 연습장 탭 이름 */
+  title: string;
+  sourceId: string;
+  files: StudyNote['files'];
+}
+
+export function Markdown({ text, note }: { text: string; note?: NoteRef }) {
   return (
-    <div className="markdown">
-      {text.split('\n').map((line, i) => {
-        if (line.startsWith('## ')) return <h3 key={i}>{line.slice(3)}</h3>;
-        if (line.startsWith('# ')) return <h2 key={i}>{line.slice(2)}</h2>;
-        if (line.startsWith('- ')) return <li key={i}>{line.slice(2)}</li>;
-        if (/^\d+\.\s/.test(line)) return <li key={i}>{line.replace(/^\d+\.\s/, '')}</li>;
-        if (line.trim() === '') return null;
-        return <p key={i}>{line}</p>;
-      })}
+    <NotebookMarkdown
+      source={boldLinesAsHeadings(text)}
+      codeAction={note ? (code, lang) => <NoteCodeActions code={code} sql={isSqlBlock(code, lang)} note={note} /> : undefined}
+    />
+  );
+}
+
+/** 노트를 만든 수업 파일(셀로 바꾼 것). 같은 노트의 코드 블록을 여러 번 눌러도 한 번만 받는다 */
+const lessonFiles = new Map<string, Promise<LessonFile>>();
+
+function loadLessonFiles(sourceId: string, files: StudyNote['files']) {
+  return Promise.all(
+    files.map((f) => {
+      const key = `${sourceId}:${f.path}:${f.commit}`;
+      let hit = lessonFiles.get(key);
+      if (!hit) {
+        hit = fetchLessonFile(sourceId, f.path, f.commit).then((r) => ({ path: f.path, cells: lessonCells(f.path, r.text) }));
+        hit.catch(() => lessonFiles.delete(key));
+        lessonFiles.set(key, hit);
+      }
+      return hit;
+    }),
+  );
+}
+
+/**
+ * 코드 블록 아래 버튼 두 개 — 노트마다 연습장 탭 하나(「09/11 수업 코드」)에 모은다.
+ * - 연습장에서 열기: 이 코드 블록만 셀로 덧붙인다.
+ * - 수업 파일에서 보기: 이 코드가 든 수업 파일 셀과 앞뒤 몇 셀만 가져온다. 파일을 통째로 열면 너무 길다.
+ *   노트가 설명하려고 새로 쓴 코드면 수업 파일에 없다고 알린다.
+ */
+function NoteCodeActions({ code, sql, note }: { code: string; sql: boolean; note: NoteRef }) {
+  const dock = usePracticeDock();
+  const [state, setState] = useState<'idle' | 'busy' | 'missing' | 'failed'>('idle');
+  if (!dock || significantLines(code, sql).length === 0) return null;
+  const openCells = (cells: ImportedCell[], focusText: string) =>
+    dock.open({ setId: null, note: { noteId: note.id, title: note.title, cells, focusText, seq: Date.now() } });
+
+  const openLesson = async () => {
+    setState('busy');
+    try {
+      const files = await loadLessonFiles(note.sourceId, note.files);
+      const match = findCodeInFiles(code, files, sql);
+      if (!match) {
+        setState('missing');
+        return;
+      }
+      const file = files.find((f) => f.path === match.path)!;
+      const slice = lessonSlice(file.cells, match.cellIndex);
+      const name = file.path.split('/').pop();
+      openCells(
+        [{ type: 'markdown', source: `#### 수업 파일 · ${name} (${slice.from}~${slice.to}번째 셀)` }, ...slice.cells],
+        file.cells[match.cellIndex].source,
+      );
+      setState('idle');
+    } catch {
+      setState('failed');
+    }
+  };
+  return (
+    <div className="nb-md__codeaction">
+      <button type="button" className="btn btn--text btn--sm" onClick={() => openCells([{ type: sql ? 'sql' : 'code', source: code }], code)}>
+        <Icon name="terminal" size={16} />
+        연습장에서 열기
+      </button>
+      {note.files.length > 0 && (
+        <button type="button" className="btn btn--text btn--sm" onClick={() => void openLesson()} disabled={state === 'busy'}>
+          <Icon name="description" size={16} />
+          {state === 'busy' ? '수업 파일을 찾는 중…' : '수업 파일에서 보기'}
+        </button>
+      )}
+      {state === 'missing' && <span className="hint">이 코드는 수업 파일에 그대로 있지 않아요(노트가 설명하려고 새로 쓴 코드예요).</span>}
+      {state === 'failed' && <span className="hint">수업 파일을 불러오지 못했어요. 잠시 후 다시 눌러 주세요.</span>}
     </div>
   );
+}
+
+export function boldLinesAsHeadings(text: string): string {
+  return text.replace(/^[ \t]*\*\*([^*\n]{1,60})\*\*[ \t]*:?[ \t]*$/gm, '## $1');
 }

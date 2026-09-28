@@ -23,7 +23,8 @@ from pathlib import Path
 
 # KST는 DST가 없어 고정 오프셋으로 충분하다. (Windows는 tzdata가 없어 ZoneInfo가 실패한다)
 SEOUL = timezone(timedelta(hours=9), name="Asia/Seoul")
-ALLOWED_SUFFIXES = (".ipynb", ".py", ".md")
+# .sql — database 과목 수업 파일(2026-09-28 추가). 노트 · SQL 복습 문제(sql_query)에 쓴다
+ALLOWED_SUFFIXES = (".ipynb", ".py", ".md", ".sql")
 # 날짜 목록은 기간으로 자르지 않고 수업이 있던 날을 최근부터 이만큼 — 끝난 과목(예: 7월 DL)도 복습하게.
 # 예전엔 최근 30일만 보여 줘서, 지난 과목은 날짜가 하나도 안 나왔다.
 MAX_LESSON_DATES = 120
@@ -329,6 +330,25 @@ class RepoCache:
 
     def read_file(self, commit: str, path: str) -> str:
         return run_git(["show", f"{commit}:{path}"], cwd=self.dir)
+
+    def blob_ids(self, files: list[dict[str, str]]) -> dict[tuple[str, str], str]:
+        """{(commit, path): 내용 해시(blob id)}. 파일 본문은 받지 않는다.
+
+        같은 내용이면 커밋이 달라도 blob id 가 같다. 그래서 「수업 파일이 바뀌었나」를
+        커밋이 아니라 내용으로 가를 수 있다. 트리만 읽으므로 blob:none 클론에서도 네트워크를 쓰지 않는다.
+        """
+        by_commit: dict[str, list[str]] = {}
+        for item in files:
+            by_commit.setdefault(item["commit"], []).append(item["path"])
+        found: dict[tuple[str, str], str] = {}
+        for commit, paths in by_commit.items():
+            out = run_git(["ls-tree", commit, "--", *paths], cwd=self.dir)
+            for line in out.splitlines():
+                meta, _, path = line.partition("\t")
+                parts = meta.split()
+                if len(parts) == 3 and parts[1] == "blob":
+                    found[(commit, path)] = parts[2]
+        return found
 
 
 def notebook_to_text(raw: str) -> str:

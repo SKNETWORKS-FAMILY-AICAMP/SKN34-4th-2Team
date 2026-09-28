@@ -26,6 +26,7 @@ import type {
   SeatingCellType,
   SeatingRoom,
   StudyNote,
+  StudyNoteScopeType,
   Submission,
   Todo,
   User,
@@ -85,8 +86,8 @@ export function mapStudyNote(raw: Record<string, unknown>): StudyNote {
     status: String(row.status ?? 'done'),
     errorMessage: text(row.errorMessage ?? row.error_message),
     message: text(row.message),
-    scopeType: ['date', 'prefix', 'files'].includes(String(row.scopeType))
-      ? (String(row.scopeType) as 'date' | 'prefix' | 'files')
+    scopeType: ['date', 'prefix', 'files', 'subject'].includes(String(row.scopeType))
+      ? (String(row.scopeType) as StudyNoteScopeType)
       : undefined,
     scopeValue: Array.isArray(row.scopeValue)
       ? (row.scopeValue as unknown[]).map(String)
@@ -298,6 +299,8 @@ function withResumeDefaults(value: unknown): Resume['content'] {
       strengthsWeaknesses: { ...EMPTY_INTRO, ...intro.strengthsWeaknesses },
       aspiration: { ...EMPTY_INTRO, ...intro.aspiration },
     },
+    // 공고 맞춤 이력서의 회사 문항. 여기서 빼면 편집기가 저장할 때 지워진다
+    ...(Array.isArray(c.companyQuestions) ? { companyQuestions: c.companyQuestions } : {}),
   };
 }
 

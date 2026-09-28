@@ -235,7 +235,7 @@ def generate_note(
             _finish(note_pk, token, "too_broad", files=files, message=message)
             return {"noteId": note_id, "status": "too_broad", "message": message, "files": files}
         if not files:
-            raise StudyNotesError(404, "이 범위에서 분석 가능한 .ipynb/.py/.md 파일이 없습니다.")
+            raise StudyNotesError(404, "이 범위에서 분석 가능한 .ipynb/.py/.md/.sql 파일이 없습니다.")
         materials = service._load_materials(cache, files)
         report, review = service.generate_study_note(
             scope_label=service.scope_label(kind, value), commits=commits, materials=materials,

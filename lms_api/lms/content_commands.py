@@ -8,8 +8,8 @@ React 가 화면 캐시에만 저장하던 것들을 서버로 옮긴 것이다(
 - 평가 응시 · 채점: assessment_submissions + assessment_answers
 - 구매 요청: purchase_requests + purchase_request_items (+ 승인 시 mileage_transactions · 잔액)
 - 커리큘럼: curriculum_sheets + curriculum_rows
-- 자리 확인: roll_calls + roll_call_entries
 - 설문 응답 · 마일리지 설정: id 칸이 없어 범용 upsert 가 다루지 못한다
+- 자리 확인(setSeatPresence)은 commands 의 seat_presences 판을 쓴다
 """
 
 from __future__ import annotations
@@ -189,18 +189,20 @@ def op_grade_answer(cur, user, p):
 
 
 def op_mark_form_responded(cur, user, p):
-    """제출함 표시 — form_responses 는 (task_id, user_id) 가 열쇠라 범용 upsert 가 못 다룬다."""
-    task = resolve_row(cur, "form_tasks", p["taskId"])
+    """제출함 표시 — submission_responses 는 (task_id, user_id) 가 열쇠라 범용 upsert 가 못 다룬다.
+    과제는 여러 기수에 걸릴 수 있다(submission_task_cohorts). 그중 한 곳이라도 볼 수 있으면 된다."""
+    task = resolve_row(cur, "submission_tasks", p["taskId"])
     if not task:
         raise KeyError("form")
-    if not can_access_cohort(user, task["cohort_id"]):
+    cur.execute("SELECT cohort_id FROM submission_task_cohorts WHERE task_id = %s", [task["id"]])
+    if not any(can_access_cohort(user, cohort_id) for (cohort_id,) in cur.fetchall()):
         raise PermissionError("cohort")
     target = user["id"]
     if p.get("uid") and user["role"] in ("admin", "instructor"):
         target = resolve_user(cur, str(p["uid"])) or target
     cur.execute(
-        """INSERT INTO form_responses (task_id, user_id, source, submitted_at)
-           VALUES (%s,%s,%s, now())
+        """INSERT INTO submission_responses (task_id, user_id, source, response, submitted_at)
+           VALUES (%s,%s,%s, '{}'::jsonb, now())
            ON CONFLICT (task_id, user_id) DO UPDATE SET source = EXCLUDED.source, submitted_at = now()""",
         [task["id"], target, p.get("source") or "manual"],
     )
@@ -326,49 +328,6 @@ def op_replace_curriculum_sheet(cur, user, p):
     return {"id": key}
 
 
-# ── 자리 확인 ─────────────────────────────────────────
-
-
-def op_set_seat_presence(cur, user, p):
-    """교시마다 학생이 자리에 있는지 — roll_calls(날짜 · 교시) 밑에 학생별로 남긴다."""
-    _require_staff(user)
-    cohort_id = _cohort_for(cur, user, p.get("cohortId"))
-    date_key = str(p.get("dateKey") or "")[:10]
-    period = str(p.get("period") or "")
-    cur.execute(
-        """INSERT INTO roll_calls (cohort_id, date_key, period_id, updated_by, updated_at)
-           VALUES (%s,%s,%s,%s, now())
-           ON CONFLICT (cohort_id, date_key, period_id) DO UPDATE SET updated_by = EXCLUDED.updated_by,
-             updated_at = now()
-           RETURNING id""",
-        [cohort_id, date_key, period, user["id"]],
-    )
-    fetched = cur.fetchone()
-    if fetched:
-        roll_call_id = fetched[0]
-    else:
-        cur.execute(
-            "SELECT id FROM roll_calls WHERE cohort_id=%s AND date_key=%s AND period_id=%s",
-            [cohort_id, date_key, period],
-        )
-        roll_call_id = cur.fetchone()[0]
-    target = resolve_user(cur, str(p.get("uid") or ""))
-    if not target:
-        raise KeyError("user")
-    state = p.get("state") or "none"
-    if state == "none":
-        cur.execute(
-            "DELETE FROM roll_call_entries WHERE roll_call_id = %s AND user_id = %s", [roll_call_id, target]
-        )
-    else:
-        cur.execute(
-            """INSERT INTO roll_call_entries (roll_call_id, user_id, state) VALUES (%s,%s,%s)
-               ON CONFLICT (roll_call_id, user_id) DO UPDATE SET state = EXCLUDED.state""",
-            [roll_call_id, target, state],
-        )
-    return {"ok": True}
-
-
 # ── 학생 상담 ─────────────────────────────────────────
 
 INTAKE_FIELDS = [
@@ -414,5 +373,4 @@ CONTENT_OPS = {
     "reviewPurchaseRequest": op_review_purchase_request,
     "saveMileageSettings": op_save_mileage_settings,
     "replaceCurriculumSheet": op_replace_curriculum_sheet,
-    "setSeatPresence": op_set_seat_presence,
 }

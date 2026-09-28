@@ -65,5 +65,43 @@ class RequirementTextTest(unittest.TestCase):
         self.assertFalse(has_requirement_text("회사 소개와 인사말만 길게 적힌 글. " * 15))
 
 
+class PageDeadlineTest(unittest.TestCase):
+    """마감일은 페이지의 「접수기간 및 방법」이 기준이다. 목록 문구의 옛 날짜는 연장되면 틀린다."""
+
+    def test_reads_extended_deadline_with_time(self):
+        from job_matching_bot.crawling.crawl_detail import page_deadline
+
+        detail = {"apply": {"시작일": "2026.09.02 00:00", "마감일": "2026.09.30 23:59"}}
+        self.assertEqual(page_deadline(detail), ("2026-09-30T23:59:00+09:00", "마감일 2026.09.30 23:59"))
+
+    def test_date_only_means_end_of_day_and_always_open_has_no_deadline(self):
+        from job_matching_bot.crawling.crawl_detail import page_deadline
+
+        self.assertEqual(page_deadline({"apply": {"마감일": "2026.10.01"}})[0], "2026-10-01T23:59:59+09:00")
+        self.assertEqual(page_deadline({"apply": {"마감일": "채용시 마감"}}), (None, "마감일 채용시 마감"))
+
+    def test_every_pair_in_one_dl_is_read(self):
+        from bs4 import BeautifulSoup
+
+        from job_matching_bot.crawling.crawl_detail import _dl_pairs
+
+        section = BeautifulSoup(
+            '<div><dl class="info_period"><dt>시작일</dt><dd>2026.09.02 00:00</dd>'
+            '<dt class="end">마감일</dt><dd>2026.09.30 23:59</dd></dl>'
+            "<dl><dt>빈 항목</dt><dt>지원방법</dt><dd>사람인 입사지원</dd></dl></div>",
+            "html.parser",
+        )
+        self.assertEqual(
+            _dl_pairs(section),
+            {"시작일": "2026.09.02 00:00", "마감일": "2026.09.30 23:59", "지원방법": "사람인 입사지원"},
+        )
+
+    def test_unknown_when_missing_or_unreadable(self):
+        from job_matching_bot.crawling.crawl_detail import page_deadline
+
+        self.assertIsNone(page_deadline({}))
+        self.assertIsNone(page_deadline({"apply": {"마감일": "추후 공지"}}))
+
+
 if __name__ == "__main__":
     unittest.main()

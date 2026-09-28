@@ -15,7 +15,8 @@ import type { TableData } from './pythonProtocol';
  */
 
 export interface ImportedCell {
-  type: 'code' | 'markdown';
+  /** sql — .sql 파일이나 Jupyter 의 %%sql 셀 */
+  type: 'code' | 'markdown' | 'sql';
   source: string;
 }
 
@@ -62,7 +63,7 @@ export function flattenCells(cells: Cell[], set: PracticeSet | undefined): { cel
       for (const p of parts) out.push({ cell: p, from: null });
       continue;
     }
-    out.push({ cell: { type: c.type === 'markdown' ? 'markdown' : 'code', source: c.code }, from: c });
+    out.push({ cell: { type: c.type, source: c.code }, from: c });
   }
   return out;
 }
@@ -132,7 +133,8 @@ export function toIpynb(cells: Cell[], set: PracticeSet | undefined): string {
             id: `cell-${i + 1}`,
             metadata: {},
             execution_count: from?.count ?? null,
-            source: sourceLines(cell.source),
+            // SQL 셀은 Jupyter 의 %%sql 셀로(ipython-sql). 다시 불러오면 SQL 셀이 된다
+            source: sourceLines(cell.type === 'sql' ? `${SQL_MAGIC}\n${cell.source}` : cell.source),
             outputs: from ? outputsOf(from) : [],
           },
     ),
@@ -144,9 +146,9 @@ export function toIpynb(cells: Cell[], set: PracticeSet | undefined): string {
 export function toPy(cells: Cell[], set: PracticeSet | undefined): string {
   const flat = flattenCells(cells, set);
   const blocks = flat.map(({ cell }) => {
-    if (cell.type === 'markdown') {
+    if (cell.type === 'markdown' || cell.type === 'sql') {
       const body = cell.source.split('\n').map((l) => (l ? `# ${l}` : '#')).join('\n');
-      return `# %% [markdown]\n${body}`;
+      return `# %% [${cell.type}]\n${body}`;
     }
     return `# %%\n${cell.source.replace(/\n+$/, '')}`;
   });
@@ -164,6 +166,8 @@ export function exportFileName(set: PracticeSet | undefined, ext: 'ipynb' | 'py'
 
 /** 브라우저에서 못 도는 줄 — 셸 명령(!pip)과 IPython 매직(%matplotlib, %%time) */
 const MAGIC = /^(\s*)([!%].*)$/;
+/** Jupyter(ipython-sql)의 SQL 셀 첫 줄 */
+const SQL_MAGIC = '%%sql';
 
 function softenMagics(source: string): { source: string; changed: number } {
   let changed = 0;
@@ -203,7 +207,10 @@ export function parseIpynb(text: string): ImportedNotebook {
   for (const raw of nb.cells as { cell_type?: string; source?: unknown }[]) {
     const source = joinSource(raw?.source);
     if (raw?.cell_type === 'markdown') cells.push({ type: 'markdown', source });
-    else if (raw?.cell_type === 'code') {
+    else if (raw?.cell_type === 'code' && source.trimStart().startsWith(SQL_MAGIC)) {
+      // %%sql 셀 — 첫 줄(연결 주소가 붙기도 한다)을 떼고 SQL 셀로
+      cells.push({ type: 'sql', source: source.trimStart().split('\n').slice(1).join('\n') });
+    } else if (raw?.cell_type === 'code') {
       const soft = softenMagics(source);
       magics += soft.changed;
       cells.push({ type: 'code', source: soft.source });
@@ -227,12 +234,12 @@ export function parsePy(text: string): ImportedNotebook {
 
   const cells: ImportedCell[] = [];
   let magics = 0;
-  let current: { type: 'code' | 'markdown'; lines: string[] } | null = null;
+  let current: { type: ImportedCell['type']; lines: string[] } | null = null;
   const flush = () => {
     if (!current) return;
     const body = current.lines.join('\n').replace(/^\n+|\n+$/g, '');
-    if (current.type === 'markdown') {
-      cells.push({ type: 'markdown', source: body.split('\n').map((l) => l.replace(/^# ?/, '')).join('\n') });
+    if (current.type === 'markdown' || current.type === 'sql') {
+      cells.push({ type: current.type, source: body.split('\n').map((l) => l.replace(/^# ?/, '')).join('\n') });
     } else if (body.trim()) {
       const soft = softenMagics(body);
       magics += soft.changed;
@@ -243,7 +250,7 @@ export function parsePy(text: string): ImportedNotebook {
     const m = marker.exec(line);
     if (m) {
       flush();
-      current = { type: /\[markdown\]|\[md\]/i.test(m[1]) ? 'markdown' : 'code', lines: [] };
+      current = { type: /\[markdown\]|\[md\]/i.test(m[1]) ? 'markdown' : /\[sql\]/i.test(m[1]) ? 'sql' : 'code', lines: [] };
     } else {
       // 첫 표시 앞의 줄(주석·import)도 코드 셀 하나로 받는다
       if (!current) current = { type: 'code', lines: [] };
@@ -268,5 +275,10 @@ export function parseNotebookFile(name: string, text: string): ImportedNotebook 
   const lower = name.toLowerCase();
   if (lower.endsWith('.ipynb')) return parseIpynb(text);
   if (lower.endsWith('.py')) return parsePy(text);
-  throw new NotebookFileError('.ipynb 나 .py 파일만 불러올 수 있어요.');
+  // .sql — 수업(database) 스크립트. 통째로 SQL 셀 하나
+  if (lower.endsWith('.sql')) {
+    const source = text.replace(/\r\n?/g, '\n').replace(/\n+$/, '');
+    return finish(source.trim() ? [{ type: 'sql', source }] : [], 0, 0);
+  }
+  throw new NotebookFileError('.ipynb · .py · .sql 파일만 불러올 수 있어요.');
 }

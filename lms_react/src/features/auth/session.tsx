@@ -8,6 +8,8 @@ import {
   type ReactNode,
 } from 'react';
 
+import { useSelectedCohortFor } from '../../data/cohortSelection';
+import { useCohorts } from '../../data/repository';
 import { DemoAccounts } from '../../data/seed';
 import { fetchBootstrap, mapUser } from '../../data/bootstrap';
 import { http, readApiError, refreshAccess } from '../../data/http';
@@ -204,14 +206,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (target !== undefined) setUid(target.uid);
   }, []);
 
+  const selectedCohortId = useSelectedCohortFor(uid ?? undefined);
+  const cohorts = useCohorts();
+
   const user = useMemo(() => {
     if (uid === null) return null;
-    if (!isTestMode()) {
-      return liveUser === null ? null : { ...liveUser, mustChangePassword: mustChange };
-    }
-    const found = getDb().users.find((u) => u.uid === uid) ?? null;
-    return found === null ? null : { ...found, mustChangePassword: mustChange };
-  }, [uid, mustChange, liveUser]);
+    const found = isTestMode() ? (getDb().users.find((u) => u.uid === uid) ?? null) : liveUser;
+    if (found === null) return null;
+    const signedIn = { ...found, mustChangePassword: mustChange };
+    // 관리자는 상단에서 고른 기수로 본다(Flutter effectiveCohortIdProvider)
+    const selected = signedIn.role === 'admin' ? cohorts.find((c) => c.cohortId === selectedCohortId) : undefined;
+    return selected === undefined ? signedIn : { ...signedIn, cohortId: selected.cohortId, cohortName: selected.name };
+  }, [uid, mustChange, liveUser, cohorts, selectedCohortId]);
 
   const value = useMemo<Session>(
     () => ({ user, loading, signIn, signOut, changePassword, skipPasswordChange, switchRole }),

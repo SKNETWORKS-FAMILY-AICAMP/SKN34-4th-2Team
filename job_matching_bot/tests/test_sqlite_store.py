@@ -9,7 +9,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from dataclasses import asdict, replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from job_matching_bot.ingestion.job_store import open_store, reconcile
@@ -160,7 +160,8 @@ class UnchangedFastPathTest(unittest.TestCase):
         self.assertEqual([], self.writes)
         self.assertEqual(sorted(j.job_id for j in self.jobs), sorted(report.unchanged))
         record = self.store.get(self.jobs[0].job_id)
-        self.assertEqual(later.isoformat(), record.last_seen_at)
+        # 같은 시각이면 된다. DB 는 세션 시간대(UTC)로 돌려주므로 글자로 견주면 +09:00 / +00:00 이 갈린다.
+        self.assertEqual(later, datetime.fromisoformat(record.last_seen_at))
         self.assertEqual((0, 0), (record.missing_runs, record.revisions))
 
     def test_new_parser_version_rewrites(self):

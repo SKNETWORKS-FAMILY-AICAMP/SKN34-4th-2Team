@@ -1,5 +1,7 @@
 import { useEffect, useState, type MouseEvent } from 'react';
+import { Link } from 'react-router-dom';
 
+import { jobApplyPath, jobApplyPostingPath } from '../../app/routePaths';
 import { http } from '../../data/http';
 import { Icon } from '../../ui/Icon';
 import type { Resume } from '../../domain/types';
@@ -8,7 +10,7 @@ import { careerLabel, jobPostingPath } from '../jobs/JobPostingScreen';
 import { JobRecommendationLoading } from './JobRecommendationLoading';
 import { useReviewDock } from './review/ReviewDock';
 import { reviewApi } from './review/reviewApi';
-import { reviewWorkCopy } from './resumeGroups';
+import { isApplyCopy, reviewWorkCopy } from './resumeGroups';
 
 /**
  * 공고 추천 — 단계가 하나씩 켜지다 마지막에 로봇이 손을 놓는다.
@@ -172,9 +174,12 @@ function JobCard({
   reviewLabel,
   showReasons = true,
   onOpenPosting,
+  applyTo,
 }: {
   index: number;
   job: JobPick;
+  /** 이 공고로 공고 맞춤 지원(자소서)을 여는 주소. 없으면 두지 않는다 */
+  applyTo?: string;
   onReview?(job: JobPick): void;
   /** 공고 원문을 화면 위 창으로 연다 */
   onOpenPosting?(job: JobPick): void;
@@ -311,6 +316,12 @@ function JobCard({
         ) : (
           <span />
         )}
+        {applyTo !== undefined && (
+          <Link className="job-card__toggle" to={applyTo} title="이 공고로 공고 맞춤 지원에서 자소서를 써요">
+            <Icon name="edit_note" size={14} />
+            자소서 쓰기
+          </Link>
+        )}
         {!open && reviewButton}
       </div>
     </div>
@@ -330,6 +341,7 @@ export function JobRecommendationRun({ resume }: { resume: Resume }) {
   const linkedJobId = resume.linkedJobId ?? '';
   // 첨삭 작업본이면 새로 뜨지 않고 그 사본의 대화를 이어서 연다(원본이 지워진 작업본은 새로 뜬다)
   const workCopy = reviewWorkCopy(resume);
+  const applyCopy = isApplyCopy(resume);
 
   const reviewJob = async (job: JobPick) => {
     const options = { generalReview: false, jobId: job.jobId, jobCompany: job.company, jobTitle: job.title };
@@ -464,15 +476,23 @@ export function JobRecommendationRun({ resume }: { resume: Resume }) {
                 key={job.jobId}
                 index={index + 1}
                 job={job}
-                onReview={(job) => void reviewJob(job)}
+                // 공고 맞춤 지원에서 만든 자소서는 그 탭의 문항 답변으로 첨삭한다. 여기서 맞춤 첨삭을 돌리면 두 흐름이 한 사본에 섞인다
+                onReview={applyCopy ? undefined : (job) => void reviewJob(job)}
                 reviewLabel={linkedJobId !== '' ? '재첨삭' : undefined}
                 showReasons={linkedJobId === ''}
                 onOpenPosting={(job) => setViewing(job.jobId)}
+                applyTo={applyCopy || job.jobId === '' ? undefined : jobApplyPostingPath(job.jobId)}
               />
             ))}
           </div>
         )}
-        {result.notice !== '' && <p className="hint coach-jobs__notice">{result.notice}</p>}
+        {applyCopy ? (
+          <p className="hint coach-jobs__notice">
+            공고 맞춤 지원에서 만든 자소서예요. 첨삭은 <Link to={jobApplyPath(resume.id)}>공고 맞춤 지원</Link>에서 문항별로 해요.
+          </p>
+        ) : (
+          result.notice !== '' && <p className="hint coach-jobs__notice">{result.notice}</p>
+        )}
         {viewing !== null && <JobPostingDialog jobId={viewing} onClose={closePosting} />}
       </div>
     );
