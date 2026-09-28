@@ -545,7 +545,12 @@ def finish_jobkorea(
     info["crawl_exit_code"] = code
     info["sync_exit_code"] = subprocess.run(command, cwd=str(REPO_ROOT)).returncode
     # 기업형태는 적재 **뒤에** 채운다. 적재가 상세의 "미기재"로 덮어쓰기 때문이다
-    info["company_types"] = apply_jobkorea_company_types(store_path, list_path)
+    # 처음 붙인 단계라 실패해도 뒤(마감 · 묶기 · 인덱스)는 가게 한다
+    try:
+        info["company_types"] = apply_jobkorea_company_types(store_path, list_path)
+    except Exception as error:  # noqa: BLE001
+        print(f"[잡코리아 기업형태] 채우지 못했습니다: {type(error).__name__}: {error}", flush=True)
+        info["company_types"] = {"error": f"{type(error).__name__}: {error}"}
     return info
 
 
