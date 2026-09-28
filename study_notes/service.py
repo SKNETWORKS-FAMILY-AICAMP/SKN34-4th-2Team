@@ -416,6 +416,31 @@ def resolve_note_for_lms(cohort_id: str, source: StudySource, scope_type_raw: st
     return out
 
 
+MAX_LESSON_FILE_BYTES = 2_000_000
+
+
+def lesson_file_for_lms(cohort_id: str, source: StudySource, path_raw: str, commit_raw: str) -> dict[str, Any]:
+    """LMS 창구 — 수업 파일 하나의 원문. 노트의 「연습장에서 열기」가 그 파일을 연습장 탭으로 연다.
+
+    노트에 적힌 커밋 그대로 읽는다(노트를 만든 그 내용). 커밋이 없으면 저장소 HEAD.
+    허용 폴더 밖이거나 학습 파일(.ipynb · .py · .md)이 아니면 거절한다.
+    """
+    path = sanitize_path(path_raw)
+    assert_scope_allowed(source, "files", [path])
+    commit = str(commit_raw or "").strip()
+    if commit and not re.fullmatch(r"[0-9a-fA-F]{7,40}", commit):
+        raise _bad_request("커밋 형식이 올바르지 않습니다.")
+    cache = repo_cache(cohort_id, source)
+    try:
+        head = cache.sync()
+        text = cache.read_file(commit or head, path)
+    except GitToolError as exc:
+        raise HTTPException(status_code=404, detail="수업 파일을 읽지 못했습니다.") from exc
+    if len(text.encode("utf-8")) > MAX_LESSON_FILE_BYTES:
+        raise HTTPException(status_code=413, detail="파일이 너무 커서 연습장에서 열 수 없습니다.")
+    return {"path": path, "commit": commit or head, "text": text}
+
+
 def build_note(cohort_id: str, source: StudySource, scope_type: ScopeType,
                scope_value: str | list[str]) -> dict[str, Any]:
     """저장소에서 범위의 파일을 모아 노트를 만든다. 저장은 하지 않는다 — 부르는 쪽(Firestore · LMS DB)이 한다.

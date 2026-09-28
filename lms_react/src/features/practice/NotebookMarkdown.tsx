@@ -7,8 +7,8 @@ import type { ReactNode } from 'react';
  * 다루는 것: 제목(#~######), 목록(-, *, 1.), 인용(>), 코드 블록(```), 구분선(---),
  * 인라인 코드·굵게·기울임·링크(http/https 만). 표·중첩 목록·수식은 다루지 않는다.
  */
-export function NotebookMarkdown({ source }: { source: string }) {
-  return <div className="nb-md">{renderBlocks(source)}</div>;
+export function NotebookMarkdown({ source, codeAction }: { source: string; codeAction?: (code: string) => ReactNode }) {
+  return <div className="nb-md">{renderBlocks(source, codeAction)}</div>;
 }
 
 type Block =
@@ -85,19 +85,30 @@ export function parseBlocks(source: string): Block[] {
   return blocks;
 }
 
-function renderBlocks(source: string): ReactNode[] {
+/** `codeAction` 은 코드 블록 아래에 붙일 것(공부방 노트의 「연습장에서 열기」) */
+function renderBlocks(source: string, codeAction?: (code: string) => ReactNode): ReactNode[] {
   return parseBlocks(source).map((block, i) => {
     switch (block.kind) {
       case 'heading': {
         const Tag = `h${Math.min(block.level + 1, 6)}` as 'h2';
         return <Tag key={i}>{inline(block.text)}</Tag>;
       }
-      case 'code':
-        return (
+      case 'code': {
+        const pre = (
           <pre key={i} className="nb-md__code">
             <code>{block.text}</code>
           </pre>
         );
+        const action = codeAction?.(block.text);
+        return action ? (
+          <div key={i} className="nb-md__codewrap">
+            {pre}
+            {action}
+          </div>
+        ) : (
+          pre
+        );
+      }
       case 'quote':
         return <blockquote key={i}>{inline(block.lines.join(' '))}</blockquote>;
       case 'list': {

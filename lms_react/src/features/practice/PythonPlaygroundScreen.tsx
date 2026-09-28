@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { usePageCrumbs } from '../../app/crumbs';
@@ -11,7 +11,10 @@ import { usePythonRunner, type RunnerStatus } from './pythonRunner';
 import { RETRY_SET_ID } from './review';
 import { TutorProvider, useTutor } from './TutorContext';
 import { TutorPanel } from './TutorPanel';
-import { useNotebook } from './useNotebook';
+import { useNotebook, type Notebook } from './useNotebook';
+import { compact } from '../study/lessonCode';
+import { noteCodeStoreKey } from './notebookModel';
+import type { NoteCodeRequest } from './PracticeDock';
 import { usePracticeSetMode, type PracticeSetMode } from './usePracticeSetMode';
 
 const STATUS_TEXT: Record<RunnerStatus, string> = {
@@ -52,10 +55,20 @@ export function PythonPlaygroundScreen() {
  * 창(PracticeDock) 안의 연습장 탭 하나. 화면(route)과 같은 연습장이다 — 다른 것은 둘.
  * 위 경로 표시(crumbs)를 건드리지 않고, 보이는 탭일 때만 로봇을 숨긴다.
  */
-export function EmbeddedPlayground({ setId, focusProblem, active }: { setId: string | null; focusProblem: number; active: boolean }) {
+export function EmbeddedPlayground({
+  setId,
+  focusProblem,
+  note,
+  active,
+}: {
+  setId: string | null;
+  focusProblem: number;
+  note?: NoteCodeRequest;
+  active: boolean;
+}) {
   return (
     <TutorProvider>
-      <Playground setId={setId} focusProblem={focusProblem} embedded active={active} />
+      <Playground setId={setId} focusProblem={focusProblem} note={note} embedded active={active} />
     </TutorProvider>
   );
 }
@@ -63,17 +76,20 @@ export function EmbeddedPlayground({ setId, focusProblem, active }: { setId: str
 function Playground({
   setId,
   focusProblem,
+  note,
   embedded = false,
   active = true,
 }: {
   setId: string | null;
   focusProblem: number;
+  note?: NoteCodeRequest;
   embedded?: boolean;
   active?: boolean;
 }) {
   const { runner, status } = usePythonRunner();
   const mode = usePracticeSetMode(setId);
-  const nb = useNotebook(runner, mode.set);
+  const nb = useNotebook(runner, mode.set, note ? { key: noteCodeStoreKey(note.noteId), intro: noteCodeIntro(note.title) } : undefined);
+  useNoteCode(nb, note);
 
   // 성취도평가 결과에서 「복습 문제 n개 풀기」로 들어오면 그 문제로 바로 간다
   useEffect(() => {
@@ -125,7 +141,7 @@ function Playground({
       {!embedded && <PlaygroundCrumbs mode={mode} />}
       <div className="screen__inner py-playground">
         <header className="study-head">
-          <PlaygroundTitle mode={mode} />
+          {note ? <NoteCodeTitle title={note.title} /> : <PlaygroundTitle mode={mode} />}
           <span className={`py-status py-status--${status}`} title={`Pyodide ${PYODIDE_VERSION}`}>
             <span className="py-status__lamp" />
             <span>
@@ -179,6 +195,58 @@ function Playground({
         </p>
       </div>
       <TutorPanel />
+    </div>
+  );
+}
+
+/** 노트 코드 탭의 첫 셀 */
+function noteCodeIntro(title: string): string {
+  return (
+    `#### ${title} 노트에서 연 코드
+` +
+    '노트의 코드는 수업 코드를 잘라 온 것이라, 앞 셀이 없으면 `NameError` 가 날 수 있어요. ' +
+    '그럴 때는 노트에서 「수업 파일에서 보기」를 눌러 수업 파일의 앞뒤 셀을 가져오세요.'
+  );
+}
+
+/**
+ * 노트 코드 탭 — 노트에서 누른 코드가 탭에 없으면 끝에 덧붙이고, 그 코드가 든 셀로 간다.
+ * 같은 코드를 다시 누르면 덧붙이지 않고 그 셀로만 간다.
+ */
+function useNoteCode(nb: Notebook, note: NoteCodeRequest | undefined) {
+  const { cells, setActiveId, appendCells } = nb;
+  const handled = useRef(-1);
+  const [target, setTarget] = useState<{ want: string; seq: number } | null>(null);
+  useEffect(() => {
+    if (!note || handled.current === note.seq) return;
+    handled.current = note.seq;
+    const want = compact(note.focusText);
+    if (!cells.some((c) => compact(c.code).includes(want))) appendCells(note.cells);
+    setTarget({ want, seq: note.seq });
+    // 누를 때(seq)만 — 셀이 바뀔 때마다 다시 덧붙이지 않는다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note?.seq]);
+
+  const done = useRef(-1);
+  useEffect(() => {
+    if (!target || done.current === target.seq) return;
+    const cell = cells.find((c) => compact(c.code).includes(target.want));
+    if (!cell) return;
+    done.current = target.seq;
+    setActiveId(cell.id);
+    // 탭을 막 열면 코드 편집기가 늦게 그려져 셀 높이가 나중에 늘어난다. 자리 잡을 때까지 몇 번 다시 맞춘다
+    const go = () => document.querySelector(`[data-cell-id="${cell.id}"]`)?.scrollIntoView({ block: 'center' });
+    const timers = [0, 300, 900].map((ms) => window.setTimeout(go, ms));
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [target, cells, setActiveId]);
+}
+
+/** 노트 코드 탭의 제목 */
+function NoteCodeTitle({ title }: { title: string }) {
+  return (
+    <div>
+      <h1 className="study-head__title">{title} 노트 코드</h1>
+      <p className="study-head__desc">노트에서 누른 코드만 모아요. 고쳐 실행해 봐도 노트와 수업 파일은 바뀌지 않아요.</p>
     </div>
   );
 }

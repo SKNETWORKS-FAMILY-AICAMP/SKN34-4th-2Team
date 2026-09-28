@@ -354,6 +354,12 @@ class StudyTreeIn(Schema):
     sourceId: str
 
 
+class StudyFileIn(Schema):
+    sourceId: str
+    path: str
+    commit: str = ""
+
+
 class StudyNoteIn(Schema):
     sourceId: str
     scopeType: str
@@ -373,6 +379,13 @@ def study_notes_tree(request, body: StudyTreeIn):
     """수업 저장소의 최근 수업 날짜와 파일 목록 — 노트 범위를 고르는 화면이 쓴다."""
     user = _require_user(request)
     return _study(lambda: study_note_service.source_tree(user, body.sourceId))
+
+
+@api.post("/study-notes/file")
+def study_notes_file(request, body: StudyFileIn):
+    """수업 파일 하나의 원문 — 노트의 핵심 코드를 연습장 탭으로 연다."""
+    user = _require_user(request)
+    return _study(lambda: study_note_service.lesson_file(user, body.sourceId, body.path, body.commit))
 
 
 @api.post("/study-notes")

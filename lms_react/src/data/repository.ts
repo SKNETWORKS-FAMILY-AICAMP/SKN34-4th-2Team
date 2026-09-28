@@ -1276,6 +1276,13 @@ export async function fetchStudySourceTree(sourceId: string): Promise<StudySourc
   return { dates: data.dates ?? [], files: (data.entries ?? []).map((e) => e.path) };
 }
 
+/** 수업 파일 하나의 원문 — 노트의 「연습장에서 열기」. 노트를 만든 커밋 그대로 읽는다 */
+export async function fetchLessonFile(sourceId: string, path: string, commit: string): Promise<{ path: string; commit: string; text: string }> {
+  if (isTestMode()) throw new Error('데모에서는 수업 파일을 열 수 없어요.');
+  const { data } = await http.post<{ path: string; commit: string; text: string }>('/study-notes/file', { sourceId, path, commit });
+  return data;
+}
+
 function putStudyNote(note: StudyNote): StudyNote {
   mutate((db) => ({ studyNotes: [...db.studyNotes.filter((n) => n.id !== note.id), note] }));
   return note;

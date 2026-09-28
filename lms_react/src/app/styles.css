@@ -4759,6 +4759,27 @@ html {
   padding-left: 22px;
 }
 
+/* 공부방 노트 — 코드 블록 아래 「연습장에서 열기」 */
+.nb-md__codewrap {
+  margin: 8px 0;
+}
+
+.nb-md__codewrap > .nb-md__code {
+  margin-bottom: 2px;
+}
+
+.nb-md__codeaction {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.nb-md__codeaction .hint {
+  font-size: 12px;
+}
+
 /* 번호 항목 아래 들여 쓴 목록 */
 .nb-md .nb-md__nested {
   margin-left: 22px;

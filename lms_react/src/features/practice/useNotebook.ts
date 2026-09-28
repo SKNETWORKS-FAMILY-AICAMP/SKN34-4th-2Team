@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { PracticeSet } from '../../domain/types';
 import { MINI_HEADING, MINI_LEVELS, type MiniProblem } from './notebookExamples';
 import type { ImportedCell } from './notebookFile';
 import {
   CLEAR_OUTPUT,
+  loadNoteCodeNotebook,
   loadNotebook,
   newCell,
   saveNotebook,
@@ -41,8 +42,14 @@ function errorText(result: RunResult): string {
  * - 워커를 새로 띄우면(중단·시간 초과) 앞 셀의 변수가 사라졌다고 알린다.
  * - 셀과 입력값은 세트마다 따로 저장한다. 다시 풀 문제는 저장하지 않는다.
  */
-export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) {
-  const initial = useRef(loadNotebook(set));
+export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined, noteCode?: { key: string; intro: string }) {
+  // 노트 코드 탭은 노트마다 따로 저장한다. 처음이면 안내 셀 하나로 시작해 누른 코드를 덧붙인다
+  const initial = useRef(
+    noteCode
+      ? (loadNoteCodeNotebook(noteCode.key) ?? { cells: [newCell(noteCode.intro, 'markdown')], stdin: '' })
+      : loadNotebook(set),
+  );
+  const ownKey = noteCode?.key;
   const [cells, setCells] = useState<Cell[]>(initial.current.cells);
   const [stdin, setStdin] = useState(initial.current.stdin);
   const [activeId, setActiveId] = useState(initial.current.cells[0]?.id ?? '');
@@ -65,8 +72,9 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
   const inputResolvers = useRef(new Map<string, (answer: string | null) => void>());
 
   useEffect(() => {
-    if (set?.id !== RETRY_SET_ID) saveNotebook(storeKey(set), cells, stdin);
-  }, [set, cells, stdin]);
+    if (ownKey) saveNotebook(ownKey, cells, stdin);
+    else if (set?.id !== RETRY_SET_ID) saveNotebook(storeKey(set), cells, stdin);
+  }, [set, cells, stdin, ownKey]);
 
   const patch = (id: string, change: Partial<Cell> | ((c: Cell) => Partial<Cell>)) =>
     setCells((prev) => prev.map((c) => (c.id === id ? { ...c, ...(typeof change === 'function' ? change(c) : change) } : c)));
@@ -390,6 +398,11 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
     addExample,
     addMiniProblem,
     importCells,
+    /** 셀을 끝에 덧붙인다(노트 코드 탭) — 제목 셀 · 스크롤 없이. 어디로 갈지는 부르는 쪽이 정한다 */
+    appendCells: useCallback((list: ImportedCell[]) => {
+      const made = list.map((c) => newCell(c.source, c.type));
+      setCells((prev) => [...prev, ...made]);
+    }, []),
     fileName,
     runProblemInSession,
     gradeProblem,

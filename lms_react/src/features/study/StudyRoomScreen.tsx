@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { NotebookMarkdown } from '../practice/NotebookMarkdown';
-import { PracticeLink } from '../practice/PracticeDock';
+import { PracticeLink, usePracticeDock } from '../practice/PracticeDock';
+import { findCodeInFiles, lessonCells, lessonSlice, significantLines, type LessonFile } from './lessonCode';
 
 import { RoutePaths } from '../../app/routePaths';
 import {
   deleteStudyNote,
+  fetchLessonFile,
   fetchStudySourceTree,
   refreshStudyNote,
   requestStudyNote,
@@ -20,7 +22,7 @@ import {
   type StudySourceTree,
 } from '../../data/repository';
 import { readApiError } from '../../data/http';
-import type { InflearnPackage, PracticeSet, StudyNoteScopeType } from '../../domain/types';
+import type { InflearnPackage, PracticeSet, StudyNote, StudyNoteScopeType } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import {
   Button,
@@ -581,7 +583,7 @@ export function StudyNoteSourceScreen() {
               active={tab}
               onChange={setTab}
             />
-            {tab === 'report' && <Markdown text={note.reportMarkdown} />}
+            {tab === 'report' && <Markdown text={note.reportMarkdown} note={{ id: note.id, title: noteLabel(note), sourceId: note.sourceId, files: note.files }} />}
             {tab === 'review' && <Markdown text={note.reviewMarkdown} />}
             {tab === 'files' && (
               <ul className="list">
@@ -645,8 +647,92 @@ function NoteDelete({ id, onDeleted }: { id: string; onDeleted(): void }) {
  * 예전 표시기는 제목 · 목록 · 문단만 알아서 `**굵게**` · `코드` · 코드 블록이 기호째 보였다.
  * 예전 노트는 소제목을 「**오늘의 핵심 한 문장**」처럼 굵은 줄로 썼다 — 그런 줄은 소제목으로 바꿔 보인다.
  */
-export function Markdown({ text }: { text: string }) {
-  return <NotebookMarkdown source={boldLinesAsHeadings(text)} />;
+/** 노트 코드 블록에 버튼을 달 때 필요한 노트 정보 */
+interface NoteRef {
+  id: string;
+  /** 「09/11 수업」 — 연습장 탭 이름 */
+  title: string;
+  sourceId: string;
+  files: StudyNote['files'];
+}
+
+export function Markdown({ text, note }: { text: string; note?: NoteRef }) {
+  return (
+    <NotebookMarkdown
+      source={boldLinesAsHeadings(text)}
+      codeAction={note ? (code) => <NoteCodeActions code={code} note={note} /> : undefined}
+    />
+  );
+}
+
+/** 노트를 만든 수업 파일(셀로 바꾼 것). 같은 노트의 코드 블록을 여러 번 눌러도 한 번만 받는다 */
+const lessonFiles = new Map<string, Promise<LessonFile>>();
+
+function loadLessonFiles(sourceId: string, files: StudyNote['files']) {
+  return Promise.all(
+    files.map((f) => {
+      const key = `${sourceId}:${f.path}:${f.commit}`;
+      let hit = lessonFiles.get(key);
+      if (!hit) {
+        hit = fetchLessonFile(sourceId, f.path, f.commit).then((r) => ({ path: f.path, cells: lessonCells(f.path, r.text) }));
+        hit.catch(() => lessonFiles.delete(key));
+        lessonFiles.set(key, hit);
+      }
+      return hit;
+    }),
+  );
+}
+
+/**
+ * 코드 블록 아래 버튼 두 개 — 노트마다 연습장 탭 하나(「09/11 수업 코드」)에 모은다.
+ * - 연습장에서 열기: 이 코드 블록만 셀로 덧붙인다.
+ * - 수업 파일에서 보기: 이 코드가 든 수업 파일 셀과 앞뒤 몇 셀만 가져온다. 파일을 통째로 열면 너무 길다.
+ *   노트가 설명하려고 새로 쓴 코드면 수업 파일에 없다고 알린다.
+ */
+function NoteCodeActions({ code, note }: { code: string; note: NoteRef }) {
+  const dock = usePracticeDock();
+  const [state, setState] = useState<'idle' | 'busy' | 'missing' | 'failed'>('idle');
+  if (!dock || significantLines(code).length === 0) return null;
+  const openCells = (cells: { type: 'code' | 'markdown'; source: string }[], focusText: string) =>
+    dock.open({ setId: null, note: { noteId: note.id, title: note.title, cells, focusText, seq: Date.now() } });
+
+  const openLesson = async () => {
+    setState('busy');
+    try {
+      const files = await loadLessonFiles(note.sourceId, note.files);
+      const match = findCodeInFiles(code, files);
+      if (!match) {
+        setState('missing');
+        return;
+      }
+      const file = files.find((f) => f.path === match.path)!;
+      const slice = lessonSlice(file.cells, match.cellIndex);
+      const name = file.path.split('/').pop();
+      openCells(
+        [{ type: 'markdown', source: `#### 수업 파일 · ${name} (${slice.from}~${slice.to}번째 셀)` }, ...slice.cells],
+        file.cells[match.cellIndex].source,
+      );
+      setState('idle');
+    } catch {
+      setState('failed');
+    }
+  };
+  return (
+    <div className="nb-md__codeaction">
+      <button type="button" className="btn btn--text btn--sm" onClick={() => openCells([{ type: 'code', source: code }], code)}>
+        <Icon name="terminal" size={16} />
+        연습장에서 열기
+      </button>
+      {note.files.length > 0 && (
+        <button type="button" className="btn btn--text btn--sm" onClick={() => void openLesson()} disabled={state === 'busy'}>
+          <Icon name="description" size={16} />
+          {state === 'busy' ? '수업 파일을 찾는 중…' : '수업 파일에서 보기'}
+        </button>
+      )}
+      {state === 'missing' && <span className="hint">이 코드는 수업 파일에 그대로 있지 않아요(노트가 설명하려고 새로 쓴 코드예요).</span>}
+      {state === 'failed' && <span className="hint">수업 파일을 불러오지 못했어요. 잠시 후 다시 눌러 주세요.</span>}
+    </div>
+  );
 }
 
 export function boldLinesAsHeadings(text: string): string {

@@ -101,6 +101,27 @@ export function storeKey(set: PracticeSet | undefined): string {
   return set ? `${STORE_KEY}:${set.id}` : STORE_KEY;
 }
 
+/** 노트 코드 탭(공부방 노트의 「연습장에서 열기」)의 저장 자리 — 자유 연습장 저장본을 덮지 않게 노트마다 따로 */
+export function noteCodeStoreKey(noteId: string): string {
+  return `${STORE_KEY}:note:${noteId}`;
+}
+
+/** 노트 코드 탭의 저장본. 없으면 null */
+export function loadNoteCodeNotebook(key: string): { cells: Cell[]; stdin: string } | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as { cells?: { type?: CellType; source?: string }[]; stdin?: string };
+    if (!Array.isArray(saved.cells) || saved.cells.length === 0) return null;
+    return {
+      cells: saved.cells.map((c) => newCell(String(c.source ?? ''), c.type === 'markdown' ? 'markdown' : 'code')),
+      stdin: saved.stdin ?? '',
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function loadNotebook(set: PracticeSet | undefined): { cells: Cell[]; stdin: string } {
   try {
     // 다시 풀 문제는 열 때마다 목록이 달라서 저장본을 쓰지 않는다
