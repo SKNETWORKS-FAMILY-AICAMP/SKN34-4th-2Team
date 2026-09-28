@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Resume } from '../../../domain/types';
-import { groupResumes, resumeStatusFromServer, resumeStatusToServer, reviewWorkCopy } from '../resumeGroups';
+import { applyCopyTitle, groupResumes, isApplyCopy, resumeStatusFromServer, resumeStatusToServer, reviewWorkCopy } from '../resumeGroups';
 
 const r = (id: string, extra: Partial<Resume> = {}): Resume => ({
   id, userId: 'u', title: id, status: 'draft', sections: {}, content: {} as Resume['content'], isBaseResume: false,
@@ -58,5 +58,26 @@ describe('재첨삭이 이어 갈 첨삭 작업본', () => {
   it('작업본이 아닌 이력서(편집용 사본 포함)는 새로 뜬다', () => {
     expect(reviewWorkCopy(r('matched_x', { baseResumeId: 'BASE' }))).toBeUndefined();
     expect(reviewWorkCopy(r('42'))).toBeUndefined();
+  });
+});
+
+describe('공고 맞춤 지원 지원서 가르기', () => {
+  const copy = (id: string, companyQuestions?: { id: string; question: string; limit: number | null; answer: string }[]) =>
+    ({ id, content: { companyQuestions } }) as unknown as Resume;
+
+  it('apply_ 사본과, 나누기 전에 만든 회사 문항 사본만 지원서로 본다', () => {
+    expect(isApplyCopy(copy('r1/tailored/apply_abc'))).toBe(true);
+    expect(isApplyCopy(copy('r1/tailored/tailored_abc', [{ id: 'q', question: '지원 동기', limit: 500, answer: '' }]))).toBe(true);
+    expect(isApplyCopy(copy('r1/tailored/tailored_abc'))).toBe(false);
+    expect(isApplyCopy(copy('matched_abc', [{ id: 'q', question: '지원 동기', limit: 500, answer: '' }]))).toBe(false);
+    expect(isApplyCopy(copy('r1'))).toBe(false);
+  });
+});
+
+describe('자소서 이름', () => {
+  it('나누기 전 이름(맞춤 이력서 · 지원서)을 자소서로 부른다', () => {
+    expect(applyCopyTitle('(주)넥스트그라운드 맞춤 이력서')).toBe('(주)넥스트그라운드 자소서');
+    expect(applyCopyTitle('신세계 지원서')).toBe('신세계 자소서');
+    expect(applyCopyTitle('신세계 자소서')).toBe('신세계 자소서');
   });
 });

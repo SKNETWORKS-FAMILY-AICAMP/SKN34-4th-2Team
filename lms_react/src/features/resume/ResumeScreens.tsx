@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
-import { resumeEditPath } from '../../app/routePaths';
+import { jobApplyPath, resumeEditPath } from '../../app/routePaths';
 import { createResume, deleteResume, setBaseResume, useMyResumes } from '../../data/repository';
 import { ResumeSectionKeys, ResumeSectionLabels, ResumeStatusLabels } from '../../domain/constants';
 import type { Resume, ResumeContent } from '../../domain/types';
@@ -10,7 +10,7 @@ import { MoreMenu } from '../../ui/MoreMenu';
 import { Badge, Button, Card, Dialog, EmptyState, ErrorState, Skeleton, TabPage, Tabs } from '../../ui/components';
 import { formatDate, formatDateTime } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
-import { groupResumes, isTailored, type ResumeRow } from './resumeGroups';
+import { groupResumes, isApplyCopy, isTailored, type ResumeRow } from './resumeGroups';
 
 /**
  * 이력서 — features/resume/presentation/resume_screen.dart, resume_edit_screen.dart
@@ -72,7 +72,9 @@ export function ResumeScreen() {
     );
   }
 
-  const resumes = query.data ?? [];
+  // 공고 맞춤 지원(문항 답변)에서 만든 자소서는 그 탭에서 관리한다. 여기의 공고 맞춤 이력서와 섞지 않는다
+  const applyCopies = (query.data ?? []).filter(isApplyCopy);
+  const resumes = (query.data ?? []).filter((r) => !isApplyCopy(r));
   const base = resumes.find((r) => r.isBaseResume) ?? resumes.find((r) => !isTailored(r)) ?? resumes[0];
   const count = (status: string) => resumes.filter((r) => r.status === status).length;
 
@@ -140,6 +142,13 @@ export function ResumeScreen() {
         </Card>
       ) : (
         <BaseResumeCard resume={base} tailored={tab === 'all' ? grouped.baseTailored : []} onChangeBase={() => setChoosingBase(true)} />
+      )}
+
+      {applyCopies.length > 0 && (
+        <p className="hint">
+          공고 맞춤 지원에서 만든 자소서 {applyCopies.length}개는 그 탭에서 관리해요.{' '}
+          <Link to={jobApplyPath()}>공고 맞춤 지원에서 보기</Link>
+        </p>
       )}
 
       <section className="panel panel--flush">

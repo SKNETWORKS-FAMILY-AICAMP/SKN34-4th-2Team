@@ -42,6 +42,13 @@ def _default_session() -> requests.Session:
     return new_session(warm_up=True)
 
 
+def _page_deadline(session: requests.Session, rec_idx: str) -> tuple[str | None, str] | None:
+    """상세 페이지를 받아 「접수기간 및 방법」의 마감일을 읽는다(crawl_detail.page_deadline)."""
+    from job_matching_bot.crawling.crawl_detail import fetch_detail, page_deadline
+
+    return page_deadline(fetch_detail(session, rec_idx))
+
+
 def _default_index():
     from job_matching_bot.retrieval.pinecone_index import index
 
@@ -66,6 +73,7 @@ class Liveness:
         max_workers: int = MAX_WORKERS,
         pause_minutes: float = PAUSE_MINUTES,
         checker: Callable[[requests.Session, str], bool | None] = check_alive,
+        deadline_reader: Callable[[requests.Session, str], tuple[str | None, str] | None] | None = None,
         session_factory: Callable[[], requests.Session] = _default_session,
         index_factory: Callable[[], Any] = _default_index,
         namespace_factory: Callable[[], str] = _default_namespace,
@@ -77,6 +85,7 @@ class Liveness:
         self.max_workers = max_workers
         self.pause = timedelta(minutes=pause_minutes)
         self._checker = checker
+        self._deadline_reader = deadline_reader or _page_deadline
         self._session_factory = session_factory
         self._index_factory = index_factory
         self._namespace_factory = namespace_factory
@@ -107,6 +116,41 @@ class Liveness:
 
         verdict = {**known, **results}
         return [job_id for job_id in job_ids if verdict.get(job_id, True)]
+
+    def verify(self, job_id: str) -> bool | None:
+        """공고 하나를 지금 열어 본다 — 사용자가 링크로 골라 온 공고. True/False/None(모름).
+
+        저장소에 REMOVED로 찍혀 있어도 페이지가 살아 있으면 OPEN으로 되돌린다(`reopen_seen`).
+        그래야 요건 정리 · 맞춤 첨삭이 「마감된 공고」로 막히지 않는다. 내려갔으면 `alive`와 같이 CLOSED.
+        """
+        if self._rec_idx(job_id) is None:
+            return None
+        now = self._clock()
+        if self._paused_until is not None and now < self._paused_until:
+            return None
+        store = self._open_store()
+        try:
+            known = store.recent_link_checks([job_id], since=now - self.ttl)
+            state = known.get(job_id)
+            if job_id not in known:
+                state = self._check_many([job_id], now).get(job_id)
+                if state is not None:
+                    self._mark_index_closed(store.record_link_checks({job_id: state}, at=now))
+            if state:
+                store.reopen_alive(job_id, now, self._read_deadline(job_id))
+            return state
+        finally:
+            store.close()
+
+    def _read_deadline(self, job_id: str) -> tuple[str | None, str] | None:
+        """페이지의 마감일. 못 읽으면 None — 마감일을 늘린 EXPIRED 공고를 되살릴 근거가 없을 뿐이다."""
+        try:
+            if self._session is None:
+                self._session = self._session_factory()
+            return self._deadline_reader(self._session, self._rec_idx(job_id))
+        except Exception as error:  # noqa: BLE001 — 마감일을 못 읽어도 확인 결과는 그대로 쓴다
+            log.warning("페이지 마감일을 읽지 못함 (%s): %s", job_id, type(error).__name__)
+            return None
 
     # ── 안쪽 ─────────────────────────────────────────────────
     def _rec_idx(self, job_id: str) -> str | None:

@@ -1,0 +1,797 @@
+/* 공고 맞춤 지원 — 공고 링크 → 요건 → 공고용 이력서 → 첨삭 */
+
+.apply-step {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.apply-step__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.apply-step__head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.apply-step__no {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--surface-variant);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.apply-step__no.is-done {
+  background: var(--primary);
+  color: #fff;
+}
+
+.apply-link {
+  display: flex;
+  gap: 8px;
+}
+
+.apply-link input {
+  flex: 1;
+  min-width: 0;
+}
+
+.apply-error {
+  margin: 0;
+  color: var(--error);
+  font-size: 13px;
+}
+
+.apply-error-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.apply-warn {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warning) 14%, var(--surface));
+  font-size: 13px;
+}
+
+.apply-loading {
+  margin: 0;
+}
+
+/* 고른 공고 한 줄 */
+.apply-posting {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-variant);
+}
+
+.apply-posting__text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.apply-posting__company {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.apply-posting__title {
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.apply-posting__actions {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+
+/* 요건 — 필수 · 우대 · 주요 업무, 줄마다 공고 원문 인용 */
+.apply-reqs {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.apply-reqs__group ul {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.apply-reqs__group li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+  font-size: 14px;
+}
+
+.apply-reqs__group q {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.apply-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.apply-label--must {
+  color: var(--primary);
+}
+
+.apply-reqs__group:has(.apply-label--must) li {
+  border-left-color: var(--primary);
+}
+
+/* 바탕 이력서와 기술 비교 */
+.apply-coverage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--divider);
+}
+
+.apply-coverage__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.apply-coverage__head select {
+  width: auto;
+  max-width: 280px;
+}
+
+.apply-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.apply-skill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+.apply-skill--techStack {
+  border-color: color-mix(in srgb, var(--success) 50%, var(--border));
+  background: color-mix(in srgb, var(--success) 10%, var(--surface));
+  color: var(--text-primary);
+}
+
+.apply-skill--techStack .icon {
+  color: var(--success);
+}
+
+.apply-skill--text {
+  border-color: color-mix(in srgb, var(--warning) 50%, var(--border));
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+}
+
+.apply-skill--missing {
+  color: var(--text-secondary);
+  border-style: dashed;
+}
+
+.apply-skill__must {
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* 만들기 · 만든 뒤 */
+.apply-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.apply-plan--done {
+  color: var(--text-primary);
+}
+
+.apply-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.apply-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.apply-done {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.apply-done p {
+  margin: 0;
+}
+
+/* 공고로 만든 이력서 목록 */
+.apply-made ul {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.apply-made__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--divider);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.apply-made li:last-child .apply-made__item {
+  border-bottom: 0;
+}
+
+.apply-made__item:hover .apply-made__title {
+  color: var(--primary);
+}
+
+.apply-made__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .apply-link,
+  .apply-posting,
+  .apply-coverage__head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* 맨 위 단계 줄 */
+.apply-stepper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.apply-stepper li {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.apply-stepper li:not(:last-child)::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  margin-left: 2px;
+  background: var(--border);
+}
+
+.apply-stepper li.is-done .apply-step__no {
+  background: var(--primary);
+  color: #fff;
+}
+
+.apply-stepper li.is-current {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.apply-stepper li.is-current .apply-step__no {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* 안내 한 줄 — 아이콘 · 글 · (버튼) */
+.apply-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.apply-note > span {
+  flex: 1;
+}
+
+.apply-note .icon {
+  flex: none;
+  color: var(--primary);
+}
+
+.apply-note .btn {
+  flex: none;
+}
+
+/* 문항 입력 방법 탭 */
+.apply-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.apply-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 42px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.apply-tab.is-on {
+  border-bottom-color: var(--primary);
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.apply-tabpanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 문항 줄 */
+.apply-q-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--divider);
+}
+
+.apply-q-edit__head {
+  display: flex;
+  justify-content: space-between;
+  padding-right: 48px;
+}
+
+.apply-q-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.apply-q-row.is-picked {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+}
+
+.apply-q-row.is-unknown .apply-q-limit-input {
+  border-color: var(--warning);
+}
+
+.apply-q-row input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+
+.apply-q-no {
+  width: 18px;
+  color: var(--primary);
+  font-weight: 700;
+  text-align: center;
+}
+
+.apply-q-input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.apply-q-input--text {
+  display: flex;
+  align-items: center;
+  border-color: transparent;
+  background: transparent;
+}
+
+.apply-q-limit-input {
+  width: 76px;
+  height: 38px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: right;
+  box-sizing: border-box;
+}
+
+/* 정한 문항 */
+.apply-q-done {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.apply-q-done p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.apply-q-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+  font-size: 14px;
+}
+
+.apply-q-list li span:first-child {
+  margin-right: 8px;
+}
+
+.apply-q-limit {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .apply-stepper li {
+    font-size: 0;
+  }
+
+  .apply-note {
+    flex-wrap: wrap;
+  }
+}
+
+/* 문항별 답변 첨삭 */
+.apply-qa {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--divider);
+}
+
+.apply-qa__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.apply-qa__head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.qa-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.qa-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.qa-card__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.qa-card__no {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.qa-card__question {
+  flex: 1;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.qa-card__limit {
+  flex: none;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--surface-variant);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.qa-card__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.qa-count {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.qa-count.is-over {
+  color: var(--error);
+  font-weight: 700;
+}
+
+.qa-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--surface-variant);
+}
+
+.qa-result__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.qa-sentences {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.qa-sentences li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.qa-sentences li > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.qa-basis {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.qa-basis--resume {
+  background: color-mix(in srgb, var(--primary) 14%, var(--surface));
+  color: var(--primary);
+}
+
+.qa-basis--answer {
+  background: color-mix(in srgb, var(--success) 16%, var(--surface));
+  color: var(--text-primary);
+}
+
+.qa-basis--posting {
+  background: color-mix(in srgb, var(--warning) 18%, var(--surface));
+  color: var(--text-primary);
+}
+
+.qa-quote {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.qa-reqs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.qa-req {
+  display: inline-block;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.qa-gaps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--divider);
+}
+
+.qa-gap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+/* 캡처 올리기 */
+.apply-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 140px;
+  padding: 16px;
+  border: 2px dashed color-mix(in srgb, var(--primary) 45%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--primary) 4%, var(--surface));
+  font-size: 14px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.apply-drop .icon {
+  color: var(--primary);
+}
+
+.apply-drop.is-over,
+.apply-drop:focus-visible {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+}
+
+.apply-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.apply-thumbs li {
+  position: relative;
+}
+
+.apply-thumbs img {
+  display: block;
+  width: 120px;
+  height: 90px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  object-fit: cover;
+  object-position: top;
+}
+
+.apply-thumbs .icon-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.apply-thumbs__pdf {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 120px;
+  height: 90px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-sizing: border-box;
+  color: var(--error);
+  font-size: 11px;
+}
+
+.apply-thumbs__pdf span {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apply-attach-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--divider);
+}
+
+.apply-attach-link .apply-q-input {
+  min-width: 240px;
+}

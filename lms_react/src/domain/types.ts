@@ -309,6 +309,16 @@ export interface ResumeContent {
   otherActivities: ResumeActivityItem[];
   projects: ResumeProjectItem[];
   selfIntroduction: ResumeSelfIntroduction;
+  /** 공고 맞춤 이력서의 회사 자기소개서 문항. 없으면 기본 여섯 문항(selfIntroduction)을 쓴다 */
+  companyQuestions?: ResumeCompanyQuestion[];
+}
+
+export interface ResumeCompanyQuestion {
+  id: string;
+  question: string;
+  /** 글자 수 제한(공백 포함). 모르면 null */
+  limit: number | null;
+  answer: string;
 }
 
 export type ResumeStatus = 'draft' | 'submitted' | 'feedbackRequested' | 'approved';

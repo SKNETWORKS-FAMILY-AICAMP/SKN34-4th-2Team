@@ -299,6 +299,8 @@ function withResumeDefaults(value: unknown): Resume['content'] {
       strengthsWeaknesses: { ...EMPTY_INTRO, ...intro.strengthsWeaknesses },
       aspiration: { ...EMPTY_INTRO, ...intro.aspiration },
     },
+    // 공고 맞춤 이력서의 회사 문항. 여기서 빼면 편집기가 저장할 때 지워진다
+    ...(Array.isArray(c.companyQuestions) ? { companyQuestions: c.companyQuestions } : {}),
   };
 }
 
