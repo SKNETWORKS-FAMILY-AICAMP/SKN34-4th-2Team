@@ -544,7 +544,25 @@ def finish_jobkorea(
     print("[잡코리아 적재] " + " ".join(command[2:]), flush=True)
     info["crawl_exit_code"] = code
     info["sync_exit_code"] = subprocess.run(command, cwd=str(REPO_ROOT)).returncode
+    # 기업형태는 적재 **뒤에** 채운다. 적재가 상세의 "미기재"로 덮어쓰기 때문이다
+    info["company_types"] = apply_jobkorea_company_types(store_path, list_path)
     return info
+
+
+def apply_jobkorea_company_types(store_path: Path, list_path: Path) -> dict[str, Any]:
+    """수집기가 목록의 기업형태 거르기로 모은 값(`company_types`)을 잡코리아 공고에 적는다."""
+    payload = json.loads(list_path.read_text(encoding="utf-8"))
+    types = payload.get("company_types") or {}
+    if not types:
+        return {"skipped": "기업형태 없음"}
+    complete = bool(payload.get("company_types_complete"))
+    store = open_store(store_path)
+    try:
+        changed = store.set_company_types(JOBKOREA_SOURCE, types, complete=complete)
+    finally:
+        store.close()
+    print(f"[잡코리아 기업형태] {len(types):,}건 중 바뀐 줄 {changed:,}" + ("" if complete else " (일부만 훑음)"), flush=True)
+    return {"found": len(types), "changed": changed, "complete": complete}
 
 
 def run_regroup(store_path: Path, work_dir: Path, as_of: datetime) -> dict[str, Any]:

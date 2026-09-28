@@ -522,6 +522,57 @@ def sweep_category(
         swept[duty] = result.complete
 
 
+# 목록 화면의 기업형태 거르기(`condition[cotype]`) 중 챗봇이 묻는 것. 상세 페이지에는 기업형태 칸이 없어
+# (parse 쪽 company_type="미기재") 공고별 기업형태는 이 거르기로 받은 목록에서 알아낸다.
+# 이름은 사람인 기업정보 칸과 같은 말로 둔다 — 공고 검색(store_search.COMPANY_TYPES)이 한 규칙으로 거른다.
+# 중소기업 · 벤처기업은 건수가 커서(목록 대부분) 받지 않는다.
+COMPANY_TYPE_CODES: dict[str, str] = {
+    "1": "대기업",
+    "4": "중견기업",
+    "6": "외국계기업",
+    "8": "공공기관·공기업",
+    "11": "코스피상장",
+    "12": "코스닥상장",
+}
+# 한 대분류 · 기업형태에서 넘길 최대 쪽수. IT 대기업이 529건(11쪽)이라 넉넉하다
+COMPANY_TYPE_MAX_PAGES = 60
+
+
+def sweep_company_types(
+    session: requests.Session,
+    duties: list[str],
+    *,
+    min_delay: float,
+    max_delay: float,
+    codes: dict[str, str] = COMPANY_TYPE_CODES,
+    max_pages: int = COMPANY_TYPE_MAX_PAGES,
+) -> tuple[dict[str, str], bool]:
+    """`({공고번호: "대기업, 코스피상장"}, 끝까지 훑었는지)`.
+
+    사이트가 말한 총 건수만큼 쪽을 넘긴다. 중간에 빈 쪽이 끼어도(목록 구멍) 멈추지 않는다.
+    쪽수 한도에 걸리면 끝까지 못 본 것이라 `False` — 그때는 목록에 없던 공고의 기업형태를 지우지 않는다.
+    """
+    found: dict[str, set[str]] = {}
+    complete = True
+    for duty in duties:
+        for code, label in codes.items():
+            page = 1
+            while True:
+                rows, total = fetch_page(session, duty, page, filters={"cotype": code})
+                polite_delay(min_delay, max_delay)
+                for row in rows:
+                    found.setdefault(row["source_job_id"], set()).add(label)
+                last = -(-total // PAGE_SIZE) if total is not None else None
+                if (last is not None and page >= last) or (last is None and not rows):
+                    break
+                if page >= max_pages:
+                    complete = False
+                    break
+                page += 1
+    order = list(codes.values())
+    return {gno: ", ".join(sorted(labels, key=order.index)) for gno, labels in found.items()}, complete
+
+
 def read_done_ids(path: Path) -> set[str]:
     """이미 받아 둔 상세의 공고번호. 이어받기의 근거다.
 
@@ -739,6 +790,9 @@ def main() -> int:
     counts: dict[str, int] = {}
     # 대분류마다 모든 조각을 끝 쪽까지 넘겼는지. 야간 배치의 사라짐 판정이 이것을 본다
     swept: dict[str, bool] = {}
+    # 상세 대분류 공고의 기업형태(sweep_company_types). 야간 배치가 적재한 뒤 저장소에 채운다
+    company_types: dict[str, str] = {}
+    company_types_complete = False
 
     def write_list(rows: list[dict[str, Any]], saved: int = 0, failed: int = 0) -> None:
         payload = {
@@ -750,6 +804,8 @@ def main() -> int:
             "site_totals": site_totals,
             "counts": counts,
             "swept": swept,
+            "company_types": company_types,
+            "company_types_complete": company_types_complete,
             "list_count": len(rows),
             "detail_saved": saved,
             "detail_failed": failed,
@@ -794,6 +850,19 @@ def main() -> int:
     # 상세로 넘어가기 전에 한 번 더. 상세가 끝나면 건수를 채워 같은 파일에 다시 쓴다.
     write_list(rows)
     print(f"[저장] 목록 {output}", flush=True)
+
+    # 상세 대분류의 기업형태 — 상세보다 먼저 받는다. 상세는 시간 한도에 걸려 끊길 수 있다
+    if args.details:
+        try:
+            got, whole = sweep_company_types(
+                session, sorted(detail_duties), min_delay=args.min_delay, max_delay=args.max_delay,
+            )
+            company_types.update(got)
+            company_types_complete = whole
+            print(f"[기업형태] {len(company_types):,}건" + ("" if whole else " (일부 — 쪽수 한도)"), flush=True)
+            write_list(rows)
+        except (BlockedByTargetSiteError, requests.RequestException) as error:
+            print(f"[기업형태] 받지 못했습니다: {error}", flush=True)
 
     saved = 0
     failed = 0

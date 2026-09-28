@@ -193,6 +193,20 @@ class StoreSearchTest(unittest.TestCase):
         found = {job.job_id for job in self.find(roles=["IT"], keywords=["대기업"]).jobs}
         self.assertEqual({"G1"}, found)
 
+    def test_jobkorea_company_type_names_mean_the_same(self):
+        """잡코리아는 목록 거르기 이름(외국계기업 · 공공기관·공기업 · 코스피상장)을 적는다. 사람인과 같은 말로 걸린다."""
+        self._add(
+            self._job("K1", title="IT 신입", company="가", company_type="대기업, 코스피상장"),
+            self._job("K2", title="IT 신입", company="나", company_type="외국계기업"),
+            self._job("K3", title="IT 신입", company="다", company_type="공공기관·공기업"),
+            self._job("K4", title="IT 신입", company="라", company_type="미기재"),
+        )
+        find = lambda word: {job.job_id for job in self.find(roles=["IT"], keywords=[word]).jobs}  # noqa: E731
+        self.assertEqual({"K1"}, find("대기업"))
+        self.assertEqual({"K1"}, find("코스피"))
+        self.assertEqual({"K2"}, find("외국계"))
+        self.assertEqual({"K3"}, find("공기업"))
+
     def test_the_same_posting_listed_per_region_shows_once(self):
         """회사와 머리말 뗀 제목이 같으면 한 공고다. 소괄호가 다르면 다른 공고다."""
         self._add(

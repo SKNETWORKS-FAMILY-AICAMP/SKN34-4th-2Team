@@ -560,6 +560,29 @@ class SqliteJobStore:
                 found[record.job.job_id] = record
         return found
 
+    def set_company_types(self, source: str, types: dict[str, str], *, complete: bool) -> int:
+        """{공고 번호: 기업형태} 를 `company_type` 에 적는다. 바뀐 줄 수를 돌려준다.
+
+        잡코리아는 상세에 기업형태 칸이 없어 목록의 기업형태 거르기로 알아낸 값을 적는다
+        (crawling/jobkorea.sweep_company_types). `complete` 면 이번 목록에 없던 그 출처 공고를
+        "미기재"로 되돌린다 — 대기업에서 빠진 공고가 계속 대기업으로 남지 않게.
+        """
+        changed = 0
+        with self.conn:
+            for gno, label in types.items():
+                changed += self.conn.execute(
+                    "UPDATE jobs SET company_type = ? WHERE source = ? AND source_job_id = ? "
+                    "AND company_type IS DISTINCT FROM ?",
+                    (label, source, gno, label),
+                ).rowcount
+            if complete:
+                changed += self.conn.execute(
+                    "UPDATE jobs SET company_type = '미기재' WHERE source = ? AND company_type <> '미기재' "
+                    "AND NOT (source_job_id = ANY(?))",
+                    (source, list(types)),
+                ).rowcount
+        return changed
+
     def iter_records(self, status: str | None = None) -> Iterator[JobRecord]:
         sql, params = "SELECT * FROM jobs", ()
         if status:
