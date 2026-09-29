@@ -680,14 +680,19 @@ def search(
     with_listing = not _company_type_keywords(filters) and filters.posted_within_days is None
     body = detail_part + (" UNION ALL " + listing_part if with_listing else "")
     sql = (
-        f"SELECT * FROM ({body}) AS hits "
+        # 관련도가 같으면 태그를 적게 단 공고를 먼저. 직무 태그를 열 개씩 달아 둔
+        # "전 직군 공개채용"은 무엇을 물어도 걸리므로, 그 일에 특화된 공고에 자리를 내준다.
+        # 다만 태그 수는 **사이트 안에서만** 견준다. 잡코리아는 태그를 짧게 달아(대기업 공고 중간값
+        # 46자, 사람인 78자) 한 줄로 세우면 잡코리아가 통째로 위에 몰렸다(2026-09-29 「대기업 개발자」
+        # 앞 10건이 전부 잡코리아). 사이트마다 순번을 매겨 같은 순번끼리 번갈아 세운다.
+        "SELECT *, ROW_NUMBER() OVER (PARTITION BY split_part(job_id, '-', 1), (relevance >= 2), has_detail, relevance"
+        " ORDER BY LENGTH(keywords::text) ASC, first_seen_at DESC) AS site_rank"
+        f" FROM ({body}) AS hits "
         # 제목·태그에 직접 맞은 공고(관련도 2 이상)를 먼저 전부 세운다. 답이 말하는 건수가
         # 이 묶음이라, 넘겨 보다 보면 그 건수만큼 본 뒤에 본문에만 스친 공고로 넘어가야
         # 말과 목록이 맞는다. 묶음 안에서는 본문이 있는 공고가 먼저다.
-        # 관련도가 같으면 태그를 적게 단 공고를 먼저. 직무 태그를 열 개씩 달아 둔
-        # "전 직군 공개채용"은 무엇을 물어도 걸리므로, 그 일에 특화된 공고에 자리를 내준다.
         " ORDER BY (relevance >= 2) DESC, has_detail DESC, relevance DESC,"
-        " LENGTH(keywords::text) ASC, first_seen_at DESC LIMIT ?"
+        " site_rank ASC, first_seen_at DESC LIMIT ?"
     )
 
     # 값 순서는 상세 쪽 SELECT → WHERE, 목록 쪽 SELECT → WHERE, 그다음 LIMIT. 목록 쪽 WHERE는

@@ -193,6 +193,20 @@ class StoreSearchTest(unittest.TestCase):
         found = {job.job_id for job in self.find(roles=["IT"], keywords=["대기업"]).jobs}
         self.assertEqual({"G1"}, found)
 
+    def test_two_sites_take_turns_even_if_one_tags_less(self):
+        """태그 수는 사이트 안에서만 견준다. 잡코리아가 태그를 짧게 달아도 위를 독차지하지 않는다."""
+        long_tags = ["IT개발·데이터", "백엔드", "서버", "API", "데이터베이스", "클라우드"]
+        self._add(
+            *(self._job(f"SARAMIN-{i}", title="백엔드 개발자", company=f"사람인{i}", company_type="대기업", keywords=long_tags)
+              for i in range(3)),
+            *(self._job(f"JOBKOREA-{i}", title="백엔드 개발자", company=f"잡코리아{i}", company_type="대기업", keywords=["백엔드"])
+              for i in range(3)),
+        )
+        ids = [job.job_id for job in self.find(roles=["백엔드"], keywords=["대기업"]).jobs]
+        sites = [i.split("-")[0] for i in ids[:4]]
+        self.assertEqual(2, sites.count("SARAMIN"), ids)
+        self.assertEqual(2, sites.count("JOBKOREA"), ids)
+
     def test_jobkorea_company_type_names_mean_the_same(self):
         """잡코리아는 목록 거르기 이름(외국계기업 · 공공기관·공기업 · 코스피상장)을 적는다. 사람인과 같은 말로 걸린다."""
         self._add(
