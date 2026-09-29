@@ -178,8 +178,8 @@ ANSWER_PROMPT = """
 
 [답변 형식]
 - 개수·목록·비교 요청은 필요한 항목을 빠짐없이, 그 외에는 핵심 2~3문장으로 답한다.
-- 출처의 제목·날짜가 있으면 밝히고 사실과 불확실성을 구분한다. 중요한 날짜·시간·조건·수치·결론 중
-  1~3개만 Markdown 굵게 표시하며 문장 전체는 굵게 쓰지 않는다. 항상 부드러운 해요체를 쓴다.
+- 답변에 문서 제목·파일명·링크 등 출처 식별 정보를 적지 않는다. 단, 질문에 필요한 시행일·마감일 등 내용상의 날짜는 안내한다. 
+- 중요한 날짜·시간·조건·수치·결론 중 1~3개만 Markdown 굵게 표시하며 문장 전체는 굵게 쓰지 않는다. 항상 부드러운 해요체를 쓴다.
 
 [정책·공지]
 - 정책은 기본 규칙, 공지는 변경·예외·시행 안내다. 공지가 있다는 이유만으로 우선하지 말고 같은 주제를
@@ -247,6 +247,7 @@ class ChatState(MessagesState):
     route: Route
     namespaces: list[Namespace]
     student_scopes: list[StudentDataScope]
+    tasks: list[dict[str, Any]]
     query: str
     student_context: dict[str, Any]
     documents: list[Document]
@@ -278,7 +279,7 @@ class SupervisorGuardrailMiddleware:
         if not isinstance(decision, SupervisorDecision):
             return SupervisorDecision(route="blocked", query="")
         if decision.route in ("blocked", "greeting"):
-            return decision.model_copy(update={"namespaces": [], "student_scopes": []})
+            return decision.model_copy(update={"namespaces": [], "student_scopes": [], "tasks": []})
         namespaces = list(dict.fromkeys(
             namespace for namespace in decision.namespaces
             if namespace in ("policy", "notice", "project_reference")
@@ -343,7 +344,7 @@ def reconcile_decision(question: str, decision: SupervisorDecision) -> Superviso
     signals = detect_routing_signals(question)
     if _CONTENT_CREATION.search(question) and not signals.lms:
         return decision.model_copy(update={
-            "route": "blocked", "namespaces": [], "student_scopes": [], "query": question,
+            "route": "blocked", "namespaces": [], "student_scopes": [], "tasks": [], "query": question,
         })
     if not signals.lms:
         return decision
@@ -545,10 +546,10 @@ class LmsStudentChatbot:
 
         self.k = k
         self.supervisor_llm = ChatOpenAI(
-            model=os.getenv("LMS_SUPERVISOR_MODEL", "gpt-6-luna"), max_retries=2,
+            model="gpt-6-luna", use_responses_api=True, max_retries=2,
         )
         self.node_llm = ChatOpenAI(
-            model=os.getenv("LMS_NODE_MODEL", "gpt-6-luna"), max_retries=2,
+            model="gpt-6-luna", use_responses_api=True, max_retries=2,
             streaming=True,
         )
         self.embeddings = OpenAIEmbeddings(
@@ -630,6 +631,7 @@ class LmsStudentChatbot:
             "route": decision.route,
             "namespaces": namespaces,
             "student_scopes": student_scopes,
+            "tasks": [task.model_dump() for task in decision.tasks],
             "query": query[:2000],
             "student_context": {},
             "documents": [],
@@ -685,13 +687,39 @@ class LmsStudentChatbot:
 
     def _student_tools(self, state: ChatState) -> dict[str, Any]:
         started = time.perf_counter()
+        requests = [
+            (list(dict.fromkeys(
+                scope for scope in task.get("student_scopes", [])
+                if scope in state["student_scopes"]
+            )), str(task.get("query", "")).strip())
+            for task in state.get("tasks", [])
+            if task.get("student_scopes") and str(task.get("query", "")).strip()
+        ]
+        requests = [(scopes, query) for scopes, query in requests if scopes]
+        covered = {scope for scopes, _ in requests for scope in scopes}
+        missing = [scope for scope in state["student_scopes"] if scope not in covered]
+        if missing or not requests:
+            requests.append((missing or state["student_scopes"], state["query"]))
         try:
-            context = self.student_context_loader(
-                state.get("student_uid", ""),
-                state.get("cohort", ""),
-                state["student_scopes"],
-                state["query"],
-            )
+            context: dict[str, Any] = {}
+            for scopes, query in requests:
+                part = self.student_context_loader(
+                    state.get("student_uid", ""), state.get("cohort", ""), scopes, query,
+                )
+                if not context:
+                    context = part
+                    continue
+                context.setdefault("requested_scopes", []).extend(scopes)
+                context.setdefault("errors", {}).update(part.get("errors", {}))
+                data = context.setdefault("data", {})
+                for scope, value in part.get("data", {}).items():
+                    if scope not in data:
+                        data[scope] = value
+                    elif isinstance(value, dict) and isinstance(value.get("items"), list):
+                        existing = data[scope].get("items", [])
+                        ids = {item.get("id") for item in existing}
+                        existing.extend(item for item in value["items"] if item.get("id") not in ids)
+            context["requested_scopes"] = list(dict.fromkeys(context.get("requested_scopes", [])))
         except Exception:
             context = {"errors": {"firebase": "student_context_load_failed"}}
         return {
@@ -748,19 +776,26 @@ class LmsStudentChatbot:
             if len(state.get("namespaces", [])) > 1 else self.k
         )
 
-        def search(namespace: Namespace) -> tuple[Namespace, list[Document], list[tuple[int, int]]]:
+        searches = [
+            (namespace, query)
+            for namespace in namespaces
+            for query in self._queries_for_namespace(state, namespace)
+        ]
+
+        def search(item: tuple[Namespace, str]) -> tuple[Namespace, list[Document], list[tuple[int, int]]]:
+            namespace, query = item
             timings: list[tuple[int, int]] = []
             retriever = self._retriever(
-                namespace, state.get("cohort", ""), state["query"], default_k,
+                namespace, state.get("cohort", ""), query, default_k,
                 on_query=lambda embedding_ms, vector_ms: timings.append((embedding_ms, vector_ms)),
             )
-            return namespace, retriever.invoke(state["query"]), timings
+            return namespace, retriever.invoke(query), timings
 
-        if len(namespaces) > 1:
-            with ThreadPoolExecutor(max_workers=len(namespaces)) as executor:
-                results = list(executor.map(search, namespaces))
+        if len(searches) > 1:
+            with ThreadPoolExecutor(max_workers=min(len(searches), 8)) as executor:
+                results = list(executor.map(search, searches))
         else:
-            results = [search(namespace) for namespace in namespaces]
+            results = [search(item) for item in searches]
         for namespace, matches, _timings in results:
             for document in matches:
                 document.metadata["_namespace"] = namespace
@@ -778,6 +813,26 @@ class LmsStudentChatbot:
             "vector_calls": int(state.get("vector_calls", 0) or 0) + sum(len(timings) for _, _, timings in results),
         }
 
+    @staticmethod
+    def _queries_for_namespace(state: ChatState, namespace: Namespace) -> list[str]:
+        queries = [
+            str(task.get("query", "")).strip() for task in state.get("tasks", [])
+            if namespace in task.get("namespaces", []) and str(task.get("query", "")).strip()
+        ]
+        if not queries and namespace == "notice":
+            queries = [
+                str(task.get("query", "")).strip() for task in state.get("tasks", [])
+                if "policy" in task.get("namespaces", []) and str(task.get("query", "")).strip()
+            ]
+        if not queries:
+            queries = [str(state.get("query", ""))]
+        if namespace == "project_reference":
+            queries = [
+                bind_session_cohort_to_project_query(query, str(state.get("cohort", "")), [namespace])
+                for query in queries
+            ]
+        return list(dict.fromkeys(queries))
+
     def _policy_notice_retrieve(self, state: ChatState) -> dict[str, Any]:
         namespaces = [
             namespace for namespace in state.get("namespaces", [])
@@ -786,6 +841,17 @@ class LmsStudentChatbot:
         return self._retrieve_namespaces(state, namespaces)
 
     def _project_retrieve(self, state: ChatState) -> dict[str, Any]:
+        current: dict[str, Any] = dict(state)
+        for query in self._queries_for_namespace(state, "project_reference"):
+            current["query"] = query
+            current["tasks"] = []
+            current.update(self._project_retrieve_one(current))
+        return {key: current[key] for key in (
+            "documents", "retrieval_ms", "embedding_ms", "vector_query_ms_sum",
+            "embedding_calls", "vector_calls",
+        )}
+
+    def _project_retrieve_one(self, state: ChatState) -> dict[str, Any]:
         query = str(state.get("query", ""))
         bounds = cohort_range(query)
         if not bounds:
@@ -915,7 +981,7 @@ class LmsStudentChatbot:
             }, config={"callbacks": [first_token_timer]})
             answer_model_ms = _elapsed_ms(model_started)
             answer_ttft_ms = first_token_timer.first_token_ms or 0
-            answer = str(response.content).strip() or "답변을 생성하지 못했습니다. LMS 담당자에게 확인해 주세요."
+            answer = response.text.strip() or "답변을 생성하지 못했습니다. LMS 담당자에게 확인해 주세요."
             token_in, token_out = _message_tokens(response)
         update: dict[str, Any] = {
             "answer": answer,
@@ -990,10 +1056,10 @@ class LmsStudentChatbot:
             if (
                 metadata.get("langgraph_node") == "answer"
                 and isinstance(message, AIMessageChunk)
-                and isinstance(message.content, str) and message.content
+                and message.text
             ):
                 emitted = True
-                yield message.content
+                yield message.text
         if not emitted:
             answer = str(self.graph.get_state(config).values.get("answer", ""))
             if answer:

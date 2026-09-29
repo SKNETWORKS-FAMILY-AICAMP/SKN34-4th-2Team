@@ -287,6 +287,53 @@ def chat(request, body: ChatIn):
     )
 
 
+@api.post("/chat/stream")
+def chat_stream(request, body: ChatIn):
+    user = _require_user(request)
+    message = (body.message or body.question or "").strip()
+    if not message:
+        return Response({"detail": "message required"}, status=400)
+    if user.get("role") != "student":
+        return Response({"detail": "학생 계정만 챗봇을 사용할 수 있습니다"}, status=403)
+    base = (os.environ.get("CHATBOT_URL") or "").rstrip("/")
+    internal_token = os.environ.get("LMS_AI_SHARED_TOKEN") or ""
+    if not base or not internal_token:
+        return Response({"detail": "학습 도우미 서버가 설정되지 않았습니다"}, status=503)
+    req = urllib.request.Request(
+        f"{base}/api/v1/student-chatbot/chat/stream",
+        data=json.dumps({
+            "message": message, "uid": user["firebase_uid"], "thread_id": "web",
+        }, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json", "Accept": "application/x-ndjson",
+            "X-LMS-AI-Token": internal_token,
+        },
+        method="POST",
+    )
+    try:
+        upstream = urllib.request.urlopen(req, timeout=120)
+    except urllib.error.HTTPError as exc:
+        return Response({"detail": "학습 도우미 요청을 처리하지 못했습니다"}, status=exc.code)
+    except (urllib.error.URLError, TimeoutError):
+        return Response({"detail": "학습 도우미에 연결하지 못했습니다"}, status=503)
+
+    def relay():
+        try:
+            for line in upstream:
+                yield line
+        except (urllib.error.URLError, TimeoutError, OSError):
+            yield (json.dumps({
+                "type": "error", "message": "학습 도우미와 연결이 끊겼습니다",
+            }, ensure_ascii=False) + "\n").encode("utf-8")
+        finally:
+            upstream.close()
+
+    response = StreamingHttpResponse(relay(), content_type="application/x-ndjson; charset=utf-8")
+    response["Cache-Control"] = "no-store"
+    response["X-Accel-Buffering"] = "no"
+    return response
+
+
 class ResumeReviewIn(Schema):
     resumeId: str
     """공고 맞춤 첨삭이면 그 공고 id. 없으면 이력서 자체를 본다."""
