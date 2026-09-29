@@ -145,6 +145,7 @@ export function mapNotice(row: Record<string, unknown>): Notice {
     channelLabel: row.channelLabel ? String(row.channelLabel) : undefined,
     scheduledNoticeId: row.scheduledNoticeId == null ? undefined : String(row.scheduledNoticeId),
     imageUrl: row.imageUrl ? String(row.imageUrl) : undefined,
+    imageStorageKey: row.imageStorageKey ? String(row.imageStorageKey) : undefined,
     createdAt: asDate(row.createdAt ?? row.created_at) ?? new Date(),
   };
 }

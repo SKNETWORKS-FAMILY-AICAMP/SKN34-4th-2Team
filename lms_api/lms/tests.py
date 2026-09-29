@@ -8,7 +8,7 @@ from django.test import SimpleTestCase
 from unittest import TestCase
 from unittest.mock import Mock, patch
 
-from lms.api import ChatIn, _data, api, chat
+from lms.api import ChatIn, _data, _notice_image_key, api, chat, upload_notice_image
 from lms.bootstrap_service import _dicts
 from lms.commands import (
     _validate_record_submission_write, _validate_resume_write, op_add_todo,
@@ -119,6 +119,31 @@ class NoticeVectorCountTests(TestCase):
         sync_notice_vector("cohort_34", 17, None, previous_chunk_count=2)
         delete.assert_called_once_with("cohort_34", 17, 2)
         cursor.assert_not_called()
+
+
+class NoticeImageTests(SimpleTestCase):
+    def test_only_own_uploaded_key_or_https_url_is_accepted(self):
+        user = {"firebase_uid": "manager-a"}
+        own = f"notices/manager-a/{'a' * 32}.png"
+        self.assertEqual(_notice_image_key({"imageStorageKey": own}, user), own)
+        self.assertIs(_notice_image_key({"imageStorageKey": own.replace("manager-a", "manager-b")}, user), False)
+        self.assertEqual(_notice_image_key({"imageStorageKey": ""}, user, own), None)
+        self.assertEqual(_notice_image_key({"imageStorageKey": own}, {"firebase_uid": "manager-b"}, own), own)
+
+    @patch("lms.storage.read_url", return_value="/api/files?t=token")
+    @patch("lms.storage.put_object")
+    @patch("lms.api._require_user", return_value={"role": "admin", "firebase_uid": "manager-a"})
+    def test_png_upload_checks_file_bytes_and_returns_saved_key(self, _user, put, _url):
+        file = Mock(content_type="image/png", size=12, name="notice.png")
+        file.read.return_value = b"not an image"
+        self.assertEqual(upload_notice_image(Mock(), file).status_code, 400)
+        put.assert_not_called()
+
+        data = b"\x89PNG\r\n\x1a\n" + b"image"
+        file.read.return_value = data
+        result = upload_notice_image(Mock(), file)
+        self.assertRegex(result["key"], r"^notices/manager-a/[0-9a-f]{32}\.png$")
+        put.assert_called_once_with(result["key"], data, "image/png")
 
 
 class JsonBodyContractTests(SimpleTestCase):

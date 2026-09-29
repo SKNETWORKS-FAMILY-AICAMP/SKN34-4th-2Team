@@ -32,6 +32,7 @@ export function AdminAttendanceScreen() {
   const [dateKey, setDateKey] = useState(() => dateKeyOf(new Date()));
   const [query, setQuery] = useState('');
   const [posted, setPosted] = useState(false);
+  const [postError, setPostError] = useState('');
   const rows = useAttendanceByDate(dateKey);
 
   const rowOf = (uid: string) => rows.find((a) => a.userId === uid);
@@ -41,17 +42,22 @@ export function AdminAttendanceScreen() {
   const q = query.trim();
   const shown = q === '' ? students : students.filter((s) => s.displayName.includes(q));
 
-  const postDailyNotice = () => {
-    createNotice({
-      title: AttendanceForm.dailyNoticeTitle,
-      content: `${AttendanceForm.dailyNoticeContent}\n\n${AttendanceForm.url}`,
-      authorName: user.displayName,
-      authorId: user.uid,
-      isFavorite: true,
-      priority: 1,
-      channelLabel: '출결',
-    });
-    setPosted(true);
+  const postDailyNotice = async () => {
+    setPostError('');
+    try {
+      await createNotice({
+        title: AttendanceForm.dailyNoticeTitle,
+        content: `${AttendanceForm.dailyNoticeContent}\n\n${AttendanceForm.url}`,
+        authorName: user.displayName,
+        authorId: user.uid,
+        isFavorite: true,
+        priority: 1,
+        channelLabel: '출결',
+      });
+      setPosted(true);
+    } catch {
+      setPostError('공지를 등록하지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
+    }
   };
 
   return (
@@ -64,6 +70,7 @@ export function AdminAttendanceScreen() {
       {posted && (
         <div className="callout callout--success">오늘 출결 폼 공지를 게시판에 올렸습니다.</div>
       )}
+      {postError && <div className="callout callout--error" role="alert">{postError}</div>}
 
       {/* 날짜와 한 번에 채우는 단추들 */}
       <div className="panel toolbar-card">

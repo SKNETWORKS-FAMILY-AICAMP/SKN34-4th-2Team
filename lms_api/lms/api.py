@@ -1251,6 +1251,22 @@ def bootstrap(request):
     return build_bootstrap(user)
 
 
+def _notice_image_key(data: dict, user: dict, current: str | None = None) -> str | None | bool:
+    if "imageStorageKey" not in data and "imageUrl" not in data:
+        return current
+    key = data.get("imageStorageKey", data.get("imageUrl"))
+    if key in (None, "") or key == current:
+        return key or None
+    if not isinstance(key, str):
+        return False
+    import re
+
+    own_file = re.fullmatch(
+        rf"notices/{re.escape(user['firebase_uid'])}/[0-9a-f]{{32}}\.(?:png|jpg|gif|webp)", key
+    )
+    return key if own_file or key.startswith("https://") else False
+
+
 @api.post("/notices")
 def create_notice(request, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
@@ -1259,6 +1275,9 @@ def create_notice(request, body: dict[str, Any] = Body(...)):
         return Response({"detail": "forbidden"}, status=403)
     title = data.get("title") or ""
     content = data.get("content") or ""
+    image_key = _notice_image_key(data, user)
+    if image_key is False:
+        return Response({"detail": "본인이 올린 공지 이미지만 사용할 수 있습니다."}, status=400)
     with connection.cursor() as cur:
         cohort_id = resolve_cohort(cur, data.get("cohortId"), user)
     if not cohort_id:
@@ -1270,8 +1289,8 @@ def create_notice(request, body: dict[str, Any] = Body(...)):
             cur.execute("SELECT code FROM cohorts WHERE id = %s", [cohort_id])
             code = (cur.fetchone() or [None])[0]
             cur.execute(
-                """INSERT INTO notices (cohort_id, title, content, author_id, author_name, is_favorite, priority, vector_chunk_count, created_at, updated_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,0, now(), now()) RETURNING id""",
+                """INSERT INTO notices (cohort_id, title, content, author_id, author_name, is_favorite, priority, image_storage_key, vector_chunk_count, created_at, updated_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0, now(), now()) RETURNING id""",
                 [
                     cohort_id,
                     title,
@@ -1280,6 +1299,7 @@ def create_notice(request, body: dict[str, Any] = Body(...)):
                     user["display_name"],
                     bool(data.get("isFavorite")),
                     int(data.get("priority") or 0),
+                    image_key,
                 ],
             )
             notice_id = cur.fetchone()[0]
@@ -1306,23 +1326,27 @@ def patch_notice(request, pk: int, body: dict[str, Any] = Body(...)):
     with transaction.atomic():
         with connection.cursor() as cur:
             cur.execute(
-                """SELECT n.id, n.cohort_id, n.vector_chunk_count, n.author_id, c.code, n.title, n.content
+                """SELECT n.id, n.cohort_id, n.vector_chunk_count, n.author_id, c.code, n.title, n.content,
+                          n.image_storage_key, n.is_favorite, n.priority
                    FROM notices n JOIN cohorts c ON c.id = n.cohort_id WHERE n.id = %s""",
                 [pk],
             )
             row = cur.fetchone()
             if not row:
                 return Response({"detail": "not found"}, status=404)
-            _id, cohort_id, chunk_count, author_id, code, title, content = row
+            _id, cohort_id, chunk_count, author_id, code, title, content, old_image_key, favorite, priority = row
             if user["role"] != "admin" and not (
                 user["role"] == "instructor" and user["id"] == author_id
             ):
                 return Response({"detail": "forbidden"}, status=403)
             title = data.get("title", title)
             content = data.get("content", content)
+            image_key = _notice_image_key(data, user, old_image_key)
+            if image_key is False:
+                return Response({"detail": "본인이 올린 공지 이미지만 사용할 수 있습니다."}, status=400)
             cur.execute(
-                "UPDATE notices SET title=%s, content=%s, updated_at=now() WHERE id=%s",
-                [title, content, pk],
+                "UPDATE notices SET title=%s, content=%s, is_favorite=%s, priority=%s, image_storage_key=%s, updated_at=now() WHERE id=%s",
+                [title, content, bool(data.get("isFavorite", favorite)), int(data.get("priority", priority) or 0), image_key, pk],
             )
         schedule_notice_vector(
             cohort_code=code,
@@ -1417,6 +1441,42 @@ RECORD_FILE_TYPES = {
     "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp",
     "image/heic": ".heic", "application/pdf": ".pdf",
 }
+
+
+NOTICE_IMAGE_TYPES = {key: ext for key, ext in RECORD_FILE_TYPES.items() if key.startswith("image/") and key != "image/heic"}
+
+
+@api.post("/uploads/notice-image")
+def upload_notice_image(request, file: UploadedFile = File(...)):
+    import uuid
+
+    from lms.storage import put_object, read_url
+
+    user = _require_user(request)
+    if user["role"] not in ("admin", "instructor"):
+        return Response({"detail": "forbidden"}, status=403)
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    if content_type not in NOTICE_IMAGE_TYPES:
+        return Response({"detail": "JPG, PNG, GIF, WEBP 이미지만 올릴 수 있습니다."}, status=400)
+    if file.size is not None and file.size > RECORD_FILE_MAX_BYTES:
+        return Response({"detail": "파일은 10MB 이하만 올릴 수 있습니다."}, status=400)
+    data = file.read(RECORD_FILE_MAX_BYTES + 1)
+    if len(data) > RECORD_FILE_MAX_BYTES:
+        return Response({"detail": "파일은 10MB 이하만 올릴 수 있습니다."}, status=400)
+    signatures = {
+        "image/jpeg": data.startswith(b"\xff\xd8\xff"),
+        "image/png": data.startswith(b"\x89PNG\r\n\x1a\n"),
+        "image/gif": data.startswith((b"GIF87a", b"GIF89a")),
+        "image/webp": data.startswith(b"RIFF") and data[8:12] == b"WEBP",
+    }
+    if not signatures[content_type]:
+        return Response({"detail": "올바른 이미지 파일이 아닙니다."}, status=400)
+    key = f"notices/{user['firebase_uid']}/{uuid.uuid4().hex}{NOTICE_IMAGE_TYPES[content_type]}"
+    try:
+        put_object(key, data, content_type)
+    except Exception:  # noqa: BLE001 — S3 권한 · 네트워크
+        return Response({"detail": "이미지를 저장하지 못했습니다. 잠시 뒤 다시 시도해 주세요."}, status=502)
+    return {"key": key, "url": read_url(key)}
 
 
 @api.post("/uploads/record-evidence")

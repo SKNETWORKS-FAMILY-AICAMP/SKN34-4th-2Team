@@ -246,24 +246,44 @@ export function useNotice(id: string | undefined): Notice | undefined {
   return useDb((db) => db.notices.find((n) => n.id === id));
 }
 
-export function createNotice(notice: Omit<Notice, 'id' | 'createdAt'>): string {
+export async function createNotice(notice: Omit<Notice, 'id' | 'createdAt'>): Promise<string> {
   const id = nextId('n');
-  mutate((db) => ({
-    notices: [{ ...notice, id, createdAt: new Date() }, ...db.notices],
-  }));
-  if (!isTestMode()) {
-    void http.post('/notices', { ...notice, cohortId: apiCohortId() }).then(() => invalidateBootstrap());
+  if (isTestMode()) {
+    mutate((db) => ({ notices: [{ ...notice, id, createdAt: new Date() }, ...db.notices] }));
+    return id;
   }
-  return id;
+  try {
+    const { data } = await http.post<{ id: string }>('/notices', { ...notice, cohortId: apiCohortId() });
+    await invalidateBootstrap();
+    return data.id;
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
 }
 
-export function updateNotice(id: string, patch: Partial<Notice>): void {
-  mutate((db) => ({
-    notices: db.notices.map((n) => (n.id === id ? { ...n, ...patch } : n)),
-  }));
-  if (!isTestMode() && isApiId(id)) {
-    void http.patch(`/notices/${id}`, patch).then(() => invalidateBootstrap());
+export async function updateNotice(id: string, patch: Partial<Notice>): Promise<void> {
+  if (isTestMode()) {
+    mutate((db) => ({ notices: db.notices.map((n) => (n.id === id ? { ...n, ...patch } : n)) }));
+    return;
   }
+  if (isApiId(id)) {
+    try {
+      await http.patch(`/notices/${id}`, patch);
+      await invalidateBootstrap();
+    } catch (error) {
+      throw new Error(await readApiError(error));
+    }
+  }
+}
+
+export async function uploadNoticeImage(file: File): Promise<{ key: string; url: string }> {
+  if (isTestMode()) return { key: `demo/${file.name}`, url: `demo://${encodeURIComponent(file.name)}` };
+  const form = new FormData();
+  form.append('file', file);
+  const { data } = await http.post<{ key: string; url: string }>('/uploads/notice-image', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
 }
 
 export function deleteNotice(id: string): void {
