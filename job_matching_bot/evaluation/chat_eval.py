@@ -66,11 +66,13 @@ from pathlib import Path
 from collections import Counter
 from typing import Any
 
+from job_matching_bot.env import ensure_loaded
 from job_matching_bot.config import ARTIFACTS_DIR, FIXTURES_DIR
 
 CASES = FIXTURES_DIR / "chat_cases.json"
 RUNS_DIR = ARTIFACTS_DIR / "chat_eval"
-DEFAULT_BASE_URL = "http://127.0.0.1:8000"
+# AI 통합 서버(cover_letter_rag/app/integrated.py). 3차 때는 추천 서버가 혼자 8000 을 썼다 — 지금 8000 은 Django
+DEFAULT_BASE_URL = "http://127.0.0.1:8001"
 
 # ── 답 규율 ───────────────────────────────────────────────────
 #
@@ -566,6 +568,8 @@ def main() -> int:
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--run-file", type=Path, default=None)
     args = parser.parse_args()
+    # 공고 원문을 RDS 에서 읽는다 — 루트 .env 의 DB 설정이 있어야 한다
+    ensure_loaded()
 
     if args.score:
         path = args.labels or latest_labels()

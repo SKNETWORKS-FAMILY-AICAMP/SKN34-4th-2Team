@@ -560,6 +560,54 @@ class SqliteJobStore:
                 found[record.job.job_id] = record
         return found
 
+    # ── 요건 채우기(ingestion/requirements_llm) ────────────────────
+    # 볼 공고는 **경력 공고인데 최소 연차가 빈 것**만. 전공 · 자격증까지 넣으면 거의 모든 공고가 대상인데
+    # (둘 다 비어 있는 게 보통) 새 공고 40건을 뽑아 보니 채울 것이 나온 건 1건이었다(2026-09-29).
+    # 이 공고들에서 전공 · 자격증도 같이 뽑아 빈 칸이면 채운다.
+    _REQUIREMENT_GAP = "(career_type = 'EXPERIENCED' AND min_career_years IS NULL)"
+
+    def requirement_targets(self, limit: int, job_ids: Iterable[str] | None = None,
+                            min_days_left: int | None = None) -> list[JobRecord]:
+        """요건을 뽑아 볼 공고 — 열려 있고 본문이 있고, 빈 칸이 있고, 이 본문으로 아직 안 본 것. 새 공고부터.
+
+        `min_days_left` — 마감이 그만큼 남은 공고만(마감일 없는 상시 채용은 넣는다). 기존 공고를 한꺼번에 채울 때
+        곧 마감될 것에 비용을 쓰지 않으려고 둔다(2026-09-29 대상 1만 1천여 건 중 2주 안 마감이 4,549건).
+        """
+        sql = (
+            "SELECT * FROM jobs WHERE status = 'OPEN' AND NOT COALESCE(body_is_image, false)"
+            " AND length(description) > 200 AND " + self._REQUIREMENT_GAP +
+            " AND (field_provenance -> 'requirements_llm' ->> 'hash') IS DISTINCT FROM content_hash"
+        )
+        params: tuple = ()
+        if job_ids is not None:
+            sql += " AND job_id = ANY(?)"
+            params = (list(job_ids),)
+        if min_days_left is not None:
+            sql += " AND (COALESCE(deadline, '') = '' OR deadline::date >= current_date + ?::int)"
+            params = (*params, min_days_left)
+        rows = self.conn.execute(sql + " ORDER BY first_seen_at DESC LIMIT ?", (*params, limit)).fetchall()
+        return [self._row_to_record(r) for r in rows]
+
+    def fill_requirements(self, job_id: str, values: dict[str, Any], marker: dict[str, Any]) -> int:
+        """뽑은 요건을 **빈 칸에만** 적고, 본 표시(`field_provenance.requirements_llm`)를 남긴다.
+
+        빈 칸인지는 SQL 이 한 번 더 본다 — 뽑는 사이에 적재가 값을 채웠으면 그 값을 둔다.
+        """
+        sets = ["field_provenance = jsonb_set(COALESCE(field_provenance, '{}'::jsonb), '{requirements_llm}', ?)"]
+        params: list[Any] = [Jsonb(marker)]
+        if "min_career_years" in values:
+            sets.append("min_career_years = COALESCE(min_career_years, ?)")
+            params.append(values["min_career_years"])
+        for column, pair in (("required_majors", "required_major_terms"),
+                             ("required_certifications", "required_certification_groups")):
+            if column in values:
+                empty = f"COALESCE({column}, '[]'::jsonb) = '[]'::jsonb"
+                sets.append(f"{column} = CASE WHEN {empty} THEN ? ELSE {column} END")
+                sets.append(f"{pair} = CASE WHEN {empty} THEN ? ELSE {pair} END")
+                params += [Jsonb(values[column]), Jsonb(values[pair])]
+        with self.conn:
+            return self.conn.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE job_id = ?", (*params, job_id)).rowcount
+
     def set_company_types(self, source: str, types: dict[str, str], *, complete: bool) -> int:
         """{공고 번호: 기업형태} 를 `company_type` 에 적는다. 바뀐 줄 수를 돌려준다.
 

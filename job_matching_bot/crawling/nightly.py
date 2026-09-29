@@ -585,6 +585,28 @@ def run_regroup(store_path: Path, work_dir: Path, as_of: datetime) -> dict[str, 
         return {"exit_code": code}
 
 
+# 한 밤에 요건을 뽑아 볼 최대 공고 수. 새로 들어오는 경력 공고(연차 빈 것)는 하루 몇백 건이라 넉넉하다
+FILL_REQUIREMENTS_LIMIT = 3000
+
+
+def run_fill_requirements(store_path: Path, as_of: datetime, work_dir: Path) -> dict[str, Any]:
+    """경력 공고인데 최소 연차가 빈 공고의 요건을 본문에서 뽑아 빈 칸만 채운다(fill_requirements).
+
+    인덱스 **전에** 부른다 — 채운 연차가 인덱스 메타데이터(검색 조건)에도 실려야 한다. 실패해도 인덱스는 간다.
+    """
+    report = work_dir / f"{run_stamp(as_of)}_requirements.json"
+    command = [
+        sys.executable, "-m", "job_matching_bot.fill_requirements", "--store", str(store_path),
+        "--limit", str(FILL_REQUIREMENTS_LIMIT), "--workers", "8", "--show", "0", "--report", str(report),
+    ]
+    print("[요건 채우기] " + " ".join(command[2:]), flush=True)
+    code = subprocess.run(command, cwd=str(REPO_ROOT)).returncode
+    try:
+        return {"exit_code": code, **json.loads(report.read_text(encoding="utf-8"))}
+    except (OSError, ValueError):
+        return {"exit_code": code}
+
+
 def run_index(store_path: Path, as_of: datetime, work_dir: Path) -> int:
     """묶기까지 끝난 상태로 Pinecone 을 맞춘다. 대표만 올라간다."""
     command = [
@@ -798,6 +820,8 @@ def main() -> int:
 
         # 5d. 같은 공고 묶기 → 대표만 인덱스. 두 출처가 다 들어온 뒤라야 짝을 찾는다.
         summary["regroup"] = run_regroup(args.store, NIGHTLY_DIR, now)
+        # 5e. 요건 채우기 — 인덱스 전에. 채운 연차가 검색 조건에도 실리게
+        summary["requirements"] = run_fill_requirements(args.store, now, NIGHTLY_DIR)
         summary["index_exit_code"] = run_index(args.store, now, NIGHTLY_DIR)
 
         # 6. PostgreSQL 직접 공유 초안. 담당자 검토 전에는 이 배치 변경을 배포하지 않는다.
