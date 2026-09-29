@@ -16,6 +16,8 @@ from job_matching_bot.schemas.resume import ResumeProfile
 # functions/src/jobCoachScoring.ts 의 EDUCATION_RANK 와 같아야 한다.
 # 신입 전용 공고를 걸러낼 연차 경계. 이 값 이상이면 신입 전형 대상이 아니다.
 ENTRY_ONLY_MAX_YEARS = 2
+# 최소 연차에서 이만큼(년) 모자라도 빼지 않고 「확인 필요」로 둔다. 2년 6개월이면 「3년 이상」 공고에 지원해 볼 만하다
+CAREER_TOLERANCE_YEARS = 0.5
 
 EDUCATION_RANK = {"학력무관": 0, "고졸": 1, "초대졸": 2, "대졸": 3, "석사": 4, "박사": 5}
 
@@ -30,6 +32,12 @@ def _education_passes(resume_level: str, required_level: str) -> bool | None:
 
 
 NATIONWIDE = "전국"
+# 요건이 **안 맞는 것이 드러난** 「확인 필요」 항목의 머리말. 이게 있으면 적합도 「높음」을 주지 않는다
+# (api/service.RecommendService.require_all_met).
+# - 넣지 않는 것: 「전공 확인 필요」(이력서에 전공을 안 적음) — 안 맞는다는 증거가 아니다. 넣으면 전공을 안 적은
+#   학생은 전공 요구 공고에서 높음을 영영 못 받는다. 「근무지역 미기재」처럼 공고 쪽 정보가 없는 것도 아니다.
+CAREER_SHORT = "경력"
+APPLICANT_UNMET = ("전공 요건 미확인", CAREER_SHORT + " ")
 
 
 def is_nationwide(job_region: str) -> bool:
@@ -121,8 +129,11 @@ def hard_filter(job: Job, resume: ResumeProfile) -> dict[str, Any]:
                 passed.append("경력 조건 충족 (연차 미기재, 경력 보유)")
             else:
                 failed.append("경력자 채용 (연차 미기재)")
-        elif resume.career_years < job.min_career_years:
+        elif resume.career_years < job.min_career_years - CAREER_TOLERANCE_YEARS:
             failed.append(f"최소 경력 {job.min_career_years}년")
+        elif resume.career_years < job.min_career_years:
+            short = round((job.min_career_years - resume.career_years) * 12)
+            unknown.append(f"{CAREER_SHORT} {short}개월 모자람 (최소 {job.min_career_years}년)")
         else:
             passed.append("경력 조건 충족")
     elif job.career_type == "ENTRY" and resume.career_years >= ENTRY_ONLY_MAX_YEARS:

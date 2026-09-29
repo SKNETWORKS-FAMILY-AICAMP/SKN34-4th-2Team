@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from job_matching_bot.api import abuse, prompts, schemas
-from job_matching_bot.matching.hard_filter import hard_filter
+from job_matching_bot.matching.hard_filter import APPLICANT_UNMET, hard_filter
 from job_matching_bot.matching.pre_ranker import pre_rank, preferred_match, skill_match
 from job_matching_bot.retrieval import search as retrieval
 from job_matching_bot.retrieval import market_stats, store_search
@@ -486,7 +486,7 @@ class RecommendService(_LivenessMixin):
             preferred_regions=request.preferred_regions,
             preferred_employment_types=request.preferred_employment_types,
             education_level=request.education_level,
-            career_years=int(max(request.career_years, profile.career_years)),
+            career_years=max(request.career_years, profile.career_years),
             majors=request.majors,
             certifications=request.certifications,
         )
@@ -604,6 +604,25 @@ class RecommendService(_LivenessMixin):
         if failures:
             warnings.append(f"일부 공고를 분석하지 못해 검색 순서로 표시합니다: {', '.join(failures)}")
         return fits, bool(fits)
+
+    # ── ⑤-2 「높음」은 다 맞아야 ─────────────────────
+    @staticmethod
+    def require_all_met(fit: schemas.JobFit, filter_result: dict) -> schemas.JobFit:
+        """필수 요건이 하나라도 확인되지 않으면 「높음」을 「보통」으로 내린다.
+
+        - LLM 이 적은 `concerns`(필수 자격요건 중 이력서에서 확인되지 않는 것)
+        - 하드 필터에서 안 맞는 것이 드러난 확인 필요(전공 불일치 · 연차 6개월 이내 모자람). 이력서에 전공을 안 적은
+          것은 넣지 않는다 — 안 맞는다는 증거가 아니다(hard_filter.APPLICANT_UNMET)
+
+        프롬프트로 시켜 봤더니(2026-09-28) 재정렬이 21~38초로 느려지고 추론 강도에 따라 흔들렸다.
+        판정이 끝난 뒤 코드로 맞추면 시간이 늘지 않고 규칙대로 나온다. 올리지는 않는다.
+        """
+        if fit.fit != "높음":
+            return fit
+        unmet = [u for u in filter_result.get("unknown", []) if u.startswith(APPLICANT_UNMET)]
+        if not fit.concerns and not unmet:
+            return fit
+        return fit.model_copy(update={"fit": "보통", "concerns": [*unmet, *fit.concerns]})
 
     # ── ⑤ 근거 검증 ──────────────────────────────────
     @staticmethod
@@ -765,6 +784,7 @@ class RecommendService(_LivenessMixin):
             fit = fits.get(job.job_id)
             if fit is not None:
                 fit = self.verify(fit, request.resume_text, job, warnings)
+                fit = self.require_all_met(fit, filter_result)
             rows.append(
                 (
                     fit_order(fit.fit if fit else None),
