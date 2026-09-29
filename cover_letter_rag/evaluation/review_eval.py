@@ -343,6 +343,7 @@ def run_case(case: dict, settings, applicant, max_questions: int, generator=None
         follow_telemetry = follow.get("telemetry") or {}
         turn["fact_checks"] = follow_telemetry.get("fact_checks")
         turn["fact_check_ms"] = follow_telemetry.get("fact_check_ms")
+        turn["generation_ms"] = follow_telemetry.get("generation_ms")
         turn["fact_notices"] = follow_telemetry.get("fact_notices")
         turn["requirement_id"] = question.get("requirement_id")
         turn["topic"] = question.get("topic")
@@ -353,10 +354,6 @@ def run_case(case: dict, settings, applicant, max_questions: int, generator=None
         answered_group = group(question["field_path"])
         turn["suggestions"] = [s for s in summary["suggestions"] if group(s["field_path"]) == answered_group]
         # 묶음 적용 뒤라면 재첨삭 수정안의 원문이 "다듬어진 최신 문장"에서 나와야 한다.
-        turn["quotes_on_latest_text"] = all(
-            re.sub(r"\s+", "", s["original"]) in re.sub(r"\s+", "", fields.get(s["field_path"], ""))
-            for s in turn["suggestions"]
-        )
         turn["dropped"] = [d for d in summary["dropped"] if group(d["field_path"]) == answered_group]
         turn["warnings"] = [w for w in summary["warnings"] if question["field_path"].split("[")[0] in w]
         turn["reflected"] = any(
@@ -378,6 +375,10 @@ def run_case(case: dict, settings, applicant, max_questions: int, generator=None
         new_items = [s for s in summary["suggestions"] if s.get("new_item") and s not in turn["suggestions_shown"]]
         turn["suggestions_shown"] += new_items
         turn["new_items"] = new_items
+        turn["quotes_on_latest_text"] = all(
+            re.sub(r"\s+", "", s["original"]) in re.sub(r"\s+", "", fields.get(s["field_path"], ""))
+            for s in turn["suggestions_shown"] if not s.get("new_item")
+        )
         turns.append(turn)
         current = follow
 
@@ -386,6 +387,7 @@ def run_case(case: dict, settings, applicant, max_questions: int, generator=None
             review_phase="gap_audit", previous_review_id=current["review_id"],
         )).model_dump()
         record["gap_audit"] = {"elapsed_ms": (gap.get("telemetry") or {}).get("elapsed_ms"),
+                               "generation_ms": (gap.get("telemetry") or {}).get("generation_ms"),
                                "new_questions": [q["question"] for q in gap.get("questions", [])[:5]]}
     except Exception as exc:  # noqa: BLE001
         record["errors"].append(f"gap_audit {type(exc).__name__}: {exc}"[:200])
@@ -429,6 +431,7 @@ def summarize_review(review: dict, fields: dict) -> dict:
     sentences = review.get("sentence_reviews", [])
     return {
         "elapsed_ms": telemetry.get("elapsed_ms"),
+        "generation_ms": telemetry.get("generation_ms"),
         "requirements_ms": telemetry.get("requirements_ms"),
         "input_tokens": telemetry.get("input_tokens"),
         "output_tokens": telemetry.get("output_tokens"),
@@ -632,10 +635,11 @@ def aggregate(records: list[dict]) -> dict:
         "first_dropped": mean([len(r["first"]["dropped"]) for r in ok]),
         "visible_question_kinds": dict(kinds),
         "answers": len(answered),
-        "positive_answers_with_suggestion": f"{sum(1 for t in positive if t['suggestions'])}/{len(positive)}",
+        "positive_answers_with_suggestion": f"{sum(1 for t in positive if t.get('suggestions_shown', t['suggestions']))}/{len(positive)}",
         "positive_answers_reflected": f"{sum(1 for t in positive if t['reflected'])}/{len(positive)}",
         "negative_answers_with_content_edit": sum(
-            1 for t in negative for s in t["suggestions"] if s["edit_type"] == "content"),
+            1 for t in negative for s in t.get("suggestions_shown", t["suggestions"])
+            if s["edit_type"] == "content"),
         "turn_errors": sum(len(r["errors"]) for r in ok),
         "polish_offered_applied": (
             f'{sum(r["polish"]["offered"] for r in ok if r.get("polish"))}/'
@@ -643,8 +647,8 @@ def aggregate(records: list[dict]) -> dict:
         ) if any(r.get("polish") for r in ok) else None,
         "polish_apply_errors": [r["polish"]["error"] for r in ok if r.get("polish") and r["polish"]["error"]],
         "followup_quotes_on_latest_text": (
-            f'{sum(1 for r in ok for t in r["turns"] if t.get("suggestions") and t.get("quotes_on_latest_text"))}/'
-            f'{sum(1 for r in ok for t in r["turns"] if t.get("suggestions"))}'
+            f'{sum(1 for r in ok for t in r["turns"] if any(not s.get("new_item") for s in t.get("suggestions_shown", t.get("suggestions", []))) and t.get("quotes_on_latest_text"))}/'
+            f'{sum(1 for r in ok for t in r["turns"] if any(not s.get("new_item") for s in t.get("suggestions_shown", t.get("suggestions", []))))}'
         ),
         "fabricated_numbers": sum(len(r["fabrication"]["new_numbers"]) for r in ok),
         "fabricated_terms": sum(len(r["fabrication"]["new_terms"]) for r in ok),
@@ -655,6 +659,8 @@ def aggregate(records: list[dict]) -> dict:
         "requirement_status_agree": sum(r["requirement_score"]["status_agree"] for r in ok),
         "requirement_over_claim": sum(r["requirement_score"]["over_claim"] for r in ok),
         "requirements_extract_ms": mean([r["first"].get("requirements_ms") for r in ok if r["first"].get("requirements_ms")]),
+        "first_generation_ms": mean([r["first"].get("generation_ms") for r in ok if r["first"].get("generation_ms")]),
+        "followup_generation_ms": mean([t.get("generation_ms") for t in answered if t.get("generation_ms")]),
         **quality_summary(ok),
     }
 

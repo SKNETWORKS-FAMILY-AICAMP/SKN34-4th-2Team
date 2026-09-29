@@ -162,10 +162,13 @@ def _ndjson_chat(
     session: dict[str, Any],
 ) -> Iterator[str]:
     started = time.perf_counter()
+    first_token_ms: int | None = None
     status = "success"
     error_message: str | None = None
     try:
         for chunk in bot.stream(inputs):
+            if chunk and first_token_ms is None:
+                first_token_ms = max(0, round((time.perf_counter() - started) * 1000))
             yield json.dumps({"type": "token", "content": chunk}, ensure_ascii=False) + "\n"
     except Exception:
         status = "error"
@@ -175,6 +178,9 @@ def _ndjson_chat(
     snapshot: dict[str, Any] = {}
     try:
         snapshot = bot.ops_snapshot(inputs)
+        if first_token_ms is not None:
+            snapshot["first_token_ms"] = first_token_ms
+            snapshot["generation_tail_ms"] = max(0, latency_ms - first_token_ms)
     except Exception:
         snapshot = {}
     payload = build_generation_log_payload(
@@ -227,9 +233,12 @@ def proxy_chat(
     parts: list[str] = []
     err: str | None = None
     started = time.perf_counter()
+    first_token_ms: int | None = None
     try:
         for chunk in bot.stream(inputs):
             if chunk:
+                if first_token_ms is None:
+                    first_token_ms = max(0, round((time.perf_counter() - started) * 1000))
                 parts.append(str(chunk))
     except Exception:
         err = "답변 생성 중 오류가 발생했습니다"
@@ -240,6 +249,9 @@ def proxy_chat(
     snapshot: dict[str, Any] = {}
     try:
         snapshot = bot.ops_snapshot(inputs)
+        if first_token_ms is not None:
+            snapshot["first_token_ms"] = first_token_ms
+            snapshot["generation_tail_ms"] = max(0, latency_ms - first_token_ms)
     except Exception:
         snapshot = {}
     payload = build_generation_log_payload(

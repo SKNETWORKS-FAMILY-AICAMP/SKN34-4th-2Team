@@ -534,8 +534,8 @@ class RecommendService(_LivenessMixin):
         from job_matching_bot.ingest import DEFAULT_STORE
         from job_matching_bot.ingestion.sqlite_store import SqliteJobStore
 
-        if not DEFAULT_STORE.is_file():
-            raise SearchUnavailable('공고 원문 저장소를 찾을 수 없습니다.')
+        # The default path identifies the managed RDS jobs schema. It need not
+        # exist as a local SQLite file before the store can be opened.
         resolved: list[tuple[retrieval.Hit, Job]] = []
         missing = inactive = 0
         # 한 번에 읽는다 — 한 건씩이면 RDS 왕복이 25번이라 필터 단계가 6초였다(SqliteJobStore.get_many)

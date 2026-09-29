@@ -1508,6 +1508,7 @@ def run_review(service, id_token, request):
     # 명사형으로 끊긴 문장은 첫 첨삭에서만 목록으로 준다(후속 첨삭은 답한 항목만 고친다).
     fragment_targets = noun_fragment_targets(prompt_fields) if not is_focused_followup and not is_gap_audit else []
     try:
+        generation_started = time.monotonic()
         generated = ResumeReviewGeneration(
             summary=str((previous or {}).get('summary') or ''), section_reviews=[],
         ) if skip_model else service._generator({
@@ -1559,6 +1560,7 @@ def run_review(service, id_token, request):
             if generated.get('parsing_error') or generated.get('parsed') is None:
                 raise RuntimeError('invalid structured model response')
             generated = generated['parsed']
+        telemetry['generation_ms'] = round((time.monotonic() - generation_started) * 1000)
         if is_gap_audit:
             # A final audit may discover questions only. It must never replace
             # an already accepted edit with a different model rewrite.

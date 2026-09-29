@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Callable
 
-from django.db import connection
+from django.db import close_old_connections, connection
 
 from lms.jsonutil import public_row
 from lms.practice_service import practice_snapshot
@@ -26,6 +28,67 @@ def _dicts(cur):
 
 def _pub_list(rows, uid_by_pk, code_by_pk):
     return [public_row(r, uid_by_pk, code_by_pk) for r in rows]
+
+
+def _query_group(specs: list[tuple[str, tuple[str, list] | Callable]], cur=None) -> dict[str, Any]:
+    """Run one independent query group on one thread-local Django connection."""
+    own_cursor = cur is None
+    if own_cursor:
+        close_old_connections()
+        cur = connection.cursor()
+    try:
+        result = {}
+        pending: list[tuple[str, tuple[str, list]]] = []
+
+        def flush() -> None:
+            if not pending:
+                return
+            cursors = []
+            try:
+                with connection.connection.pipeline() as pipeline:
+                    for name, (sql, args) in pending:
+                        query_cur = connection.cursor()
+                        cursors.append((name, query_cur))
+                        query_cur.execute(sql, args)
+                    pipeline.sync()
+                    for name, query_cur in cursors:
+                        result[name] = _dicts(query_cur)
+            finally:
+                for _, query_cur in cursors:
+                    query_cur.close()
+                pending.clear()
+
+        for name, spec in specs:
+            if callable(spec):
+                flush()
+                result[name] = spec(cur)
+            else:
+                pending.append((name, spec))
+        flush()
+        return result
+    finally:
+        if own_cursor:
+            cur.close()
+            connection.close()
+
+
+def _parallel_queries(cur, specs: dict[str, tuple[str, list] | Callable]) -> dict[str, Any]:
+    """Overlap independent RDS round trips with two short-lived read connections."""
+    groups: list[list[tuple[str, tuple[str, list] | Callable]]] = [[], [], []]
+    # Practice runs several dependent statements within one task. Account for
+    # that work before distributing the single-query tasks across groups.
+    weights = {"practice": 6, "resumes": 2, "notes": 2, "submissions": 2}
+    loads = [0, 3, 3]  # Worker groups also open an RDS connection.
+    for name, spec in sorted(specs.items(), key=lambda item: weights.get(item[0], 1), reverse=True):
+        index = min(range(len(groups)), key=lambda group: loads[group])
+        groups[index].append((name, spec))
+        loads[index] += weights.get(name, 1)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(_query_group, group) for group in groups[1:]]
+        result = _query_group(groups[0], cur)
+        for future in futures:
+            result.update(future.result())
+    return result
 
 
 def build_bootstrap(user: dict) -> dict:
@@ -84,172 +147,200 @@ def build_bootstrap(user: dict) -> dict:
             cur.execute(sql, args or [])
             return _dicts(cur)
 
-        notices = q(
-            "SELECT * FROM notices WHERE cohort_id = ANY(%s) ORDER BY created_at DESC NULLS LAST",
-            [cohort_ids],
-        )
-        scheduled = (
-            q(
-                """SELECT sn.*, u.display_name AS author_name
-                   FROM scheduled_notices sn
-                   LEFT JOIN users u ON u.id = sn.author_id
-                   WHERE sn.cohort_id = ANY(%s)
+        # These lookups only depend on the authenticated user and visible cohorts.
+        # Execute at most three groups concurrently; each worker owns its cursor.
+        cohort_filter = [cohort_ids]
+        private_filter = [cohort_ids, is_student, user["id"]]
+        specs: dict[str, tuple[str, list] | Callable] = {
+            "notices": (
+                "SELECT * FROM notices WHERE cohort_id = ANY(%s) ORDER BY created_at DESC NULLS LAST",
+                cohort_filter,
+            ),
+            "alerts": (
+                """SELECT p.*, u.display_name AS author_name FROM alert_popups p
+                   LEFT JOIN users u ON u.id = p.author_id WHERE p.cohort_id = ANY(%s)
+                   ORDER BY p.sort_order NULLS LAST, p.created_at DESC NULLS LAST""",
+                cohort_filter,
+            ),
+            "dismissals": ("SELECT * FROM alert_popup_dismissals WHERE user_id = %s", [user["id"]]),
+            "todos": ("SELECT * FROM todos WHERE user_id = %s", [user["id"]]),
+            "attendances": (
+                """SELECT a.*, a.attendance_date AS date_key FROM attendances a
+                   WHERE a.cohort_id = ANY(%s) AND (%s = false OR a.user_id = %s)""",
+                private_filter,
+            ),
+            "submissions": (
+                """SELECT rs.*,
+                          COALESCE(array_agg(rf.storage_key ORDER BY rf.id)
+                                   FILTER (WHERE rf.id IS NOT NULL), ARRAY[]::varchar[]) AS file_urls
+                   FROM record_submissions rs
+                   LEFT JOIN record_submission_files rf ON rf.submission_id = rs.id
+                   WHERE rs.cohort_id = ANY(%s) AND (%s = false OR rs.user_id = %s)
+                   GROUP BY rs.id""",
+                private_filter,
+            ),
+            "resumes": (
+                """SELECT r.*, COALESCE(r.content->'section_status', '{}'::jsonb) AS sections
+                   FROM resumes r WHERE r.cohort_id = ANY(%s)
+                   AND (%s = false OR r.user_id = %s)""",
+                private_filter,
+            ),
+            "feedbacks": (
+                """SELECT f.* FROM resume_feedback f JOIN resumes r ON r.id = f.resume_id
+                   WHERE r.cohort_id = ANY(%s) AND (%s = false OR r.user_id = %s)""",
+                private_filter,
+            ),
+            "products": ("SELECT * FROM mileage_products WHERE cohort_id = ANY(%s)", cohort_filter),
+            "txs": (
+                "SELECT * FROM mileage_transactions WHERE cohort_id = ANY(%s) AND (%s = false OR user_id = %s)",
+                private_filter,
+            ),
+            "purchases": (
+                "SELECT * FROM purchase_requests WHERE cohort_id = ANY(%s) AND (%s = false OR user_id = %s)",
+                private_filter,
+            ),
+            "forms": (
+                """SELECT st.*, stc.cohort_id, st.external_url AS form_url,
+                          st.guide_url AS notion_guide_url
+                   FROM submission_tasks st
+                   JOIN submission_task_cohorts stc ON stc.task_id = st.id
+                   WHERE stc.cohort_id = ANY(%s)""",
+                cohort_filter,
+            ),
+            "inflearn": ("SELECT * FROM inflearn_packages WHERE cohort_id = ANY(%s)", cohort_filter),
+            "youtube": ("SELECT * FROM youtube_recommendations WHERE cohort_id = ANY(%s)", cohort_filter),
+            "sources": ("SELECT * FROM study_sources WHERE cohort_id = ANY(%s)", cohort_filter),
+            "notes": (
+                """SELECT n.*, COALESCE(s.legacy_id, s.id::text) AS source_key
+                   FROM study_notes n LEFT JOIN study_sources s ON s.id = n.source_id
+                   WHERE n.user_id = %s""",
+                [user["id"]],
+            ),
+            "sheets": ("SELECT * FROM curriculum_sheets WHERE cohort_id = ANY(%s)", cohort_filter),
+            "mileage_settings": ("SELECT * FROM mileage_settings WHERE cohort_id = ANY(%s)", cohort_filter),
+            "cache": ("SELECT * FROM system_cache", []),
+            "rooms": (
+                "SELECT * FROM cohort_seating WHERE cohort_id = ANY(%s) AND (%s = false OR published = true)",
+                [cohort_ids, is_student],
+            ),
+            "teams": ("SELECT * FROM project_teams WHERE cohort_id = ANY(%s)", cohort_filter),
+            "pdfs": ("SELECT * FROM curriculum_pdfs WHERE cohort_id = ANY(%s)", cohort_filter),
+            "intakes": (
+                """SELECT si.* FROM student_intakes si JOIN users u ON u.id = si.user_id
+                   WHERE u.cohort_id = ANY(%s) AND (%s = false OR si.user_id = %s)""",
+                private_filter,
+            ),
+            "cart": ("SELECT * FROM mileage_cart_items WHERE user_id = %s", [user["id"]]),
+            "materials": ("SELECT * FROM materials WHERE cohort_id = ANY(%s)", cohort_filter),
+            "schedules": ("SELECT * FROM schedules WHERE cohort_id = ANY(%s)", cohort_filter),
+            "missions": (
+                "SELECT * FROM mission_progress WHERE cohort_id = ANY(%s) AND (%s = false OR user_id = %s)",
+                private_filter,
+            ),
+            "form_responses": (
+                """SELECT sr.*, sr.external_response_id AS google_response_id
+                   FROM submission_responses sr
+                   WHERE sr.task_id IN (
+                     SELECT task_id FROM submission_task_cohorts WHERE cohort_id = ANY(%s)
+                   ) AND (%s = false OR sr.user_id = %s)""",
+                private_filter,
+            ),
+            "practice": lambda practice_cur: practice_snapshot(
+                practice_cur, user, [code_by_pk[pk] for pk in cohort_ids if pk in code_by_pk],
+            ),
+            "assess_subs": (
+                """SELECT s.* FROM assessment_submissions s
+                   JOIN assessments a ON a.id = s.assessment_id
+                   WHERE a.cohort_id = ANY(%s) AND (%s = false OR s.user_id = %s)""",
+                private_filter,
+            ),
+        }
+        if user["role"] == "admin":
+            specs["scheduled"] = (
+                """SELECT sn.*, u.display_name AS author_name FROM scheduled_notices sn
+                   LEFT JOIN users u ON u.id = sn.author_id WHERE sn.cohort_id = ANY(%s)
                    ORDER BY sn.created_at DESC NULLS LAST""",
-                [cohort_ids],
+                cohort_filter,
             )
-            if user["role"] == "admin"
-            else []
-        )
-        alerts = q(
-            """SELECT p.*, u.display_name AS author_name
-               FROM alert_popups p
-               LEFT JOIN users u ON u.id = p.author_id
-               WHERE p.cohort_id = ANY(%s)
-               ORDER BY p.sort_order NULLS LAST, p.created_at DESC NULLS LAST""",
-            [cohort_ids],
-        )
-        dismissals = q(
-            "SELECT * FROM alert_popup_dismissals WHERE user_id = %s",
-            [user["id"]],
-        )
-        todos = q("SELECT * FROM todos WHERE user_id = %s", [user["id"]])
-        attendances = q(
-            """SELECT a.*, a.attendance_date AS date_key FROM attendances a
-               WHERE a.cohort_id = ANY(%s) AND (%s = false OR a.user_id = %s)""",
-            [cohort_ids, is_student, user["id"]],
-        )
-        seat_presences = (
-            q("SELECT * FROM seat_presences WHERE cohort_id = ANY(%s)", [cohort_ids])
-            if not is_student else []
-        )
-        submissions = q(
-            """SELECT rs.*,
-                      COALESCE(array_agg(rf.storage_key ORDER BY rf.id)
-                               FILTER (WHERE rf.id IS NOT NULL), ARRAY[]::varchar[]) AS file_urls
-               FROM record_submissions rs
-               LEFT JOIN record_submission_files rf ON rf.submission_id = rs.id
-               WHERE rs.cohort_id = ANY(%s) AND (%s = false OR rs.user_id = %s)
-               GROUP BY rs.id""",
-            [cohort_ids, is_student, user["id"]],
-        )
-        # 증빙은 저장 키로 있다 — 화면이 바로 여는 잠깐짜리 주소로 바꿔 보낸다(S3 서명 · 로컬 서명)
+            specs["logs"] = ("SELECT * FROM ai_generation_logs WHERE cohort_id = ANY(%s)", cohort_filter)
+        if not is_student:
+            specs["seat_presences"] = ("SELECT * FROM seat_presences WHERE cohort_id = ANY(%s)", cohort_filter)
+        if user["role"] in ("admin", "instructor"):
+            specs["assessments"] = ("SELECT * FROM assessments WHERE cohort_id = ANY(%s)", cohort_filter)
+            specs["questions"] = (
+                """SELECT aq.* FROM assessment_questions aq
+                   JOIN assessments a ON a.id = aq.assessment_id
+                   WHERE a.cohort_id = ANY(%s)""",
+                cohort_filter,
+            )
+        else:
+            specs["assessments"] = (
+                "SELECT * FROM assessments WHERE cohort_id = ANY(%s) AND published = true",
+                cohort_filter,
+            )
+
+        fetched = _parallel_queries(cur, specs)
+        notices = fetched["notices"]
+        scheduled = fetched.get("scheduled", [])
+        alerts = fetched["alerts"]
+        dismissals = fetched["dismissals"]
+        todos = fetched["todos"]
+        attendances = fetched["attendances"]
+        seat_presences = fetched.get("seat_presences", [])
+        submissions = fetched["submissions"]
         for submission in submissions:
             submission["file_urls"] = [
                 url for url in (read_url(key) for key in submission.get("file_urls") or []) if url
             ]
-        resumes = q(
-            """SELECT r.*, COALESCE(r.content->'section_status', '{}'::jsonb) AS sections
-               FROM resumes r WHERE r.cohort_id = ANY(%s)
-               AND (%s = false OR r.user_id = %s)""",
-            [cohort_ids, is_student, user["id"]],
-        )
-        feedbacks = q(
-            """SELECT f.* FROM resume_feedback f JOIN resumes r ON r.id = f.resume_id
-               WHERE r.cohort_id = ANY(%s) AND (%s = false OR r.user_id = %s)""",
-            [cohort_ids, is_student, user["id"]],
-        )
-        if user["role"] in ("admin", "instructor"):
-            assessments = q("SELECT * FROM assessments WHERE cohort_id = ANY(%s)", [cohort_ids])
-            questions = q(
-                """SELECT aq.* FROM assessment_questions aq
-                   JOIN assessments a ON a.id = aq.assessment_id
-                   WHERE a.cohort_id = ANY(%s)""",
-                [cohort_ids],
-            )
-        else:
-            assessments = q(
-                "SELECT * FROM assessments WHERE cohort_id = ANY(%s) AND published = true",
-                [cohort_ids],
-            )
-            questions = []
-        products = q("SELECT * FROM mileage_products WHERE cohort_id = ANY(%s)", [cohort_ids])
-        txs = q(
-            "SELECT * FROM mileage_transactions WHERE cohort_id = ANY(%s) AND (%s = false OR user_id = %s)",
-            [cohort_ids, is_student, user["id"]],
-        )
-        purchases = q(
-            "SELECT * FROM purchase_requests WHERE cohort_id = ANY(%s) AND (%s = false OR user_id = %s)",
-            [cohort_ids, is_student, user["id"]],
-        )
+        resumes = fetched["resumes"]
+        feedbacks = fetched["feedbacks"]
+        assessments = fetched["assessments"]
+        questions = fetched.get("questions", [])
+        products = fetched["products"]
+        txs = fetched["txs"]
+        purchases = fetched["purchases"]
         purchase_items = q(
             "SELECT * FROM purchase_request_items WHERE request_id = ANY(%s)",
-            [[r["id"] for r in purchases] or [-1]],
+            [[row["id"] for row in purchases] or [-1]],
         )
-        forms = q(
-            """SELECT st.*, stc.cohort_id, st.external_url AS form_url, st.guide_url AS notion_guide_url
-               FROM submission_tasks st
-               JOIN submission_task_cohorts stc ON stc.task_id = st.id
-               WHERE stc.cohort_id = ANY(%s)""",
-            [cohort_ids],
-        )
-        inflearn = q("SELECT * FROM inflearn_packages WHERE cohort_id = ANY(%s)", [cohort_ids])
-        youtube = q("SELECT * FROM youtube_recommendations WHERE cohort_id = ANY(%s)", [cohort_ids])
-        sources = q("SELECT * FROM study_sources WHERE cohort_id = ANY(%s)", [cohort_ids])
-        # 화면은 소스를 legacy_id(없으면 숫자 id)로 부른다 — 노트의 source_id 도 같은 값으로 바꿔 보낸다
-        notes = q(
-            """SELECT n.*, COALESCE(s.legacy_id, s.id::text) AS source_key
-               FROM study_notes n LEFT JOIN study_sources s ON s.id = n.source_id WHERE n.user_id = %s""",
-            [user["id"]],
-        )
+        forms = fetched["forms"]
+        inflearn = fetched["inflearn"]
+        youtube = fetched["youtube"]
+        sources = fetched["sources"]
+        notes = fetched["notes"]
         for note in notes:
             note["source_id"] = note.pop("source_key")
-        sheets = q("SELECT * FROM curriculum_sheets WHERE cohort_id = ANY(%s)", [cohort_ids])
-        sheet_ids = [s["id"] for s in sheets] or [-1]
+        sheets = fetched["sheets"]
         curriculum_rows = q(
-            'SELECT * FROM curriculum_rows WHERE sheet_id = ANY(%s) ORDER BY "order"', [sheet_ids]
+            'SELECT * FROM curriculum_rows WHERE sheet_id = ANY(%s) ORDER BY "order"',
+            [[row["id"] for row in sheets] or [-1]],
         )
-        mileage_settings = q("SELECT * FROM mileage_settings WHERE cohort_id = ANY(%s)", [cohort_ids])
-        cache = q("SELECT * FROM system_cache")
-        rooms = q(
-            "SELECT * FROM cohort_seating WHERE cohort_id = ANY(%s) AND (%s = false OR published = true)",
-            [cohort_ids, is_student],
-        )
-        # 기수당 한 줄(layout jsonb)을 화면이 받는 강의실 · 칸 · 배치 · 좌석 목록으로 편다
+        mileage_settings = fetched["mileage_settings"]
+        cache = fetched["cache"]
+        rooms = fetched["rooms"]
         seating_view = seating_payload(rooms, code_by_pk)
-        teams = q("SELECT * FROM project_teams WHERE cohort_id = ANY(%s)", [cohort_ids])
-        team_ids = [t["id"] for t in teams] or [-1]
-        members = q("SELECT * FROM project_team_members WHERE team_id = ANY(%s)", [team_ids])
-        pdfs = q("SELECT * FROM curriculum_pdfs WHERE cohort_id = ANY(%s)", [cohort_ids])
-        intakes = q(
-            """SELECT si.* FROM student_intakes si
-               JOIN users u ON u.id = si.user_id
-               WHERE u.cohort_id = ANY(%s) AND (%s = false OR si.user_id = %s)""",
-            [cohort_ids, is_student, user["id"]],
+        teams = fetched["teams"]
+        members = q(
+            "SELECT * FROM project_team_members WHERE team_id = ANY(%s)",
+            [[row["id"] for row in teams] or [-1]],
         )
-        cart = q("SELECT * FROM mileage_cart_items WHERE user_id = %s", [user["id"]])
-        materials = q("SELECT * FROM materials WHERE cohort_id = ANY(%s)", [cohort_ids])
+        pdfs = fetched["pdfs"]
+        intakes = fetched["intakes"]
+        cart = fetched["cart"]
+        materials = fetched["materials"]
         assignments_t = []
-        schedules = q("SELECT * FROM schedules WHERE cohort_id = ANY(%s)", [cohort_ids])
+        schedules = fetched["schedules"]
         weekly = []
         progress = []
-        missions = q(
-            "SELECT * FROM mission_progress WHERE cohort_id = ANY(%s) AND (%s = false OR user_id = %s)",
-            [cohort_ids, is_student, user["id"]],
-        )
-        form_responses = q(
-            """SELECT sr.*, sr.external_response_id AS google_response_id
-               FROM submission_responses sr
-               WHERE sr.task_id IN (
-                 SELECT task_id FROM submission_task_cohorts WHERE cohort_id = ANY(%s)
-               ) AND (%s = false OR sr.user_id = %s)""",
-            [cohort_ids, is_student, user["id"]],
-        )
-        practice = practice_snapshot(cur, user, [code_by_pk[pk] for pk in cohort_ids if pk in code_by_pk])
-        assess_subs = q(
-            """SELECT s.* FROM assessment_submissions s
-               JOIN assessments a ON a.id = s.assessment_id
-               WHERE a.cohort_id = ANY(%s) AND (%s = false OR s.user_id = %s)""",
-            [cohort_ids, is_student, user["id"]],
-        )
+        missions = fetched["missions"]
+        form_responses = fetched["form_responses"]
+        practice = fetched["practice"]
+        assess_subs = fetched["assess_subs"]
         assess_answers = q(
             "SELECT * FROM assessment_answers WHERE submission_id = ANY(%s)",
-            [[s["id"] for s in assess_subs] or [-1]],
+            [[row["id"] for row in assess_subs] or [-1]],
         )
-        logs = (
-            q("SELECT * FROM ai_generation_logs WHERE cohort_id = ANY(%s)", [cohort_ids])
-            if user["role"] == "admin"
-            else []
-        )
+        logs = fetched.get("logs", [])
         published = None
         seating = None
         if cohorts:
