@@ -29,6 +29,7 @@ class FakeAi:
         self.calls: list[str] = []
         self.dates = [DATE]
         self.subject_days: list[str] = []
+        self.previous: list[list[str]] = []  # /proxy/generate 마다 넘긴 이전 노트 날짜
 
     def __call__(self, path: str, payload: dict, timeout: int) -> dict:
         self.calls.append(path)
@@ -44,6 +45,7 @@ class FakeAi:
                 return {"status": "too_broad", "message": "파일을 선택하세요.", "files": [{"path": "x.py", "commit": "c1"}]}
             return {"status": "ready", "files": self.files}
         if path == "/proxy/generate":
+            self.previous.append([p["date"] for p in payload.get("previous", [])])
             day = payload.get("scopeValue")
             return {"status": "ready", "files": self.files, "reportMarkdown": f"노트 {day} {self.files[0]['blob']}",
                     "reviewMarkdown": ""}
@@ -98,9 +100,9 @@ class SharingTestCase(TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def open(self, who: int) -> dict:
+    def open(self, who: int, date: str = DATE) -> dict:
         with self.captureOnCommitCallbacks(execute=True):
-            out = notes.start_note(self.users[who], str(self.source_id), "date", DATE)
+            out = notes.start_note(self.users[who], str(self.source_id), "date", date)
         # 뒤에서 도는 작업은 스레드용이라 끝에 DB 연결을 닫는다. 테스트는 같은 연결로 돌리므로 닫지 않게 한다
         with mock.patch.object(connection, "close"):
             for work in self.spawned:
@@ -112,6 +114,19 @@ class SharingTestCase(TestCase):
         with connection.cursor() as cur:
             cur.execute("SELECT * FROM study_notes WHERE user_id = %s ORDER BY id DESC LIMIT 1", [self.users[who]["id"]])
             return notes._one(cur)
+
+
+class PreviousLessonTests(SharingTestCase):
+    def test_earlier_day_notes_are_passed_newest_three(self) -> None:
+        for day in ("2026-09-08", "2026-09-09", "2026-09-10", DATE):
+            self.open(0, day)
+        self.assertEqual([], self.ai.previous[0], "첫 수업은 이전 노트가 없다")
+        self.assertEqual(["2026-09-10", "2026-09-09", "2026-09-08"], self.ai.previous[-1])
+
+    def test_later_days_are_not_previous(self) -> None:
+        self.open(0, DATE)
+        self.open(1, "2026-09-01")
+        self.assertEqual([], self.ai.previous[-1])
 
 
 class ShareWithinCohortTests(SharingTestCase):

@@ -36,6 +36,18 @@ class CodeBlockTests(unittest.TestCase):
         self.assertEqual(0, stats.code_blocks)
         self.assertEqual([], significant_lines("→ Linear: 10\n# 설명"))
 
+    def test_practice_section_code_is_left_alone(self) -> None:
+        new_code = "```python\nmodel.fit(train_loader, epochs=50)\n```"
+        note = f"## 핵심 코드와 개념\n{new_code}\n\n## 내가 직접 해볼 실습\n{new_code}\n\n## 포트폴리오 회고 포인트\n{new_code}"
+        out, stats = ground_report(note, MATERIAL, free_heads=("내가 직접 해볼 실습",))
+        self.assertEqual(2, out.count(NOT_FROM_LESSON), "실습 소제목만 빼고 표시")
+        self.assertIn(f"## 내가 직접 해볼 실습\n{new_code}\n\n##", out)
+        self.assertEqual((2, 2), (stats.code_blocks, stats.marked_blocks))
+
+    def test_html_and_css_lines_are_code(self) -> None:
+        self.assertEqual(["<h1>웹 페이지 제목</h1>", "display: flex;", "justify-content: center;"],
+                         significant_lines("<h1>웹 페이지 제목</h1>\n.box {\n  display: flex;\n  justify-content: center;\n}"))
+
 
 class NameTests(unittest.TestCase):
     def test_names_in_the_material_pass(self) -> None:
