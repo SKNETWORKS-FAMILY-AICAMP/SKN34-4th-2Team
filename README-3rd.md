@@ -137,7 +137,7 @@ AI 기능 네 가지와 이를 담은 LMS 앱으로 이루어진다. **기능마
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;폴&#8288;더&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | 내용 |
 |:---:|---|
 | [vectordb/](vectordb/README.md) | 학생 챗봇용 정책·FAQ·프로젝트 레퍼런스 수집·전처리·적재 |
-| [chatbot_lab/](chatbot_lab/README.md) | 학생 챗봇 분류 개선·안전성 실험(운영 코드와 분리, 포트 8002) |
+| [chatbot/evaluation/](chatbot/evaluation/README.md) | 학생 챗봇 분류 개선 실험에서 보존한 회귀 평가 사례 |
 | [onboarding/](onboarding/README.md) | 사용자 안내서 PDF·시연 영상 자동 제작 |
 | [scripts/](scripts/README.md) | 서버 실행, Firebase 시드, 환경 변수 동기화 |
 | [config/firebase/](config/firebase) | Firestore·Storage 보안 규칙, 인덱스 |
@@ -506,7 +506,7 @@ chain = PROFILE_PROMPT | model.with_structured_output(schemas.ResumeProfileOut, 
 
 미통과 턴은 `2-3-02`, `2-3-04`, `2-3-05`, `2-4-05`, `3-03-a`, `3-04-a`다. 공개 공지·과제 언급만으로 `cohort_shared`·`assignment_files` 등이 추가되는 **namespace/scope 과선택**을 보고서에서 확인했다. 통과 기준은 답변뿐 아니라 실제 분기 선택까지 포함하며, 과선택을 정답으로 처리하지 않는다.
 
-출석 계산은 [unit_period.py](chatbot/unit_period.py)와 [attendance.py](chatbot/attendance.py)의 서버 계산값을 사용한다. 전체 기간 자료가 완전하면 기간 전체 출석률을, 진행 중이면 확인된 기록 기준 예상값·남은 수업일을 구분해 안내한다. 둘 다 없으면 수치를 추측하지 않는다. 분류 개선 실험은 별도 [chatbot_lab/](chatbot_lab/README.md)에서 관리한다.
+출석 계산은 [unit_period.py](chatbot/unit_period.py)와 [attendance.py](chatbot/attendance.py)의 서버 계산값을 사용한다. 전체 기간 자료가 완전하면 기간 전체 출석률을, 진행 중이면 확인된 기록 기준 예상값·남은 수업일을 구분해 안내한다. 둘 다 없으면 수치를 추측하지 않는다. 분류 개선 실험에서 보존한 사례는 [chatbot/evaluation/](chatbot/evaluation/README.md)에 있다.
 
 ### ② 맞춤 공고 추천
 
@@ -576,7 +576,7 @@ chain = PROFILE_PROMPT | model.with_structured_output(schemas.ResumeProfileOut, 
 | 시스템 아키텍처 | 이 문서의 [9. 시스템 아키텍처](#9-시스템-아키텍처), [job_matching_bot/docs/architecture.md](job_matching_bot/docs/architecture.md), [chatbot/README.md](chatbot/README.md#동작-구조) |
 | RAG 기반 LLM과 벡터 DB 연동 코드 | [chatbot/](chatbot), [vectordb/](vectordb), [job_matching_bot/](job_matching_bot), [cover_letter_rag/](cover_letter_rag) |
 | 프롬프트 템플릿 | 이 문서의 [13. 프롬프트 템플릿](#13-프롬프트-템플릿) |
-| 테스트 계획 및 결과 보고서 | 이 문서의 [16. 테스트 시나리오](#16-테스트-시나리오), [job_matching_bot/docs/test_report.md](job_matching_bot/docs/test_report.md), [cover_letter_rag/docs/resume-review-quality.md](cover_letter_rag/docs/resume-review-quality.md), [chatbot_lab/README.md](chatbot_lab/README.md) |
+| 테스트 계획 및 결과 보고서 | 이 문서의 [16. 테스트 시나리오](#16-테스트-시나리오), [job_matching_bot/docs/test_report.md](job_matching_bot/docs/test_report.md), [cover_letter_rag/docs/resume-review-quality.md](cover_letter_rag/docs/resume-review-quality.md), [chatbot/evaluation/README.md](chatbot/evaluation/README.md) |
 | 요구사항 명세서·WBS | 이 문서의 [요구사항 명세서](#7-요구사항-명세서), [WBS 일정표](#8-wbs) |
 | 학생 챗봇 테스트 계획·결과 | [chatbot/student_chatbot_test_question.md](chatbot/student_chatbot_test_question.md), [chatbot/student_chatbot_test_result.md](chatbot/student_chatbot_test_result.md) |
 
@@ -642,7 +642,7 @@ SKN34-3rd-2Team/
 ├── job_matching_bot/   # ③ 채용공고 수집·정제·인덱싱, 추천 API, 공고 찾기 챗봇, 평가 도구
 ├── cover_letter_rag/   # ④ 공고 맞춤 이력서 첨삭, 통합 서버 진입점(app/integrated.py)
 ├── study_notes/        #    공부방 AI 수업 노트
-├── chatbot_lab/        #    학생 챗봇 개선 실험 (운영과 분리)
+├── chatbot/evaluation/ #    학생 챗봇 분류 회귀 평가 사례
 ├── lib/                #    Flutter 앱
 ├── functions/          #    Firebase Cloud Functions
 ├── config/firebase/    #    Firestore·Storage 규칙, 인덱스

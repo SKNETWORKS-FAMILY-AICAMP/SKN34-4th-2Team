@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from typing import Any, Literal
@@ -261,6 +262,7 @@ def chat(request, body: ChatIn):
         headers={"Content-Type": "application/json", "X-LMS-AI-Token": internal_token},
         method="POST",
     )
+    upstream_started = time.perf_counter()
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
             raw = resp.read().decode("utf-8")
@@ -278,7 +280,11 @@ def chat(request, body: ChatIn):
             "answer": "학습 도우미에 잠시 연결하지 못했습니다. 잠시 후 다시 시도하세요.",
         }
     answer = body_json.get("answer") or body_json.get("text") or body_json.get("message") or ""
-    return {"answer": answer or "답변을 받지 못했습니다."}
+    upstream_ms = (time.perf_counter() - upstream_started) * 1000
+    return Response(
+        {"answer": answer or "답변을 받지 못했습니다."},
+        headers={"Server-Timing": f"ai_upstream;dur={upstream_ms:.1f}"},
+    )
 
 
 class ResumeReviewIn(Schema):

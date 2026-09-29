@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterator, Literal
 
 from langchain_core.documents import Document
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage, AIMessageChunk, RemoveMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.vectorstores import VectorStore
@@ -253,6 +254,18 @@ class ChatState(MessagesState):
     sources: list[dict[str, str]]
     retrieval_ms: int
     llm_ms: int
+    supervisor_ms: int
+    answer_model_ms: int
+    answer_ttft_ms: int
+    student_context_ms: int
+    embedding_ms: int
+    vector_query_ms_sum: int
+    embedding_calls: int
+    vector_calls: int
+    prompt_build_ms: int
+    prompt_chars: int
+    retrieved_chunks: int
+    retrieved_chunk_chars: int
     token_in: int
     token_out: int
 
@@ -382,6 +395,16 @@ def _elapsed_ms(started: float) -> int:
     return max(0, round((time.perf_counter() - started) * 1000))
 
 
+class _FirstAnswerTokenTimer(BaseCallbackHandler):
+    def __init__(self, started: float) -> None:
+        self.started = started
+        self.first_token_ms: int | None = None
+
+    def on_llm_new_token(self, token: str, **kwargs: Any) -> None:
+        if token and self.first_token_ms is None:
+            self.first_token_ms = _elapsed_ms(self.started)
+
+
 def _message_tokens(message: Any) -> tuple[int | None, int | None]:
     usage = getattr(message, "usage_metadata", None)
     if isinstance(usage, dict):
@@ -449,12 +472,14 @@ class ScopedPineconeVectorStore(VectorStore):
         namespace: str,
         text_key: str = "page_content",
         required_filter: dict[str, Any] | None = None,
+        on_query: Callable[[int, int], None] | None = None,
     ) -> None:
         self._index = index
         self._embedding = embedding
         self._namespace = namespace
         self._text_key = text_key
         self.required_filter = required_filter or {}
+        self.on_query = on_query
 
     @property
     def embeddings(self) -> Any:
@@ -467,14 +492,20 @@ class ScopedPineconeVectorStore(VectorStore):
         filter: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> list[Document]:
+        started = time.perf_counter()
+        vector = self._embedding.embed_query(query)
+        embedding_ms = _elapsed_ms(started)
+        started = time.perf_counter()
         response = self._index.query(
-            vector=self._embedding.embed_query(query),
+            vector=vector,
             top_k=k,
             namespace=self._namespace,
             filter=_merge_filters(self.required_filter, filter),
             include_metadata=True,
             include_values=False,
         )
+        if self.on_query is not None:
+            self.on_query(embedding_ms, _elapsed_ms(started))
 
         documents = []
         for match in response.matches:
@@ -514,10 +545,10 @@ class LmsStudentChatbot:
 
         self.k = k
         self.supervisor_llm = ChatOpenAI(
-            model=os.getenv("LMS_SUPERVISOR_MODEL", "gpt-5.6-sol"), temperature=0, max_retries=2,
+            model=os.getenv("LMS_SUPERVISOR_MODEL", "gpt-6-luna"), max_retries=2,
         )
         self.node_llm = ChatOpenAI(
-            model=os.getenv("LMS_NODE_MODEL", "gpt-5.6-sol"), temperature=0, max_retries=2,
+            model=os.getenv("LMS_NODE_MODEL", "gpt-6-luna"), max_retries=2,
             streaming=True,
         )
         self.embeddings = OpenAIEmbeddings(
@@ -602,8 +633,22 @@ class LmsStudentChatbot:
             "query": query[:2000],
             "student_context": {},
             "documents": [],
-            "retrieval_ms": int(state.get("retrieval_ms", 0) or 0),
-            "llm_ms": int(state.get("llm_ms", 0) or 0) + _elapsed_ms(started),
+            "retrieval_ms": 0,
+            "llm_ms": _elapsed_ms(started),
+            "supervisor_ms": _elapsed_ms(started),
+            "answer_model_ms": 0,
+            "answer_ttft_ms": 0,
+            "student_context_ms": 0,
+            "embedding_ms": 0,
+            "vector_query_ms_sum": 0,
+            "embedding_calls": 0,
+            "vector_calls": 0,
+            "prompt_build_ms": 0,
+            "prompt_chars": 0,
+            "retrieved_chunks": 0,
+            "retrieved_chunk_chars": 0,
+            "token_in": 0,
+            "token_out": 0,
         }
         if decision.route == "greeting":
             answer = GREETING_ANSWER
@@ -652,6 +697,7 @@ class LmsStudentChatbot:
         return {
             "student_context": context,
             "retrieval_ms": int(state.get("retrieval_ms", 0) or 0) + _elapsed_ms(started),
+            "student_context_ms": _elapsed_ms(started),
         }
 
     def _after_student_tools(
@@ -670,6 +716,7 @@ class LmsStudentChatbot:
         cohort: str = "",
         query: str = "",
         default_k: int | None = None,
+        on_query: Callable[[int, int], None] | None = None,
     ) -> Any:
         store = ScopedPineconeVectorStore(
             index=self.index,
@@ -677,6 +724,7 @@ class LmsStudentChatbot:
             text_key="page_content",
             namespace=namespace,
             required_filter={"cohort": {"$eq": cohort}} if namespace == "notice" else {},
+            on_query=on_query,
         )
         search_kwargs: dict[str, Any] = {"k": _requested_k(query, default_k or self.k)}
         if namespace == "project_reference" and (metadata_filter := _project_filter(query)):
@@ -700,18 +748,20 @@ class LmsStudentChatbot:
             if len(state.get("namespaces", [])) > 1 else self.k
         )
 
-        def search(namespace: Namespace) -> tuple[Namespace, list[Document]]:
+        def search(namespace: Namespace) -> tuple[Namespace, list[Document], list[tuple[int, int]]]:
+            timings: list[tuple[int, int]] = []
             retriever = self._retriever(
                 namespace, state.get("cohort", ""), state["query"], default_k,
+                on_query=lambda embedding_ms, vector_ms: timings.append((embedding_ms, vector_ms)),
             )
-            return namespace, retriever.invoke(state["query"])
+            return namespace, retriever.invoke(state["query"]), timings
 
         if len(namespaces) > 1:
             with ThreadPoolExecutor(max_workers=len(namespaces)) as executor:
                 results = list(executor.map(search, namespaces))
         else:
             results = [search(namespace) for namespace in namespaces]
-        for namespace, matches in results:
+        for namespace, matches, _timings in results:
             for document in matches:
                 document.metadata["_namespace"] = namespace
                 key = (namespace, str(document.metadata.get("doc_id", document.page_content)))
@@ -721,6 +771,11 @@ class LmsStudentChatbot:
         return {
             "documents": documents,
             "retrieval_ms": int(state.get("retrieval_ms", 0) or 0) + _elapsed_ms(started),
+            # Namespace queries above may run concurrently; these are call-time sums, not wall time.
+            "embedding_ms": int(state.get("embedding_ms", 0) or 0) + sum(e for _, _, timings in results for e, _ in timings),
+            "vector_query_ms_sum": int(state.get("vector_query_ms_sum", 0) or 0) + sum(v for _, _, timings in results for _, v in timings),
+            "embedding_calls": int(state.get("embedding_calls", 0) or 0) + sum(len(timings) for _, _, timings in results),
+            "vector_calls": int(state.get("vector_calls", 0) or 0) + sum(len(timings) for _, _, timings in results),
         }
 
     def _policy_notice_retrieve(self, state: ChatState) -> dict[str, Any]:
@@ -738,16 +793,19 @@ class LmsStudentChatbot:
 
         started = time.perf_counter()
         search_query = neutralize_cohort_ranges(query)
+        embedding_started = time.perf_counter()
         vector = self.embeddings.embed_query(search_query)
+        embedding_ms = _elapsed_ms(embedding_started)
         start, end = bounds
         buckets = cohort_buckets(start, end)
         round_filter = _project_filter(search_query)
 
-        def search(bucket: list[str]) -> list[tuple[float, Document]]:
+        def search(bucket: list[str]) -> tuple[list[tuple[float, Document]], int]:
             cohort_filter: dict[str, Any] = {"cohort": {"$in": bucket}}
             metadata_filter = (
                 {"$and": [cohort_filter, round_filter]} if round_filter else cohort_filter
             )
+            query_started = time.perf_counter()
             response = self.index.query(
                 vector=vector,
                 top_k=3,
@@ -756,6 +814,7 @@ class LmsStudentChatbot:
                 include_metadata=True,
                 include_values=False,
             )
+            vector_ms = _elapsed_ms(query_started)
             found: list[tuple[float, Document]] = []
             for match in response.matches:
                 metadata = dict(match.metadata or {})
@@ -766,12 +825,12 @@ class LmsStudentChatbot:
                         float(getattr(match, "score", 0.0) or 0.0),
                         Document(id=str(match.id), page_content=page_content, metadata=metadata),
                     ))
-            return found
+            return found, vector_ms
 
         with ThreadPoolExecutor(max_workers=min(len(buckets), 8)) as executor:
             grouped = list(executor.map(search, buckets))
         ranked = sorted(
-            (candidate for group in grouped for candidate in group),
+            (candidate for group, _ in grouped for candidate in group),
             key=lambda candidate: candidate[0],
             reverse=True,
         )
@@ -791,11 +850,20 @@ class LmsStudentChatbot:
         return {
             "documents": documents,
             "retrieval_ms": int(state.get("retrieval_ms", 0) or 0) + _elapsed_ms(started),
+            "embedding_ms": int(state.get("embedding_ms", 0) or 0) + embedding_ms,
+            "vector_query_ms_sum": int(state.get("vector_query_ms_sum", 0) or 0) + sum(ms for _, ms in grouped),
+            "embedding_calls": int(state.get("embedding_calls", 0) or 0) + 1,
+            "vector_calls": int(state.get("vector_calls", 0) or 0) + len(grouped),
         }
 
     def _answer(self, state: ChatState) -> dict[str, Any]:
         started = time.perf_counter()
         documents = state.get("documents", [])
+        prompt_started = time.perf_counter()
+        prompt_chars = 0
+        prompt_build_ms = 0
+        answer_model_ms = 0
+        answer_ttft_ms = 0
         sources = [{
             "namespace": str(document.metadata.get("_namespace", "")),
             "doc_id": str(document.metadata.get("doc_id", "")),
@@ -831,11 +899,22 @@ class LmsStudentChatbot:
                 )
             if search_context:
                 context_parts.append("[검색 문서]\n" + search_context)
+            history = _chat_history(state["messages"][:-1])
+            context_text = "\n\n".join(context_parts)
+            prompt_chars = len(ANSWER_PROMPT) + len(context_text) + len(state["question"]) + sum(
+                len(str(message.content)) for message in history
+            )
+            # Character count is a size proxy; token_in below comes from the model response.
+            prompt_build_ms = _elapsed_ms(prompt_started)
+            model_started = time.perf_counter()
+            first_token_timer = _FirstAnswerTokenTimer(model_started)
             response = self.answer_chain.invoke({
-                "history": _chat_history(state["messages"][:-1]),
-                "context": "\n\n".join(context_parts),
+                "history": history,
+                "context": context_text,
                 "question": state["question"],
-            })
+            }, config={"callbacks": [first_token_timer]})
+            answer_model_ms = _elapsed_ms(model_started)
+            answer_ttft_ms = first_token_timer.first_token_ms or 0
             answer = str(response.content).strip() or "답변을 생성하지 못했습니다. LMS 담당자에게 확인해 주세요."
             token_in, token_out = _message_tokens(response)
         update: dict[str, Any] = {
@@ -844,6 +923,12 @@ class LmsStudentChatbot:
             "documents": [],
             "messages": [AIMessage(content=answer)],
             "llm_ms": int(state.get("llm_ms", 0) or 0) + _elapsed_ms(started),
+            "answer_model_ms": answer_model_ms,
+            "answer_ttft_ms": answer_ttft_ms,
+            "prompt_build_ms": prompt_build_ms,
+            "prompt_chars": prompt_chars,
+            "retrieved_chunks": len(documents),
+            "retrieved_chunk_chars": sum(len(document.page_content) for document in documents),
         }
         if token_in is not None:
             update["token_in"] = token_in
@@ -935,6 +1020,14 @@ class LmsStudentChatbot:
             "blocked": route == "blocked",
             "retrieval_ms": int(values.get("retrieval_ms") or 0),
             "llm_ms": int(values.get("llm_ms") or 0),
+            **{
+                key: int(values.get(key) or 0)
+                for key in (
+                    "supervisor_ms", "answer_model_ms", "answer_ttft_ms", "student_context_ms",
+                    "embedding_ms", "vector_query_ms_sum", "embedding_calls", "vector_calls",
+                    "prompt_build_ms", "prompt_chars", "retrieved_chunks", "retrieved_chunk_chars",
+                )
+            },
             "token_in": values.get("token_in"),
             "token_out": values.get("token_out"),
             "request_id_hash": request_id_hash(thread_id),

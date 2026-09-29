@@ -58,7 +58,7 @@ export function ChatbotHost() {
   if (user === null || user.role !== 'student') return null;
 
   /** 답을 몇 글자씩 흘려보낸다. */
-  const stream = (text: string) => {
+  const stream = (text: string, onFirstChar?: () => void) => {
     const id = `bot-${Date.now()}`;
     // API 대기 중에도 thinking 이 true 일 수 있다. 타이핑 직전에 잠깐 더 보여 준다.
     setThinking(true);
@@ -67,9 +67,11 @@ export function ChatbotHost() {
       setMessages((m) => [...m, { id, role: 'bot', text: '', streaming: true }]);
       let cursor = 0;
       const tick = () => {
+        const firstChar = cursor === 0;
         cursor = Math.min(text.length, cursor + 6);
         const slice = text.slice(0, cursor);
         setMessages((m) => m.map((msg) => (msg.id === id ? { ...msg, text: slice } : msg)));
+        if (firstChar) window.requestAnimationFrame(() => onFirstChar?.());
         if (cursor < text.length) {
           timers.current.push(window.setTimeout(tick, 22));
         } else {
@@ -90,9 +92,16 @@ export function ChatbotHost() {
     // 서버(LLM) 응답을 기다리는 동안 로딩을 보여 준다.
     setThinking(true);
     void (async () => {
+      const requestStarted = performance.now();
       try {
         const { data } = await http.post<{ answer?: string }>('/chat', { message: question });
-        stream(data.answer || '답변을 받지 못했습니다.');
+        const networkMs = performance.now() - requestStarted;
+        stream(data.answer || '답변을 받지 못했습니다.', () => {
+          if (import.meta.env.DEV) console.debug('[chatbot latency ms]', {
+            request: Math.round(networkMs),
+            first_char: Math.round(performance.now() - requestStarted),
+          });
+        });
       } catch {
         stream('학습 도우미에 잠시 연결하지 못했습니다. 잠시 후 다시 시도하세요.');
       }

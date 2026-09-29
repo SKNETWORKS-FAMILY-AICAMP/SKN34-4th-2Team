@@ -1,3 +1,0 @@
-# 루트 requirements 설치 후 실험 화면에만 추가한다.
-streamlit>=1.42,<2
-
