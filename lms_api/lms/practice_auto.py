@@ -146,7 +146,8 @@ def run_source(source: dict, *, trigger: str = "schedule", today: str | None = N
         # 새로 낸 문제가 없으면 왜 없는지(끝난 과목 · 이미 출제함 · 새 내용 없음)를 남긴다 — 강사 화면이 그대로 보여 준다
         message = error or str(result.get("note") or "")
         _finish_run(run_id, "failed" if error and not added else "done", problems=added, dates=made, message=message)
-        notes = _publish_notes(source, made)
+        # 웹 수업만 있던 날은 문제를 안 내도 노트는 미리 — 파일이 많아 학생이 처음 누르면 1~2분 기다린다
+        notes = _publish_notes(source, made + [d for d in result.get("webDays") or [] if d not in made])
         return {"status": "done", "problems": added, "dates": made, "message": message, "notes": notes}
     except StudyNoteError as exc:
         _finish_run(run_id, "failed", message=exc.detail)

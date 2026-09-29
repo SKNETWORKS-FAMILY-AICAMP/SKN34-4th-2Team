@@ -115,6 +115,35 @@ class RunSourceTests(unittest.TestCase):
         fake.assert_not_called()
         self.assertEqual(out["sets"], [])
         self.assertIn("웹 수업", out["note"])
+        self.assertEqual(out["webDays"], ["2026-09-23"], "Django 가 그날 노트를 미리 만든다")
+
+    def test_empty_repo_is_a_note_not_a_failure(self) -> None:
+        from study_notes import api
+        from study_notes.git_tools import EMPTY_REPO_MESSAGE, GitToolError
+
+        request = api.ProxyPracticeRequest.model_validate({
+            "cohortId": "cohort_34", "today": "2026-09-29", "coverage": {"files": [], "days": {}},
+            "source": {"id": "14", "title": "web_server", "repoUrl": "https://github.com/skn34/web_server", "branch": "main"},
+        })
+        with mock.patch.object(auto, "run_source", side_effect=GitToolError(EMPTY_REPO_MESSAGE)),                 mock.patch("study_notes.practice.runner.VERIFIER_DIR") as verifier:
+            verifier.__truediv__.return_value.__truediv__.return_value.__truediv__.return_value.exists.return_value = True
+            out = api.proxy_practice(request)
+        self.assertEqual((out["sets"], out["error"]), ([], ""))
+        self.assertIn("아직 수업 파일이 올라오지 않은", out["note"])
+
+    def test_other_git_errors_still_fail(self) -> None:
+        from fastapi import HTTPException
+
+        from study_notes import api
+        from study_notes.git_tools import GitToolError
+
+        request = api.ProxyPracticeRequest.model_validate({
+            "cohortId": "cohort_34", "today": "2026-09-29",
+            "source": {"id": "14", "title": "web_server", "repoUrl": "https://github.com/skn34/web_server", "branch": "main"},
+        })
+        with mock.patch.object(auto, "run_source", side_effect=GitToolError("비공개 저장소입니다.")),                 mock.patch("study_notes.practice.runner.VERIFIER_DIR") as verifier, self.assertRaises(HTTPException):
+            verifier.__truediv__.return_value.__truediv__.return_value.__truediv__.return_value.exists.return_value = True
+            api.proxy_practice(request)
 
     def test_web_files_are_left_out_of_a_mixed_day(self) -> None:
         repo = FakeRepo({"2026-09-22": {"02_vit.ipynb": notebook(LONG), "index.html": "<h1>제목</h1>\n" * 60}})

@@ -43,6 +43,14 @@ _sync_cache: dict[str, tuple[float, str]] = {}
 SYNC_TTL_SEC = 120
 
 
+# 브랜치가 없다 — 대개 커밋이 하나도 없는 저장소(수업 전 과목). 자동 출제는 이걸 실패로 적지 않는다(api.proxy_practice)
+EMPTY_REPO_MESSAGE = "브랜치를 찾지 못했습니다. 아직 비어 있는 저장소일 수 있어요 — 수업 파일이 올라오면 보입니다."
+
+
+def is_empty_repo(exc: Exception) -> bool:
+    return isinstance(exc, GitToolError) and str(exc) == EMPTY_REPO_MESSAGE
+
+
 class GitToolError(Exception):
     """사용자에게 그대로 보여 줄 수 있는 git 오류."""
 
@@ -182,7 +190,7 @@ def _friendly_git_error(stderr: str) -> str:
     # 「Remote branch main not found」 에도 not found 가 들어 있다 — 브랜치를 먼저 본다.
     # 커밋이 하나도 없는 저장소(수업 전 과목)도 이렇게 나온다
     if "couldn't find remote ref" in lower or "remote branch" in lower:
-        return "브랜치를 찾지 못했습니다. 아직 비어 있는 저장소일 수 있어요 — 수업 파일이 올라오면 보입니다."
+        return EMPTY_REPO_MESSAGE
     if "repository not found" in lower or "not found" in lower:
         return "GitHub 저장소를 찾지 못했습니다. 주소를 확인하세요."
     if "could not resolve host" in lower or "unable to access" in lower:
