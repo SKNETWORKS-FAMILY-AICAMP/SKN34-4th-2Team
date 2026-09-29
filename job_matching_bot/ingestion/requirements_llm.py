@@ -15,6 +15,10 @@
 - 전공 · 자격증은 LLM 이 뽑은 말을 **기존 파서(qualifications)에 한 번 더 통과**시켜, 파서가 아는 전공 분류 · 자격증
   이름만 적는다. 모양이 파서 값과 같아 하드 필터가 그대로 읽고, "교육과정 수료" 같은 것은 걸러진다.
 - 한 번 본 공고는 `field_provenance.requirements_llm.hash`(본문 지문)가 같으면 다시 보지 않는다.
+- **예외 — 신입도 받는 경력 공고.** 사이트 칸은 경력인데 본문에 "신입도 지원 가능"이 분명하면 경력 구분을 경력무관으로
+  고치고 최소 연차를 비운다. 그대로 두면 하드 필터가 신입에게서 뺀다(경력자 채용). 2026-09-29 열린 공고 175건.
+  "석·박사면 신입 가능"처럼 조건이 붙은 것은 그대로 둔다 — 경력무관으로 바꾸면 학사 신입에게도 추천된다.
+  조건을 저장해 이력서 학력과 견주는 방법도 있으나 대상이 5% 남짓이고 사용자(부트캠프 수강생) 중 석·박사가 드물어 미뤘다.
 
 2026-09-28 공고 50건 시험(gpt-6-luna low): 연차가 빈 20건 중 18건을 본문 숫자대로 채웠다. 틀린 1건은 여러 부문
 공고였다(그래서 여러 부문은 채우지 않는다). 한 건 약 0.4원(입력 1,500 · 출력 250 토큰).
@@ -48,12 +52,21 @@ class Extracted(BaseModel):
     required_majors: list[str] = Field(description="필수 전공 · 학과. 우대 전공은 넣지 않는다. 없으면 빈 목록")
     required_certifications: list[str] = Field(
         description="필수 국가 · 민간 자격증 이름만. 교육과정 수료 · 어학 점수 · 우대 자격증은 넣지 않는다. 없으면 빈 목록")
+    accepts_entry: bool = Field(
+        default=False,
+        description="이 자리에 신입도 지원할 수 있다고 본문에 분명히 적혀 있으면 true(예: '신입도 지원 가능', '신입/경력'). "
+                    "여러 부문 중 한 부문만 신입이면 true. '신입 교육 제공'처럼 지원 자격이 아닌 말은 false. "
+                    "'석·박사 학위자는 신입 가능'처럼 학위 · 전공 · 자격증 · 경험 조건이 붙은 신입 가능도 false. "
+                    "'열정 있는 신입도', '신입은 포트폴리오 필수', '신입은 계약직 우선'은 자격 조건이 아니라 true")
 
 
 SYSTEM = (
     "채용공고 본문에서 **필수 자격요건**만 뽑는다. 우대사항('우대', '있으면 좋음', '가산점', '~하신 분 환영')은 넣지 않는다. "
     "본문에 없는 것은 지어내지 않는다. 경력 연수는 '경력 N년 이상', 'N년 이상 경력'처럼 숫자로 적힌 것만 쓴다. "
-    "'N~M년'이면 N 을 쓴다. 신입도 받는다고 적혀 있으면 null 이다. 여러 부문을 따로 뽑으면 연차는 가장 낮은 것을 쓴다."
+    "'N~M년'이면 N 을 쓴다. 신입도 받는다고 적혀 있으면 null 이다. 여러 부문을 따로 뽑으면 연차는 가장 낮은 것을 쓴다. "
+    "신입도 지원할 수 있는지(accepts_entry)는 본문에 분명히 적힌 경우만 true 로 둔다. "
+    "'석·박사면 신입 가능', '관련 경험이 있으면 신입도 가능'처럼 학위 · 전공 · 자격증 · 경험 조건이 붙으면 false 다. "
+    "태도('열정 있는') · 제출 서류('포트폴리오 필수') · 고용 형태('계약직 우선')는 자격 조건이 아니다."
 )
 
 
@@ -62,7 +75,8 @@ def _chain():
     from langchain_openai import ChatOpenAI
 
     prompt = ChatPromptTemplate.from_messages([("system", SYSTEM), ("human", "[공고 제목]\n{title}\n\n[공고 본문]\n{body}")])
-    model = ChatOpenAI(model=MODEL, reasoning_effort=EFFORT, max_retries=2)
+    # 여러 개를 한꺼번에 보내면 분당 한도(429)에 걸린다 — 2번으로는 모자라 7,033건 중 805건이 실패했다(2026-09-29)
+    model = ChatOpenAI(model=MODEL, reasoning_effort=EFFORT, max_retries=8)
     return prompt | model.with_structured_output(Extracted, method="json_schema")
 
 
@@ -74,11 +88,17 @@ class Fill:
     content_hash: str
     values: dict[str, Any] = field(default_factory=dict)
     note: str = ""
+    # 신입도 받는 경력 공고 — 경력 구분을 경력무관으로 고친다(빈 칸만 채우는 원칙의 예외)
+    accepts_entry: bool = False
 
 
 def plan_fill(job: Job, extracted: Extracted) -> Fill:
     """뽑은 값 중 **빈 칸에 들어갈 것만** 고른다. LLM 을 부르지 않는다(테스트할 수 있게)."""
-    fill = Fill(job.job_id, job.content_hash)
+    fill = Fill(job.job_id, job.content_hash, accepts_entry=extracted.accepts_entry)
+    if job.career_type == "EXPERIENCED" and extracted.accepts_entry:
+        fill.values["career_type"] = "ANY"
+        fill.note = "신입도 지원 가능 — 경력무관으로"
+        return fill
     years = extracted.min_career_years
     if job.career_type == "EXPERIENCED" and job.min_career_years is None and years and 1 <= years <= MAX_YEARS:
         fill.values["min_career_years"] = years
@@ -105,6 +125,7 @@ def marker(fill: Fill) -> dict[str, Any]:
         "model": f"{MODEL}/{EFFORT}",
         "filled": sorted(fill.values),
         "note": fill.note,
+        "entry": fill.accepts_entry,
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
 

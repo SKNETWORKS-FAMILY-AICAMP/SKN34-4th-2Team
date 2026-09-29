@@ -15,8 +15,9 @@ from job_matching_bot.ingestion.sqlite_store import SqliteJobStore
 BODY = "[자격요건] 관련 경력 4년 이상 · 컴퓨터공학 전공 · 정보처리기사 필수 · Java Spring 개발 " * 5
 
 
-def ext(years=4, majors=("컴퓨터공학",), certs=("정보처리기사",), multi=False):
-    return Extracted(multi_role=multi, min_career_years=years, required_majors=list(majors), required_certifications=list(certs))
+def ext(years=4, majors=("컴퓨터공학",), certs=("정보처리기사",), multi=False, entry=False):
+    return Extracted(multi_role=multi, min_career_years=years, required_majors=list(majors), required_certifications=list(certs),
+                     accepts_entry=entry)
 
 
 class PlanTest(unittest.TestCase):
@@ -49,6 +50,13 @@ class PlanTest(unittest.TestCase):
         """교육과정 수료는 자격증이 아니다. 모르는 전공 이름은 적지 않는다. 터무니없는 연차도."""
         fill = plan_fill(self.job, ext(years=2019, majors=("조리학과",), certs=("정부 AI 인재 양성 교육과정 수료",)))
         self.assertEqual({}, fill.values)
+
+    def test_experienced_posting_that_accepts_entry_becomes_any(self):
+        """사이트 칸은 경력인데 본문에 「신입도 지원 가능」 — 경력무관으로. 연차 · 전공은 안 채운다."""
+        fill = plan_fill(replace(self.job, min_career_years=2), ext(years=None, entry=True))
+        self.assertEqual({"career_type": "ANY"}, fill.values)
+        self.assertEqual({}, plan_fill(replace(self.job, career_type="ANY"), ext(years=None, majors=(), certs=(), entry=True)).values,
+                         "경력 공고가 아니면 건드리지 않는다")
 
 
 class StoreRunTest(unittest.TestCase):
@@ -101,6 +109,20 @@ class StoreRunTest(unittest.TestCase):
             self.assertEqual(1, len(store.requirement_targets(10, min_days_left=2)))
             store.conn.execute("UPDATE jobs SET deadline = NULL WHERE job_id = 'MOCK-GAP'")
             self.assertEqual(1, len(store.requirement_targets(10, min_days_left=14)), "마감일 없는 상시 채용은 넣는다")
+
+    def test_entry_check_turns_experienced_into_any(self):
+        """연차가 이미 차 있어도 본문에 「신입도 지원 가능」이 있으면 다시 보고, 경력무관 · 연차 비움으로 고친다."""
+        with SqliteJobStore(self.path) as store:
+            store.conn.execute("UPDATE jobs SET description = description || ' 신입도 지원 가능합니다' WHERE job_id = 'MOCK-FULL'")
+            self.assertEqual(["MOCK-FULL"], [r.job.job_id for r in store.entry_targets(10)], "본문에 신입 가능이 없는 공고는 안 본다")
+        summary = fill_requirements.run(self.path, limit=10, entry_check=True, extractor=lambda v: ext(years=None, entry=True))
+        self.assertEqual(1, summary["to_any"])
+        with SqliteJobStore(self.path) as store:
+            job = store.get("MOCK-FULL").job
+            self.assertEqual("ANY", job.career_type)
+            self.assertIsNone(job.min_career_years, "신입 검색(연차 ≤ 1)에서 빠지지 않게 비운다")
+            self.assertTrue(job.field_provenance["requirements_llm"]["entry"])
+            self.assertEqual([], store.entry_targets(10), "한 번 본 공고는 다시 안 본다")
 
     def test_failed_extraction_is_retried_next_time(self):
         def broken(values):

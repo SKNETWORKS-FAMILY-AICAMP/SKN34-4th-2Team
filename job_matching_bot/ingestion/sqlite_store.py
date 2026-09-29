@@ -588,6 +588,17 @@ class SqliteJobStore:
         rows = self.conn.execute(sql + " ORDER BY first_seen_at DESC LIMIT ?", (*params, limit)).fetchall()
         return [self._row_to_record(r) for r in rows]
 
+    def entry_targets(self, limit: int) -> list[JobRecord]:
+        """본문에 「신입도 지원 가능」류가 있는 열린 경력 공고 중 아직 신입 여부를 안 본 것(requirements_llm.entry 없음)."""
+        rows = self.conn.execute(
+            "SELECT * FROM jobs WHERE status = 'OPEN' AND career_type = 'EXPERIENCED'"
+            " AND description ~ '신입\\s*(도|지원|가능|환영)'"
+            " AND (field_provenance -> 'requirements_llm' -> 'entry') IS NULL"
+            " ORDER BY first_seen_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [self._row_to_record(r) for r in rows]
+
     def fill_requirements(self, job_id: str, values: dict[str, Any], marker: dict[str, Any]) -> int:
         """뽑은 요건을 **빈 칸에만** 적고, 본 표시(`field_provenance.requirements_llm`)를 남긴다.
 
@@ -595,6 +606,10 @@ class SqliteJobStore:
         """
         sets = ["field_provenance = jsonb_set(COALESCE(field_provenance, '{}'::jsonb), '{requirements_llm}', ?)"]
         params: list[Any] = [Jsonb(marker)]
+        if values.get("career_type") == "ANY":
+            # 신입도 받는 경력 공고 — 경력 공고일 때만 경력무관으로, 최소 연차는 비운다(신입 검색 연차 ≤ 1 에서 빠지지 않게)
+            sets.append("career_type = CASE WHEN career_type = 'EXPERIENCED' THEN 'ANY' ELSE career_type END")
+            sets.append("min_career_years = CASE WHEN career_type = 'EXPERIENCED' THEN NULL ELSE min_career_years END")
         if "min_career_years" in values:
             sets.append("min_career_years = COALESCE(min_career_years, ?)")
             params.append(values["min_career_years"])

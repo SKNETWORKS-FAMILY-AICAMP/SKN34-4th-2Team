@@ -592,19 +592,29 @@ FILL_REQUIREMENTS_LIMIT = 3000
 def run_fill_requirements(store_path: Path, as_of: datetime, work_dir: Path) -> dict[str, Any]:
     """경력 공고인데 최소 연차가 빈 공고의 요건을 본문에서 뽑아 빈 칸만 채운다(fill_requirements).
 
-    인덱스 **전에** 부른다 — 채운 연차가 인덱스 메타데이터(검색 조건)에도 실려야 한다. 실패해도 인덱스는 간다.
+    이어서 본문에 「신입도 지원 가능」이 있는 경력 공고를 한 번 더 본다(--entry-check). 연차가 사이트에서 이미
+    찬 공고는 앞 단계 대상이 아니라서, 따로 안 보면 신입에게서 계속 빠진다.
+
+    인덱스 **전에** 부른다 — 채운 연차 · 경력 구분이 인덱스 메타데이터(검색 조건)에도 실려야 한다. 실패해도 인덱스는 간다.
     """
-    report = work_dir / f"{run_stamp(as_of)}_requirements.json"
-    command = [
-        sys.executable, "-m", "job_matching_bot.fill_requirements", "--store", str(store_path),
-        "--limit", str(FILL_REQUIREMENTS_LIMIT), "--workers", "8", "--show", "0", "--report", str(report),
-    ]
-    print("[요건 채우기] " + " ".join(command[2:]), flush=True)
-    code = subprocess.run(command, cwd=str(REPO_ROOT)).returncode
-    try:
-        return {"exit_code": code, **json.loads(report.read_text(encoding="utf-8"))}
-    except (OSError, ValueError):
-        return {"exit_code": code}
+    summary: dict[str, Any] = {}
+    for name, extra in (("requirements", []), ("entry", ["--entry-check"])):
+        report = work_dir / f"{run_stamp(as_of)}_{name}.json"
+        command = [
+            sys.executable, "-m", "job_matching_bot.fill_requirements", "--store", str(store_path), *extra,
+            "--limit", str(FILL_REQUIREMENTS_LIMIT), "--workers", "8", "--show", "0", "--report", str(report),
+        ]
+        print("[요건 채우기] " + " ".join(command[2:]), flush=True)
+        code = subprocess.run(command, cwd=str(REPO_ROOT)).returncode
+        try:
+            result = {"exit_code": code, **json.loads(report.read_text(encoding="utf-8"))}
+        except (OSError, ValueError):
+            result = {"exit_code": code}
+        if name == "requirements":
+            summary.update(result)
+        else:
+            summary["entry"] = result
+    return summary
 
 
 def run_index(store_path: Path, as_of: datetime, work_dir: Path) -> int:
