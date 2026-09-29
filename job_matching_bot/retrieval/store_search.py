@@ -101,7 +101,7 @@ def _like_or_regex(column: str, term: str) -> tuple[str, list[object]]:
     """
     pattern = CONFUSABLE.get(term.strip().lower())
     if not pattern:
-        return f"{_text(column)} ILIKE ?", [f"%{term}%"]
+        return f"{_text(column)} ILIKE %s", [f"%{term}%"]
     # 한 공고에 Java 와 Javascript 가 둘 다 있으면 Java 쪽이 걸린다. 빼면 진짜 Java
     # 공고를 잃는다.
     return _regex(column), [pattern]
@@ -267,7 +267,7 @@ def _text(column: str) -> str:
 
 def _regex(column: str) -> str:
     """정규식으로 찾는 조건. 대소문자를 가리지 않는다(`~*`). 앞뒤 보기(`(?<!…)`)도 PostgreSQL 이 읽는다."""
-    return f"{_text(column)} ~* ?"
+    return f"{_text(column)} ~* %s"
 
 
 def connect(store_path: Path):
@@ -499,16 +499,16 @@ def conditions(filters: JobFilters, as_of: datetime, *, listing: bool = False) -
     다른 모수의 공고가 나오면 답이 거짓말이 된다.
     """
     today = as_of.date().isoformat()
-    where = ["status = 'OPEN'", "(deadline IS NULL OR substr(deadline, 1, 10) >= ?)"]
+    where = ["status = 'OPEN'", "(deadline IS NULL OR substr(deadline, 1, 10) >= %s)"]
     params: list[object] = [today]
 
     if filters.regions:
-        where.append("(" + " OR ".join("region ILIKE ?" for _ in filters.regions) + ")")
+        where.append("(" + " OR ".join("region ILIKE %s" for _ in filters.regions) + ")")
         params.extend(f"%{region}%" for region in filters.regions)
 
     types = CAREER_TYPES.get(filters.career)
     if types:
-        where.append("career_type IN (" + ", ".join("?" for _ in types) + ")")
+        where.append("career_type IN (" + ", ".join("%s" for _ in types) + ")")
         params.extend(types)
 
     # 몇 년차인지 말했으면 **모자란 공고를 뺀다.** "3년차인데 갈 만한 데"에 경력 5년
@@ -518,19 +518,19 @@ def conditions(filters: JobFilters, as_of: datetime, *, listing: bool = False) -
     # "이 사람에게 안 맞는다"는 사실이 아니다. 여기는 검색이라 빠지면 사용자가 아예
     # 못 본다 — 판단할 거리를 남기는 쪽이 낫다.
     if filters.career_years is not None:
-        where.append("(min_career_years IS NULL OR min_career_years <= ?)")
+        where.append("(min_career_years IS NULL OR min_career_years <= %s)")
         params.append(filters.career_years)
         # 신입만 뽑는다고 적은 공고는 경력자에게 맞지 않는다. 경계는 하드 필터와 같다.
         if filters.career_years >= ENTRY_ONLY_MAX_YEARS:
             where.append("career_type != 'ENTRY'")
 
     if filters.employment_types:
-        where.append("(" + " OR ".join("employment_type ILIKE ?" for _ in filters.employment_types) + ")")
+        where.append("(" + " OR ".join("employment_type ILIKE %s" for _ in filters.employment_types) + ")")
         params.extend(f"%{value}%" for value in filters.employment_types)
 
     if filters.deadline_within_days:
         until = (as_of + timedelta(days=filters.deadline_within_days)).date().isoformat()
-        where.append("deadline IS NOT NULL AND substr(deadline, 1, 10) <= ?")
+        where.append("deadline IS NOT NULL AND substr(deadline, 1, 10) <= %s")
         params.append(until)
 
     # 직무 묶음·기술 묶음·키워드 묶음을 따로 걸어 모두 만족하게 한다(위 설명).
@@ -571,10 +571,10 @@ def conditions(filters: JobFilters, as_of: datetime, *, listing: bool = False) -
                 params.append(COMPANY_TYPES[key])
             continue
         if key in EMPLOYMENT_WORDS:
-            where.append("(employment_type IS NULL OR employment_type NOT ILIKE ?)")
+            where.append("(employment_type IS NULL OR employment_type NOT ILIKE %s)")
             params.append(f"%{EMPLOYMENT_WORDS[key]}%")
             continue
-        where.append("NOT (title ILIKE ? OR company ILIKE ?)")
+        where.append("NOT (title ILIKE %s OR company ILIKE %s)")
         params.extend([f"%{word}%", f"%{word}%"])
 
     # 최근에 올라온 것만. 우리가 그 공고를 처음 본 날로 세되, **오늘이 아니라 마지막 수집일에서**
@@ -584,7 +584,7 @@ def conditions(filters: JobFilters, as_of: datetime, *, listing: bool = False) -
     if filters.posted_within_days is not None:
         where.append(
             "(first_seen_at AT TIME ZONE 'Asia/Seoul')::date >= "
-            "(SELECT MAX(first_seen_at AT TIME ZONE 'Asia/Seoul')::date FROM jobs) - ?::int"
+            "(SELECT MAX(first_seen_at AT TIME ZONE 'Asia/Seoul')::date FROM jobs) - %s::int"
         )
         params.append(int(filters.posted_within_days))
 
@@ -642,7 +642,7 @@ def search(
         phrase_params: list[object] = []
         for term in (term for term, matcher in terms if matcher is _role_match and len(term.split()) > 1):
             for spelling in dict.fromkeys((term, term.replace(" ", ""))):
-                phrase_parts.append("title ILIKE ?")
+                phrase_parts.append("title ILIKE %s")
                 phrase_params.append(f"%{spelling}%")
         phrase_case = f"WHEN {' OR '.join(phrase_parts)} THEN 4 " if phrase_parts else ""
         case_params = [*phrase_params, *case_params]
@@ -692,7 +692,7 @@ def search(
         # 이 묶음이라, 넘겨 보다 보면 그 건수만큼 본 뒤에 본문에만 스친 공고로 넘어가야
         # 말과 목록이 맞는다. 묶음 안에서는 본문이 있는 공고가 먼저다.
         " ORDER BY (relevance >= 2) DESC, has_detail DESC, relevance DESC,"
-        " site_rank ASC, first_seen_at DESC LIMIT ?"
+        " site_rank ASC, first_seen_at DESC LIMIT %s"
     )
 
     # 값 순서는 상세 쪽 SELECT → WHERE, 목록 쪽 SELECT → WHERE, 그다음 LIMIT. 목록 쪽 WHERE는
@@ -769,10 +769,10 @@ def by_ids(
     as_of = as_of or datetime.now(KST)
     today = as_of.date().isoformat()
 
-    placeholders = ", ".join("?" for _ in job_ids)
+    placeholders = ", ".join("%s" for _ in job_ids)
     sql = (
         f"SELECT {_HIT_COLUMNS} FROM jobs WHERE job_id IN ({placeholders}) "
-        "AND status = 'OPEN' AND (deadline IS NULL OR substr(deadline, 1, 10) >= ?)"
+        "AND status = 'OPEN' AND (deadline IS NULL OR substr(deadline, 1, 10) >= %s)"
     )
     connection = connect(store_path)
     try:

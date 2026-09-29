@@ -114,7 +114,7 @@ class IncrementalPlanTest(unittest.TestCase):
 
     def _row(self, job_id):
         return self.store.conn.execute(
-            "SELECT embed_hash, indexed_embed_hash FROM jobs WHERE job_id = ?", (job_id,)
+            "SELECT embed_hash, indexed_embed_hash FROM jobs WHERE job_id = %s", (job_id,)
         ).fetchone()
 
     def test_first_run_uploads_then_nothing(self):

@@ -22,7 +22,7 @@ def load_selected_job(path: Path, job_id: str) -> dict:
     """
     try:
         store = SqliteJobStore(Path(path))
-        row = store.conn.execute('SELECT * FROM jobs WHERE job_id = ?', (job_id,)).fetchone()
+        row = store.conn.execute('SELECT * FROM jobs WHERE job_id = %s', (job_id,)).fetchone()
     except Exception as exc:
         raise JobStoreUnavailable('matching_job_store_unavailable') from exc
     if row is None:

@@ -104,7 +104,7 @@ class StoreRunTest(unittest.TestCase):
     def test_min_days_left_skips_postings_closing_soon(self):
         from datetime import date, timedelta
         with SqliteJobStore(self.path) as store:
-            store.conn.execute("UPDATE jobs SET deadline = ? WHERE job_id = 'MOCK-GAP'", ((date.today() + timedelta(days=3)).isoformat(),))
+            store.conn.execute("UPDATE jobs SET deadline = %s WHERE job_id = 'MOCK-GAP'", ((date.today() + timedelta(days=3)).isoformat(),))
             self.assertEqual([], store.requirement_targets(10, min_days_left=14), "3일 뒤 마감은 건너뛴다")
             self.assertEqual(1, len(store.requirement_targets(10, min_days_left=2)))
             store.conn.execute("UPDATE jobs SET deadline = NULL WHERE job_id = 'MOCK-GAP'")

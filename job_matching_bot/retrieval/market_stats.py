@@ -137,7 +137,7 @@ def _summarize(store_path: Path, filters: JobFilters, as_of: datetime) -> Market
         until = _plus_days(as_of, CLOSING_DAYS)
         counted = connection.execute(
             "SELECT COUNT(*) AS total, COUNT(*) FILTER ("
-            "WHERE deadline IS NOT NULL AND substr(deadline, 1, 10) <= ?) AS closing "
+            "WHERE deadline IS NOT NULL AND substr(deadline, 1, 10) <= %s) AS closing "
             f"FROM jobs WHERE {clause}",
             [until, *params],
         ).fetchone()
@@ -147,7 +147,7 @@ def _summarize(store_path: Path, filters: JobFilters, as_of: datetime) -> Market
 
         rows = connection.execute(
             f"SELECT title, tech_stack, keywords, region, career_type, employment_type, "
-            f"education FROM jobs WHERE {clause} ORDER BY first_seen_at DESC LIMIT ?",
+            f"education FROM jobs WHERE {clause} ORDER BY first_seen_at DESC LIMIT %s",
             [*params, SCAN_LIMIT],
         ).fetchall()
     finally:

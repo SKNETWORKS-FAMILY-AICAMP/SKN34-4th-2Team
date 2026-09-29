@@ -74,13 +74,13 @@ class LivenessTest(unittest.TestCase):
 
     def column_of(self, job_id: str, column: str):
         store = SqliteJobStore(self.path)
-        row = store.conn.execute(f"SELECT {column} FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+        row = store.conn.execute(f"SELECT {column} FROM jobs WHERE job_id = %s", (job_id,)).fetchone()
         store.close()
         return row[column]
 
     def status_of(self, job_id: str) -> str:
         store = SqliteJobStore(self.path)
-        row = store.conn.execute("SELECT status FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+        row = store.conn.execute("SELECT status FROM jobs WHERE job_id = %s", (job_id,)).fetchone()
         store.close()
         return row["status"]
 
@@ -112,7 +112,7 @@ class LivenessTest(unittest.TestCase):
     def test_closed_is_recorded_in_store_and_index(self) -> None:
         a, b, c = self.ids
         store = SqliteJobStore(self.path)
-        store.conn.execute("UPDATE jobs SET status = ? WHERE job_id = ?", (STATUS_EXPIRED, c))
+        store.conn.execute("UPDATE jobs SET status = %s WHERE job_id = %s", (STATUS_EXPIRED, c))
         store.conn.commit()
         store.close()
         self.states[self.rec(b)] = False
@@ -164,7 +164,7 @@ class LivenessTest(unittest.TestCase):
     def set_status(self, job_id: str, status: str) -> None:
         store = SqliteJobStore(self.path)
         with store.conn:
-            store.conn.execute("UPDATE jobs SET status = ?, missing_runs = 3 WHERE job_id = ?", (status, job_id))
+            store.conn.execute("UPDATE jobs SET status = %s, missing_runs = 3 WHERE job_id = %s", (status, job_id))
         store.close()
 
     def test_alive_removed_job_is_reopened(self) -> None:
