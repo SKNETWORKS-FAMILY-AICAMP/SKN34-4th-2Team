@@ -709,6 +709,8 @@ class RecommendService(_LivenessMixin):
                     request.preferred_regions,
                     request.preferred_employment_types,
                     max(request.career_years, profile.career_years),
+                    education_level=request.education_level,
+                    match_requirements=True,
                 ),
             )
         except Exception as error:

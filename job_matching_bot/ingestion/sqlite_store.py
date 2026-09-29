@@ -919,9 +919,12 @@ class SqliteJobStore:
         return report
 
     # ── 인덱스 추적 (적재 단계가 쓴다) ─────────────────────────
-    # embed_hash         지금 내용으로 만든 지문(쓸 때마다 갱신)
-    # indexed_embed_hash 마지막으로 인덱스에 올렸을 때의 지문
-    # 둘이 다르면 올릴 대상, 같으면 건너뛴다. 인덱스를 조회하지 않고 판정한다.
+    # embed_hash         크롤로 받은 내용으로 만든 지문(적재가 쓸 때마다 갱신). 적재가 「변경 없음」을
+    #                    가를 때만 쓴다 — 요건 채우기가 바꾼 값은 담지 않는다. 담으면 다음 날 같은 공고가
+    #                    다시 들어올 때 지문이 달라 통째로 다시 쓰이고, 채운 값이 사이트 값으로 돌아간다.
+    # indexed_embed_hash 마지막으로 인덱스에 올렸을 때의 지문(채운 값 포함)
+    # 올릴지는 지금 값으로 만든 지문과 indexed_embed_hash 를 견준다(retrieval/upsert.plan).
+    # 인덱스를 조회하지 않고 판정한다.
 
     def index_state(self) -> dict[str, tuple[str | None, str | None]]:
         """{job_id: (embed_hash, indexed_embed_hash)}. 전 행."""
@@ -931,12 +934,16 @@ class SqliteJobStore:
         }
 
     def mark_indexed(self, hashes: dict[str, str], at: datetime) -> None:
-        """벡터를 올린 뒤 부른다. 바로 커밋해 중간에 멈춰도 올린 만큼은 기록이 남는다."""
+        """벡터를 올린 뒤 부른다. 바로 커밋해 중간에 멈춰도 올린 만큼은 기록이 남는다.
+
+        `embed_hash`(크롤 지문)는 건드리지 않는다 — 채운 값이 든 지문으로 덮으면 다음 적재가 같은 공고를
+        바뀐 것으로 보고 다시 써서 채운 값을 지운다.
+        """
         stamp = at.isoformat()
         with self.conn:
             self.conn.executemany(
-                "UPDATE jobs SET embed_hash = ?, indexed_embed_hash = ?, indexed_at = ? WHERE job_id = ?",
-                [(h, h, stamp, job_id) for job_id, h in hashes.items()],
+                "UPDATE jobs SET indexed_embed_hash = ?, indexed_at = ? WHERE job_id = ?",
+                [(h, stamp, job_id) for job_id, h in hashes.items()],
             )
 
     def group_keys(self) -> dict[str, str | None]:
@@ -963,7 +970,11 @@ class SqliteJobStore:
 
     def refresh_embed_hashes(self) -> int:
         """저장된 embed_hash를 다시 계산한다. 지문 규칙이 바뀌었거나 이관 직후처럼
-        값이 비어 있을 때 한 번 돌린다. 바뀐 행 수를 돌려준다."""
+        값이 비어 있을 때 한 번 돌린다. 바뀐 행 수를 돌려준다.
+
+        요건 채우기가 채운 행은 채운 값으로 계산된다. 그 행은 다음 적재 때 한 번 다시 쓰여
+        사이트 값으로 돌아가고, 그날 밤 요건 채우기가 다시 채운다.
+        """
         changed: list[tuple[str, str]] = []
         for row in self.conn.execute("SELECT * FROM jobs"):
             job = Job(**{name: _decode(name, row[name]) for name in JOB_FIELDS})

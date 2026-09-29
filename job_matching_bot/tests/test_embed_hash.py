@@ -185,6 +185,24 @@ class IncrementalPlanTest(unittest.TestCase):
         self.assertEqual(0, self.store.refresh_embed_hashes())
         self.assertEqual(doc.embed_hash(job), self._row(job.job_id)["embed_hash"])
 
+    def test_requirement_fill_is_reuploaded_and_survives_the_next_crawl(self):
+        """요건 채우기는 크롤 밖에서 연차를 바꾼다. 인덱스는 그걸 올리고, 다음 날 같은 공고가 다시
+        들어와도 「변경 없음」이라 채운 값이 사이트 값(빈 칸)으로 돌아가지 않는다."""
+        job = _job(min_career_years=None)
+        self.store.upsert([job], source="MOCK")
+        self._upsert(self._plan()[0])
+        self.store.fill_requirements(job.job_id, {"min_career_years": 4}, {"hash": job.content_hash})
+
+        changed = self._plan()[0]
+        self.assertEqual([job.job_id], [j.job_id for j in changed], "채운 연차를 인덱스에 올린다")
+        self._upsert(changed)
+        self.assertEqual(4, self.index.upserted[job.job_id]["metadata"]["min_career_years"])
+        self.assertEqual([], self._plan()[0])
+
+        self.store.upsert([job], source="MOCK", as_of=AS_OF + timedelta(days=1))
+        self.assertEqual(4, self.store.get(job.job_id).job.min_career_years, "다음 날 같은 공고가 와도 채운 값은 남는다")
+        self.assertEqual([], self._plan()[0])
+
     def test_force_reuploads_everything(self):
         job = _job()
         self.store.upsert([job], source="MOCK")

@@ -5,9 +5,10 @@
     python -m job_matching_bot.retrieval.upsert --force     # 전량 다시 임베딩
     python -m job_matching_bot.retrieval.upsert --dry-run   # 올리지 않고 계획만
 
-증분이 기본이다. 문서 ID를 공고 ID로 고정하고, 저장소가 기억하는 두 지문을 대조한다.
-`embed_hash`(지금 내용)와 `indexed_embed_hash`(마지막으로 올린 내용)가 다른 것만
-임베딩한다. 지문은 요건 구간과 필터 값으로만 만들어서, 마감일이나 수집 시각만 바뀐
+증분이 기본이다. 문서 ID를 공고 ID로 고정하고, 지금 값으로 만든 지문(`documents.embed_hash`)과
+저장소의 `indexed_embed_hash`(마지막으로 올린 내용)가 다른 것만 임베딩한다. 저장된 `embed_hash`
+칸이 아니라 지금 값으로 견주는 것은 요건 채우기(fill_requirements)가 크롤 밖에서 연차 · 경력
+구분을 바꾸기 때문이다 — 그 칸은 크롤 값 기준이라 채운 것이 안 잡힌다. 지문은 요건 구간과 필터 값으로만 만들어서, 마감일이나 수집 시각만 바뀐
 공고는 다시 올리지 않는다(`documents.embed_hash`). 판정에 Pinecone 조회가 없다.
 JSON 저장소(테스트용)는 추적 컬럼이 없어 인덱스 메타데이터를 받아 대조한다.
 
@@ -154,8 +155,8 @@ def plan(
         indexed = {job_id for job_id, (_, done) in state.items() if done is not None}
 
         def is_current(job: Job) -> bool:
-            embed, done = state.get(job.job_id, (None, None))
-            return embed is not None and done == embed
+            _, done = state.get(job.job_id, (None, None))
+            return done is not None and done == doc.embed_hash(job)
 
         # 올린 기록이 있는데 지금은 대상이 아닌 것(마감·삭제·재등록·요건 사라짐)은 지운다.
         to_delete = sorted(job_id for job_id in indexed if job_id not in keep)
