@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from chatbot.api import _firebase_app
 from chatbot.proxy_auth import valid_proxy_token
 from study_notes import github, postgres_service, service
-from study_notes.git_tools import GitToolError
+from study_notes.git_tools import GitToolError, is_empty_repo
 from study_notes.service import Caller
 
 router = APIRouter(prefix="/api/v1/study-notes", tags=["study-notes"])
@@ -272,6 +272,10 @@ def proxy_practice(request: ProxyPracticeRequest) -> dict[str, Any]:
             dates=request.dates,
         )
     except GitToolError as exc:
+        if is_empty_repo(exc):
+            # 수업 전 과목 — 매일 18:30 마다 「실패」로 쌓이지 않게
+            return {"sets": [], "coverage": request.coverage, "error": "", "note": "아직 수업 파일이 올라오지 않은 저장소예요.",
+                    "webDays": []}
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 

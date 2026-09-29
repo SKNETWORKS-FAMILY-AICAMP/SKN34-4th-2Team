@@ -153,4 +153,5 @@ def run_source(
             note = "웹 수업(.html · .css · .js)은 아직 복습 문제를 내지 않아요. 수업 노트는 만들어져요."
         else:
             note = "고른 날짜의 수업 내용은 이미 출제했어요." if dates else "새로 올라온 수업 내용이 없었어요."
-    return {"sets": sets, "coverage": coverage_to_json(files_cov, days), "error": error, "note": note}
+    # webDays — 웹 수업만 있던 날. 문제는 안 내지만 Django 가 그날 노트는 미리 만들어 둔다(practice_auto._publish_notes)
+    return {"sets": sets, "coverage": coverage_to_json(files_cov, days), "error": error, "note": note, "webDays": web_only}
