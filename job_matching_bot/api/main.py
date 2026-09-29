@@ -297,6 +297,21 @@ async def chat_stream(request: schemas.JobChatRequest) -> StreamingResponse:
     )
 
 
+@app.post("/api/v1/jobs/verify", response_model=schemas.JobVerifyResponse)
+def verify_job(request: schemas.JobVerifyRequest) -> schemas.JobVerifyResponse:
+    """공고 하나가 지금도 사이트에 있는지 페이지를 열어 본다.
+
+    저장소의 REMOVED는 목록에서 몇 번 안 보였다는 뜻일 뿐이라, 살아 있는 공고가 「내려간 공고」로
+    막혔다. 사용자가 링크로 골라 온 공고는 여기서 확인해 살아 있으면 OPEN으로 되돌린다.
+    확인이 실패해도 오류로 막지 않는다(alive=None). 판정은 부른 쪽이 저장소 상태로 한다.
+    """
+    try:
+        alive = _service.liveness.verify(request.job_id)
+    except Exception:  # noqa: BLE001 — 확인 실패가 공고 보기를 막을 이유는 아니다
+        alive = None
+    return schemas.JobVerifyResponse(job_id=request.job_id, alive=alive)
+
+
 @app.post("/api/v1/jobs/search", response_model=schemas.JobSearchResponse)
 def search_jobs(request: schemas.JobSearchRequest) -> schemas.JobSearchResponse:
     """조건으로 공고를 찾는다. 자기소개서 탭의 공고 찾기가 쓴다.

@@ -248,6 +248,19 @@ class JobkoreaObservationTest(unittest.TestCase):
         self.assertEqual((self.details, []), (detail_input, args))
         self.assertIn("skipped", info["observation"])
 
+    def test_swept_to_the_last_page_counts_as_complete_below_the_site_total(self):
+        # 사이트는 5건이라지만 숨긴 자리가 있어 1건만 보였다. 끝 쪽까지 넘겼으면 완전이다
+        payload = {**self._payload({c: 5 for c in self.cats}), "swept": {c: True for c in self.cats}}
+        info, detail_input, args = self._run(payload)
+        self.assertEqual("--observed", args[0])
+        self.assertEqual(sorted(self.cats), info["complete"])
+
+    def test_not_swept_changes_nothing_even_if_counts_match(self):
+        payload = {**self._payload({c: 1 for c in self.cats}), "swept": {c: False for c in self.cats}}
+        info, detail_input, args = self._run(payload)
+        self.assertEqual((self.details, []), (detail_input, args))
+        self.assertEqual(sorted(self.cats), info["capped"])
+
     def test_old_list_file_without_totals_changes_nothing(self):
         info, detail_input, args = self._run({"list": [{"source_job_id": "a", "categories": self.cats}]})
         self.assertEqual((self.details, []), (detail_input, args))

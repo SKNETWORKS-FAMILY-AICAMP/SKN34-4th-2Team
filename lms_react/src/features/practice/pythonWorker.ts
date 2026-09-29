@@ -96,6 +96,57 @@ def take_images():
     out = _json.dumps(_images)
     _images.clear()
     return out
+
+# ── SQL 셀 ─────────────────────────────────────────────
+# 세션마다 SQLite(메모리) 하나 — 학생 변수 공간의 sql_conn. 파이썬 셀에서도 pd.read_sql(..., sql_conn) 으로 쓴다.
+# 수업(MySQL) 함수 중 SQLite 에 없는 것을 채운다. 문장 고치기는 화면(sqlDialect.ts)이 먼저 한다.
+
+def _sql_connect():
+    import datetime, sqlite3
+    conn = sqlite3.connect(":memory:", isolation_level=None)
+    conn.create_function("NOW", 0, lambda: datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    conn.create_function("CURDATE", 0, lambda: datetime.date.today().isoformat())
+    conn.create_function("CONCAT", -1, lambda *a: None if any(v is None for v in a) else "".join(str(v) for v in a))
+    conn.create_function("FIELD", -1, lambda v, *a: next((i + 1 for i, x in enumerate(a) if x == v), 0))
+    return conn
+
+def run_sql(statements_json, ns):
+    import sqlite3
+    conn = ns.get("sql_conn") if "sql_conn" in ns else None
+    if not isinstance(conn, sqlite3.Connection):
+        conn = _sql_connect()
+        ns["sql_conn"] = conn
+    last = None
+    ran = changed = 0
+    statements = _json.loads(statements_json)
+    for i, stmt in enumerate(statements, 1):
+        # MySQL 스크립트 끝의 COMMIT — 열린 거래가 없으면 SQLite 는 오류를 낸다. 할 일이 없으니 건너뛴다
+        if stmt.strip().upper() in ("COMMIT", "ROLLBACK") and not conn.in_transaction:
+            continue
+        try:
+            cur = conn.execute(stmt)
+        except sqlite3.Error as e:
+            where = f"{i}번째 문장 — " if len(statements) > 1 else ""
+            raise type(e)(f"{where}{e}") from None
+        ran += 1
+        if cur.description:
+            last = ([d[0] for d in cur.description], cur.fetchall())
+        else:
+            last = None
+            changed += max(cur.rowcount, 0)
+    if last is None:
+        print(f"실행 완료 · 문장 {ran}개" + (f" · {changed}행 바뀜" if changed else ""))
+        return _json.dumps({"text": None, "table": None})
+    columns, rows = last
+    head = rows[:MAX_ROWS]
+    table = {
+        "columns": [str(c) for c in columns],
+        "index": [str(i) for i in range(len(head))],
+        "indexName": "",
+        "rows": [["NULL" if v is None else _cell(v) for v in row] for row in head],
+        "shape": [len(rows), len(columns)],
+    }
+    return _json.dumps({"text": None, "table": table})
 `;
 
 const LOCKDOWN = `
@@ -130,6 +181,7 @@ interface Pyodide {
   setStdin(options: object): void;
 }
 type RunCell = (src: string, ns: PyDict, display: boolean) => string;
+type RunSql = (statementsJson: string, ns: PyDict) => string;
 type TakeImages = () => string;
 
 function post(event: RunnerEvent) {
@@ -156,7 +208,7 @@ let inputBuffer: SharedArrayBuffer | null = null;
 let promptTail = '';
 const sessions = new Map<string, PyDict>();
 
-const ready: Promise<{ py: Pyodide; runCell: RunCell; takeImages: TakeImages }> = (async () => {
+const ready: Promise<{ py: Pyodide; runCell: RunCell; runSql: RunSql; takeImages: TakeImages }> = (async () => {
   const { loadPyodide } = (await import(/* @vite-ignore */ `${INDEX_URL}pyodide.mjs`)) as {
     loadPyodide: (options: { indexURL: string }) => Promise<Pyodide>;
   };
@@ -166,6 +218,7 @@ const ready: Promise<{ py: Pyodide; runCell: RunCell; takeImages: TakeImages }> 
   py.runPython(HELPER, { globals: helperNs });
   const runCell = helperNs.get('run_cell') as RunCell;
   const takeImages = helperNs.get('take_images') as TakeImages;
+  const runSql = helperNs.get('run_sql') as RunSql;
   await py.runPythonAsync(LOCKDOWN);
   py.setStdin({ stdin: readInput });
   const decoder = new TextDecoder();
@@ -183,7 +236,7 @@ const ready: Promise<{ py: Pyodide; runCell: RunCell; takeImages: TakeImages }> 
   });
   py.setStderr({ batched: (text: string) => post({ type: 'stderr', id: currentId, text: `${text}\n` }) });
   post({ type: 'ready', version: py.version });
-  return { py, runCell, takeImages };
+  return { py, runCell, runSql, takeImages };
 })().catch((err) => {
   post({ type: 'boot-error', message: String(err) });
   throw err;
@@ -213,8 +266,8 @@ function namespace(py: Pyodide, session: string | undefined): PyDict {
 }
 
 async function run(req: RunRequest) {
-  const { py, runCell, takeImages } = await ready;
-  const { id, steps, session, stdin, displayLast } = req;
+  const { py, runCell, runSql, takeImages } = await ready;
+  const { id, steps, session, stdin, displayLast, sql } = req;
   currentId = id;
   stdoutChars = 0;
   promptTail = '';
@@ -229,7 +282,8 @@ async function run(req: RunRequest) {
   try {
     post({ type: 'loading-packages', id });
     const quiet = { messageCallback: () => {}, errorCallback: () => {} };
-    for (const code of steps) await py.loadPackagesFromImports(code, quiet);
+    // SQL 셀은 sqlite3 만 있으면 된다(Pyodide 에서는 따로 불러오는 패키지다)
+    for (const code of sql ? ['import sqlite3'] : steps) await py.loadPackagesFromImports(code, quiet);
   } catch (err) {
     finish();
     post({ type: 'done', id, ok: false, error: { ...describe(err), step: -1 }, value: null, table: null, images: [], ms: 0, truncated: false });
@@ -244,7 +298,7 @@ async function run(req: RunRequest) {
   for (let i = 0; i < steps.length; i++) {
     try {
       const last = i === steps.length - 1;
-      const out = JSON.parse(runCell(steps[i], ns, Boolean(displayLast && last))) as {
+      const out = JSON.parse(sql ? runSql(steps[i], ns) : runCell(steps[i], ns, Boolean(displayLast && last))) as {
         text: string | null;
         table: TableData | null;
       };
@@ -254,6 +308,8 @@ async function run(req: RunRequest) {
       }
     } catch (err) {
       error = { ...describe(err), step: i };
+      // SQL 셀의 오류는 도우미(run_sql) 안에서 난다 — 줄 번호는 학생 글이 아니고, 「sqlite3.」 은 떼어 보인다
+      if (sql) error = { ...error, line: null, type: error.type.replace(/^sqlite3\./, '') };
       break;
     }
   }

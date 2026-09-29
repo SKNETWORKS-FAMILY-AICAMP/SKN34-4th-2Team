@@ -15,8 +15,16 @@ import { RETRY_SET_ID } from './review';
  */
 const STORE_KEY = 'lxp.pythonNotebook.v2';
 const OLD_STORE_KEY = 'lxp.pythonNotebook.v1';
-/** problem — 복습 세트의 문제 셀. 학생이 새로 만들 수는 없고 세트를 열면 채워진다 */
-export type CellType = 'code' | 'markdown' | 'problem';
+/**
+ * problem — 복습 세트의 문제 셀. 학생이 새로 만들 수는 없고 세트를 열면 채워진다.
+ * sql — SQL 셀. 세션의 SQLite(sql_conn)에서 돈다(sqlDialect.ts · pythonWorker.ts 의 run_sql).
+ */
+export type CellType = 'code' | 'markdown' | 'sql' | 'problem';
+
+/** 저장본 · 파일의 셀 종류 — 모르는 값은 코드 셀로 */
+export function plainCellType(type: unknown): 'code' | 'markdown' | 'sql' {
+  return type === 'markdown' || type === 'sql' ? type : 'code';
+}
 
 export type LineKind = 'out' | 'sys' | 'err';
 export interface Line {
@@ -101,6 +109,27 @@ export function storeKey(set: PracticeSet | undefined): string {
   return set ? `${STORE_KEY}:${set.id}` : STORE_KEY;
 }
 
+/** 노트 코드 탭(공부방 노트의 「연습장에서 열기」)의 저장 자리 — 자유 연습장 저장본을 덮지 않게 노트마다 따로 */
+export function noteCodeStoreKey(noteId: string): string {
+  return `${STORE_KEY}:note:${noteId}`;
+}
+
+/** 노트 코드 탭의 저장본. 없으면 null */
+export function loadNoteCodeNotebook(key: string): { cells: Cell[]; stdin: string } | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as { cells?: { type?: CellType; source?: string }[]; stdin?: string };
+    if (!Array.isArray(saved.cells) || saved.cells.length === 0) return null;
+    return {
+      cells: saved.cells.map((c) => newCell(String(c.source ?? ''), plainCellType(c.type))),
+      stdin: saved.stdin ?? '',
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function loadNotebook(set: PracticeSet | undefined): { cells: Cell[]; stdin: string } {
   try {
     // 다시 풀 문제는 열 때마다 목록이 달라서 저장본을 쓰지 않는다
@@ -118,7 +147,7 @@ export function loadNotebook(set: PracticeSet | undefined): { cells: Cell[]; std
             .map((c) =>
               c.type === 'problem'
                 ? newCell(String(c.source ?? ''), 'problem', c.problemIndex ?? 0)
-                : newCell(String(c.source ?? ''), c.type === 'markdown' ? 'markdown' : 'code'),
+                : newCell(String(c.source ?? ''), plainCellType(c.type)),
             ),
           stdin: saved.stdin ?? '',
         };

@@ -444,3 +444,14 @@ class HealthResponse(StrictModel):
     index_name: str
     vector_count: int
     llm_configured: bool
+
+
+class JobVerifyRequest(StrictModel):
+    """링크로 골라 온 공고 하나를 지금 열어 본다. 공고 맞춤 지원 화면이 부른다."""
+
+    job_id: str = Field(min_length=1, max_length=200)
+
+
+class JobVerifyResponse(StrictModel):
+    job_id: str
+    alive: bool | None = Field(description="True=열려 있음, False=내려감, None=확인 못 함(다른 사이트 · 일시 오류)")

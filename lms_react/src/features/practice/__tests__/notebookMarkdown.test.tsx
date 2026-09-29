@@ -34,6 +34,14 @@ describe('노트북 마크다운', () => {
     expect(host.querySelector('a')?.getAttribute('href')).toBe('https://docs.python.org');
   });
 
+  it('단어 안의 밑줄은 기울임 · 굵게가 아니다 — 테이블 · 함수 이름이 그대로', () => {
+    const host = render('tbl_menu와 tbl_category를 잇고 x__dunder__y 를 본다. _강조_ 와 __굵게__ 는 된다');
+    expect(host.textContent).toContain('tbl_menu와 tbl_category를');
+    expect(host.textContent).toContain('x__dunder__y');
+    expect(host.querySelector('em')?.textContent).toBe('강조');
+    expect(host.querySelector('strong')?.textContent).toBe('굵게');
+  });
+
   it('태그는 글자로 두고, http 가 아닌 링크는 걸지 않는다', () => {
     const host = render('<img src=x onerror=alert(1)> [눌러](javascript:alert(1))');
     expect(host.querySelector('img')).toBeNull();

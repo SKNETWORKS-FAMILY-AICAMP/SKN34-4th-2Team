@@ -187,7 +187,7 @@ def assert_scope_allowed(source: StudySource, scope_type: ScopeType, value: str 
     elif scope_type == "files":
         for path in value:  # type: ignore[union-attr]
             if not is_learning_file(path):
-                raise _bad_request("분석 가능한 파일은 .ipynb, .py, .md 뿐입니다.")
+                raise _bad_request("분석 가능한 파일은 .ipynb, .py, .md, .sql 뿐입니다.")
             _assert_prefix_allowed(source.allowed_prefixes, path)
 
 
@@ -383,7 +383,7 @@ def _resolve_files(cache: RepoCache, source: StudySource, scope_type: ScopeType,
     if too_broad:
         return commits, files, True
     if not files:
-        raise HTTPException(status_code=404, detail="이 범위에서 분석 가능한 .ipynb/.py/.md 파일이 없습니다.")
+        raise HTTPException(status_code=404, detail="이 범위에서 분석 가능한 .ipynb/.py/.md/.sql 파일이 없습니다.")
     return commits, _with_blobs(cache, files), False
 
 
@@ -414,6 +414,31 @@ def resolve_note_for_lms(cohort_id: str, source: StudySource, scope_type_raw: st
     if too_broad:
         out["message"] = TOO_BROAD_MESSAGE
     return out
+
+
+MAX_LESSON_FILE_BYTES = 2_000_000
+
+
+def lesson_file_for_lms(cohort_id: str, source: StudySource, path_raw: str, commit_raw: str) -> dict[str, Any]:
+    """LMS 창구 — 수업 파일 하나의 원문. 노트의 「연습장에서 열기」가 그 파일을 연습장 탭으로 연다.
+
+    노트에 적힌 커밋 그대로 읽는다(노트를 만든 그 내용). 커밋이 없으면 저장소 HEAD.
+    허용 폴더 밖이거나 학습 파일(.ipynb · .py · .md · .sql)이 아니면 거절한다.
+    """
+    path = sanitize_path(path_raw)
+    assert_scope_allowed(source, "files", [path])
+    commit = str(commit_raw or "").strip()
+    if commit and not re.fullmatch(r"[0-9a-fA-F]{7,40}", commit):
+        raise _bad_request("커밋 형식이 올바르지 않습니다.")
+    cache = repo_cache(cohort_id, source)
+    try:
+        head = cache.sync()
+        text = cache.read_file(commit or head, path)
+    except GitToolError as exc:
+        raise HTTPException(status_code=404, detail="수업 파일을 읽지 못했습니다.") from exc
+    if len(text.encode("utf-8")) > MAX_LESSON_FILE_BYTES:
+        raise HTTPException(status_code=413, detail="파일이 너무 커서 연습장에서 열 수 없습니다.")
+    return {"path": path, "commit": commit or head, "text": text}
 
 
 def build_note(cohort_id: str, source: StudySource, scope_type: ScopeType,

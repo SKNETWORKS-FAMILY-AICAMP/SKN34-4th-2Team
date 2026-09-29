@@ -26,6 +26,8 @@ export interface RunOptions {
   onInput?: (prompt: string) => Promise<string | null>;
   /** 마지막 줄이 식이면 그 값을 result.value 로 */
   displayLast?: boolean;
+  /** SQL 셀 — steps[0] 은 문장 목록 JSON (pythonProtocol RunRequest.sql) */
+  sql?: boolean;
   onStdout?: (text: string) => void;
   onPhase?: (phase: 'loading-packages' | 'exec') => void;
 }
@@ -193,6 +195,7 @@ export class PythonRunner {
         stdin: options.stdin,
         inputBuffer: inputBuffer ?? undefined,
         displayLast: options.displayLast,
+        sql: options.sql,
       } satisfies WorkerRequest);
     });
   }

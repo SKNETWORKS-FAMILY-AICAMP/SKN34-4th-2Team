@@ -125,6 +125,8 @@ class TailoredResumeCreateRequest(StrictModel):
     cohort_id: str = Field(min_length=1, max_length=200)
     resume_id: str = Field(min_length=1, max_length=200)
     selected_job_id: str = Field(min_length=1, max_length=200)
+    # review=이력서 관리의 공고 맞춤 첨삭 사본, apply=공고 맞춤 지원(문항 답변) 사본. 같은 공고라도 따로 만든다
+    purpose: Literal['review', 'apply'] = 'review'
 
     @field_validator("cohort_id", "resume_id", "selected_job_id")
     @classmethod

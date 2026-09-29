@@ -5,6 +5,8 @@
 3. 내려간 공고는 저장소 CLOSED + Pinecone 메타 CLOSED. OPEN이 아니던 것은 건드리지 않는다.
 4. 차단 신호가 오면 아무것도 빼지 않고 한동안 요청도 보내지 않는다.
 5. 확인 대상 소스가 아닌 공고는 열어 보지 않는다.
+6. 링크로 골라 온 공고 하나(`verify`)는 REMOVED여도 살아 있으면 OPEN으로 되돌린다. EXPIRED는 페이지 마감일이
+   안 지났을 때만 그 날짜로 고쳐 되돌린다(회사가 마감일을 늘린 경우). 모르면 그대로.
 """
 
 from __future__ import annotations
@@ -42,6 +44,7 @@ class LivenessTest(unittest.TestCase):
         store.close()
         self.calls: list[str] = []
         self.states: dict[str, bool | None] = {}
+        self.deadlines: dict[str, tuple[str | None, str]] = {}
         self.index = FakeIndex()
         self.now = T0
 
@@ -57,6 +60,7 @@ class LivenessTest(unittest.TestCase):
             self.path,
             source=kwargs.pop("source", "MOCK"),
             checker=kwargs.pop("checker", self.checker),
+            deadline_reader=kwargs.pop("deadline_reader", lambda session, rec_idx: self.deadlines.get(rec_idx)),
             session_factory=kwargs.pop("session_factory", lambda: object()),
             index_factory=lambda: self.index,
             namespace_factory=lambda: "jobs",
@@ -67,6 +71,12 @@ class LivenessTest(unittest.TestCase):
     @staticmethod
     def rec(job_id: str) -> str:
         return job_id.partition("-")[2]
+
+    def column_of(self, job_id: str, column: str):
+        store = SqliteJobStore(self.path)
+        row = store.conn.execute(f"SELECT {column} FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+        store.close()
+        return row[column]
 
     def status_of(self, job_id: str) -> str:
         store = SqliteJobStore(self.path)
@@ -148,6 +158,51 @@ class LivenessTest(unittest.TestCase):
         self.states[self.rec(a)] = False
         live = self.liveness(source="saramin")
         self.assertEqual(live.alive([a, "other-9"]), [a, "other-9"])
+        self.assertEqual(self.calls, [])
+
+    # 6 — 사용자가 링크로 골라 온 공고 하나. 목록에서 안 보여 REMOVED로 찍혀 있어도 살아 있으면 되살린다
+    def set_status(self, job_id: str, status: str) -> None:
+        store = SqliteJobStore(self.path)
+        with store.conn:
+            store.conn.execute("UPDATE jobs SET status = ?, missing_runs = 3 WHERE job_id = ?", (status, job_id))
+        store.close()
+
+    def test_alive_removed_job_is_reopened(self) -> None:
+        a = self.ids[0]
+        self.set_status(a, "REMOVED")
+        self.assertIs(self.liveness().verify(a), True)
+        self.assertEqual(self.status_of(a), STATUS_OPEN)
+
+    def test_dead_job_is_closed_and_unknown_is_left(self) -> None:
+        a, b = self.ids[:2]
+        self.states[self.rec(a)] = False
+        self.states[self.rec(b)] = None
+        self.set_status(b, "REMOVED")
+        live = self.liveness()
+        self.assertIs(live.verify(a), False)
+        self.assertEqual(self.status_of(a), STATUS_CLOSED)
+        self.assertIsNone(live.verify(b))
+        self.assertEqual(self.status_of(b), "REMOVED")
+
+    def test_expired_job_needs_a_later_page_deadline(self) -> None:
+        a, b, c = self.ids
+        for job_id in (a, b, c):
+            self.set_status(job_id, STATUS_EXPIRED)
+        # 회사가 마감일을 늘렸다 — 페이지 마감일로 고쳐 되살린다
+        self.deadlines[self.rec(a)] = ("2099-09-30T23:59:00+09:00", "마감일 2099.09.30 23:59")
+        # 페이지 마감일도 지났거나, 페이지에서 마감일을 못 읽었다 — 그대로 둔다
+        self.deadlines[self.rec(b)] = ("2000-09-20T23:59:00+09:00", "마감일 2000.09.20 23:59")
+        live = self.liveness()
+        for job_id in (a, b, c):
+            self.assertIs(live.verify(job_id), True)
+        self.assertEqual(self.status_of(a), STATUS_OPEN)
+        self.assertEqual(self.column_of(a, "deadline"), "2099-09-30T23:59:00+09:00")
+        self.assertEqual(self.column_of(a, "field_provenance")["deadline"]["method"], "detail_page")
+        self.assertEqual(self.status_of(b), STATUS_EXPIRED)
+        self.assertEqual(self.status_of(c), STATUS_EXPIRED)
+
+    def test_other_source_is_not_opened(self) -> None:
+        self.assertIsNone(self.liveness(source="SARAMIN").verify(self.ids[0]))
         self.assertEqual(self.calls, [])
 
 

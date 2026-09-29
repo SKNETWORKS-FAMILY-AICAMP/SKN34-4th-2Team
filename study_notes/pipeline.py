@@ -18,6 +18,8 @@ from typing import TypedDict
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
+from study_notes.grounding import ground_report
+
 LEARNER_LEVEL = "수업을 일부 놓친 초보자"
 MAX_CHARS_PER_FILE = 8_000
 MAX_TOTAL_CHARS = 28_000
@@ -147,15 +149,21 @@ def generate_study_note(
 
     reviewMarkdown 은 늘 빈 글자다. 모델이 그래도 문제를 붙이면 잘라 버린다 — 자리는 예전 노트와
     같은 모양으로 돌려주려고 남겨 둔다.
+
+    만든 노트는 모델이 본 자료(`pack_materials`)와 대조한다(`grounding.ground_report`, LLM 없음). 수업 파일에
+    없는 코드 블록에는 표시를 달고, 본문에 든 이름 중 자료에 없는 것은 노트 끝에 모아 알린다.
     """
     if not materials:
         raise ValueError("분석할 수업 자료가 없습니다.")
+    packed = pack_materials(materials)
     response = (NOTE_PROMPT | _llm()).invoke({
         "scope_label": scope_label,
         "learner_level": LEARNER_LEVEL,
-        "materials": pack_materials(materials),
+        "materials": packed,
     })
     report, _review = _split_report_and_review(response_text(response))
+    report, stats = ground_report(report, packed)
+    print(f"[노트 점검] {scope_label}: {stats.summary()}")
     return report, ""
 
 

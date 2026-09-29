@@ -23,7 +23,8 @@ from pathlib import Path
 
 # KST는 DST가 없어 고정 오프셋으로 충분하다. (Windows는 tzdata가 없어 ZoneInfo가 실패한다)
 SEOUL = timezone(timedelta(hours=9), name="Asia/Seoul")
-ALLOWED_SUFFIXES = (".ipynb", ".py", ".md")
+# .sql — database 과목 수업 파일(2026-09-28 추가). 노트 · SQL 복습 문제(sql_query)에 쓴다
+ALLOWED_SUFFIXES = (".ipynb", ".py", ".md", ".sql")
 # 날짜 목록은 기간으로 자르지 않고 수업이 있던 날을 최근부터 이만큼 — 끝난 과목(예: 7월 DL)도 복습하게.
 # 예전엔 최근 30일만 보여 줘서, 지난 과목은 날짜가 하나도 안 나왔다.
 MAX_LESSON_DATES = 120

@@ -73,7 +73,7 @@ export function useNotebookFile(
     <input
       ref={input}
       type="file"
-      accept=".ipynb,.py,application/x-ipynb+json,text/x-python"
+      accept=".ipynb,.py,.sql,application/x-ipynb+json,text/x-python"
       hidden
       onChange={(e) => void pick(e.target.files?.[0])}
       aria-label="노트북 파일 고르기"

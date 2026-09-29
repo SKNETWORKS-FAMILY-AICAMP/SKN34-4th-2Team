@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { PracticeSet } from '../../domain/types';
 import { MINI_HEADING, MINI_LEVELS, type MiniProblem } from './notebookExamples';
 import type { ImportedCell } from './notebookFile';
 import {
   CLEAR_OUTPUT,
+  loadNoteCodeNotebook,
   loadNotebook,
   newCell,
   saveNotebook,
@@ -16,6 +17,7 @@ import {
 import type { RunResult } from './pythonProtocol';
 import { canPromptInput, type PythonRunner, type RunOptions } from './pythonRunner';
 import { RETRY_SET_ID } from './review';
+import { planSql } from './sqlDialect';
 
 const SESSION = 'playground';
 const TIMEOUT_MS = 10_000;
@@ -41,8 +43,14 @@ function errorText(result: RunResult): string {
  * - 워커를 새로 띄우면(중단·시간 초과) 앞 셀의 변수가 사라졌다고 알린다.
  * - 셀과 입력값은 세트마다 따로 저장한다. 다시 풀 문제는 저장하지 않는다.
  */
-export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) {
-  const initial = useRef(loadNotebook(set));
+export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined, noteCode?: { key: string; intro: string }) {
+  // 노트 코드 탭은 노트마다 따로 저장한다. 처음이면 안내 셀 하나로 시작해 누른 코드를 덧붙인다
+  const initial = useRef(
+    noteCode
+      ? (loadNoteCodeNotebook(noteCode.key) ?? { cells: [newCell(noteCode.intro, 'markdown')], stdin: '' })
+      : loadNotebook(set),
+  );
+  const ownKey = noteCode?.key;
   const [cells, setCells] = useState<Cell[]>(initial.current.cells);
   const [stdin, setStdin] = useState(initial.current.stdin);
   const [activeId, setActiveId] = useState(initial.current.cells[0]?.id ?? '');
@@ -65,8 +73,9 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
   const inputResolvers = useRef(new Map<string, (answer: string | null) => void>());
 
   useEffect(() => {
-    if (set?.id !== RETRY_SET_ID) saveNotebook(storeKey(set), cells, stdin);
-  }, [set, cells, stdin]);
+    if (ownKey) saveNotebook(ownKey, cells, stdin);
+    else if (set?.id !== RETRY_SET_ID) saveNotebook(storeKey(set), cells, stdin);
+  }, [set, cells, stdin, ownKey]);
 
   const patch = (id: string, change: Partial<Cell> | ((c: Cell) => Partial<Cell>)) =>
     setCells((prev) => prev.map((c) => (c.id === id ? { ...c, ...(typeof change === 'function' ? change(c) : change) } : c)));
@@ -113,12 +122,18 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
   /** 채점은 세션 밖 새 공간에서. 노트북에 남은 변수가 테스트에 섞이지 않는다. */
   const gradeProblem = (steps: string[]) => runQueued(steps, { timeoutMs: GRADE_TIMEOUT_MS });
 
+  /** SQL 문제 — 실행은 노트북 세션의 DB(sql_conn)에서(아래 SQL 셀에서 그 테이블을 조회해 볼 수 있다), 채점은 새 DB 에서 */
+  const runSqlProblemInSession = (steps: string[]) => runQueued(steps, { session: SESSION, sql: true, timeoutMs: TIMEOUT_MS });
+  const gradeSqlProblem = (steps: string[]) => runQueued(steps, { sql: true, timeoutMs: GRADE_TIMEOUT_MS });
+
   /** 셀 하나를 실제로 돌린다. 줄 서 있다가 차례가 오면 불린다. */
   const execute = async (id: string, token: number) => {
     if (token !== cancel.current) return;
     const cell = cellsRef.current.find((c) => c.id === id);
-    if (!cell || cell.type !== 'code') return;
+    if (!cell || (cell.type !== 'code' && cell.type !== 'sql')) return;
     const cold = runner.status === 'idle' || runner.status === 'error';
+    // SQL 셀 — 수업(MySQL) 문법을 SQLite 에 맞춰 문장 목록으로 넘긴다. 무엇을 고쳤는지는 셀 아래에 알린다
+    const plan = cell.type === 'sql' ? planSql(cell.code) : null;
     const heavy = /^\s*(import|from)\s+(matplotlib|pandas)/m.test(cell.code);
     patch(id, {
       state: 'running',
@@ -131,8 +146,9 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
         : [],
     });
 
-    const result = await runner.run([cell.code], {
+    const result = await runner.run(plan ? [JSON.stringify(plan.statements)] : [cell.code], {
       session: SESSION,
+      sql: plan !== null,
       stdin: stdinRef.current,
       displayLast: true,
       timeoutMs: TIMEOUT_MS,
@@ -161,6 +177,7 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
     noteGeneration(id);
 
     const tail: Line[] = [];
+    if (plan?.notes.length) tail.push({ kind: 'sys', text: `MySQL 문법을 SQLite 에 맞췄어요 — ${plan.notes.join(' · ')}` });
     if (result.timedOut) tail.push({ kind: 'err', text: `${TIMEOUT_MS / 1000}초가 지나 멈췄습니다. 반복문이 끝나는지 확인해 보세요.` });
     else if (result.stopped) tail.push({ kind: 'err', text: '실행을 중단했습니다. 변수도 함께 초기화됩니다.' });
     else if (result.error) tail.push({ kind: 'err', text: errorText(result) });
@@ -390,9 +407,16 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined) 
     addExample,
     addMiniProblem,
     importCells,
+    /** 셀을 끝에 덧붙인다(노트 코드 탭) — 제목 셀 · 스크롤 없이. 어디로 갈지는 부르는 쪽이 정한다 */
+    appendCells: useCallback((list: ImportedCell[]) => {
+      const made = list.map((c) => newCell(c.source, c.type));
+      setCells((prev) => [...prev, ...made]);
+    }, []),
     fileName,
     runProblemInSession,
     gradeProblem,
+    runSqlProblemInSession,
+    gradeSqlProblem,
     answerInput,
   };
 }

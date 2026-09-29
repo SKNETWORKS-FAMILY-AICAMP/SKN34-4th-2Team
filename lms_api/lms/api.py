@@ -6,7 +6,7 @@ import json
 import os
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import Any, Literal
 
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import connection, transaction
@@ -24,6 +24,7 @@ from lms.commands import dispatch, resolve_cohort
 from lms.holidays import holidays_of
 from lms.jwt_auth import AuthError, issue_tokens, load_lms_user, user_from_access
 from lms.permissions import can_access_cohort
+from lms.posting_link import job_id_from_link
 from lms.publish import publish_scheduled_notices
 from lms.resume_text import build_profile, build_resume_text
 from lms.services import schedule_notice_vector
@@ -354,6 +355,12 @@ class StudyTreeIn(Schema):
     sourceId: str
 
 
+class StudyFileIn(Schema):
+    sourceId: str
+    path: str
+    commit: str = ""
+
+
 class StudyNoteIn(Schema):
     sourceId: str
     scopeType: str
@@ -373,6 +380,13 @@ def study_notes_tree(request, body: StudyTreeIn):
     """수업 저장소의 최근 수업 날짜와 파일 목록 — 노트 범위를 고르는 화면이 쓴다."""
     user = _require_user(request)
     return _study(lambda: study_note_service.source_tree(user, body.sourceId))
+
+
+@api.post("/study-notes/file")
+def study_notes_file(request, body: StudyFileIn):
+    """수업 파일 하나의 원문 — 노트의 핵심 코드를 연습장 탭으로 연다."""
+    user = _require_user(request)
+    return _study(lambda: study_note_service.lesson_file(user, body.sourceId, body.path, body.commit))
 
 
 @api.post("/study-notes")
@@ -694,6 +708,8 @@ def resume_review_session(request, body: TailoredSessionIn):
 class TailoredResumeIn(Schema):
     resumeId: str
     selectedJobId: str
+    # review=이력서 관리의 공고 맞춤 첨삭, apply=공고 맞춤 지원(문항 답변). 같은 공고라도 사본을 따로 뜬다
+    purpose: Literal["review", "apply"] = "review"
 
 
 @api.post("/resume-review/tailored")
@@ -711,8 +727,131 @@ def resume_review_tailored(request, body: TailoredResumeIn):
         "cohort_id": row["code"],
         "resume_id": _review_resume_id(row),
         "selected_job_id": body.selectedJobId,
+        "purpose": body.purpose,
     }
     return _review_call("/api/v1/resumes/tailored/proxy", payload, timeout=60)
+
+
+QUESTION_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp"}
+QUESTION_IMAGE_MAX_BYTES = 8 * 1024 * 1024
+QUESTION_PDF_MAX_BYTES = 10 * 1024 * 1024
+
+
+@api.post("/resume-review/question-extract")
+def resume_review_question_extract(request, files: list[UploadedFile] = File(...)):
+    """캡처한 자기소개서 문항 · 지원서 양식 PDF → 문항 목록. 파일은 저장하지 않고 첨삭 서버로만 넘긴다.
+
+    회사 채용 사이트는 로그인해야 문항이 보이거나 복사가 막힌 경우가 많아 학생이 캡처해 올린다.
+    이미지(png · jpeg · webp) 세 장까지 한 장 8MB, 또는 PDF 한 개 10MB. 뽑은 문항은 화면에서 학생이 확인하고 고친다.
+    """
+    import base64
+
+    _require_user(request)
+    if not 1 <= len(files) <= 3:
+        return Response({"detail": "캡처는 한 번에 세 장까지 올릴 수 있어요."}, status=400)
+    kinds = [(file.content_type or "").split(";")[0].strip().lower() for file in files]
+    if "application/pdf" in kinds and len(files) > 1:
+        return Response({"detail": "PDF 는 한 번에 한 개만 올릴 수 있어요."}, status=400)
+    images = []
+    for file, content_type in zip(files, kinds):
+        if content_type not in QUESTION_IMAGE_TYPES and content_type != "application/pdf":
+            return Response({"detail": "PNG · JPG · WEBP 이미지나 PDF 만 올릴 수 있어요. Word · 한글 양식은 PDF 로 저장해 올려 주세요."}, status=400)
+        limit = QUESTION_PDF_MAX_BYTES if content_type == "application/pdf" else QUESTION_IMAGE_MAX_BYTES
+        data = file.read(limit + 1)
+        if len(data) > limit:
+            return Response({"detail": f"{'PDF' if content_type == 'application/pdf' else '이미지'}는 {limit // (1024 * 1024)}MB 이하만 올릴 수 있어요."}, status=400)
+        images.append(f"data:{content_type};base64,{base64.b64encode(data).decode('ascii')}")
+    return _review_call("/api/v1/resumes/question-extract/proxy", {"images": images}, timeout=120)
+
+
+QUESTION_LINK_HOSTS = ("saramin.co.kr", "jobkorea.co.kr")
+
+
+def _attachment_host_allowed(url: str) -> bool:
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and any(host == h or host.endswith(f".{h}") for h in QUESTION_LINK_HOSTS)
+
+
+class _AllowedRedirects(urllib.request.HTTPRedirectHandler):
+    """사람인 · 잡코리아 안에서만 넘겨 간다. 다른 곳(내부망 주소 등)으로 넘기면 열지 않는다."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _attachment_host_allowed(newurl):
+            raise urllib.error.HTTPError(newurl, 403, "redirect to a host that is not allowed", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_ATTACHMENT_OPENER = urllib.request.build_opener(_AllowedRedirects)
+
+
+class QuestionLinkIn(Schema):
+    url: str = Field(min_length=1, max_length=1000)
+
+
+@api.post("/resume-review/question-extract-link")
+def resume_review_question_extract_link(request, body: QuestionLinkIn):
+    """공고에 첨부된 지원서 양식 링크 → 문항 목록. 내려받아 올리는 수고를 던다.
+
+    서버가 대신 여는 주소라 사람인 · 잡코리아(https)만 연다. 아무 주소나 열면 내부망을 대신 두드리는 통로가 된다.
+    넘겨 가는 주소도 같은 규칙으로 본다. PDF 10MB · 이미지 8MB 까지, 종류는 파일 첫 바이트로 가린다.
+    """
+    import base64
+
+    _require_user(request)
+    url = body.url.strip()
+    if not _attachment_host_allowed(url):
+        return Response({"detail": "사람인 · 잡코리아에 올라온 첨부파일 링크만 읽을 수 있어요. 다른 곳의 파일은 내려받아 올려 주세요."}, status=400)
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (LMS attachment reader)"})
+    try:
+        with _ATTACHMENT_OPENER.open(req, timeout=20) as resp:
+            data = resp.read(QUESTION_PDF_MAX_BYTES + 1)
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return Response({"detail": "첨부파일을 열지 못했어요. 링크를 확인하거나 파일을 내려받아 올려 주세요."}, status=400)
+    if len(data) > QUESTION_PDF_MAX_BYTES:
+        return Response({"detail": "첨부파일이 10MB 보다 커요. 문항이 있는 쪽을 캡처해 올려 주세요."}, status=400)
+    kinds = {b"%PDF-": "application/pdf", b"\x89PNG": "image/png", b"\xff\xd8\xff": "image/jpeg"}
+    kind = next((k for magic, k in kinds.items() if data.startswith(magic)), None)
+    if kind is None:
+        return Response({"detail": "PDF 나 이미지 파일 링크가 아니에요. 한글 · Word 양식은 PDF 로 저장해 올려 주세요."}, status=400)
+    if kind != "application/pdf" and len(data) > QUESTION_IMAGE_MAX_BYTES:
+        return Response({"detail": "이미지는 8MB 이하만 읽을 수 있어요."}, status=400)
+    image = f"data:{kind};base64,{base64.b64encode(data).decode('ascii')}"
+    return _review_call("/api/v1/resumes/question-extract/proxy", {"images": [image]}, timeout=120)
+
+
+class QuestionAnswerItemIn(Schema):
+    question: str = Field(max_length=500)
+    answer: str = Field(max_length=3000)
+
+
+class QuestionAnswerIn(Schema):
+    resumeId: str
+    tailoredResumeId: str
+    questionId: str
+    answers: list[QuestionAnswerItemIn] = []
+
+
+@api.post("/resume-review/question-answer")
+def resume_review_question_answer(request, body: QuestionAnswerIn):
+    """공고 맞춤 이력서의 회사 자기소개서 문항 하나에 답을 쓴다 — 공고 요건 · 이력서 근거로.
+
+    기존 첨삭과 따로 돈다. 답만 돌려주고 저장은 하지 않는다(화면이 사용자가 고친 답을 저장한다).
+    """
+    row, error = _owned_resume(request, body.resumeId)
+    if error is not None:
+        return error
+    payload = {
+        "uid": row["firebase_uid"],
+        "cohort_id": row["code"],
+        "resume_id": _review_resume_id(row),
+        "tailored_resume_id": body.tailoredResumeId,
+        "question_id": body.questionId,
+        "answers": [item.dict() for item in body.answers[:12]],
+    }
+    return _review_call("/api/v1/resumes/question-answer/proxy", payload, timeout=120)
 
 
 class TailoredPromoteIn(Schema):
@@ -987,6 +1126,70 @@ def job_posting(request, job_id: str):
         if isinstance(row[key], str):
             row[key] = json.loads(row[key] or "[]")
     return row
+
+
+@api.get("/posting-link")
+def posting_by_link(request, url: str = ""):
+    """붙여 넣은 공고 링크로 수집해 둔 공고를 찾는다 — 공고 맞춤 지원 화면이 쓴다.
+
+    `/postings/{job_id}` 와 같은 모양으로 돌려준다. 링크의 공고 번호로 job_id 를 만들어
+    기본 키로 찾으므로(posting_link.py) 수집 안 된 공고는 404 다.
+    """
+    _require_user(request)
+    job_id = job_id_from_link(url)
+    if job_id is None:
+        return Response({"detail": "사람인 · 잡코리아 공고 상세 페이지 주소를 붙여 넣어 주세요."}, status=400)
+    found = job_posting(request, job_id)
+    if isinstance(found, Response):
+        return Response({"detail": "아직 수집되지 않은 공고예요. 수집된 공고만 불러올 수 있어요."}, status=404)
+    if found["status"] in ("REMOVED", "EXPIRED"):
+        # 둘 다 틀릴 수 있다. REMOVED 는 목록에서 몇 번 안 보였다는 뜻일 뿐이고, EXPIRED 는 목록 문구의
+        # 옛 마감일 기준이라 회사가 마감일을 늘리면 열린 공고가 걸린다(9/20 → 9/30 연장). 페이지를 열어 확인한다
+        alive = _verify_posting(job_id)
+        if alive is True:
+            # 공고 서버가 OPEN 으로 되돌렸다(EXPIRED 는 페이지 마감일이 안 지났을 때만). 다시 읽는다
+            found = job_posting(request, job_id)
+        elif alive is False:
+            # 페이지에 「마감되었습니다」가 떠 있다(조기 마감). 화면이 까닭을 바로 말하게 CLOSED 로 준다
+            found["status"] = "CLOSED"
+    return found
+
+
+def _verify_posting(job_id: str) -> bool | None:
+    """공고 서버가 페이지를 열어 보고 살아 있으면 OPEN 으로 되돌린다. True=열림 · False=마감 · None=모름.
+
+    확인이 안 되면(서버 없음 · 다른 사이트 · 일시 오류) None — 저장소 상태를 그대로 보여 준다.
+    """
+    base = (os.environ.get("JOBS_URL") or "").rstrip("/")
+    if not base:
+        return None
+    req = urllib.request.Request(
+        f"{base}/api/v1/jobs/verify",
+        data=json.dumps({"job_id": job_id}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            alive = json.loads(resp.read().decode("utf-8")).get("alive")
+            return alive if isinstance(alive, bool) else None
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+        return None
+
+
+class JobRequirementsIn(Schema):
+    jobId: str = Field(min_length=1, max_length=200)
+
+
+@api.post("/resume-review/requirements")
+def resume_review_requirements(request, body: JobRequirementsIn):
+    """공고 하나의 요건(필수 · 우대 · 주요 업무)과 원문 인용 — 이력서를 만들기 전에 보여 준다.
+
+    이력서를 읽지 않으므로 로그인만 확인한다. 요건은 첨삭 서버가 공고 스냅샷마다 한 번 만들어
+    저장한 것을 첫 첨삭과 같이 쓴다. 마감 · 이미지 공고면 첨삭과 같은 까닭(409 · 422)으로 막힌다.
+    """
+    _require_user(request)
+    return _review_call("/api/v1/resumes/job-requirements/proxy", {"job_id": body.jobId}, timeout=60)
 
 
 @api.get("/bootstrap")

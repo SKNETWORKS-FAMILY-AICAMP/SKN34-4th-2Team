@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 
 import { http } from '../../data/http';
 import { Icon } from '../../ui/Icon';
+import { closedReason } from './postingStatus';
 import { formatPostingText, type PostingBlock } from './postingText';
 import './jobPosting.css';
 
@@ -16,7 +17,7 @@ export const jobPostingPath = (jobId: string) => `/jobs/${encodeURIComponent(job
  * 공고도 수집해 둔 원문으로 읽을 수 있다. 지원은 「원문 링크 열기」로 사이트에서 한다.
  * 새 탭은 로그인 정보를 넘겨받지 못하므로 로그인 없이 보이는 화면이다(공개된 공고).
  */
-interface Posting {
+export interface Posting {
   job_id: string;
   source: string;
   source_url: string;
@@ -142,7 +143,7 @@ export function JobPostingView({ jobId, asPage = false }: { jobId: string; asPag
       {closed && (
         <p className="posting__closed">
           <Icon name="info" size={16} />
-          마감됐거나 사이트에서 내려간 공고예요. 수집해 둔 원문을 보여 드려요.
+          {closedReason(posting.status, posting.deadline)} 수집해 둔 원문을 보여 드려요.
         </p>
       )}
 

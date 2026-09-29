@@ -17,6 +17,7 @@ import { usePracticeSet } from '../../data/repository';
 import { useYieldToOtherWindows } from '../../ui/floatingWindows';
 import { Icon } from '../../ui/Icon';
 import './practiceDock.css';
+import type { ImportedCell } from './notebookFile';
 import { RETRY_SET_ID } from './review';
 
 /**
@@ -35,17 +36,36 @@ const EmbeddedPlayground = lazy(() =>
   import('./PythonPlaygroundScreen').then((m) => ({ default: m.EmbeddedPlayground })),
 );
 
+/**
+ * 공부방 노트에서 여는 코드 — 노트마다 탭 하나에 모은다. 노트 코드 블록(「연습장에서 열기」)이나
+ * 수업 파일의 그 셀 앞뒤(「수업 파일에서 보기」)를 탭에 없을 때만 덧붙이고 그 셀로 간다.
+ */
+export interface NoteCodeRequest {
+  noteId: string;
+  /** 노트 이름 — 「09/11 수업」 */
+  title: string;
+  /** 탭에 없으면 덧붙일 셀 */
+  cells: ImportedCell[];
+  /** 이 코드가 든 셀로 간다 */
+  focusText: string;
+  /** 누를 때마다 다른 값 — 같은 코드를 다시 눌러도 다시 간다 */
+  seq: number;
+}
+
 export interface OpenPracticeOptions {
   /** 없으면 자유 연습장 */
   setId: string | null;
   /** 이 번호(1부터)의 문제로 바로 간다 */
   focus?: number;
+  /** 노트 코드 탭으로 연다(setId 는 null) */
+  note?: NoteCodeRequest;
 }
 
 interface PracticeTab {
   key: string;
   setId: string | null;
   focus: number;
+  note?: NoteCodeRequest;
 }
 
 interface PracticeDockValue {
@@ -103,11 +123,12 @@ export function PracticeDockHost({ children }: { children: ReactNode }) {
   const [minimized, setMinimized] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const open = useCallback(({ setId, focus = 0 }: OpenPracticeOptions) => {
-    const key = setId ?? 'free';
+  const open = useCallback(({ setId, focus = 0, note }: OpenPracticeOptions) => {
+    const key = note ? `note:${note.noteId}` : (setId ?? 'free');
     setTabs((current) => {
-      if (current.some((t) => t.key === key)) return current;
-      const next = [...current, { key, setId, focus }];
+      // 같은 노트면 새 탭 대신 그 탭에 이번 코드를 덧붙인다
+      if (current.some((t) => t.key === key)) return note ? current.map((t) => (t.key === key ? { ...t, note } : t)) : current;
+      const next = [...current, { key, setId: note ? null : setId, focus, note }];
       if (next.length <= MAX_TABS) return next;
       // 가장 먼저 연 탭을 닫는다. 탭마다 파이썬이 따로 떠서 많이 열면 브라우저가 무거워진다
       setNotice(`탭은 ${MAX_TABS}개까지 열 수 있어요. 가장 먼저 연 탭을 닫았어요.`);
@@ -198,7 +219,12 @@ export function PracticeDockHost({ children }: { children: ReactNode }) {
                   {tabs.map((tab) => (
                     <div key={tab.key} className="pd-pane" hidden={tab.key !== shown?.key} role="tabpanel">
                       <InDockContext.Provider value>
-                        <EmbeddedPlayground setId={tab.setId} focusProblem={tab.focus} active={!minimized && tab.key === shown?.key} />
+                        <EmbeddedPlayground
+                          setId={tab.setId}
+                          focusProblem={tab.focus}
+                          note={tab.note}
+                          active={!minimized && tab.key === shown?.key}
+                        />
                       </InDockContext.Provider>
                     </div>
                   ))}
@@ -270,6 +296,7 @@ function PracticeTabButton({
 /** 탭 이름 — 「09/21 복습」, 「다시 풀 문제」, 「연습장」 */
 function TabLabel({ tab, short = false }: { tab: PracticeTab; short?: boolean }) {
   const set = usePracticeSet(tab.setId === RETRY_SET_ID ? null : tab.setId);
+  if (tab.note) return <>{tab.note.title} 코드</>;
   if (tab.setId === null) return <>연습장</>;
   if (tab.setId === RETRY_SET_ID) return <>다시 풀 문제</>;
   if (!set) return <>복습 문제</>;

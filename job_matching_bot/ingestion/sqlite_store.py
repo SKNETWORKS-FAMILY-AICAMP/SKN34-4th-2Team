@@ -43,6 +43,7 @@ from job_matching_bot.schemas.job_posting import Job
 from job_matching_bot.schemas.job_record import (
     DEFAULT_MISSING_RUN_LIMIT,
     STATUS_CLOSED,
+    STATUS_EXPIRED,
     STATUS_OPEN,
     STATUS_REMOVED,
     CollectionReport,
@@ -1145,6 +1146,45 @@ class SqliteJobStore:
                 )
                 return moved
         return []
+
+    def reopen_alive(
+        self, job_id: str, at: datetime, page_deadline: tuple[str | None, str] | None = None
+    ) -> bool:
+        """페이지를 열어 살아 있다고 본 공고를 OPEN으로 되돌린다. 되돌렸으면 True.
+
+        - REMOVED: 목록에서 몇 번 안 보였다는 뜻일 뿐이다. 밤 수집이 목록에서 다시 보면 OPEN으로
+          돌리는 것(upsert ②)과 같은 일을 페이지 확인으로 한다.
+        - EXPIRED: 목록 문구의 옛 마감일이 지났다는 뜻이다. 회사가 마감일을 늘렸을 수 있어,
+          **페이지 마감일(`page_deadline`)을 읽었고 아직 안 지났을 때만** 그 날짜로 고쳐 되돌린다.
+        - CLOSED · OPEN: 두지 않는다.
+        """
+        with self.conn:
+            row = self.conn.execute("SELECT status FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+            if row is None:
+                return False
+            status = row["status"]
+            if status == STATUS_EXPIRED:
+                if page_deadline is None:
+                    return False
+                deadline = page_deadline[0]
+                # 시간대 없는 값(테스트 고정 시각 · 잡코리아 표기)은 한국 시간으로 본다
+                kst = timezone(timedelta(hours=9))
+                aware = lambda value: value if value.tzinfo else value.replace(tzinfo=kst)  # noqa: E731
+                if deadline is not None and aware(datetime.fromisoformat(deadline)) < aware(now()):
+                    return False
+            elif status != STATUS_REMOVED:
+                return False
+            self.conn.execute(
+                "UPDATE jobs SET status = ?, missing_runs = 0, last_seen_at = ? WHERE job_id = ?",
+                (STATUS_OPEN, at.isoformat(), job_id),
+            )
+            if page_deadline is not None:
+                self.conn.execute(
+                    "UPDATE jobs SET deadline = ?, field_provenance = jsonb_set(field_provenance, '{deadline}', ?) "
+                    "WHERE job_id = ?",
+                    (page_deadline[0], Jsonb({"method": "detail_page", "evidence": page_deadline[1]}), job_id),
+                )
+        return True
 
     # ── 실행 기록 ─────────────────────────────────────────────
     def record_run(self, report: CollectionReport, *, started_at: datetime, finished_at: datetime,

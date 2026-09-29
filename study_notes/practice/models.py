@@ -12,9 +12,10 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 # code_scratch — 뼈대 없이 빈 에디터에서 함수를 처음부터 짠다. starter_code 는 「뼈대 받기」를 눌렀을 때만 보이는 뼈대
-Kind = Literal["concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch"]
-KINDS: tuple[Kind, ...] = ("concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch")
-RUNNABLE: tuple[Kind, ...] = ("code_output", "code_blank", "code_fix", "code_write", "code_scratch")
+# sql_query — 예제 테이블(setup_sql)에 조회문을 쓴다. 결과 표가 모범 조회문과 같으면 통과(sql_problem.py)
+Kind = Literal["concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query"]
+KINDS: tuple[Kind, ...] = ("concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query")
+RUNNABLE: tuple[Kind, ...] = ("code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query")
 
 # 빈칸 표시. `__1__`은 올바른 파이썬 이름이라 빈칸이 남은 채로도 ast로 읽힌다.
 BLANK_RE = re.compile(r"__(\d)__")
@@ -46,6 +47,8 @@ class PracticeProblem:
     hidden_tests: str = ""
     # code_blank — starter_code 안의 `__1__` … 자리에 들어갈 모범 답
     blank_answers: list[str] = field(default_factory=list)
+    # sql_query — 예제 테이블을 만드는 스크립트(CREATE TABLE · INSERT). 학생 조회문보다 먼저 돈다
+    setup_sql: str = ""
     # 검증기가 채운다
     expected_stdout: str = ""
     llm_guessed_stdout: str = ""
@@ -100,6 +103,17 @@ def parse_draft(raw: Any) -> tuple[PracticeProblem | None, str]:
             return None, "정답 번호가 보기 범위 밖"
         problem.choices = choices
         problem.answer_index = index
+        return problem, ""
+
+    if kind == "sql_query":
+        problem.setup_sql = _text(raw.get("setupSql"))
+        problem.reference_solution = _text(raw.get("referenceSolution"))
+        # 시작 칸은 비워 두어도 된다 — 주석 한 줄로 채운다
+        problem.starter_code = _text(raw.get("starterCode")) or "-- 여기에 조회문을 쓰세요\n"
+        if not problem.setup_sql.strip():
+            return None, "준비 스크립트(setupSql)가 비어 있음"
+        if not problem.reference_solution.strip():
+            return None, "모범 조회문이 비어 있음"
         return problem, ""
 
     problem.starter_code = _text(raw.get("starterCode"))

@@ -7,9 +7,9 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
-import { RoutePaths } from '../../app/routePaths';
+import { jobApplyPath, jobApplyPostingPath, RoutePaths } from '../../app/routePaths';
 import {
   addResumeFeedback,
   applyBootstrap,
@@ -33,6 +33,7 @@ import { CoachAsk } from './ask/CoachAsk';
 import { JobRecommendationRun } from './JobRecommendationRun';
 import { useReviewDock } from './review/ReviewDock';
 import { ResumePrintDoc } from './ResumePrintDoc';
+import { reviewWorkCopy } from './resumeGroups';
 import { SectionBody } from './ResumeSections';
 import { RobotHead } from '../../ui/RobotHead';
 
@@ -173,6 +174,7 @@ export function ResumeEditScreen() {
   const feedbacks = useResumeFeedbacks(resumeId ?? '');
   const user = useCurrentUser();
   const reviewer = user.role !== 'student';
+  const navigate = useNavigate();
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
   const wide = useWide(root, reviewer);
   const [coachVisible, setCoachVisible] = useCoachVisible(wide);
@@ -247,6 +249,13 @@ export function ResumeEditScreen() {
           <Icon name={reviewer ? 'chat_bubble' : 'smart_toy'} size={18} />
           {reviewer ? '피드백' : 'AI 코치'}
         </button>
+      )}
+      {/* 공고 맞춤 지원에서 만든 이력서 — 문항 답변 첨삭은 그 탭에서 이어 간다 */}
+      {!reviewer && resume.linkedJobId && reviewWorkCopy(resume) !== undefined && (
+        <Link className="btn btn--outline btn--md" to={jobApplyPath(resume.id)}>
+          <Icon name="work" size={18} />
+          공고 맞춤 지원으로
+        </Link>
       )}
       {!reviewer && <FeedbackBell resume={resume} onGoTo={setCurrent} />}
       <span className="seg">
@@ -507,6 +516,8 @@ export function ResumeEditScreen() {
               resume={resume}
               hidden={!asking}
               onBack={() => setAsking(false)}
+              // 대화로 찾은 공고로 공고 맞춤 지원(자소서)을 연다
+              onPickJob={reviewer ? undefined : (jobId) => navigate(jobApplyPostingPath(jobId))}
               onOpenDetail={() => {
                 setPanel('jobs');
                 setJobsView((v) => v + 1);

@@ -196,6 +196,18 @@ def proxy_resolve(request: ProxyGenerateRequest) -> dict[str, Any]:
     return service.resolve_note_for_lms(request.cohortId, source, request.scopeType, request.scopeValue)
 
 
+class ProxyFileRequest(ProxyTreeRequest):
+    path: str = Field(min_length=1, max_length=500)
+    commit: str = Field(default="", max_length=64)
+
+
+@router.post("/proxy/file")
+def proxy_file(request: ProxyFileRequest) -> dict[str, Any]:
+    """수업 파일 하나의 원문 — 노트의 「연습장에서 열기」. LLM 없음."""
+    source = service.source_from_payload(request.source.model_dump())
+    return service.lesson_file_for_lms(request.cohortId, source, request.path, request.commit)
+
+
 class ProxySubjectDay(BaseModel):
     date: str = Field(min_length=10, max_length=10)
     report: str = Field(max_length=60_000)

@@ -8,6 +8,7 @@ export const RoutePaths = {
   // 학생 셸
   dashboard: '/',
   resume: '/resume',
+  jobApply: '/job-apply',
   studyRoom: '/study-room',
   studyRoomNotes: '/study-room/notes',
   studyRoomPlayground: '/study-room/playground',
@@ -87,6 +88,13 @@ export const resumeEditPath = (
   // 공고 맞춤 이력서 id 는 「원본/tailored/…」처럼 / 가 든다 — 그대로 넣으면 라우트가 안 맞는다
   return `/resume/${encodeURIComponent(resumeId)}/edit${query === '' ? '' : `?${query}`}`;
 };
+
+/** 공고 맞춤 지원 — 공고용 이력서를 주면 그 이력서의 문항 답변 첨삭으로 바로 연다 */
+export const jobApplyPath = (resumeId?: string): string =>
+  resumeId === undefined || resumeId === '' ? '/job-apply' : `/job-apply?resume=${encodeURIComponent(resumeId)}`;
+
+/** 공고 맞춤 지원 — 코치 대화 · 추천에서 고른 공고로 바로 연다(1단계를 건너뛴다) */
+export const jobApplyPostingPath = (jobId: string): string => `/job-apply?job=${encodeURIComponent(jobId)}`;
 
 export const assessmentTakePath = (id: string) => `/assessments/${id}/take`;
 export const assessmentResultPath = (id: string) => `/assessments/${id}/result`;

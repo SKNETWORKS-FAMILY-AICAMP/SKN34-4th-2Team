@@ -36,6 +36,8 @@ import { SettingsScreen } from '../features/settings/SettingsScreen';
  */
 const loadPythonPlaygroundScreen = tracked(() => import('../features/practice/PythonPlaygroundScreen'));
 const PythonPlaygroundScreen = lazyNamed(loadPythonPlaygroundScreen, 'PythonPlaygroundScreen');
+const loadJobApplyScreen = tracked(() => import('../features/jobApply/JobApplyScreen'));
+const JobApplyScreen = lazyNamed(loadJobApplyScreen, 'JobApplyScreen');
 const loadInstructorAttendanceScreen = tracked(() => import('../features/instructor/InstructorAttendanceScreen'));
 const InstructorAttendanceScreen = lazyNamed(loadInstructorAttendanceScreen, 'InstructorAttendanceScreen');
 const loadInstructorBoardScreen = tracked(() => import('../features/instructor/InstructorBoardScreen'));
@@ -147,6 +149,7 @@ export const studentRoutes: AppRoute[] = [
   { path: RoutePaths.mileageCart, element: <MileageCartScreen />, roles: student },
   { path: RoutePaths.assessments, element: <AssessmentsScreen />, roles: student },
   { path: RoutePaths.resume, element: <ResumeScreen />, roles: student },
+  { path: RoutePaths.jobApply, element: <JobApplyScreen />, roles: student },
   { path: RoutePaths.myPage, element: <MyPageScreen />, roles: student },
   { path: RoutePaths.settings, element: <SettingsScreen />, roles: student },
 ];

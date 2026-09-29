@@ -183,6 +183,17 @@ def source_tree(user: dict, source_key: str) -> dict:
     )
 
 
+def lesson_file(user: dict, source_key: str, path: str, commit: str) -> dict:
+    """수업 파일 하나의 원문 — 노트의 「연습장에서 열기」. 내 기수 저장소만(관리자는 모두)."""
+    with connection.cursor() as cur:
+        source = _load_source(cur, user, source_key)
+    return _call(
+        "/proxy/file",
+        {"cohortId": source["cohort_code"], "source": _source_payload(source), "path": path, "commit": commit or ""},
+        TREE_TIMEOUT,
+    )
+
+
 def get_note(user: dict, note_key: str) -> dict:
     with connection.cursor() as cur:
         cur.execute(

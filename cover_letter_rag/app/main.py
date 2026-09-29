@@ -1,3 +1,5 @@
+import re
+
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query
 from langchain_core.exceptions import LangChainException
 from openai import OpenAIError
@@ -129,6 +131,136 @@ def _warm_job_requirements(gateway, settings, job):
         load_or_extract_requirements(gateway, build_requirement_extractor(settings), job['text'], job['source'])
     except Exception:  # noqa: BLE001 — 미리 만들어 두는 일일 뿐이다
         pass
+
+
+class ProxyJobRequirementsRequest(StrictModel):
+    job_id: str = Field(min_length=1, max_length=200)
+
+
+@app.post('/api/v1/resumes/job-requirements/proxy')
+def job_requirements_as_user(
+    request: ProxyJobRequirementsRequest,
+    gateway: FirebaseGateway = Depends(get_context_gateway),
+    settings: Settings = Depends(get_settings),
+):
+    """공고 하나의 요건 목록 — 공고를 먼저 고르고 이력서를 만드는 화면이 미리 보여 준다.
+
+    이력서를 보지 않는다. 첫 첨삭이 쓰는 것과 같은 저장본(공고 스냅샷마다 한 번)을 읽고, 없으면
+    만들어 저장한다. 그래서 여기서 먼저 보면 첫 첨삭이 요건 정리를 기다리지 않는다.
+    LMS 가 로그인을 확인한 뒤 부른다. 이 창구는 바깥에 열지 않는다(Django 만 부른다).
+    """
+    from app.job_requirements import build_requirement_extractor, load_or_extract_requirements
+    from app.matching_handoff import load_selected_job
+    try:
+        job = load_selected_job(settings.matching_job_store_path, request.job_id)
+        extractor = build_requirement_extractor(settings) if settings.openai_api_key else None
+        requirements = load_or_extract_requirements(gateway, extractor, job['text'], job['source'])
+    except ReviewConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ReviewInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (RuntimeError, GoogleAPIError, GoogleAuthError, OpenAIError, LangChainException) as exc:
+        raise HTTPException(status_code=503, detail=_safe_error(exc)) from exc
+    return {
+        'job_id': request.job_id,
+        'requirements': [
+            {'id': item.id, 'group': item.group, 'label': item.label, 'posting_quote': item.posting_quote}
+            for item in requirements
+        ],
+    }
+
+
+class ProxyQuestionExtractRequest(StrictModel):
+    """LMS(Django) 프록시용. 캡처 이미지 세 장까지, 또는 지원서 양식 PDF 한 개(data URL)에서 문항을 뽑는다. 저장하지 않는다."""
+
+    images: list[str] = Field(min_length=1, max_length=3)
+
+
+def get_question_extractor(settings: Settings = Depends(get_settings)):
+    from app.question_extract import build_question_extractor
+    if not settings.openai_api_key:
+        raise HTTPException(status_code=503, detail='문항을 읽을 모델이 설정되어 있지 않습니다(OPENAI_API_KEY).')
+    return build_question_extractor(settings)
+
+
+@app.post('/api/v1/resumes/question-extract/proxy')
+def question_extract_as_user(request: ProxyQuestionExtractRequest, extractor=Depends(get_question_extractor)):
+    """캡처 → 문항 목록(question_extract.py). 이미지는 저장하지 않고, 뽑은 문항은 화면에서 학생이 확인한다.
+
+    LMS 가 로그인 · 파일 종류 · 크기를 확인한 뒤 부른다. 이 창구는 바깥에 열지 않는다(Django 만 부른다).
+    """
+    from app.question_extract import extract_questions
+    if any(not re.match(r'^data:(image/(png|jpeg|webp)|application/pdf);base64,', url) for url in request.images):
+        raise HTTPException(status_code=422, detail='unsupported_image')
+    try:
+        return extract_questions(extractor, request.images)
+    except ReviewInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (RuntimeError, OpenAIError, LangChainException) as exc:
+        raise HTTPException(status_code=503, detail=_safe_error(exc)) from exc
+
+
+class QuestionAnswerItem(StrictModel):
+    question: str = Field(max_length=500)
+    answer: str = Field(max_length=3000)
+
+
+class ProxyQuestionAnswerRequest(StrictModel):
+    """LMS(Django) 프록시용. 공고 맞춤 이력서의 회사 문항 하나에 답을 쓴다."""
+
+    uid: str = Field(min_length=1, max_length=128)
+    cohort_id: str = Field(min_length=1, max_length=200, pattern=r'^[^/]+$')
+    resume_id: str = Field(min_length=1, max_length=200, pattern=r'^[^/]+$')
+    tailored_resume_id: str = Field(min_length=1, max_length=100, pattern=r'^[A-Za-z0-9_-]+$')
+    question_id: str = Field(min_length=1, max_length=100)
+    answers: list[QuestionAnswerItem] = Field(default_factory=list, max_length=12)
+
+
+def get_question_answer_generator(settings: Settings = Depends(get_settings)):
+    from app.question_answers import build_question_answer_generator
+    if not settings.openai_api_key:
+        raise HTTPException(status_code=503, detail='답변을 쓸 모델이 설정되어 있지 않습니다(OPENAI_API_KEY).')
+    return build_question_answer_generator(settings)
+
+
+@app.post('/api/v1/resumes/question-answer/proxy')
+def question_answer_as_user(
+    request: ProxyQuestionAnswerRequest,
+    gateway: FirebaseGateway = Depends(get_context_gateway),
+    settings: Settings = Depends(get_settings),
+    generator=Depends(get_question_answer_generator),
+):
+    """회사 자기소개서 문항 하나의 답 — 공고 요건과 이력서 근거로 쓴다(question_answers.py).
+
+    기존 첨삭과 따로 돈다. 사본을 고치지 않고 답만 돌려준다. 저장은 화면이 사용자가 고른 답으로 한다.
+    LMS 가 학생을 확인한 뒤 부른다. 이 창구는 바깥에 열지 않는다(Django 만 부른다).
+    """
+    from app.job_requirements import build_requirement_extractor, load_or_extract_requirements
+    from app.matching_handoff import load_selected_job
+    from app.question_answers import write_question_answer
+    try:
+        tailored = gateway.get_owned_tailored_resume(
+            request.cohort_id, request.resume_id, request.tailored_resume_id, request.uid,
+        )
+        job = load_selected_job(settings.matching_job_store_path, tailored.get('jobId') or '')
+        requirements = load_or_extract_requirements(
+            gateway, build_requirement_extractor(settings), job['text'], job['source'],
+        )
+        return write_question_answer(
+            tailored=tailored, question_id=request.question_id,
+            answers=[item.model_dump() for item in request.answers],
+            job=job, requirements=requirements, generator=generator,
+        )
+    except ResumeAccessError as exc:
+        raise HTTPException(status_code=403, detail='Resume access denied') from exc
+    except ResumeNotFoundError as exc:
+        raise HTTPException(status_code=404, detail='Resume was not found') from exc
+    except ReviewConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ReviewInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (RuntimeError, GoogleAPIError, GoogleAuthError, OpenAIError, LangChainException) as exc:
+        raise HTTPException(status_code=503, detail=_safe_error(exc)) from exc
 
 
 @app.post('/api/v1/resumes/tailored', response_model=TailoredResumeResponse)

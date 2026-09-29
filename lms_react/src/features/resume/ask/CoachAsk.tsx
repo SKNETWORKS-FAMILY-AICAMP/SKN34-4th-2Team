@@ -28,6 +28,9 @@ import { parseChatText } from './chatText';
  *
  * 이 화면은 코치 패널을 통째로 차지한다. 뒤로 가도 대화는 남는다 — 편집 화면이 접어 둘 뿐
  * 지우지 않는다.
+ *
+ * 공고 맞춤 지원 1단계에서도 같은 대화로 공고를 찾는다. 찾은 공고 카드에 「고르기」를 달려면 `onPickJob` 을 준다
+ * (편집기는 그 공고로 공고 맞춤 지원을 열고, 공고 맞춤 지원은 그 자리에서 공고를 불러온다). 라우터는 모른다.
  */
 
 /** 서버가 돌려준 공고 한 건 — JobChatJob */
@@ -101,13 +104,19 @@ export function CoachAsk({
   hidden,
   onBack,
   onOpenDetail,
+  onPickJob,
+  pickLabel = '이 공고로 자소서 쓰기',
 }: {
   resume: Resume;
   /** 코치 첫 화면을 보는 동안 접어 둔다. 대화는 그대로 남는다 */
   hidden: boolean;
-  onBack(): void;
-  /** 추천 근거 전체를 보러 코치 첫 화면의 추천 목록으로 넘어간다 */
-  onOpenDetail(): void;
+  /** 없으면 뒤로 단추를 두지 않는다(공고 맞춤 지원처럼 돌아갈 코치 첫 화면이 없는 곳) */
+  onBack?(): void;
+  /** 추천 근거 전체를 보러 코치 첫 화면의 추천 목록으로 넘어간다. 없으면 「근거 전체 보기」를 두지 않는다 */
+  onOpenDetail?(): void;
+  /** 찾은 공고로 공고 맞춤 지원을 연다. 없으면 카드에 고르기 단추를 두지 않는다 */
+  onPickJob?(jobId: string): void;
+  pickLabel?: string;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     coach(
@@ -247,9 +256,11 @@ export function CoachAsk({
   return (
     <section className="coach-ask" hidden={hidden} aria-label="코치에게 묻기">
       <header className="coach-ask__head">
-        <button type="button" className="coach-ask__back" onClick={onBack} aria-label="코치 화면으로" title="코치 화면으로">
-          <Icon name="arrow_back" size={20} />
-        </button>
+        {onBack !== undefined && (
+          <button type="button" className="coach-ask__back" onClick={onBack} aria-label="코치 화면으로" title="코치 화면으로">
+            <Icon name="arrow_back" size={20} />
+          </button>
+        )}
         <RobotHead size={40} inverted />
         <span className="coach-ask__who">
           <strong>커리어 코치</strong>
@@ -267,6 +278,7 @@ export function CoachAsk({
             onAskAbout={busy ? undefined : askAbout}
             onOpenDetail={busy ? undefined : onOpenDetail}
             onOpenPosting={setViewing}
+            pick={onPickJob === undefined ? undefined : { onPick: onPickJob, label: pickLabel }}
           />
         ))}
         {busy && streaming !== null && <Bubble message={coach(streaming)} onOpenPosting={setViewing} />}
@@ -308,19 +320,21 @@ function Bubble({
   onAskAbout,
   onOpenDetail,
   onOpenPosting,
+  pick,
 }: {
   message: ChatMessage;
   onSuggestion?: (text: string) => void;
   onAskAbout?: (job: ChatJob) => void;
   onOpenDetail?: () => void;
   onOpenPosting(jobId: string): void;
+  pick?: PickAction;
 }) {
   const bubble = (
     <div className={`coach-ask__bubble coach-ask__bubble--${message.role}`}>
       <ChatText text={message.text} />
 
       {message.recommendations.map((job) => (
-        <RecommendCard key={job.jobId} job={job} onOpenPosting={onOpenPosting} />
+        <RecommendCard key={job.jobId} job={job} onOpenPosting={onOpenPosting} pick={pick} />
       ))}
       {message.recommendations.length > 0 && onOpenDetail !== undefined && (
         <button type="button" className="coach-ask__more" onClick={onOpenDetail}>
@@ -338,6 +352,7 @@ function Bubble({
           job={job}
           onAsk={onAskAbout === undefined ? undefined : () => onAskAbout(job)}
           onOpenPosting={onOpenPosting}
+          pick={pick}
         />
       ))}
 
@@ -389,7 +404,33 @@ function PostingLink({ jobId, onOpen, className, children }: { jobId: string; on
   );
 }
 
-function JobCard({ job, onAsk, onOpenPosting }: { job: ChatJob; onAsk?: () => void; onOpenPosting(jobId: string): void }) {
+/** 찾은 공고를 공고 맞춤 지원으로 넘기는 단추 */
+interface PickAction {
+  onPick(jobId: string): void;
+  label: string;
+}
+
+function PickButton({ jobId, pick }: { jobId: string; pick?: PickAction }) {
+  if (pick === undefined || jobId === '') return null;
+  return (
+    <button type="button" className="coach-ask__card-pick" onClick={() => pick.onPick(jobId)}>
+      <Icon name="edit_note" size={14} />
+      {pick.label}
+    </button>
+  );
+}
+
+function JobCard({
+  job,
+  onAsk,
+  onOpenPosting,
+  pick,
+}: {
+  job: ChatJob;
+  onAsk?: () => void;
+  onOpenPosting(jobId: string): void;
+  pick?: PickAction;
+}) {
   const hasLink = job.jobId !== '';
   return (
     <div className="coach-ask__card">
@@ -416,12 +457,13 @@ function JobCard({ job, onAsk, onOpenPosting }: { job: ChatJob; onAsk?: () => vo
           </button>
         )}
       </span>
+      <PickButton jobId={job.jobId} pick={pick} />
     </div>
   );
 }
 
 /** 이력서로 고른 공고. 왜 맞는지 한 줄만 — 근거 전체는 코치 첫 화면에 있다 */
-function RecommendCard({ job, onOpenPosting }: { job: JobPick; onOpenPosting(jobId: string): void }) {
+function RecommendCard({ job, onOpenPosting, pick }: { job: JobPick; onOpenPosting(jobId: string): void; pick?: PickAction }) {
   const reason = job.reasons[0]?.claim ?? '';
   const meta = [job.conditions.region, job.conditions.career].filter((v) => v !== undefined && v !== '').join(' · ');
   return (
@@ -441,6 +483,7 @@ function RecommendCard({ job, onOpenPosting }: { job: JobPick; onOpenPosting(job
           공고 보기 →
         </PostingLink>
       )}
+      <PickButton jobId={job.jobId} pick={pick} />
     </div>
   );
 }

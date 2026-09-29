@@ -25,6 +25,11 @@ export interface RunRequest {
   inputBuffer?: SharedArrayBuffer;
   /** 마지막 줄이 식이면 그 값의 repr 을 돌려준다 (노트북의 Out). */
   displayLast?: boolean;
+  /**
+   * SQL 셀 — steps[0] 은 실행할 문장 목록(JSON 글자, sqlDialect.planSql 이 만든 것). 세션의 `sql_conn`
+   * (SQLite, 메모리)에서 차례로 돌고, 마지막 문장이 조회면 그 결과가 table 로 온다.
+   */
+  sql?: boolean;
 }
 
 export interface ResetRequest {

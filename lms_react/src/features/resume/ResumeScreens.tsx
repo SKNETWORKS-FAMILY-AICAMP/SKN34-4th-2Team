@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
-import { resumeEditPath } from '../../app/routePaths';
+import { jobApplyPath, resumeEditPath } from '../../app/routePaths';
 import { createResume, deleteResume, setBaseResume, useMyResumes } from '../../data/repository';
 import { ResumeSectionKeys, ResumeSectionLabels, ResumeStatusLabels } from '../../domain/constants';
 import type { Resume, ResumeContent } from '../../domain/types';
@@ -10,7 +10,8 @@ import { MoreMenu } from '../../ui/MoreMenu';
 import { Badge, Button, Card, Dialog, EmptyState, ErrorState, Skeleton, TabPage, Tabs } from '../../ui/components';
 import { formatDate, formatDateTime } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
-import { groupResumes, isTailored, type ResumeRow } from './resumeGroups';
+import { DeleteResumeDialog } from './DeleteResumeDialog';
+import { groupResumes, isApplyCopy, isTailored, type ResumeRow } from './resumeGroups';
 
 /**
  * 이력서 — features/resume/presentation/resume_screen.dart, resume_edit_screen.dart
@@ -72,7 +73,9 @@ export function ResumeScreen() {
     );
   }
 
-  const resumes = query.data ?? [];
+  // 공고 맞춤 지원(문항 답변)에서 만든 자소서는 그 탭에서 관리한다. 여기의 공고 맞춤 이력서와 섞지 않는다
+  const applyCopies = (query.data ?? []).filter(isApplyCopy);
+  const resumes = (query.data ?? []).filter((r) => !isApplyCopy(r));
   const base = resumes.find((r) => r.isBaseResume) ?? resumes.find((r) => !isTailored(r)) ?? resumes[0];
   const count = (status: string) => resumes.filter((r) => r.status === status).length;
 
@@ -140,6 +143,13 @@ export function ResumeScreen() {
         </Card>
       ) : (
         <BaseResumeCard resume={base} tailored={tab === 'all' ? grouped.baseTailored : []} onChangeBase={() => setChoosingBase(true)} />
+      )}
+
+      {applyCopies.length > 0 && (
+        <p className="hint">
+          공고 맞춤 지원에서 만든 자소서 {applyCopies.length}개는 그 탭에서 관리해요.{' '}
+          <Link to={jobApplyPath()}>공고 맞춤 지원에서 보기</Link>
+        </p>
       )}
 
       <section className="panel panel--flush">
@@ -293,9 +303,10 @@ function BaseResumeCard({ resume, tailored, onChangeBase }: { resume: Resume; ta
   );
 }
 
-/** 기본 이력서 카드 밑 — 이 이력서로 만든 공고 맞춤 이력서. 많으면 접어 둔다 */
+/** 기본 이력서 카드 밑 — 이 이력서로 만든 공고 맞춤 이력서. 많으면 접어 둔다. 승인된 것 말고는 ⋯ 로 지운다 */
 function TailoredList({ resumes }: { resumes: Resume[] }) {
   const [open, setOpen] = useState(resumes.length <= 3);
+  const [deleting, setDeleting] = useState<Resume | null>(null);
   return (
     <div className="tailored">
       <button type="button" className="tailored__head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
@@ -307,16 +318,23 @@ function TailoredList({ resumes }: { resumes: Resume[] }) {
       {open && (
         <ul className="tailored__list">
           {resumes.map((r) => (
-            <li key={r.id}>
+            <li key={r.id} className="tailored__row">
               <Link className="tailored__item" to={resumeEditPath(r.id)}>
                 <span className="tailored__title">{r.title}</span>
                 <StatusBadge resume={r} />
                 <span className="hint">{formatDate(r.updatedAt)}</span>
               </Link>
+              {r.status !== 'approved' && (
+                <MoreMenu
+                  label={`${r.title} 더보기`}
+                  items={[{ key: 'delete', label: '삭제', danger: true, onSelect: () => setDeleting(r) }]}
+                />
+              )}
             </li>
           ))}
         </ul>
       )}
+      {deleting !== null && <DeleteResumeDialog resume={deleting} onClose={() => setDeleting(null)} />}
     </div>
   );
 }

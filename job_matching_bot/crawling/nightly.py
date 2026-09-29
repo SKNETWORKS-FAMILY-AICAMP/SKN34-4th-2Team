@@ -423,14 +423,22 @@ def record_jobkorea_list(store: Any, list_path: Path, at: datetime) -> dict[str,
     for row in rows:
         for cat in row.get("categories") or []:
             seen[cat].add(row["source_job_id"])
-    capped = sorted(c for c, ids in seen.items() if len(ids) >= JOBKOREA_WALL)
-    # 끝까지 훑은 대분류 — 1만 벽 아래이고, 받은 건수가 사이트가 말한 총 건수 이상인 것만.
-    # 총 건수가 없는 옛 목록 파일이면 아무것도 완전으로 세지 않는다(도중에 끊긴 훑기를 믿지 않게).
-    totals = payload.get("site_totals") or {}
-    complete = {
-        c: len(ids) for c, ids in seen.items()
-        if len(ids) < JOBKOREA_WALL and c in totals and len(ids) >= int(totals[c])
-    }
+    # 끝까지 훑은 대분류. 수집기가 대분류마다 「모든 조각을 끝 쪽까지 넘겼는가」(`swept`)를 적는다.
+    # 받은 건수로 재지 않는다 — 사이트가 목록에서 숨기는 자리가 있어(jobkorea 모듈 설명 5) 끝까지
+    # 넘겨도 총 건수에 늘 조금 못 미쳤고, 그래서 잡코리아 삭제 판정이 한 번도 켜지지 않았다.
+    swept = payload.get("swept")
+    if swept is not None:
+        capped = sorted(c for c in seen if not swept.get(c))
+        complete = {c: len(ids) for c, ids in seen.items() if swept.get(c)}
+    else:
+        # `swept` 가 없는 옛 목록 파일 — 1만 벽 아래이고 받은 건수가 사이트 총 건수 이상인 것만.
+        # 총 건수도 없으면 아무것도 완전으로 세지 않는다(도중에 끊긴 훑기를 믿지 않게).
+        capped = sorted(c for c, ids in seen.items() if len(ids) >= JOBKOREA_WALL)
+        totals = payload.get("site_totals") or {}
+        complete = {
+            c: len(ids) for c, ids in seen.items()
+            if len(ids) < JOBKOREA_WALL and c in totals and len(ids) >= int(totals[c])
+        }
 
     # 상세를 받는 대분류의 공고는 `jobs` 로 들어오므로 목록 표에 담지 않는다. 저장소의
     # skip 판정은 `cat_mcls` 를 보므로 여기서 미리 거른다.
@@ -441,7 +449,7 @@ def record_jobkorea_list(store: Any, list_path: Path, at: datetime) -> dict[str,
     store.record_list_seen(dict(seen), complete, at, source=JOBKOREA_SOURCE)
     listed = store.record_list_jobs(keep, at, source=JOBKOREA_SOURCE, skip_categories=())
     if capped:
-        print(f"  [잡코리아] 1만 벽에 닿은 대분류 {len(capped)}개 {capped} — 완전히 훑은 것으로 세지 않음")
+        print(f"  [잡코리아] 끝 쪽까지 못 넘긴 대분류 {len(capped)}개 {capped} — 완전히 훑은 것으로 세지 않음")
     print(f"  [잡코리아] 목록 적재 {listed:,}건 (관측 {sum(len(v) for v in seen.values()):,}쌍)")
     return {"rows": len(rows), "listed": listed, "capped": capped, "complete": sorted(complete)}
 
@@ -519,7 +527,7 @@ def finish_jobkorea(
         store.close()
 
     # 사라짐 판정(`--observed`)은 상세 대분류를 모두 끝까지 훑은 밤에만 켠다(jobkorea_observation).
-    # 1만을 넘는 대분류(일요일 전체 훑기의 큰 것들)는 끝까지 못 받으니 완전으로 세지 않는다.
+    # 1만을 넘는 대분류는 수집기가 지역 · 경력으로 쪼개 받는다. 그래도 끝 쪽까지 못 넘긴 것은 완전으로 세지 않는다.
     #
     # `--skip-index`: Pinecone 에는 아직 올리지 않는다. 같은 공고가 두 사이트에 다
     # 올라와 있는데(IT 상세에서만 1,100쌍) 묶는 코드가 아직 없다. 그대로 올리면 한
