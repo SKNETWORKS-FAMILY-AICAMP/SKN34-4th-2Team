@@ -5398,11 +5398,11 @@ html {
 }
 
 /* 자리 확인 화면의 좌석 카드 */
-/* 자리 확인 화면의 배치도 — 3단 레이아웃의 좁은 패널(약 520px)에 10칸이 그대로
-   들어가도록 칸을 좁힌다. 통째로 줄이면 이름이 읽히지 않을 만큼 작아진다. */
+/* 자리 확인 화면의 배치도 — 오른쪽 열을 좁혀 배치도가 폭 대부분을 쓴다. 강의실에서
+   멀리서도 이름이 읽히게 칸을 키우고, 패널보다 넓으면 FitWidth 가 줄인다. */
 .seat-panel .seatmap {
-  --seat-w: 46px;
-  --seat-h: 58px;
+  --seat-w: 68px;
+  --seat-h: 76px;
   --seat-pad: 2px;
 }
 
@@ -5411,13 +5411,13 @@ html {
 }
 
 .seat-panel .seat__no {
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .seat-panel .seat__name {
   max-width: 100%;
   overflow: hidden;
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 600;
   white-space: nowrap;
   /* 네 글자가 넘는 이름은 칸에 다 안 들어간다. 잘린 걸 알 수 있게 말줄임표를 단다. */
@@ -5425,7 +5425,7 @@ html {
 }
 
 .seat-panel .seat__mark {
-  font-size: 10px;
+  font-size: 11px;
 }
 
 /* 배치도가 패널보다 넓으면 줄여 맞춘다(FitWidth). 패널이 내용 따라 늘지 않게 푼다. */
@@ -6162,11 +6162,25 @@ body:has(.coach-ask:not([hidden], [hidden] .coach-ask)) .chatbot-launcher {
   color: #fff;
 }
 
+/* 배치도 | 손잡이 | 오른쪽 열(호명 목록 위, 보류 아래). 오른쪽 열 폭은 손잡이가 --panel-w 로 바꾼다. */
 .roll {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px 280px;
-  gap: 14px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) auto var(--panel-w, 220px);
+  align-items: stretch;
+}
+
+/* 오른쪽 열은 배치도 높이만큼만. 행 높이를 배치도가 정하도록 열을 흐름에서 뺀다. */
+.roll-side-wrap {
+  position: relative;
+  min-width: 0;
+  min-height: 420px;
+}
+
+.roll-side {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .lectern {
@@ -6228,8 +6242,10 @@ body:has(.coach-ask:not([hidden], [hidden] .coach-ask)) .chatbot-launcher {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 22%, transparent);
 }
 
+/* 목록은 보류 카드가 자리 잡고 남은 높이를 채운다 */
 .roll-panel {
-  max-height: 560px;
+  flex: 1 1 0;
+  min-height: 160px;
   display: flex;
   flex-direction: column;
 }
@@ -6258,6 +6274,10 @@ body:has(.coach-ask:not([hidden], [hidden] .coach-ask)) .chatbot-launcher {
 }
 
 .roll-list {
+  /* 지금 학생으로 굴릴 때 offsetTop 을 목록 기준으로 잰다 */
+  position: relative;
+  flex: 1;
+  min-height: 0;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -6309,12 +6329,49 @@ body:has(.coach-ask:not([hidden], [hidden] .coach-ask)) .chatbot-launcher {
 }
 
 .roll-held {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  /* 손잡이로 정한 높이가 없으면 내용만큼, 오른쪽 열의 45%까지. 넘치면 안에서 스크롤한다. */
+  height: var(--panel-h, auto);
+  max-height: var(--panel-h, 45%);
+  overflow: hidden;
   border-color: color-mix(in srgb, var(--warning) 45%, transparent);
 }
 
-@media (max-width: 1280px) {
+.roll-held .list {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* 좁으면 한 줄로 쌓는다. 손잡이는 숨기고 목록만 높이를 제한한다. */
+@media (max-width: 900px) {
   .roll {
     grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .roll > .panel-handle,
+  .roll-side > .panel-handle {
+    display: none;
+  }
+
+  .roll-side-wrap {
+    min-height: 0;
+  }
+
+  .roll-side {
+    position: static;
+    gap: 14px;
+  }
+
+  .roll-panel {
+    max-height: 560px;
+  }
+
+  .roll-held {
+    height: auto;
+    max-height: none;
   }
 }
 

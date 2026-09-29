@@ -161,10 +161,10 @@ powershell -ExecutionPolicy Bypass -File scripts\sync-functions-env.ps1
 
 > 루트 `.env`가 유일한 수동 설정 파일입니다. `functions/.env`는 배포 전 동기화 스크립트가 만드는 복사본이며 직접 수정하지 않습니다. `.env` 파일은 Git에 올라가지 않습니다. 팀 리더에게 값을 받으세요.
 
-학생 챗봇 프롬프트 버전은 `LMS_CHATBOT_PROMPT_VERSION`(기본 `student_chatbot_v2`)입니다. 라우팅 평가 요약을 관리자 LLMOps 화면에 올리려면 명시적으로 `--publish`를 붙입니다.
+학생 챗봇 프롬프트 버전은 `LMS_CHATBOT_PROMPT_VERSION`(기본 `student_chatbot_v2`)입니다. 보존된 질문으로 현재 운영 supervisor를 평가하려면 아래 명령을 실행합니다. OpenAI API 비용이 발생하며 외부 DB에는 기록하지 않습니다.
 
 ```powershell
-.\playdata_venv\Scripts\python.exe -m chatbot_lab.evaluate_supervisor --production --publish
+.\playdata_venv\Scripts\python.exe -m chatbot.evaluation.evaluate_supervisor
 ```
 
 ### Functions 배포 (Blaze 플랜 필요)

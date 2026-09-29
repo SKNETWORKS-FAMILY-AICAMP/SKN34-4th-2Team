@@ -45,6 +45,12 @@ class MakeProblemsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             custom.make_problems([], scope_label="x", count=6, runner=object())
 
+    def test_web_only_materials_are_an_error(self) -> None:
+        web = [{"path": "01_html/01_web.html", "commit": "", "content": "<h1>제목</h1>", "truncated": False}]
+        with mock.patch.object(custom, "build_practice_set") as build, self.assertRaises(ValueError):
+            custom.make_problems(web, scope_label="x", count=6, runner=object())
+        build.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

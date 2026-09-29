@@ -7,8 +7,8 @@ import { NotebookMarkdown } from './NotebookMarkdown';
 import { OutputTable } from './OutputTable';
 import { KIND_LABEL } from './practiceLabels';
 import {
+  gradeOutput,
   gradeReport,
-  outputMatches,
   remainingBlanks,
   splitTests,
   type GradeReport,
@@ -91,6 +91,8 @@ export function ProblemCell({
   const [pick, setPick] = useState<number | null>(null);
   const [answer, setAnswer] = useState('');
   const [submitted, setSubmitted] = useState<boolean | null>(null);
+  // 출력 예상 — 글자는 다르지만 값이 같아 맞힌 것(표기만 다름). 실제 출력을 같이 보여 준다
+  const [looseMatch, setLooseMatch] = useState(false);
   const [lines, setLines] = useState<Line[]>([]);
   const [value, setValue] = useState<string | null>(null);
   const [table, setTable] = useState<TableData | null>(null);
@@ -203,11 +205,14 @@ export function ProblemCell({
     onAttempt(ok);
   };
 
-  const submitOutput = () => {
-    if (!answer.trim()) return;
-    const ok = outputMatches(answer, problem.expectedStdout);
-    setSubmitted(ok);
-    onAttempt(ok);
+  const submitOutput = async () => {
+    if (!answer.trim() || working) return;
+    setWorking('grade');
+    const verdict = await gradeOutput(answer, problem.expectedStdout, grade);
+    setWorking(null);
+    setLooseMatch(verdict === 'value');
+    setSubmitted(verdict !== 'wrong');
+    onAttempt(verdict !== 'wrong');
   };
 
   return (
@@ -320,11 +325,11 @@ export function ProblemCell({
               onChange={(e) => setAnswer(e.target.value)}
               placeholder="예: 12"
             />
-            <small>줄바꿈·공백 개수와 대소문자는 가리지 않아요.</small>
+            <small>줄바꿈·띄어쓰기·대소문자까지 출력 그대로 적어요. 리스트·딕셔너리 같은 값은 쉼표 뒤 띄어쓰기·따옴표 종류가 달라도 돼요.</small>
           </div>
           <div className="pb__actions">
             {submitted === null ? (
-              <button type="button" className="btn btn--filled btn--sm" onClick={submitOutput} disabled={!answer.trim()}>
+              <button type="button" className="btn btn--filled btn--sm" onClick={submitOutput} disabled={!answer.trim() || working !== null}>
                 <Icon name="check" size={18} />
                 제출
               </button>
@@ -334,7 +339,7 @@ export function ProblemCell({
                   <Icon name="play_arrow" size={18} />
                   실행해서 확인
                 </button>
-                <button type="button" className="btn btn--text btn--sm" onClick={() => { setSubmitted(null); setAnswer(''); setLines([]); }}>
+                <button type="button" className="btn btn--text btn--sm" onClick={() => { setSubmitted(null); setLooseMatch(false); setAnswer(''); setLines([]); }}>
                   다시 풀기
                 </button>
               </>
@@ -409,6 +414,11 @@ export function ProblemCell({
           {problem.kind === 'code_output' && !submitted && (
             <p>
               내 답 <code>{answer.replace(/\n/g, ' ⏎ ')}</code> · 실행 결과 <code>{problem.expectedStdout.replace(/\n/g, ' ⏎ ')}</code>
+            </p>
+          )}
+          {problem.kind === 'code_output' && submitted && looseMatch && (
+            <p>
+              값은 같고 표기만 달라요 · 실제 출력 <code>{problem.expectedStdout.replace(/\n/g, ' ⏎ ')}</code>
             </p>
           )}
           <NotebookMarkdown source={problem.explanation} />

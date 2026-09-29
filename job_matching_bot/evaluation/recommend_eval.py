@@ -43,12 +43,14 @@ import urllib.request
 from collections import Counter
 from pathlib import Path
 
+from job_matching_bot.env import ensure_loaded
 from job_matching_bot.config import ARTIFACTS_DIR, FIXTURES_DIR
 from job_matching_bot.evaluation.grader_page import write_page
 from job_matching_bot.evaluation.app_resume import EVAL_MOCKS, MOCKS, load_personas
 from job_matching_bot.ingestion.skill_extractor import extract_skills
 
-DEFAULT_BASE_URL = "http://127.0.0.1:8000"
+# AI 통합 서버(cover_letter_rag/app/integrated.py). 3차 때는 추천 서버가 혼자 8000 을 썼다 — 지금 8000 은 Django
+DEFAULT_BASE_URL = "http://127.0.0.1:8001"
 # 이력서 원본은 앱과 같은 `scripts/resume_mocks.json` 하나다. 여기서 따로 갖지 않는다.
 LABELS = FIXTURES_DIR / "eval_labels.csv"
 
@@ -436,6 +438,8 @@ def main() -> int:
         help="앱 목업 대신 평가 전용 이력서 5종을 쓴다. 프롬프트를 목업으로 고쳤을 때 쓴다",
     )
     args = parser.parse_args()
+    # 공고 원문을 RDS 에서 읽는다 — 루트 .env 의 DB 설정이 있어야 한다
+    ensure_loaded()
     if args.eval_resumes:
         _RESUME_SET["path"] = EVAL_MOCKS
         print("평가 전용 이력서 5종을 씁니다 (앱 목업 아님)")

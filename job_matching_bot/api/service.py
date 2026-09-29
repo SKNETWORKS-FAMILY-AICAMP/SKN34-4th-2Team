@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -33,7 +34,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from job_matching_bot.api import abuse, prompts, schemas
-from job_matching_bot.matching.hard_filter import hard_filter
+from job_matching_bot.matching.hard_filter import APPLICANT_UNMET, hard_filter
 from job_matching_bot.matching.pre_ranker import pre_rank, preferred_match, skill_match
 from job_matching_bot.retrieval import search as retrieval
 from job_matching_bot.retrieval import market_stats, store_search
@@ -79,8 +80,29 @@ REASONING_EFFORT = "medium"
 # 줄어든다. 답을 쓰는 호출은 medium 그대로다 — 그건 글의 질이 걸린 일이다.
 # minimal은 이 모델이 받지 않는다.
 CHAT_EFFORT = "low"
+# 이력서 구조화(검색어 · 기술 · 직무 뽑기)도 low 로 둔다.
+#
+# 2026-09-28 평가 이력서 5개로 쟀다. 구조화 결과가 바뀌면 검색해 오는 공고가 바뀌므로 그것까지 견줬다.
+# 질의문 글이 조금만 달라도 검색 결과가 흔들려서, medium 을 두 번 돌린 것과도 견줬다.
+#
+#                          medium 두 번      medium 대 low
+#     검색 25건 겹침        평균 20.8건        평균 17.6건
+#     재정렬로 갈 앞 12건    평균 9.4건         평균 8.8건
+#     구조화 시간           평균 8.3초         평균 4.6초
+#
+# 판정받는 앞 12건 기준으로 low 가 더 달라지는 것은 0.6건 — 원래 흔들림과 거의 같다.
+# 기술 · 직무 · 경력은 사실상 같았다. 같은 이력서면 캐시라 처음 추천 때만 효과가 있다.
+PROFILE_EFFORT = "low"
+# 마감 확인과 재정렬을 동시에 돌리므로, 마감된 공고가 판정 자리를 차지할 만큼 몇 건 더 판정한다
+LIVENESS_SPARE = 2
 # 구조화 결과를 몇 벌까지 들고 있을지. 이력서 한 건이 몇 KB라 넉넉해도 가볍다.
 PROFILE_CACHE_SIZE = 64
+# 같은 이력서 · 조건이면 추천 결과를 다시 쓴다(#23). 재정렬(LLM)이 20초 가까이 들어 한 번 받은 결과를
+# 그대로 보여 주는 편이 낫다. 공고가 새로 적재되면(runs 의 마지막 시각이 바뀌면) 버린다.
+RESULT_CACHE_SIZE = 64
+RESULT_CACHE_SECONDS = 6 * 3600
+# 공고 적재 시각은 이만큼 기억해 둔다 — 요청마다 RDS 에 물으면 왕복이 붙는다. 밤 배치로만 바뀐다
+STORE_VERSION_SECONDS = 300
 
 
 # 추천이 거치는 단계. 앱이 이 순서대로 줄을 세운다. 이름을 바꾸면 앱도 같이 고쳐야 한다.
@@ -182,6 +204,7 @@ STAGE_LABELS = {
     "pre_rank": "사전 순위",
     "rerank": "재정렬",
     "verify": "근거 검증",
+    "cache": "결과 재사용",
     "total": "합계",
 }
 
@@ -342,13 +365,17 @@ class _LivenessMixin:
 
 
 class RecommendService(_LivenessMixin):
-    def __init__(self, profiler=None, reranker=None, store_path: Path | None = None) -> None:
+    def __init__(self, profiler=None, reranker=None, store_path: Path | None = None, result_cache: bool = False) -> None:
         self._profiler = profiler
         self._reranker = reranker
         self._store_path = store_path
         # 같은 이력서로 다시 추천하면 구조화를 건너뛴다. 앱은 범위(프로젝트·기술스택 …)를
         # 바꿔 가며 여러 번 부르는데, 범위마다 글이 다르므로 글 자체를 열쇠로 쓴다.
         self._profiles: OrderedDict[str, schemas.ResumeProfileOut] = OrderedDict()
+        # 추천 결과 재사용 — 서버(api/main.py)만 켠다. 켜면 공고 적재 시각을 DB 에서 읽는다
+        self._result_cache = result_cache
+        self._results: OrderedDict[str, tuple[float, str, schemas.RecommendResponse]] = OrderedDict()
+        self._version: tuple[float, str | None] | None = None
 
     @property
     def store_path(self) -> Path:
@@ -361,7 +388,7 @@ class RecommendService(_LivenessMixin):
     @property
     def profiler(self):
         if self._profiler is None:
-            self._profiler = _build_generator(prompts.PROFILE_PROMPT, schemas.ResumeProfileOut)
+            self._profiler = _build_generator(prompts.PROFILE_PROMPT, schemas.ResumeProfileOut, PROFILE_EFFORT)
         return self._profiler
 
     @property
@@ -398,6 +425,54 @@ class RecommendService(_LivenessMixin):
                 summary="",
             )
 
+    # ── 결과 재사용 ──────────────────────────────────
+    @staticmethod
+    def result_key(request: schemas.RecommendRequest) -> str:
+        """요청 전체(이력서 글 · 조건 · 앱이 보낸 구조화 · 개수)의 해시. 하나라도 다르면 다른 추천이다."""
+        body = json.dumps(request.model_dump(mode="json"), ensure_ascii=False, sort_keys=True)
+        return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+    def store_version(self) -> str | None:
+        """공고가 마지막으로 적재된 시각(`runs`). 모르면 None — 그때는 재사용하지 않는다."""
+        now = time.monotonic()
+        if self._version is not None and now - self._version[0] < STORE_VERSION_SECONDS:
+            return self._version[1]
+        from job_matching_bot.ingestion.sqlite_store import SqliteJobStore
+
+        try:
+            with SqliteJobStore(self.store_path) as store:
+                row = store.conn.execute("SELECT max(finished_at) AS at FROM runs").fetchone()
+            version = str(row["at"]) if row and row["at"] else None
+        except Exception:  # noqa: BLE001 — 모르면 새로 추천하면 된다
+            version = None
+        self._version = (now, version)
+        return version
+
+    def cached_result(self, key: str) -> schemas.RecommendResponse | None:
+        """재사용할 수 있는 지난 결과. 그 사이 마감된 공고는 뺀다(마감 확인은 새로 한다)."""
+        entry = self._results.get(key)
+        if entry is None:
+            return None
+        saved_at, version, response = entry
+        if time.monotonic() - saved_at > RESULT_CACHE_SECONDS or version != self.store_version():
+            del self._results[key]
+            return None
+        self._results.move_to_end(key)
+        alive = self.drop_dead([r.job_id for r in response.recommendations])
+        return response.model_copy(update={
+            "recommendations": [r for r in response.recommendations if r.job_id in alive],
+        })
+
+    def remember_result(self, key: str, response: schemas.RecommendResponse) -> None:
+        """재정렬까지 제대로 끝난 결과만 둔다. 실패해 검색 순서로 물러난 결과는 다음에 다시 해 본다."""
+        version = self.store_version()
+        if version is None or not response.reranked or not response.recommendations:
+            return
+        self._results[key] = (time.monotonic(), version, response)
+        self._results.move_to_end(key)
+        if len(self._results) > RESULT_CACHE_SIZE:
+            self._results.popitem(last=False)
+
     # ── ③ 하드 필터용 프로필 ─────────────────────────
     @staticmethod
     def to_resume_profile(
@@ -411,7 +486,7 @@ class RecommendService(_LivenessMixin):
             preferred_regions=request.preferred_regions,
             preferred_employment_types=request.preferred_employment_types,
             education_level=request.education_level,
-            career_years=int(max(request.career_years, profile.career_years)),
+            career_years=max(request.career_years, profile.career_years),
             majors=request.majors,
             certifications=request.certifications,
         )
@@ -459,20 +534,22 @@ class RecommendService(_LivenessMixin):
         from job_matching_bot.ingest import DEFAULT_STORE
         from job_matching_bot.ingestion.sqlite_store import SqliteJobStore
 
-        if not DEFAULT_STORE.is_file():
-            raise SearchUnavailable('공고 원문 저장소를 찾을 수 없습니다.')
+        # The default path identifies the managed RDS jobs schema. It need not
+        # exist as a local SQLite file before the store can be opened.
         resolved: list[tuple[retrieval.Hit, Job]] = []
         missing = inactive = 0
+        # 한 번에 읽는다 — 한 건씩이면 RDS 왕복이 25번이라 필터 단계가 6초였다(SqliteJobStore.get_many)
         with SqliteJobStore(DEFAULT_STORE) as store:
-            for hit in hits:
-                record = store.get(hit.job_id)
-                if record is None:
-                    missing += 1
-                    continue
-                if record.status != 'OPEN':
-                    inactive += 1
-                    continue
-                resolved.append((hit, record.job))
+            records = store.get_many(hit.job_id for hit in hits)
+        for hit in hits:
+            record = records.get(hit.job_id)
+            if record is None:
+                missing += 1
+                continue
+            if record.status != 'OPEN':
+                inactive += 1
+                continue
+            resolved.append((hit, record.job))
         if missing:
             warnings.append(f'원문 저장소에 없는 이전 검색 결과 {missing}건을 제외했습니다.')
         if inactive:
@@ -527,6 +604,25 @@ class RecommendService(_LivenessMixin):
         if failures:
             warnings.append(f"일부 공고를 분석하지 못해 검색 순서로 표시합니다: {', '.join(failures)}")
         return fits, bool(fits)
+
+    # ── ⑤-2 「높음」은 다 맞아야 ─────────────────────
+    @staticmethod
+    def require_all_met(fit: schemas.JobFit, filter_result: dict) -> schemas.JobFit:
+        """필수 요건이 하나라도 확인되지 않으면 「높음」을 「보통」으로 내린다.
+
+        - LLM 이 적은 `concerns`(필수 자격요건 중 이력서에서 확인되지 않는 것)
+        - 하드 필터에서 안 맞는 것이 드러난 확인 필요(전공 불일치 · 연차 6개월 이내 모자람). 이력서에 전공을 안 적은
+          것은 넣지 않는다 — 안 맞는다는 증거가 아니다(hard_filter.APPLICANT_UNMET)
+
+        프롬프트로 시켜 봤더니(2026-09-28) 재정렬이 21~38초로 느려지고 추론 강도에 따라 흔들렸다.
+        판정이 끝난 뒤 코드로 맞추면 시간이 늘지 않고 규칙대로 나온다. 올리지는 않는다.
+        """
+        if fit.fit != "높음":
+            return fit
+        unmet = [u for u in filter_result.get("unknown", []) if u.startswith(APPLICANT_UNMET)]
+        if not fit.concerns and not unmet:
+            return fit
+        return fit.model_copy(update={"fit": "보통", "concerns": [*unmet, *fit.concerns]})
 
     # ── ⑤ 근거 검증 ──────────────────────────────────
     @staticmethod
@@ -583,9 +679,21 @@ class RecommendService(_LivenessMixin):
         def finish(response: schemas.RecommendResponse) -> schemas.RecommendResponse:
             timings = clock.timings()
             print(format_timings(timings, profile_source))
+            if key is not None and profile_source != "결과 재사용":
+                self.remember_result(key, response)
             return response.model_copy(
                 update={"timings_ms": timings, "profile_source": profile_source}
             )
+
+        # 같은 이력서 · 조건으로 이미 추천했으면 그 결과를 쓴다 — 검색 · 재정렬을 건너뛴다
+        key = self.result_key(request) if self._result_cache else None
+        if key is not None:
+            reused = self.cached_result(key)
+            if reused is not None:
+                profile_source = "결과 재사용"
+                say("judge", f"같은 이력서 · 조건으로 추천한 결과 {len(reused.recommendations)}건을 다시 보여 줘요")
+                clock.lap("cache")
+                return finish(reused)
 
         say("resume")
         profile = self.build_profile(request, warnings)
@@ -601,6 +709,8 @@ class RecommendService(_LivenessMixin):
                     request.preferred_regions,
                     request.preferred_employment_types,
                     max(request.career_years, profile.career_years),
+                    education_level=request.education_level,
+                    match_requirements=True,
                 ),
             )
         except Exception as error:
@@ -632,18 +742,12 @@ class RecommendService(_LivenessMixin):
             raise SearchUnavailable(f"조건 판정에 실패했습니다: {type(error).__name__}") from error
         clock.lap("filter")
 
-        # 판정 **전에** 거른다. 내려간 공고에 LLM을 쓸 이유가 없다. 자르기는 그
-        # 다음이다 — 먼저 잘라 버리면 마감된 만큼 자리가 비고 뒤 후보가 올라오지
-        # 못한다. 확인 대상이 늘지만(최대 25건) 한 번에 여는 요청이라 시간은 같다.
         # 마감 시각이 이미 지난 공고는 열어 볼 것 없이 뺀다(검색은 날짜만 견준다).
-        alive = self.drop_dead([
-            hit.job_id for hit, job, _ in candidates
-            if not store_search.deadline_passed(job.deadline)
-        ])
-        if len(alive) < len(candidates):
-            warnings.append(f"마감된 공고 {len(candidates) - len(alive)}건을 제외했습니다.")
-            candidates = [c for c in candidates if c[0].job_id in alive]
-        clock.lap("liveness")
+        # 사이트를 열어 보는 조기 마감 확인은 아래에서 재정렬과 **동시에** 한다.
+        passed = [c for c in candidates if store_search.deadline_passed(c[1].deadline)]
+        if passed:
+            warnings.append(f"마감된 공고 {len(passed)}건을 제외했습니다.")
+            candidates = [c for c in candidates if c not in passed]
         # 벡터 순위와 기술 겹침을 섞어 다시 세운다. 벡터 유사도는 후보 안에서 거의
         # 평평해서(실측 폭 0.042~0.140) 그 순서만으로는 누구를 LLM에 보낼지 가리기
         # 어렵다. 기술 정보가 없는 공고는 제자리에 남는다 — `pre_ranker` 참고.
@@ -657,13 +761,23 @@ class RecommendService(_LivenessMixin):
         candidates = pre_rank(
             candidates, [hit.score for hit, _, _ in candidates], matches, preferred
         )
-        candidates = candidates[:RERANK_TOP_K]
+        # 마감된 공고가 판정 자리를 차지할 만큼(LIVENESS_SPARE) 몇 건 더 판정한다
+        candidates = candidates[:RERANK_TOP_K + LIVENESS_SPARE]
         clock.lap("pre_rank")
         say("filter", f"조건을 통과한 {len(candidates)}건이 남았어요")
 
+        # 조기 마감 확인(사이트를 연다, 1~2초)을 재정렬(LLM, 15초 이상)과 동시에 한다.
+        # 예전에는 확인이 끝나야 재정렬을 시작해 그 시간만큼 더 기다렸다.
         say("judge")
-        fits, reranked = self.rerank(request.resume_text, candidates, warnings)
-        clock.lap("rerank")
+        with ThreadPoolExecutor(max_workers=1) as checker:
+            alive_future = checker.submit(self.drop_dead, [hit.job_id for hit, _, _ in candidates])
+            fits, reranked = self.rerank(request.resume_text, candidates, warnings)
+            clock.lap("rerank")
+            alive = alive_future.result()
+        if len(alive) < len(candidates):
+            warnings.append(f"마감된 공고 {len(candidates) - len(alive)}건을 제외했습니다.")
+        candidates = [c for c in candidates if c[0].job_id in alive][:RERANK_TOP_K]
+        clock.lap("liveness")
 
         # 같은 적합도 안에서는 다시 세운 순서를 쓴다. 예전에는 벡터 순위였는데,
         # 판정을 예측하는 힘이 더 약한 신호였다(+0.26 대 +0.42).
@@ -672,6 +786,7 @@ class RecommendService(_LivenessMixin):
             fit = fits.get(job.job_id)
             if fit is not None:
                 fit = self.verify(fit, request.resume_text, job, warnings)
+                fit = self.require_all_met(fit, filter_result)
             rows.append(
                 (
                     fit_order(fit.fit if fit else None),

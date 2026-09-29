@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import type { ImportedCell } from '../practice/notebookFile';
 import { NotebookMarkdown } from '../practice/NotebookMarkdown';
 import { PracticeLink, usePracticeDock } from '../practice/PracticeDock';
-import { findCodeInFiles, isSqlBlock, lessonCells, lessonSlice, significantLines, type LessonFile } from './lessonCode';
+import { findCodeInFiles, isSqlBlock, isWebBlock, lessonCells, lessonSlice, significantLines, type LessonFile } from './lessonCode';
 
 import { RoutePaths } from '../../app/routePaths';
 import {
@@ -661,7 +661,9 @@ export function Markdown({ text, note }: { text: string; note?: NoteRef }) {
   return (
     <NotebookMarkdown
       source={boldLinesAsHeadings(text)}
-      codeAction={note ? (code, lang) => <NoteCodeActions code={code} sql={isSqlBlock(code, lang)} note={note} /> : undefined}
+      codeAction={
+        note ? (code, lang) => (isWebBlock(lang) ? null : <NoteCodeActions code={code} sql={isSqlBlock(code, lang)} note={note} />) : undefined
+      }
     />
   );
 }

@@ -57,7 +57,7 @@ export function MyPageScreen() {
 
 /**
  * 역할별 사용 설명서 — Flutter 판 my_page_screen.dart 와 같은 파일.
- * public/manuals/ 는 onboarding/ 이 만든 PDF 를 web/manuals/ 에서 그대로 옮긴 것이다.
+ * public/manuals/ 의 PDF 는 tools/guide/ 가 데모 빌드 화면을 찍어 만든다(tools/guide/README.md).
  */
 function manualUrl(role: string): string {
   const file = role === 'admin' ? 'admin_manual.pdf' : role === 'instructor' ? 'instructor_manual.pdf' : 'student_manual.pdf';

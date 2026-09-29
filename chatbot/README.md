@@ -172,14 +172,16 @@ API 키와 설정은 레포 루트 `.env` 한 곳에서 읽는다.
 OPENAI_API_KEY=
 PINECONE_API_KEY2=                 # 공지·정책 인덱스 키 (채용공고 쪽은 KEY1)
 PINECONE_STUDENT_INDEX_NAME=student
-LMS_SUPERVISOR_MODEL=gpt-5.6-sol   # 분류 모델
-LMS_NODE_MODEL=gpt-5.6-sol         # 답변 모델
+LMS_SUPERVISOR_MODEL=gpt-6-luna   # 분류 모델
+LMS_NODE_MODEL=gpt-6-luna         # 답변 모델
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_EMBEDDING_DIMENSION=1536
 FIREBASE_PROJECT_ID=skn34-3rd-2team
 FIREBASE_STORAGE_BUCKET=           # 비우면 <프로젝트ID>.firebasestorage.app
 LANGSMITH_TRACING=false            # 트레이싱할 때만 LANGSMITH_* 를 채운다
 ```
+
+챗봇 지연은 `ai_generation_logs.details`에 숫자만 기록한다. `supervisorMs`·`answerModelMs`·`answerTtftMs`는 LLM 단계, `embeddingMs`·`vectorQueryMsSum`·각 호출 횟수는 검색 단계, `promptChars`·`retrievedChunks`는 문맥 크기다. 병렬 검색의 `vectorQueryMsSum`은 각 호출 시간의 합이므로 전체 경과시간과 직접 더하지 않는다. `firstTokenMs`는 FastAPI가 챗봇 실행을 시작한 뒤 첫 답변 조각까지의 시간으로, 모델 자체 TTFT인 `answerTtftMs`와 다르다. Django 응답의 `Server-Timing: ai_upstream`은 AI 서버 왕복 시간이며, React 개발 모드 콘솔에는 요청 완료와 첫 글자 표시까지의 시간이 나온다. 질문·답변·문서 원문은 이 숫자 계측에 저장하지 않는다.
 
 Firebase Admin은 Application Default Credentials를 쓴다. 서비스 계정 JSON은 레포 밖에 두고
 `GOOGLE_APPLICATION_CREDENTIALS`에 경로를 지정한다.
@@ -222,6 +224,6 @@ Firebase·서버 없이 화면만 볼 때는 앱을 데모 모드(`--dart-define
 | 실행 결과 | [student_chatbot_test_result.md](student_chatbot_test_result.md): **39/45사례·44/50턴 통과**. 이번 문서 수정에서 API를 재실행한 것은 아님 |
 | 미통과 원인 | 공개 공지·과제 요청에서 cohort_shared·assignment_files 등 불필요한 namespace/scope 과선택. 2-3-02·2-3-04·2-3-05·2-4-05·3-03-a·3-04-a 재평가 필요 |
 | 로컬 확인 | `python -m unittest discover -s chatbot/tests`, `python -m chatbot.firebase_student_context` |
-| 개선 실험 | [chatbot_lab/](../chatbot_lab/README.md)에서 운영 코드와 분리해 분류 정확도·안전성·모델 설정 비교 |
+| 분류 회귀 평가 | [evaluation/](evaluation/README.md)의 보존된 사례로 현재 운영 supervisor를 검증 |
 
-첨부 보고서의 Luna 설정과 운영 기본값 Sol은 구분한다. 모델 변경은 루트 .env의 LMS_SUPERVISOR_MODEL·LMS_NODE_MODEL로 지정한다. 같은 thread의 후속 질문과 실제 데이터 접근 범위를 함께 채점하며, 테스트 데이터에 없는 본인 프로젝트·관심 직무 또는 34기 레퍼런스를 만들어 기대값에 넣지 않는다.
+위 테스트에 사용한 모델은 당시의 gpt-5.6-luna이며, 현재 코드 기본값은 gpt-6-luna다. 모델 변경은 루트 .env의 LMS_SUPERVISOR_MODEL·LMS_NODE_MODEL로 지정한다. 같은 thread의 후속 질문과 실제 데이터 접근 범위를 함께 채점하며, 테스트 데이터에 없는 본인 프로젝트·관심 직무 또는 34기 레퍼런스를 만들어 기대값에 넣지 않는다.

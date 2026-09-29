@@ -18,7 +18,7 @@ FORBIDDEN_KEYS = {
 }
 
 DEFAULT_PROMPT_VERSION = "student_chatbot_v2"
-DEFAULT_SUPERVISOR_MODEL = "gpt-5.6-sol"
+DEFAULT_SUPERVISOR_MODEL = "gpt-6-luna"
 
 
 def chatbot_prompt_version() -> str:
@@ -112,6 +112,24 @@ def build_generation_log_payload(
         payload["retrievalMs"] = max(0, int(retrieval_ms))
     if llm_ms is not None:
         payload["llmMs"] = max(0, int(llm_ms))
+    for source, target in (
+        ("supervisor_ms", "supervisorMs"),
+        ("answer_model_ms", "answerModelMs"),
+        ("answer_ttft_ms", "answerTtftMs"),
+        ("student_context_ms", "studentContextMs"),
+        ("embedding_ms", "embeddingMs"),
+        ("vector_query_ms_sum", "vectorQueryMsSum"),
+        ("embedding_calls", "embeddingCalls"),
+        ("vector_calls", "vectorCalls"),
+        ("prompt_build_ms", "promptBuildMs"),
+        ("prompt_chars", "promptChars"),
+        ("retrieved_chunks", "retrievedChunks"),
+        ("retrieved_chunk_chars", "retrievedChunkChars"),
+        ("first_token_ms", "firstTokenMs"),
+        ("generation_tail_ms", "generationTailMs"),
+    ):
+        if snap.get(source) is not None:
+            payload[target] = max(0, int(snap[source]))
     token_in = snap.get("tokenIn", snap.get("token_in"))
     token_out = snap.get("tokenOut", snap.get("token_out"))
     if token_in is not None:

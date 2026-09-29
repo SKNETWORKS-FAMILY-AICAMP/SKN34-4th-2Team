@@ -18,6 +18,7 @@ from google.cloud import firestore as gcf
 from google.cloud.firestore import Client, DocumentReference
 
 from study_notes.git_tools import (
+    LEARNING_FILES_TEXT,
     GitToolError,
     RepoCache,
     is_learning_file,
@@ -31,6 +32,8 @@ from study_notes.pipeline import MAX_CHARS_PER_FILE, Material, generate_study_no
 
 ScopeType = Literal["date", "prefix", "files"]
 MAX_FILES = 8
+# 날짜 범위는 고를 수 없어서 MAX_FILES 를 넘어도 묶음으로 나눠 만든다(pipeline._note_in_batches). 이만큼까지
+MAX_DATE_FILES = 48
 GENERATING_LOCK = timedelta(minutes=10)
 
 
@@ -336,7 +339,7 @@ def _collect(cache: RepoCache, source: StudySource, scope_type: ScopeType,
     if scope_type == "date":
         shas, changed = cache.changed_files_on(str(scope_value), source.allowed_prefixes)
         files = [{"path": f.path, "commit": f.commit} for f in changed]
-        return shas, files, len(files) > MAX_FILES
+        return shas, files, len(files) > MAX_DATE_FILES
     if scope_type == "prefix":
         paths = cache.list_tree([str(scope_value)])
         files = [{"path": p, "commit": head} for p in paths]
@@ -383,7 +386,7 @@ def _resolve_files(cache: RepoCache, source: StudySource, scope_type: ScopeType,
     if too_broad:
         return commits, files, True
     if not files:
-        raise HTTPException(status_code=404, detail="이 범위에서 분석 가능한 .ipynb/.py/.md/.sql 파일이 없습니다.")
+        raise HTTPException(status_code=404, detail=f"이 범위에서 분석 가능한 파일({LEARNING_FILES_TEXT})이 없습니다.")
     return commits, _with_blobs(cache, files), False
 
 
@@ -423,7 +426,7 @@ def lesson_file_for_lms(cohort_id: str, source: StudySource, path_raw: str, comm
     """LMS 창구 — 수업 파일 하나의 원문. 노트의 「연습장에서 열기」가 그 파일을 연습장 탭으로 연다.
 
     노트에 적힌 커밋 그대로 읽는다(노트를 만든 그 내용). 커밋이 없으면 저장소 HEAD.
-    허용 폴더 밖이거나 학습 파일(.ipynb · .py · .md · .sql)이 아니면 거절한다.
+    허용 폴더 밖이거나 학습 파일(git_tools.ALLOWED_SUFFIXES)이 아니면 거절한다.
     """
     path = sanitize_path(path_raw)
     assert_scope_allowed(source, "files", [path])
@@ -442,7 +445,7 @@ def lesson_file_for_lms(cohort_id: str, source: StudySource, path_raw: str, comm
 
 
 def build_note(cohort_id: str, source: StudySource, scope_type: ScopeType,
-               scope_value: str | list[str]) -> dict[str, Any]:
+               scope_value: str | list[str], previous: list[dict[str, str]] | None = None) -> dict[str, Any]:
     """저장소에서 범위의 파일을 모아 노트를 만든다. 저장은 하지 않는다 — 부르는 쪽(Firestore · LMS DB)이 한다.
 
     파일이 너무 많으면 {"status": "too_broad", "message", "files"}, 아니면 {"status": "ready", commits, files, …}.
@@ -461,6 +464,7 @@ def build_note(cohort_id: str, source: StudySource, scope_type: ScopeType,
         scope_label=scope_label(scope_type, scope_value),
         commits=commits,
         materials=materials,
+        previous=previous,
     )
     return {
         "status": "ready",
@@ -481,13 +485,14 @@ def failure_message(exc: Exception) -> str:
 
 
 def build_note_for_lms(cohort_id: str, source: StudySource, scope_type_raw: str,
-                       scope_value_raw: Any) -> dict[str, Any]:
-    """LMS(Django) 창구 — 범위를 검사하고 노트를 만들어 돌려준다. 잠금·저장은 LMS 가 한다."""
+                       scope_value_raw: Any, previous: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    """LMS(Django) 창구 — 범위를 검사하고 노트를 만들어 돌려준다. 잠금·저장은 LMS 가 한다.
+    previous — 같은 과목의 이전 날짜 노트 [{date, report}](LMS 가 DB 에서 골라 준다)."""
     scope_type = parse_scope_type(scope_type_raw)
     scope_value = normalize_scope_value(scope_type, scope_value_raw)
     assert_scope_allowed(source, scope_type, scope_value)
     try:
-        built = build_note(cohort_id, source, scope_type, scope_value)
+        built = build_note(cohort_id, source, scope_type, scope_value, previous)
     except HTTPException:
         raise
     except Exception as exc:

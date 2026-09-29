@@ -89,6 +89,33 @@ def static_check(code: str) -> tuple[list[str], str]:
     return sorted(packages), ""
 
 
+# 흔한 줄임 이름 — `np.allclose` 처럼 테스트가 import 없이 쓰면 모범답안의 import 에 기댄 것이다
+MODULE_ALIASES = {"np": "numpy", "pd": "pandas"}
+
+
+def check_test_imports(tests: str) -> str:
+    """테스트가 쓰는 모듈을 테스트 안에서 import 했는지. 문제 이유, 비어 있으면 통과.
+
+    테스트는 모범답안 뒤 같은 변수 공간에서 돌아서, 모범답안이 맨 위에서 `import math` 하면 테스트의 `math.cos` 도
+    통과한다. 학생이 import 를 함수 안에 두면 맞게 풀어도 테스트가 NameError 로 떨어진다(2026-09-29 nlp positional_value).
+    """
+    tree = ast.parse(tests)
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update((alias.asname or alias.name).split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            imported.update(alias.asname or alias.name for alias in node.names)
+    modules = STDLIB_HINT | ALLOWED_THIRD_PARTY | set(MODULE_ALIASES)
+    used = sorted({
+        node.id for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in modules and node.id not in imported
+    })
+    if used:
+        return f"테스트가 {', '.join(used)} 를 import 하지 않고 씀 (모범답안의 import 에 기대면 학생 풀이가 떨어진다)"
+    return ""
+
+
 def scratch_check(problem: PracticeProblem) -> str:
     """처음부터 문제만의 규칙. 문제 이유, 비어 있으면 통과. static_check 를 통과한 코드라 문법은 맞다."""
     names = [n.name for n in ast.parse(problem.starter_code).body if isinstance(n, ast.FunctionDef)]
@@ -213,6 +240,11 @@ def verify_problems(problems: list[PracticeProblem], runner: Runner) -> list[Ver
         if problem.kind != "code_output" and problem.hidden_tests.count("assert") < 2:
             verdicts[i] = Verdict(problem, False, "테스트가 assert 2개 미만")
             continue
+        if problem.kind != "code_output":
+            reason = check_test_imports(problem.hidden_tests)
+            if reason:
+                verdicts[i] = Verdict(problem, False, f"실행 전 거름 — {reason}")
+                continue
         if problem.kind == "code_scratch":
             reason = scratch_check(problem)
             if reason:

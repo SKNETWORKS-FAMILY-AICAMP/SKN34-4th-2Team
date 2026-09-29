@@ -12,7 +12,7 @@ Firestore·로그인 없이 돈다. 결과는 JSON 파일과 요약 표로 남�
     # 로컬 파일
     python -m study_notes.practice.trial --local path/to/lesson.ipynb other.py
 
-루트 .env의 OPENAI_API_KEY, PRACTICE_MODEL(비우면 gpt-5.6-luna)을 쓴다.
+루트 .env의 OPENAI_API_KEY, PRACTICE_MODEL(비우면 gpt-6-luna)을 쓴다.
 """
 
 from __future__ import annotations

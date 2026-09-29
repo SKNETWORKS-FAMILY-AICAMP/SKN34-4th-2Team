@@ -26,11 +26,13 @@ from dataclasses import dataclass, field
 
 FENCE = re.compile(r"(```[^\n]*\n)(.*?)(```)", re.S)
 INLINE = re.compile(r"`([^`\n]+)`")
+# 웹 수업 — HTML 태그 줄(`<h1>제목</h1>`), CSS 선언 줄(`display: flex;`)도 코드다. 괄호 · = 가 없어도
 CODE_LIKE = re.compile(
     r"[=(){}\[\]]|^(import|from|def|class|return|for|if|elif|else|while|with|try|except|print|lambda|yield|async|await)\b"
+    r"|^</?[A-Za-z!]|^[a-z-]+\s*:\s*[^;]+;$"
 )
 # 이름처럼 생긴 것 — 점 · 밑줄 · 괄호 · 대문자가 섞인 식별자, 파일 이름. `0~1` · `(N, H, W)` 같은 값 표기는 아니다
-NAME_LIKE = re.compile(r"^[A-Za-z_][\w.]*(\(\))?$|^[\w./-]+\.(py|ipynb|pt|csv|json|jpg|png|md|txt|h5)$")
+NAME_LIKE = re.compile(r"^[A-Za-z_][\w.]*(\(\))?$|^[\w./-]+\.(py|ipynb|pt|csv|json|jpg|png|md|txt|h5|html|css|js)$")
 NOT_FROM_LESSON = "> 수업 파일에 그대로 있는 코드가 아니에요 — 설명하려고 줄이거나 새로 쓴 코드예요."
 MISSING_HEAD = "> 수업 파일에서 찾지 못한 이름:"
 # 파이썬 기본 이름(print · len · NameError …) — 수업 자료에 없어도 설명하는 것이 당연하다
@@ -66,11 +68,21 @@ class GroundingReport:
                 f"본문 이름 {self.names}개 중 못 찾은 것 {len(self.missing)}개")
 
 
-def mark_ungrounded_code(report: str, material_text: str, stats: GroundingReport) -> str:
-    """수업 자료에 절반 넘게 없는 코드 블록 아래에 표시를 단다."""
+def _heading_before(report: str, pos: int) -> str:
+    """pos 가 든 「## 소제목」 이름. 없으면 빈 글자"""
+    found = re.findall(r"^##\s+(.+?)\s*$", report[:pos], re.MULTILINE)
+    return found[-1] if found else ""
+
+
+def mark_ungrounded_code(report: str, material_text: str, stats: GroundingReport,
+                         free_heads: tuple[str, ...] = ()) -> str:
+    """수업 자료에 절반 넘게 없는 코드 블록 아래에 표시를 단다.
+    free_heads — 새 코드를 쓰라고 한 소제목(「내가 직접 해볼 실습」). 거기 코드는 세지도 표시하지도 않는다."""
     haystack = compact(material_text)
 
     def check(match: re.Match[str]) -> str:
+        if free_heads and _heading_before(report, match.start()) in free_heads:
+            return match.group(0)
         lines = significant_lines(match.group(2))
         if not lines:
             return match.group(0)
@@ -101,10 +113,10 @@ def missing_names(report: str, material_text: str, stats: GroundingReport) -> li
     return missing
 
 
-def ground_report(report: str, material_text: str) -> tuple[str, GroundingReport]:
+def ground_report(report: str, material_text: str, *, free_heads: tuple[str, ...] = ()) -> tuple[str, GroundingReport]:
     """노트를 수업 자료에 맞춰 본다. 고쳐 쓴 노트와 무엇을 봤는지를 돌려준다."""
     stats = GroundingReport()
-    grounded = mark_ungrounded_code(report, material_text, stats)
+    grounded = mark_ungrounded_code(report, material_text, stats, free_heads)
     missing = missing_names(report, material_text, stats)
     if missing:
         names = ", ".join(f"`{n}`" for n in missing[:12])

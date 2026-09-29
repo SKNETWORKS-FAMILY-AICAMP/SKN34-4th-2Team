@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { RunResult } from '../pythonProtocol';
-import { gradeReport, outputMatches, remainingBlanks, splitTests } from '../practiceGrading';
+import { gradeOutput, gradeReport, literalCompareScript, outputMatches, remainingBlanks, splitTests } from '../practiceGrading';
 
 const TESTS = [
   'import numpy as np',
@@ -15,10 +15,29 @@ function result(partial: Partial<RunResult>): RunResult {
 }
 
 describe('실습 채점', () => {
-  it('출력 답은 공백·대소문자를 가리지 않는다', () => {
-    expect(outputMatches('4\n9', '4 9')).toBe(true);
-    expect(outputMatches('  2 AVOCADO ', '2 avocado')).toBe(true);
+  it('출력 답은 줄 앞뒤 공백 · 앞뒤 빈 줄만 무시하고 나머지는 글자 그대로 본다', () => {
+    expect(outputMatches('  4\n9  \n\n', '4\n9')).toBe(true);
+    expect(outputMatches('4\n9', '4 9')).toBe(false); // print 두 번과 print(a, b) 는 다르다
+    expect(outputMatches('a  b', 'a b')).toBe(false); // 줄 안의 띄어쓰기도 답이다
+    expect(outputMatches('ab', 'a b')).toBe(false);
+    expect(outputMatches('hello', 'HELLO')).toBe(false); // .upper() 문제
     expect(outputMatches('', '')).toBe(false);
+  });
+
+  it('글자가 다르면 워커에서 값으로 견준다', async () => {
+    const said = (stdout: string) => async () => result({ ok: true, stdout });
+    expect(await gradeOutput('[1,2]', '[1, 2]', said('SAME\n'))).toBe('value');
+    expect(await gradeOutput('3', '3.0', said('DIFF\n'))).toBe('wrong');
+    expect(await gradeOutput('12', '12', async () => { throw new Error('부르지 않는다'); })).toBe('exact');
+    expect(await gradeOutput('[1,2]', '[1, 2]', async () => { throw new Error('워커 없음'); })).toBe('wrong');
+    expect(await gradeOutput('[1,2]', '[1, 2]', async () => result({ ok: false, stdout: 'SAME' }))).toBe('wrong');
+  });
+
+  it('값 비교 스크립트에 답을 안전하게 넣는다', () => {
+    const script = literalCompareScript('print("x")\n\'a\' """', '"b"');
+    expect(script).toContain('ast.literal_eval');
+    expect(script).not.toContain('exec(');
+    expect(script).toContain(JSON.stringify(JSON.stringify(['print("x")', '\'a\' """'])));
   });
 
   it('남은 빈칸을 찾는다', () => {

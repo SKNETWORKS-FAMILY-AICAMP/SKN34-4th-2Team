@@ -135,7 +135,8 @@ async def _log_duration(request, call_next):
     return response
 
 
-_service = RecommendService()
+# 같은 이력서 · 조건이면 추천 결과를 다시 쓴다(공고가 새로 적재되면 버린다)
+_service = RecommendService(result_cache=True)
 _chat = ChatService()
 
 

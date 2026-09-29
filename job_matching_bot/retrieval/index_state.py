@@ -96,7 +96,7 @@ def _stamp(value) -> str:
 def recent_runs(store, limit: int = 5) -> list[dict]:
     rows = store.conn.execute(
         "SELECT started_at, finished_at, source, new, updated, unchanged, expired, removed, vectors, error "
-        "FROM runs ORDER BY id DESC LIMIT ?",
+        "FROM runs ORDER BY id DESC LIMIT %s",
         (limit,),
     ).fetchall()
     return [dict(row) for row in rows]

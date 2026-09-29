@@ -18,7 +18,7 @@ from datetime import date as Date
 from datetime import timedelta
 from typing import Any, Protocol
 
-from study_notes.git_tools import ChangedFile
+from study_notes.git_tools import ChangedFile, is_web_file
 from study_notes.practice.build import build_practice_set
 from study_notes.practice.generate import practice_model_name
 from study_notes.practice.increments import DAY_QUOTA, FileCoverage, plan_day
@@ -105,9 +105,14 @@ def run_source(
     else:
         todo = dates_to_run(lesson_dates, days, today)
         note = "" if todo else nothing_to_do(lesson_dates, today)
+    web_only: list[str] = []
     for day in todo:
         already = days.get(day, 0)
         _shas, changed = repo.changed_files_on(day, prefixes)
+        # 웹 수업(.html · .css · .js)은 노트만 — 복습 문제는 파이썬 · SQLite 로 채점해서 아직 내지 않는다
+        if changed and all(is_web_file(f.path) for f in changed):
+            web_only.append(day)
+        changed = [f for f in changed if not is_web_file(f.path)]
         files = [(f.path, f.commit, repo.read_file(f.commit, f.path)) for f in changed]
         plan = plan_day(day, files, files_cov, quota=max(0, DAY_QUOTA - already))
         if plan.targets:
@@ -124,21 +129,28 @@ def run_source(
                 error = f"{day} 출제 실패: {str(exc)[:300]}"
                 break
             problems = [p.to_json() for p in result.problems]
-            if problems:
-                sets.append({
-                    "lessonDate": day,
-                    "dayLabel": f"{source_title} {lesson_dates.index(day) + 1}일차",
-                    "title": set_title(problems),
-                    "files": [f.path for f in plan.targets],
-                    "model": practice_model_name(),
-                    "problems": problems,
-                    "usage": vars(result.usage),
-                    "seconds": round(time.monotonic() - started, 1),
-                })
+            if not problems:
+                # 새 내용이 있는데 한 문제도 못 냈다 — 출제한 것으로 적으면 다음 실행이 이 날을 다시 안 본다
+                reasons = " / ".join(result.malformed[:2]) or "검증을 통과한 문제가 없음"
+                error = f"{day} 출제 결과가 없어요: {reasons}"[:400]
+                break
+            sets.append({
+                "lessonDate": day,
+                "dayLabel": f"{source_title} {lesson_dates.index(day) + 1}일차",
+                "title": set_title(problems),
+                "files": [f.path for f in plan.targets],
+                "model": practice_model_name(),
+                "problems": problems,
+                "usage": vars(result.usage),
+                "seconds": round(time.monotonic() - started, 1),
+            })
             days[day] = already + len(problems)
         elif day not in days:
             days[day] = already
         files_cov = plan.coverage_after(files_cov)
     if todo and not sets and not error:
-        note = "고른 날짜의 수업 내용은 이미 출제했어요." if dates else "새로 올라온 수업 내용이 없었어요."
+        if web_only and len(web_only) == len(todo):
+            note = "웹 수업(.html · .css · .js)은 아직 복습 문제를 내지 않아요. 수업 노트는 만들어져요."
+        else:
+            note = "고른 날짜의 수업 내용은 이미 출제했어요." if dates else "새로 올라온 수업 내용이 없었어요."
     return {"sets": sets, "coverage": coverage_to_json(files_cov, days), "error": error, "note": note}
