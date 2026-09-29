@@ -80,6 +80,21 @@ REASONING_EFFORT = "medium"
 # 줄어든다. 답을 쓰는 호출은 medium 그대로다 — 그건 글의 질이 걸린 일이다.
 # minimal은 이 모델이 받지 않는다.
 CHAT_EFFORT = "low"
+# 이력서 구조화(검색어 · 기술 · 직무 뽑기)도 low 로 둔다.
+#
+# 2026-09-28 평가 이력서 5개로 쟀다. 구조화 결과가 바뀌면 검색해 오는 공고가 바뀌므로 그것까지 견줬다.
+# 질의문 글이 조금만 달라도 검색 결과가 흔들려서, medium 을 두 번 돌린 것과도 견줬다.
+#
+#                          medium 두 번      medium 대 low
+#     검색 25건 겹침        평균 20.8건        평균 17.6건
+#     재정렬로 갈 앞 12건    평균 9.4건         평균 8.8건
+#     구조화 시간           평균 8.3초         평균 4.6초
+#
+# 판정받는 앞 12건 기준으로 low 가 더 달라지는 것은 0.6건 — 원래 흔들림과 거의 같다.
+# 기술 · 직무 · 경력은 사실상 같았다. 같은 이력서면 캐시라 처음 추천 때만 효과가 있다.
+PROFILE_EFFORT = "low"
+# 마감 확인과 재정렬을 동시에 돌리므로, 마감된 공고가 판정 자리를 차지할 만큼 몇 건 더 판정한다
+LIVENESS_SPARE = 2
 # 구조화 결과를 몇 벌까지 들고 있을지. 이력서 한 건이 몇 KB라 넉넉해도 가볍다.
 PROFILE_CACHE_SIZE = 64
 # 같은 이력서 · 조건이면 추천 결과를 다시 쓴다(#23). 재정렬(LLM)이 20초 가까이 들어 한 번 받은 결과를
@@ -373,7 +388,7 @@ class RecommendService(_LivenessMixin):
     @property
     def profiler(self):
         if self._profiler is None:
-            self._profiler = _build_generator(prompts.PROFILE_PROMPT, schemas.ResumeProfileOut)
+            self._profiler = _build_generator(prompts.PROFILE_PROMPT, schemas.ResumeProfileOut, PROFILE_EFFORT)
         return self._profiler
 
     @property
@@ -706,18 +721,12 @@ class RecommendService(_LivenessMixin):
             raise SearchUnavailable(f"조건 판정에 실패했습니다: {type(error).__name__}") from error
         clock.lap("filter")
 
-        # 판정 **전에** 거른다. 내려간 공고에 LLM을 쓸 이유가 없다. 자르기는 그
-        # 다음이다 — 먼저 잘라 버리면 마감된 만큼 자리가 비고 뒤 후보가 올라오지
-        # 못한다. 확인 대상이 늘지만(최대 25건) 한 번에 여는 요청이라 시간은 같다.
         # 마감 시각이 이미 지난 공고는 열어 볼 것 없이 뺀다(검색은 날짜만 견준다).
-        alive = self.drop_dead([
-            hit.job_id for hit, job, _ in candidates
-            if not store_search.deadline_passed(job.deadline)
-        ])
-        if len(alive) < len(candidates):
-            warnings.append(f"마감된 공고 {len(candidates) - len(alive)}건을 제외했습니다.")
-            candidates = [c for c in candidates if c[0].job_id in alive]
-        clock.lap("liveness")
+        # 사이트를 열어 보는 조기 마감 확인은 아래에서 재정렬과 **동시에** 한다.
+        passed = [c for c in candidates if store_search.deadline_passed(c[1].deadline)]
+        if passed:
+            warnings.append(f"마감된 공고 {len(passed)}건을 제외했습니다.")
+            candidates = [c for c in candidates if c not in passed]
         # 벡터 순위와 기술 겹침을 섞어 다시 세운다. 벡터 유사도는 후보 안에서 거의
         # 평평해서(실측 폭 0.042~0.140) 그 순서만으로는 누구를 LLM에 보낼지 가리기
         # 어렵다. 기술 정보가 없는 공고는 제자리에 남는다 — `pre_ranker` 참고.
@@ -731,13 +740,23 @@ class RecommendService(_LivenessMixin):
         candidates = pre_rank(
             candidates, [hit.score for hit, _, _ in candidates], matches, preferred
         )
-        candidates = candidates[:RERANK_TOP_K]
+        # 마감된 공고가 판정 자리를 차지할 만큼(LIVENESS_SPARE) 몇 건 더 판정한다
+        candidates = candidates[:RERANK_TOP_K + LIVENESS_SPARE]
         clock.lap("pre_rank")
         say("filter", f"조건을 통과한 {len(candidates)}건이 남았어요")
 
+        # 조기 마감 확인(사이트를 연다, 1~2초)을 재정렬(LLM, 15초 이상)과 동시에 한다.
+        # 예전에는 확인이 끝나야 재정렬을 시작해 그 시간만큼 더 기다렸다.
         say("judge")
-        fits, reranked = self.rerank(request.resume_text, candidates, warnings)
-        clock.lap("rerank")
+        with ThreadPoolExecutor(max_workers=1) as checker:
+            alive_future = checker.submit(self.drop_dead, [hit.job_id for hit, _, _ in candidates])
+            fits, reranked = self.rerank(request.resume_text, candidates, warnings)
+            clock.lap("rerank")
+            alive = alive_future.result()
+        if len(alive) < len(candidates):
+            warnings.append(f"마감된 공고 {len(candidates) - len(alive)}건을 제외했습니다.")
+        candidates = [c for c in candidates if c[0].job_id in alive][:RERANK_TOP_K]
+        clock.lap("liveness")
 
         # 같은 적합도 안에서는 다시 세운 순서를 쓴다. 예전에는 벡터 순위였는데,
         # 판정을 예측하는 힘이 더 약한 신호였다(+0.26 대 +0.42).

@@ -22,7 +22,8 @@ from job_matching_bot.ingestion.mock_source import mock_jobs
 from job_matching_bot.retrieval.search import Hit
 
 RESUME = "Python과 FastAPI로 추천 API를 만들고 벡터 검색을 붙였습니다."
-STAGES = ["profile", "search", "filter", "liveness", "pre_rank", "rerank", "verify", "total"]
+# 마감 확인은 재정렬과 동시에 돈다 — `liveness` 는 재정렬이 끝난 뒤 확인을 더 기다린 시간(보통 0)
+STAGES = ["profile", "search", "filter", "pre_rank", "rerank", "liveness", "verify", "total"]
 
 
 class FakeClock:
@@ -97,6 +98,16 @@ class RecommendTimingsTest(unittest.TestCase):
         plain = schemas.RecommendRequest(resume_text=RESUME)
         self.assertEqual("LLM", self._run(svc, [], plain)[0].profile_source)
         self.assertEqual("캐시", self._run(svc, [], plain)[0].profile_source)
+
+    def test_postings_closed_on_site_are_dropped_after_the_parallel_check(self):
+        """마감 확인은 재정렬과 동시에 돈다. 끝나면 마감된 공고를 뺀다."""
+        jobs = mock_jobs()[:3]
+        hits = [Hit(job_id=j.job_id, score=0.5, rank=i + 1, metadata={}) for i, j in enumerate(jobs)]
+        svc = self._service(jobs)
+        svc.drop_dead = lambda ids: set(ids) - {jobs[1].job_id}
+        response, _ = self._run(svc, hits, schemas.RecommendRequest(resume_text=RESUME))
+        self.assertNotIn(jobs[1].job_id, [r.job_id for r in response.recommendations])
+        self.assertTrue(any("마감된 공고 1건" in w for w in response.warnings))
 
     def test_no_hits_still_reports_time_up_to_search(self):
         response, log = self._run(
