@@ -680,22 +680,38 @@ export function useSeatPresence(dateKey: string, period: number) {
   );
 }
 
+/** 자리 확인 저장 줄 — 연달아 눌러도 누른 차례대로 서버에 닿게 한다 */
+let seatPresenceWrites: Promise<unknown> = Promise.resolve();
+
+/**
+ * 호명은 확인·보류를 빠르게 연달아 누른다. 화면에 먼저 반영하고 서버 저장은 뒤에서 차례로 보낸다.
+ * 저장이 되면 캐시가 이미 같은 값이라 스냅샷을 다시 받지 않는다(받으면 누를 때마다 전체를 새로 읽는다).
+ * 실패하면 스냅샷을 다시 받아 서버 값으로 되돌린다.
+ */
 export function setSeatPresence(
   dateKey: string,
   period: number,
   userId: string,
   state: SeatPresenceState,
 ): Promise<void> {
-  if (!isTestMode()) {
-    return runCommand('setSeatPresence', { dateKey, period, userId, state }).then(() => undefined);
-  }
   mutate((db) => {
     const rest = db.seatPresence.filter(
       (p) => !(p.dateKey === dateKey && p.period === period && p.userId === userId),
     );
     return { seatPresence: [...rest, { dateKey, period, userId, state }] };
   });
-  return Promise.resolve();
+  if (isTestMode()) return Promise.resolve();
+  const request = seatPresenceWrites
+    .catch(() => undefined)
+    .then(() => http.post('/command', { op: 'setSeatPresence', payload: { dateKey, period, userId, state } }));
+  seatPresenceWrites = request;
+  return request.then(
+    () => undefined,
+    async (error: unknown) => {
+      await invalidateBootstrap();
+      throw error;
+    },
+  );
 }
 
 // ── 좌석 배치 ──────────────────────────────────────────

@@ -63,7 +63,7 @@ const PANEL = {
  * 손잡이로 맞춘 패널 크기. 다음에 열어도 그 크기로 연다.
  * 범위는 화면 폭에 따라 달라지므로 여기서 자르지 않는다. CSS 와 손잡이가 그때그때 자른다.
  */
-function useStoredSize(key: string, initial: number): [number, (size: number) => void] {
+export function useStoredSize(key: string, initial: number): [number, (size: number) => void] {
   const [size, setSize] = useState<number>(() => {
     try {
       const saved = Number(window.localStorage.getItem(key));
@@ -907,7 +907,7 @@ function DrawerBar({ title, onClose }: { title: string; onClose(): void }) {
  * 수십 개짜리 편집 화면 전체를 초당 60번 다시 그려 버벅인다 — 원본이 `ValueNotifier`
  * 를 따로 둔 이유와 같다. 손을 떼면 그때 한 번 상태에 남긴다.
  */
-function PanelHandle({
+export function PanelHandle({
   axis,
   bodyRef,
   size,
@@ -924,7 +924,7 @@ function PanelHandle({
   onCommit(size: number): void;
   onReset(): void;
   onToggle?: () => void;
-  toggleLabel: string;
+  toggleLabel?: string;
 }) {
   const drag = useRef<{ start: number; from: number; last: number } | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -990,7 +990,7 @@ function PanelHandle({
       onDoubleClick={onReset}
       onKeyDown={onKeyDown}
     >
-      {onToggle !== undefined && <CoachEdgeToggle expanded label={toggleLabel} onClick={onToggle} />}
+      {onToggle !== undefined && <CoachEdgeToggle expanded label={toggleLabel ?? ''} onClick={onToggle} />}
     </div>
   );
 }
