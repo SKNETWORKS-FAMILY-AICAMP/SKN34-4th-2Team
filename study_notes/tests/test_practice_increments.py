@@ -142,6 +142,22 @@ class QuotaTests(unittest.TestCase):
         self.assertEqual(sum(kind_mix(plan.total).values()), plan.total)
         self.assertEqual(kind_mix(plan.total).get("code_scratch"), 1)
 
+    def test_mixed_day_gives_sql_only_the_sql_files_share(self) -> None:
+        # 파이썬 파일 여럿 + .sql 하나 — SQL 문제는 .sql 몫만, 나머지는 파이썬 구성(web_crawling 07-01)
+        files = [(f"f{i}.ipynb", "c", notebook(("code", LONG))) for i in range(7)]
+        files.append(("book.sql", "c", "SELECT title FROM book WHERE price > 1000;\n" * 20))
+        plan = plan_day("d", files, {})
+        sql_share = sum(f.quota for f in plan.targets if f.path.endswith(".sql"))
+        counts = plan.kind_counts()
+        self.assertGreater(sql_share, 0)
+        self.assertIn(f"sql_query {sql_share}개", counts)
+        self.assertIn("code_output", counts)
+
+    def test_sql_only_day_is_all_sql(self) -> None:
+        plan = plan_day("d", [("book.sql", "c", "SELECT title FROM book WHERE price > 1000;\n" * 40)], {})
+        self.assertNotIn("code_output", plan.kind_counts())
+        self.assertIn("sql_query", plan.kind_counts())
+
     def test_late_commit_uses_only_what_is_left(self) -> None:
         files = [(f"f{i}.ipynb", "c", notebook(("code", LONG))) for i in range(4)]
         self.assertEqual(plan_day("d", files, {}, quota=3).total, 3)

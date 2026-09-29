@@ -67,6 +67,20 @@ KIND_GUIDE = (
     "hiddenTests에 정답 코드를 다시 쓰지 않는다.\n"
 )
 
+# 2026-09-29 코드 문제 138개를 문제 문장 · 시작 코드만 보고 다시 풀어 보니 10개(7%)가 맞게 풀어도 떨어졌다.
+# 테스트가 문장에 없는 키 이름 · 형식 · 자료형을 요구하거나, 수업 코드의 값 · 공식을 외워야 하거나,
+# 시작 코드 설명과 테스트가 어긋나거나, 테스트가 쓰는 모듈을 import 하지 않았다(모범답안의 import 에 기댐).
+PROBLEM_RULES = (
+    "문제 규칙 (학생은 문제 문장과 시작 코드만 보고 푼다):\n"
+    "- 수업에서 배운 개념·기법을 새 상황에 적용하는 문제를 낸다. 수업 코드의 세부(키 이름 · 데이터 값 · 독특한 공식)를\n"
+    "  기억해야만 풀 수 있는 문제는 내지 않는다. '수업처럼', '수업 코드와 같은' 같은 말을 답의 근거로 쓰지 않는다\n"
+    "- 테스트가 요구하는 키 이름 · 데이터 값 · 공식 · 입출력 형식 · 입력 자료형(리스트인지 numpy 배열인지 등)은 모두\n"
+    "  prompt나 starterCode에 적는다\n"
+    "- hiddenTests는 prompt와 starterCode에 적힌 조건만 검사한다. 적히지 않은 형식 · 자료형 · 경계값을 몰래 검사하지 않는다\n"
+    "- hiddenTests가 쓰는 모듈(math, numpy 등)은 hiddenTests 안에서 import 한다\n"
+    "- starterCode의 docstring · 주석은 hiddenTests가 기대하는 반환값과 같게 쓴다\n"
+)
+
 SCHEMA = (
     '{{"problems": [{{\n'
     '  "kind": "concept | code_output | code_blank | code_fix | code_write | code_scratch | sql_query",\n'
@@ -86,7 +100,7 @@ GENERATE_PROMPT = ChatPromptTemplate.from_messages([
         "당신은 AI 부트캠프 수업 자료로 복습 실습 문제를 만드는 출제자입니다.\n"
         "반드시 수업 자료에 나온 개념과 코드 패턴으로만 출제하고, 자료에 없는 내용은 내지 마세요.\n"
         "문제 문장과 해설은 한국어로 씁니다. 응답은 JSON 객체 하나입니다.\n\n"
-        + RULES + "\n" + KIND_GUIDE,
+        + RULES + "\n" + PROBLEM_RULES + "\n" + KIND_GUIDE,
     ),
     (
         "human",
@@ -105,7 +119,7 @@ REPAIR_PROMPT = ChatPromptTemplate.from_messages([
         "당신은 실습 문제 검수자입니다. 아래 문제들은 실제로 실행해 보니 검증에 실패했습니다.\n"
         "실패 이유를 보고 같은 주제·같은 종류로 고쳐서 다시 내세요. 고칠 수 없으면 새 문제로 바꿔도 됩니다.\n"
         "응답은 JSON 객체 하나이고, 받은 문제와 같은 순서·같은 개수로 냅니다.\n\n"
-        + RULES + "\n" + KIND_GUIDE,
+        + RULES + "\n" + PROBLEM_RULES + "\n" + KIND_GUIDE,
     ),
     (
         "human",
@@ -135,8 +149,8 @@ class DraftBatch:
 
 def practice_model_name() -> str:
     """노트와 따로 둔다. 2026-09 멀티모달 수업 3일 비교에서 gpt-4o-mini는 torch·cv2를 쓰다
-    막히거나 코드 문제를 포기했고, gpt-5.6-luna는 18문제가 한 번에 통과했다."""
-    return os.getenv("PRACTICE_MODEL", "").strip() or "gpt-5.6-luna"
+    막히거나 코드 문제를 포기했고, gpt-5.6-luna는 18문제가 한 번에 통과했다. 지금 기본값은 챗봇과 같은 gpt-6-luna."""
+    return os.getenv("PRACTICE_MODEL", "").strip() or "gpt-6-luna"
 
 
 @lru_cache
@@ -161,6 +175,9 @@ def _parse_batch(text: str) -> DraftBatch:
     if not isinstance(raws, list):
         batch.rejected.append("problems 배열이 없음")
         return batch
+    if isinstance(data.get("error"), str) and data["error"].strip():
+        # 모델이 출제를 거절하며 이유를 적을 때가 있다(요청 개수와 자료가 안 맞을 때 등) — 버리지 말고 남긴다
+        batch.rejected.append(f"모델이 출제하지 않은 이유: {data['error'].strip()[:300]}")
     for raw in raws:
         problem, reason = parse_draft(raw)
         if problem:

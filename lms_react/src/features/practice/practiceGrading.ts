@@ -12,8 +12,63 @@ export function normalizeAnswer(text: string): string {
   return text.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+/**
+ * 출력 예상(code_output) 답의 줄 — 줄 앞뒤 공백과 앞뒤 빈 줄만 뺀다. 눈에 안 보이는 것이라서다.
+ * 줄 안의 공백 · 대소문자 · 줄바꿈은 본다. `print("a", "b")` 와 `print("a" + "b")` 의 차이가 문제의 요점일 수 있다.
+ * (예전엔 공백 · 줄바꿈 · 대소문자를 모두 무시해서 `.upper()` 문제에 소문자로 적어도 맞았다)
+ */
+export function outputLines(text: string): string[] {
+  const lines = text.replace(/\r\n/g, '\n').split('\n').map((line) => line.trim());
+  while (lines.length && lines[lines.length - 1] === '') lines.pop();
+  while (lines.length && lines[0] === '') lines.shift();
+  return lines;
+}
+
+/** 글자 그대로 같은지(outputLines 기준) */
 export function outputMatches(answer: string, expected: string): boolean {
-  return normalizeAnswer(answer) !== '' && normalizeAnswer(answer) === normalizeAnswer(expected);
+  const mine = outputLines(answer);
+  return mine.length > 0 && mine.join('\n') === outputLines(expected).join('\n');
+}
+
+/**
+ * 줄마다 파이썬 값으로 읽어(ast.literal_eval — 실행하지 않고 값 표기만 읽는다) repr 로 견주는 스크립트. 채점 워커에서 돈다.
+ * 두 줄이 모두 값이면 표기만 다른 것(`[1,2]` · `[1, 2]`, `{'a':1}` · `{"a": 1}`)을 같게 본다. 3 과 3.0 은 repr 이 달라 다르다.
+ * 값이 아닌 줄(`print("a b")` 의 `a b`)은 글자 그대로. 끝에 SAME 또는 DIFF 를 찍는다.
+ */
+export function literalCompareScript(answer: string, expected: string): string {
+  // JSON 문자열 표기는 파이썬 문자열 표기로도 읽힌다
+  const lit = (lines: string[]) => JSON.stringify(JSON.stringify(lines));
+  return [
+    'import ast, json',
+    `_mine = json.loads(${lit(outputLines(answer))})`,
+    `_want = json.loads(${lit(outputLines(expected))})`,
+    'def _value(line):',
+    '    try:',
+    '        return repr(ast.literal_eval(line))',
+    '    except Exception:',
+    '        return None',
+    'def _same(a, b):',
+    '    return a == b or (_value(a) is not None and _value(a) == _value(b))',
+    'print("SAME" if _mine and len(_mine) == len(_want) and all(_same(a, b) for a, b in zip(_mine, _want)) else "DIFF")',
+  ].join('\n');
+}
+
+export type OutputVerdict = 'exact' | 'value' | 'wrong';
+
+/** 출력 예상 채점 — 글자 그대로 같으면 exact, 표기만 다르고 값이 같으면 value, 아니면 wrong. 워커가 안 되면 글자 비교만 */
+export async function gradeOutput(
+  answer: string,
+  expected: string,
+  run: (steps: string[]) => Promise<RunResult>,
+): Promise<OutputVerdict> {
+  if (outputMatches(answer, expected)) return 'exact';
+  if (outputLines(answer).length === 0) return 'wrong';
+  try {
+    const r = await run([literalCompareScript(answer, expected)]);
+    return r.ok && r.stdout.trim().endsWith('SAME') ? 'value' : 'wrong';
+  } catch {
+    return 'wrong';
+  }
 }
 
 /** 채우지 않은 빈칸 번호 */

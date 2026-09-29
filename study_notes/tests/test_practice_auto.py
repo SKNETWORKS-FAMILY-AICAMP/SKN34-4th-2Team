@@ -109,6 +109,18 @@ class RunSourceTests(unittest.TestCase):
         fake.assert_not_called()  # 새 셀이 없으면 LLM 을 부르지 않는다
         self.assertEqual(again["coverage"]["days"], {"2026-09-22": 4})
 
+    def test_web_lesson_is_not_made_yet_and_says_why(self) -> None:
+        repo = FakeRepo({"2026-09-23": {"01_html/01_web.html": "<h1>제목</h1>\n" * 60, "02_css/01.css": "p { color: red; }\n" * 60}})
+        out, fake = self.run_source(repo, today="2026-09-24")
+        fake.assert_not_called()
+        self.assertEqual(out["sets"], [])
+        self.assertIn("웹 수업", out["note"])
+
+    def test_web_files_are_left_out_of_a_mixed_day(self) -> None:
+        repo = FakeRepo({"2026-09-22": {"02_vit.ipynb": notebook(LONG), "index.html": "<h1>제목</h1>\n" * 60}})
+        out, _fake = self.run_source(repo)
+        self.assertEqual(out["sets"][0]["files"], ["02_vit.ipynb"])
+
     def test_late_commit_on_same_day_adds_only_new_cells(self) -> None:
         repo = FakeRepo({"2026-09-22": {"02_vit.ipynb": notebook(LONG)}})
         first, _ = self.run_source(repo)
@@ -147,6 +159,15 @@ class RunSourceTests(unittest.TestCase):
                                     today="2026-09-24", runner=object(), dates=["2026-06-18"])
         fake.assert_not_called()
         self.assertEqual(again["note"], "고른 날짜의 수업 내용은 이미 출제했어요.")
+
+    def test_day_with_no_problems_is_not_recorded_and_says_why(self) -> None:
+        repo = FakeRepo({"2026-09-22": {"02_vit.ipynb": notebook(LONG)}})
+        empty = BuildResult(problems=[], stats={}, usage=Usage(), malformed=["모델이 출제하지 않은 이유: 자료와 개수가 안 맞음"])
+        out, _ = self.run_source(repo, results=[empty])
+        self.assertEqual(out["sets"], [])
+        self.assertIn("2026-09-22 출제 결과가 없어요", out["error"])
+        self.assertIn("자료와 개수가 안 맞음", out["error"])
+        self.assertEqual(out["coverage"], {"files": [], "days": {}}, "다음 실행이 이 날을 다시 본다")
 
     def test_failure_stops_and_keeps_earlier_days(self) -> None:
         repo = FakeRepo({
