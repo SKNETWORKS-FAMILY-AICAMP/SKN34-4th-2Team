@@ -50,6 +50,41 @@ class AskTests(unittest.TestCase):
         self.assertIn("튜터: 창에서 무엇을", self.human)
         self.assertEqual(out, {"type": "hint", "reply": "2번째 줄에서 고르는 함수를 보세요.", "lines": [2], "llm": True})
 
+    def test_language_reaches_prompt(self) -> None:
+        # JS 코드 문제는 code_* + ["js"], 웹 실습은 web_task + ["web"] · ["web-js"] — 튜터가 파이썬으로 읽지 않게
+        cases = [
+            ({**PROBLEM, "packages": ["js"]}, "언어: JavaScript"),
+            ({**PROBLEM, "kind": "web_task", "packages": ["web"], "hiddenTests": "check(has('h1'), '제목')"}, "언어: HTML · CSS ·"),
+            ({**PROBLEM, "kind": "web_task", "packages": ["web-js"], "hiddenTests": "check(has('h1'), '제목')"}, "언어: HTML · CSS · JavaScript"),
+            ({**PROBLEM, "kind": "sql_query"}, "언어: SQL(SQLite)"),
+            (PROBLEM, "언어: 파이썬"),
+        ]
+        for problem, expected in cases:
+            self.ask({"mode": "problem", "problem": problem, "code": "x", "question": "어디가 틀렸어요?"},
+                     {"type": "hint", "reply": "다시 보세요.", "lines": []})
+            self.assertIn(expected, self.human)
+        self.assertIn("채점 검사", tutor._problem_text({**PROBLEM, "kind": "web_task", "hiddenTests": "check(1, 'a')"}))
+        self.assertNotIn("파이썬 연습장", self.system)
+
+    def test_hint_button_asks_for_a_step_beyond_the_chat(self) -> None:
+        base = {"mode": "problem", "hintLevel": 2, "problem": PROBLEM, "code": "x", "question": "힌트 더 주세요"}
+        reply = {"type": "hint", "reply": "다시 보세요.", "lines": []}
+        self.ask({**base, "action": "more"}, reply)
+        self.assertIn(tutor.NEW_STEP_RULE, self.system)
+        self.ask({**base, "action": "ask", "question": "왜 틀려요?"}, reply)
+        self.assertIn(tutor.SAME_STEP_RULE, self.system)
+        self.assertNotIn(tutor.NEW_STEP_RULE, self.system)
+
+    def test_revealed_problem_lets_tutor_explain(self) -> None:
+        text = tutor._problem_text({**PROBLEM, "revealed": True, "explanation": "max 는 가장 큰 값을 돌려준다"})
+        self.assertIn("정답 공개됨", text)
+        self.assertIn("해설(", text)
+        self.assertNotIn("정답 공개됨", tutor._problem_text(PROBLEM))
+
+    def test_wrong_note_is_marked(self) -> None:
+        self.assertIn("오답노트에서 다시 푸는 중", tutor._problem_text({**PROBLEM, "retry": True}))
+        self.assertNotIn("오답노트", tutor._problem_text(PROBLEM))
+
     def test_solution_line_in_reply_is_redacted(self) -> None:
         out = self.ask({"mode": "problem", "problem": PROBLEM, "code": "x", "question": "정답 알려 줘"},
                        {"type": "hint", "reply": "이렇게 쓰면 돼요: return max(window_values_here)", "lines": []})

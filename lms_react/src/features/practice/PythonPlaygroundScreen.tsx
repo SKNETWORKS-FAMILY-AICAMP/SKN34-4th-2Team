@@ -8,7 +8,7 @@ import { NotebookCellView } from './NotebookCellView';
 import { NotebookToolbar } from './NotebookToolbar';
 import { PYODIDE_VERSION } from './pythonProtocol';
 import { usePythonRunner, type RunnerStatus } from './pythonRunner';
-import { RETRY_SET_ID } from './review';
+import { isRetryId, RETRY_SET_ID } from './review';
 import { TutorProvider, useTutor } from './TutorContext';
 import { TutorPanel } from './TutorPanel';
 import { useNotebook, type Notebook } from './useNotebook';
@@ -164,8 +164,10 @@ function Playground({
             <Icon name="info" size={18} />
             <span>
               {setId === RETRY_SET_ID
-                ? '다시 풀 문제가 없어요. 틀린 복습 문제가 생기면 여기에 모여요.'
-                : '찾는 복습 세트가 없어요. 공부방의 수업 카드에서 다시 골라 주세요.'}
+                ? '다시 풀 문제가 없어요. 틀린 복습 문제는 다음 날부터 여기에 모여요 — 바로 다시 풀면 기억으로 맞히기 쉬워서 하루 둬요.'
+                : isRetryId(setId)
+                  ? '여기 모을 틀린 문제가 없어요. 다 풀었거나 숨겨진 문제예요.'
+                  : '찾는 복습 세트가 없어요. 공부방의 수업 카드에서 다시 골라 주세요.'}
             </span>
           </div>
         )}
@@ -318,7 +320,7 @@ function PlaygroundTitle({ mode }: { mode: PracticeSetMode }) {
     <div>
       <h1 className="study-head__title">
         {/* 주제(set.title)는 설명 줄로 — 제목에 붙이면 주제 세 개가 22px 로 두 줄씩 꺾였다 */}
-        {isRetry ? '다시 풀 문제' : set ? `${set.dayLabel} 복습` : '연습장'}
+        {isRetry ? (set?.dayLabel ?? '다시 풀 문제') : set ? `${set.dayLabel} 복습` : '연습장'}
       </h1>
       <p className="study-head__desc">
         {isRetry && set

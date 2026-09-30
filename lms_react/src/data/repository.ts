@@ -1913,6 +1913,8 @@ export interface TutorQuestion {
   /** 문제 셀 — 원래 세트 · 번호(다시 풀 문제도 원래 자리) */
   setId?: string;
   index?: number;
+  /** 오답노트 대화 — 'retry:YYYY-MM-DD' */
+  thread?: string;
   code: string;
   run: string;
   grade: string;
@@ -1925,21 +1927,26 @@ export async function askTutor(body: TutorQuestion): Promise<TutorReply> {
 }
 
 /** 튜터 창을 다시 열 때 — 지난 대화와 지금 힌트 단계 */
-export async function fetchTutorThread(mode: TutorMode, setId?: string, index?: number): Promise<{ turns: TutorTurn[]; hintLevel: number }> {
-  if (isTestMode()) return demoTutorThread(mode, setId, index);
+export async function fetchTutorThread(
+  mode: TutorMode,
+  setId?: string,
+  index?: number,
+  thread?: string,
+): Promise<{ turns: TutorTurn[]; hintLevel: number }> {
+  if (isTestMode()) return demoTutorThread(mode, setId, index, thread);
   const { data } = await http.get<{ turns: TutorTurn[]; hintLevel: number }>('/practice-tutor', {
-    params: mode === 'problem' ? { mode, setId, index } : { mode },
+    params: mode === 'problem' ? { mode, setId, index, thread } : { mode },
   });
   return data;
 }
 
 /** 튜터 「새 대화」 — 이 문제(또는 일반 셀)의 내 대화를 지운다. 힌트 단계도 처음부터 */
-export async function resetTutorThread(mode: TutorMode, setId?: string, index?: number): Promise<void> {
+export async function resetTutorThread(mode: TutorMode, setId?: string, index?: number, thread?: string): Promise<void> {
   if (isTestMode()) {
-    await demoTutorReset(mode, setId, index);
+    await demoTutorReset(mode, setId, index, thread);
     return;
   }
-  await http.delete('/practice-tutor', { params: mode === 'problem' ? { mode, setId, index } : { mode } });
+  await http.delete('/practice-tutor', { params: mode === 'problem' ? { mode, setId, index, thread } : { mode } });
 }
 
 /** 새 복습 세트가 생겼을 때 — 강사 화면의 신고 · 세트 목록이 새 세트를 보게 */

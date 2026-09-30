@@ -44,6 +44,7 @@ function ProblemCellRow({ cell, nb, mode }: { cell: Cell; nb: Notebook; mode: Pr
           cellId: cell.id,
           mode: 'problem',
           ...origin,
+          thread: mode.tutorThread,
           label: `문제 ${index + 1} · ${problem.topic}`,
           read: () => reader.current?.() ?? { code: cell.code, run: '', grade: '' },
         })

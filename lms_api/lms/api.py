@@ -589,6 +589,8 @@ class TutorIn(Schema):
     code: str = ""
     run: str = ""
     grade: str = ""
+    # 오답노트에서 연 문제 — 'retry:YYYY-MM-DD'. 복습 때 대화와 따로, 그날 새로 시작한다
+    thread: str = ""
 
 
 @api.post("/practice-tutor")
@@ -612,17 +614,17 @@ def practice_web_grade(request, body: WebGradeIn):
 
 
 @api.get("/practice-tutor")
-def practice_tutor_thread(request, mode: str = "cell", setId: str = "", index: int = 0):
+def practice_tutor_thread(request, mode: str = "cell", setId: str = "", index: int = 0, thread: str = ""):
     """튜터 창을 다시 열 때 — 그 문제(또는 일반 셀)의 지난 대화와 힌트 단계"""
     user = _require_user(request)
-    return _sources(lambda: practice_tutor.thread(user, mode, setId or None, index))
+    return _sources(lambda: practice_tutor.thread(user, mode, setId or None, index, thread))
 
 
 @api.delete("/practice-tutor")
-def practice_tutor_reset(request, mode: str = "cell", setId: str = "", index: int = 0):
+def practice_tutor_reset(request, mode: str = "cell", setId: str = "", index: int = 0, thread: str = ""):
     """튜터 「새 대화」 — 그 문제(또는 일반 셀)의 내 대화를 지운다"""
     user = _require_user(request)
-    return _sources(lambda: practice_tutor.reset(user, mode, setId or None, index))
+    return _sources(lambda: practice_tutor.reset(user, mode, setId or None, index, thread))
 
 
 class ResumeReviewApplyIn(Schema):

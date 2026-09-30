@@ -16,7 +16,7 @@ import {
 } from './notebookModel';
 import type { RunResult } from './pythonProtocol';
 import { canPromptInput, type PythonRunner, type RunOptions } from './pythonRunner';
-import { RETRY_SET_ID } from './review';
+import { isRetryId } from './review';
 import { planSql } from './sqlDialect';
 
 const SESSION = 'playground';
@@ -74,7 +74,7 @@ export function useNotebook(runner: PythonRunner, set: PracticeSet | undefined, 
 
   useEffect(() => {
     if (ownKey) saveNotebook(ownKey, cells, stdin);
-    else if (set?.id !== RETRY_SET_ID) saveNotebook(storeKey(set), cells, stdin);
+    else if (!isRetryId(set?.id)) saveNotebook(storeKey(set), cells, stdin);
   }, [set, cells, stdin, ownKey]);
 
   const patch = (id: string, change: Partial<Cell> | ((c: Cell) => Partial<Cell>)) =>

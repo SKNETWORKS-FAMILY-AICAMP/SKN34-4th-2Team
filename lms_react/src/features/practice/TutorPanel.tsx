@@ -18,7 +18,7 @@ const LADDER = ['방향', '위치', '거의'];
 
 function threadKey(t: TutorTarget | null) {
   if (!t) return '';
-  return t.mode === 'problem' ? `set:${t.setId}:${t.index}` : 'cell';
+  return t.mode === 'problem' ? `${t.thread ? `${t.thread}:` : ''}set:${t.setId}:${t.index}` : 'cell';
 }
 
 /**
@@ -141,7 +141,7 @@ export function TutorPanel() {
     setError('');
     setConfirmReset(false);
     setLoading(true);
-    fetchTutorThread(target.mode, target.setId, target.index)
+    fetchTutorThread(target.mode, target.setId, target.index, target.thread)
       .then((th) => {
         if (!alive) return;
         setTurns(th.turns);
@@ -165,7 +165,7 @@ export function TutorPanel() {
     setConfirmReset(false);
     setError('');
     try {
-      await resetTutorThread(target.mode, target.setId, target.index);
+      await resetTutorThread(target.mode, target.setId, target.index, target.thread);
       setTurns([]);
       setLevel(0);
     } catch (e) {
@@ -205,6 +205,7 @@ export function TutorPanel() {
         question: question.trim() || undefined,
         setId: target.setId,
         index: target.index,
+        thread: target.thread,
         ...now,
       });
       const at = new Date().toISOString();

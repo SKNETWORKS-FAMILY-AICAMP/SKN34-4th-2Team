@@ -29,10 +29,11 @@ export function TodayReviewCard() {
   const sets = usePracticeSets(user.cohortId);
   const attempts = useMyPracticeAttempts(user.uid);
   const today = todayKey();
+  // 훅은 return 앞에서 — 복습 세트가 없다가 생기면 훅 개수가 달라져 화면이 깨졌다
+  const isHidden = useIsHidden();
   const review = pickTodayReview(sets.filter(isLessonSet), attempts, today);
   if (!review) return null;
   // 오늘 틀린 문제는 빼고, 하루 이상 지난 것만 다시 보여 준다
-  const isHidden = useIsHidden();
   const retries = dueRetries(retryItems(sets, attempts).filter((i) => !isHidden(i.set.id, i.index)), today);
 
   const { set, daysAgo, state, passed, total, minutes, continuesFrom } = review;

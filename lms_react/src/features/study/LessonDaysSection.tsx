@@ -5,7 +5,7 @@ import { useMyPracticeAttempts, usePracticeSets, useStudyNotes, useStudySources 
 import type { PracticeAttempt, PracticeSet } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { PracticeLink } from '../practice/PracticeDock';
-import { isLessonSet, RETRY_SET_ID, retryDates, retryItems, retryTopics } from '../practice/review';
+import { isLessonSet, RETRY_ALL_ID, retryDates, retryItems, retryTopics } from '../practice/review';
 import { useIsHidden } from '../practice/useIsHidden';
 import { reviewBoard, type Subject, type SubjectDay } from './lessonDays';
 import { noteLabel } from './noteScope';
@@ -13,7 +13,7 @@ import { noteLabel } from './noteScope';
 const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
 
 /** '2026-09-15' → '09/15 (화)' */
-function dayText(date: string): string {
+export function dayText(date: string): string {
   const d = new Date(`${date}T00:00:00`);
   return `${date.slice(5).replace('-', '/')} (${WEEKDAY[d.getDay()]})`;
 }
@@ -78,7 +78,8 @@ export function LessonDaysSection({ cohortId, uid }: { cohortId: string; uid: st
       )}
 
       {retries.length > 0 && (
-        <PracticeLink className="review-retry" setId={RETRY_SET_ID}>
+        // 여기 개수는 오늘 틀린 것까지 — 여는 세트도 전체(retry:all)
+        <PracticeLink className="review-retry" setId={RETRY_ALL_ID}>
           <Icon name="replay" size={18} />
           <strong>다시 풀 문제 {retries.length}개</strong>
           <span className="review-retry__meta">

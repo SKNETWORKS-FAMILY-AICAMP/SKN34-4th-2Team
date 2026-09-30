@@ -10694,6 +10694,163 @@ a.coach-ask__card-title:hover {
   padding: 4px 16px 12px 42px;
 }
 
+/* 오답노트(학습실 › 오답노트) — 공부방 과목 목록과 같은 틀. 날짜 한 칸 = 머리 + 문제 줄 */
+.wrong-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.wrong-summary__solved {
+  background: color-mix(in srgb, var(--success) 14%, var(--surface));
+  color: var(--success);
+}
+
+.wrong-summary__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.wrong-days {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wrong-day {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.wrong-day__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 12px 16px;
+  background: color-mix(in srgb, var(--warning) 6%, var(--surface));
+  border-bottom: 1px solid var(--divider);
+}
+
+.wrong-day__date {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--warning);
+  font-variant-numeric: tabular-nums;
+}
+
+.wrong-day__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wrong-day__count {
+  display: inline-flex;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.wrong-day__wrong {
+  font-weight: 600;
+  color: var(--warning);
+}
+
+.wrong-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.wrong-item {
+  display: grid;
+  grid-template-columns: 18px 58px 110px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.wrong-item:hover {
+  background: var(--surface-variant);
+}
+
+.wrong-item:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.wrong-item__mark {
+  color: var(--warning);
+}
+
+.wrong-item--solved .wrong-item__mark {
+  color: var(--success);
+}
+
+.wrong-item--solved .wrong-item__topic {
+  color: var(--text-secondary);
+}
+
+.wrong-item__no {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.wrong-item__kind {
+  justify-self: start;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--surface-variant);
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.wrong-item__topic {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wrong-item__meta {
+  font-size: 12.5px;
+  color: var(--text-hint);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 720px) {
+  .wrong-item {
+    grid-template-columns: 18px auto minmax(0, 1fr);
+    grid-template-areas:
+      'mark no kind'
+      'mark topic topic'
+      'mark meta meta';
+    gap: 2px 8px;
+  }
+
+  .wrong-item__mark { grid-area: mark; align-self: start; margin-top: 2px; }
+  .wrong-item__no { grid-area: no; }
+  .wrong-item__kind { grid-area: kind; }
+  .wrong-item__topic { grid-area: topic; white-space: normal; }
+  .wrong-item__meta { grid-area: meta; }
+}
+
 @media (max-width: 720px) {
   .review-hero {
     flex-direction: column;
