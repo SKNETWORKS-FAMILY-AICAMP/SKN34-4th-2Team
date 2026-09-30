@@ -65,8 +65,8 @@ describe('연습장 튜터', () => {
     reduceMotion = false;
     const host = mount({ ...PROBLEM, setId: 'ps-typing' }); // 데모 대화는 테스트끼리 이어지니 다른 문제로
     await click(host.querySelector('[data-testid="open"]'));
-    await click(byText(host, '힌트 더 (1/3)'));
-    await click(byText(host, '힌트 더 (2/3)')); // 600ms 뒤 — 답은 막 도착해 풀리는 중
+    await click(byText(host, '힌트 보기 (1/3)'));
+    await click(byText(host, '다음 힌트 (2/3)')); // 600ms 뒤 — 답은 막 도착해 풀리는 중
     const bubble = () => [...host.querySelectorAll('.tutor__msg--bot')].pop()!;
     expect(bubble().querySelector('.tutor__caret')).not.toBeNull();
     expect(host.querySelector('[data-testid="marks"]')?.textContent).toBe('');
@@ -89,8 +89,8 @@ describe('연습장 튜터', () => {
     expect(host.querySelector('.tutor__target')?.textContent).toContain('문제 1 · 맥스 풀링');
     expect(host.querySelectorAll('.tutor__ladder .on')).toHaveLength(0);
 
-    await click(byText(host, '힌트 더 (1/3)'));
-    await click(byText(host, '힌트 더 (2/3)'));
+    await click(byText(host, '힌트 보기 (1/3)'));
+    await click(byText(host, '다음 힌트 (2/3)'));
     expect(host.querySelectorAll('.tutor__ladder .on')).toHaveLength(2);
     expect(host.querySelector('.tutor__msg--bot:last-child')?.textContent).toContain('힌트 2단계');
     // 2단계 힌트는 줄을 가리킨다 — 그 셀 편집기에 칠한다
@@ -136,7 +136,7 @@ describe('연습장 튜터', () => {
     const reset = () => host.querySelector<HTMLButtonElement>('button[aria-label="새 대화"]')!;
     expect(reset().disabled).toBe(true); // 지울 대화가 없다
 
-    await click(byText(host, '힌트 더 (1/3)'));
+    await click(byText(host, '힌트 보기 (1/3)'));
     expect(host.querySelectorAll('.tutor__ladder .on')).toHaveLength(1);
     expect(reset().disabled).toBe(false);
 
@@ -151,7 +151,7 @@ describe('연습장 튜터', () => {
     expect(host.querySelectorAll('.tutor__msg--bot')).toHaveLength(0);
     expect(host.querySelectorAll('.tutor__ladder .on')).toHaveLength(0);
     // 다시 열어도 비어 있다(지운 게 남지 않는다)
-    expect(byText(host, '힌트 더 (1/3)')).toBeDefined();
+    expect(byText(host, '힌트 보기 (1/3)')).toBeDefined();
   });
 
   it('일반 셀은 힌트 단계 없이 오류 설명 칩을 보인다', async () => {

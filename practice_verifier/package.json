@@ -4,11 +4,14 @@
   "version": "0.1.0",
   "description": "공부방 실습 문제를 학생 브라우저와 같은 Pyodide로 실행해 검증한다",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "test": "node --test"
   },
   "dependencies": {
+    "jsdom": "^26.1.0",
     "pyodide": "314.0.7"
   }
 }

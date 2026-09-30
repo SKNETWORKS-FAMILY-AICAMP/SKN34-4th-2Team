@@ -23,6 +23,8 @@ class Job:
     id: str
     steps: list[str]
     timeout_ms: int = 3000
+    # "web" — 웹 실습. steps 는 [HTML, 검사문]이고 jsdom 으로 돈다(practice_verifier/web.mjs)
+    kind: str = "python"
 
 
 @dataclass(frozen=True)
@@ -66,7 +68,7 @@ class PyodideRunner:
                 f"{self.verifier_dir}에서 npm install 을 먼저 실행하세요."
             )
         payload = {
-            "jobs": [{"id": j.id, "steps": j.steps, "timeoutMs": j.timeout_ms} for j in jobs],
+            "jobs": [{"id": j.id, "kind": j.kind, "steps": j.steps, "timeoutMs": j.timeout_ms} for j in jobs],
         }
         # 무한 루프 문제는 작업마다 워커를 새로 띄우므로(약 1초) 그만큼 여유를 둔다.
         budget = 30 + sum(j.timeout_ms / 1000 + 2 for j in jobs)

@@ -21,7 +21,7 @@ from study_notes.practice.models import PracticeProblem
 from study_notes.practice.runner import Job, Runner
 from study_notes.practice.verify import RUN_TIMEOUT_MS
 
-BLIND_KINDS = ("code_blank", "code_fix", "code_write", "code_scratch")
+BLIND_KINDS = ("code_blank", "code_fix", "code_write", "code_scratch", "web_task")
 MAX_SHOWN_SOLUTION = 1200
 
 WHAT_TO_WRITE = {
@@ -29,13 +29,14 @@ WHAT_TO_WRITE = {
     "code_fix": "버그를 고친 전체 코드",
     "code_write": "함수를 완성한 전체 코드",
     "code_scratch": "문제의 함수를 처음부터 작성한 전체 코드",
+    "web_task": "요구대로 고친 전체 HTML 문서(<style> 포함, <script> 없이)",
 }
 
 BLIND_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
-        "당신은 파이썬을 배우는 부트캠프 학생입니다. 문제 문장과 시작 코드만 보고 풉니다.\n"
-        "표준 라이브러리와 numpy, pandas만 씁니다. 응답은 JSON 객체 하나입니다.",
+        "당신은 파이썬 · 웹(HTML · CSS)을 배우는 부트캠프 학생입니다. 문제 문장과 시작 코드만 보고 풉니다.\n"
+        "파이썬은 표준 라이브러리와 numpy, pandas만 씁니다. 응답은 JSON 객체 하나입니다.",
     ),
     (
         "human",
@@ -76,7 +77,7 @@ def blind_failures(problems: list[PracticeProblem], runner: Runner, usage: Usage
     if not targets:
         return {}
     solutions = solver([p for _, p in targets], usage)
-    jobs = [Job(f"b{n}", [solutions[n], p.hidden_tests], RUN_TIMEOUT_MS)
+    jobs = [Job(f"b{n}", [solutions[n], p.hidden_tests], RUN_TIMEOUT_MS, kind="web" if p.kind == "web_task" else "python")
             for n, (_i, p) in enumerate(targets) if solutions.get(n, "").strip()]
     results = runner.run(jobs)
     failures: dict[int, str] = {}

@@ -1385,6 +1385,23 @@ export async function removeGithubOwner(id: string): Promise<GithubOwner[]> {
   return data.owners;
 }
 
+/** 웹 실습 채점 결과 — 검사문마다 통과 여부. error 는 채점 자체를 못 했을 때(문법 · 서버) */
+export interface WebGrade {
+  passed: boolean;
+  checks: { message: string; ok: boolean }[];
+  error: string;
+}
+
+/**
+ * 웹 실습(web_task) 채점 — 서버의 jsdom 이 그 문제의 검사문(DB)으로 본다. 검사문은 브라우저에 없다.
+ * setId · index 는 원래 세트의 문제 자리(다시 풀 문제도 원래 자리 — usePracticeSetMode.originOf)
+ */
+export async function gradeWebProblem(setId: string, index: number, html: string): Promise<WebGrade> {
+  if (isTestMode()) return { passed: false, checks: [], error: '데모에서는 웹 실습 채점을 할 수 없어요.' };
+  const { data } = await http.post<WebGrade>('/practice-web-grade', { setId, index, html });
+  return { passed: Boolean(data.passed), checks: data.checks ?? [], error: data.error ?? '' };
+}
+
 /** 복습 문제 자동 출제(매일 18:30) — 마지막으로 돌린 결과 */
 export interface PracticeAutoRun {
   status: 'running' | 'done' | 'failed';

@@ -10,6 +10,8 @@
                테스트는 3개 이상, 모범답안은 한두 줄로 끝나지 않는 함수여야 한다
   sql_query    준비 스크립트 + 모범 조회문을 돌려 결과 표를 얻는다 → 그 표가 정답(1~20행).
                시작 코드만으로 같은 표가 나오면 버린다 (sql_problem.py)
+  web_task     시작 문서 · 모범 문서를 jsdom 으로 읽고 검사문을 돌린다 → 모범은 모두 통과, 시작은 하나 이상 실패
+               (web_problem.py · practice_verifier/web.mjs)
   concept      실행하지 않는다 (models.parse_draft 가 모양만 본다)
 
 실행 전에 ast로 한 번 거른다. 파일·네트워크·입력·현재 시각을 쓰는 코드는 브라우저에서
@@ -22,7 +24,7 @@ import ast
 import re
 from dataclasses import dataclass
 
-from study_notes.practice import sql_problem
+from study_notes.practice import sql_problem, web_problem
 from study_notes.practice.models import RUNNABLE, PracticeProblem, fill_blanks
 from study_notes.practice.runner import Job, RunResult, Runner
 
@@ -223,6 +225,14 @@ def verify_problems(problems: list[PracticeProblem], runner: Runner) -> list[Ver
             problem.packages = ["sqlite3"]
             jobs += _jobs_for(i, problem)
             continue
+        if problem.kind == "web_task":
+            reason = web_problem.static_check(problem)
+            if reason:
+                verdicts[i] = Verdict(problem, False, f"실행 전 거름 — {reason}")
+                continue
+            problem.packages = ["web"]
+            jobs += web_problem.jobs_for(f"p{i}", problem, RUN_TIMEOUT_MS)
+            continue
         # 빈칸 문제는 빈칸이 남은 원본이 문법상 안 맞을 수 있다(`i __1__ step`). 채운 코드만 본다.
         codes = [] if problem.kind == "code_blank" else [problem.starter_code]
         if problem.kind != "code_output":
@@ -262,6 +272,9 @@ def verify_problems(problems: list[PracticeProblem], runner: Runner) -> list[Ver
             verdicts[i] = _judge_output(problem, results[f"{key}:run1"], results[f"{key}:run2"])
         elif problem.kind == "sql_query":
             verdicts[i] = _judge_sql(problem, results[f"{key}:reference"], results[f"{key}:starter"])
+        elif problem.kind == "web_task":
+            passed, reason = web_problem.judge(problem, results[f"{key}:starter"], results[f"{key}:reference"])
+            verdicts[i] = Verdict(problem, passed, reason)
         else:
             verdicts[i] = _judge_tests(problem, results[f"{key}:starter"], results[f"{key}:reference"])
     return [v for v in verdicts if v is not None]

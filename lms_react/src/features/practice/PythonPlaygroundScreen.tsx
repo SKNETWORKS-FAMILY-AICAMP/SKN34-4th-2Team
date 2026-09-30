@@ -275,13 +275,14 @@ function PlaygroundTitle({ mode }: { mode: PracticeSetMode }) {
   return (
     <div>
       <h1 className="study-head__title">
-        {isRetry ? '다시 풀 문제' : set ? `${set.dayLabel} 복습 · ${set.title}` : '연습장'}
+        {/* 주제(set.title)는 설명 줄로 — 제목에 붙이면 주제 세 개가 22px 로 두 줄씩 꺾였다 */}
+        {isRetry ? '다시 풀 문제' : set ? `${set.dayLabel} 복습` : '연습장'}
       </h1>
       <p className="study-head__desc">
         {isRetry && set
           ? `지난 복습에서 통과하지 못한 문제 ${set.problems.length}개입니다. 통과하면 다음에 열 때 목록에서 빠져요.`
           : set
-            ? `${set.lessonDate} 수업 코드로 만든 문제 ${set.problems.length}개. 문제 사이에 셀을 추가해 자유롭게 시험해 봐도 됩니다.`
+            ? `${set.title ? `${set.title} — ` : ''}${set.lessonDate} 수업 코드로 만든 문제 ${set.problems.length}개. 문제 사이에 셀을 추가해 자유롭게 시험해 봐도 됩니다.`
             : '셀을 나눠 실행합니다. 코드는 이 브라우저 안에서만 돕니다.'}
       </p>
       {set && (

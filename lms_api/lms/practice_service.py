@@ -8,31 +8,47 @@ from datetime import date, datetime
 
 
 REASONS = {"unclear", "answer", "tests", "offtopic", "other"}
-KINDS = {"concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query"}
+KINDS = {"concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query", "web_task"}
 # SQL 조회 문제(sql_query)는 DB 의 kind CHECK 제약에 없다 — 스키마를 바꾸지 않고 code_write 로 적고
 # packages 를 ["sqlite3"] 로 표시한다. 준비 스크립트(setupSql)는 hidden_tests 칸에 둔다(파이썬 문제의 숨긴 테스트 자리).
 SQL_MARK = ["sqlite3"]
+# 웹 실습(web_task)도 같다 — code_write + ["web"]. hidden_tests 는 DOM · CSS 검사문(check(…))이고 화면에는 보내지 않는다.
+# 채점은 서버가 한다(practice_web.py) — 검사문을 브라우저가 보내면 서버에서 남의 JS 를 돌리게 된다
+WEB_MARK = ["web"]
+
+
+def stored_kind(p: dict) -> str:
+    """DB 줄의 원래 종류 — code_write 로 적어 둔 sql_query · web_task 를 되돌린다"""
+    packages = _json(p["packages"]) if isinstance(p.get("packages"), str) else p.get("packages")
+    if p["kind"] == "code_write" and packages == SQL_MARK:
+        return "sql_query"
+    if p["kind"] == "code_write" and packages == WEB_MARK:
+        return "web_task"
+    return p["kind"]
 
 
 def _stored(problem: dict) -> dict:
-    """API 모양 → DB 칸. sql_query 만 바꾼다."""
-    if problem.get("kind") != "sql_query":
-        return problem
-    return {**problem, "kind": "code_write", "packages": SQL_MARK, "hiddenTests": problem.get("setupSql") or ""}
+    """API 모양 → DB 칸. sql_query · web_task 만 바꾼다."""
+    if problem.get("kind") == "sql_query":
+        return {**problem, "kind": "code_write", "packages": SQL_MARK, "hiddenTests": problem.get("setupSql") or ""}
+    if problem.get("kind") == "web_task":
+        return {**problem, "kind": "code_write", "packages": WEB_MARK}
+    return problem
 
 
 def _problem_json(p: dict) -> dict:
-    """DB 줄 → API 모양. code_write + ["sqlite3"] 는 sql_query 로 되돌린다."""
+    """DB 줄 → API 모양. code_write + ["sqlite3"] 는 sql_query, + ["web"] 는 web_task 로 되돌린다."""
     packages = _json(p["packages"])
-    sql = p["kind"] == "code_write" and packages == SQL_MARK
+    kind = stored_kind(p)
+    sql = kind == "sql_query"
     return {
-        "kind": "sql_query" if sql else p["kind"], "topic": p["topic"], "prompt": p["prompt"],
+        "kind": kind, "topic": p["topic"], "prompt": p["prompt"],
         "sourceFiles": _json(p["source_files"]), "explanation": p["explanation"],
         "choices": _json(p["choices"]), "answerIndex": p["answer_index"],
         "starterCode": p["starter_code"], "expectedStdout": p["expected_stdout"],
         "blankAnswers": _json(p["blank_answers"]),
         "referenceSolution": p["reference_solution"],
-        "hiddenTests": "" if sql else p["hidden_tests"],
+        "hiddenTests": "" if kind in ("sql_query", "web_task") else p["hidden_tests"],
         "setupSql": p["hidden_tests"] if sql else "",
         "packages": packages,
     }

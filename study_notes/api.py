@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import os
+import threading
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -123,6 +125,13 @@ class InternalGetNoteRequest(GetNoteRequest):
 
 def _internal_auth(token: str | None = Header(default=None, alias="X-LMS-AI-Token")) -> None:
     if not valid_proxy_token(token):
+        raise HTTPException(status_code=401, detail="Django proxy authentication required")
+
+
+def _proxy_auth_if_configured(token: str | None = Header(default=None, alias="X-LMS-AI-Token")) -> None:
+    """LMS_AI_SHARED_TOKEN 이 있는 곳(운영 · 두 EC2)에서만 Django 의 토큰을 본다. 로컬처럼 비어 있으면 그냥 받는다.
+    웹 채점처럼 받은 글(검사문)을 실행하는 창구에 건다 — 보안 그룹이 한 번 잘못 열려도 밖에서 JS 를 돌리지 못하게."""
+    if os.environ.get("LMS_AI_SHARED_TOKEN") and not valid_proxy_token(token):
         raise HTTPException(status_code=401, detail="Django proxy authentication required")
 
 
@@ -274,9 +283,39 @@ def proxy_practice(request: ProxyPracticeRequest) -> dict[str, Any]:
     except GitToolError as exc:
         if is_empty_repo(exc):
             # 수업 전 과목 — 매일 18:30 마다 「실패」로 쌓이지 않게
-            return {"sets": [], "coverage": request.coverage, "error": "", "note": "아직 수업 파일이 올라오지 않은 저장소예요.",
-                    "webDays": []}
+            return {"sets": [], "coverage": request.coverage, "error": "", "note": "아직 수업 파일이 올라오지 않은 저장소예요."}
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+class ProxyWebGradeRequest(BaseModel):
+    html: str = Field(default="", max_length=60_000)
+    # Django 가 DB 에서 꺼낸 그 문제의 검사문 — 브라우저가 보낸 것이 아니다(lms/practice_web.py)
+    checks: str = Field(min_length=1, max_length=4_000)
+
+
+# 채점 한 번에 node 하나(jsdom, 수십 MB)를 띄운다. 한 반이 한꺼번에 누르면 AI 서버 메모리가 튄다 —
+# 일꾼(프로세스)마다 이만큼만 동시에, 나머지는 잠깐 기다린다(한 번에 0.1~0.3초라 금방 빠진다)
+WEB_GRADE_SLOTS = threading.BoundedSemaphore(4)
+WEB_GRADE_WAIT = 20
+
+
+@router.post("/proxy/practice/web-grade", dependencies=[Depends(_proxy_auth_if_configured)])
+def proxy_practice_web_grade(request: ProxyWebGradeRequest) -> dict[str, Any]:
+    """웹 실습 채점 — 학생 HTML 을 jsdom 으로 읽고 검사문을 돌린다(출제 검증과 같은 곳). Pyodide 는 띄우지 않는다. 1초 안팎"""
+    from study_notes.practice.runner import VERIFIER_DIR, Job, PyodideRunner, VerifierError
+    from study_notes.practice.web_problem import grade_result
+
+    if not (VERIFIER_DIR / "node_modules" / "jsdom").exists():
+        raise HTTPException(status_code=503, detail="채점기(practice_verifier)에 jsdom 이 없습니다. npm install 이 필요합니다.")
+    if not WEB_GRADE_SLOTS.acquire(timeout=WEB_GRADE_WAIT):
+        raise HTTPException(status_code=503, detail="채점하는 사람이 많아요. 잠시 후 다시 해 보세요.")
+    try:
+        results = PyodideRunner().run([Job("grade", [request.html, request.checks], 3000, kind="web")])
+    except VerifierError as exc:
+        raise HTTPException(status_code=503, detail="채점하지 못했어요. 잠시 후 다시 해 보세요.") from exc
+    finally:
+        WEB_GRADE_SLOTS.release()
+    return grade_result(results["grade"])
 
 
 @router.post("/proxy/practice/custom")

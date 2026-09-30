@@ -520,7 +520,16 @@ export interface StudyNote {
 
 /** code_scratch — 뼈대 없이 빈 에디터에서 함수를 처음부터 짠다. starterCode 는 「뼈대 받기」를 눌렀을 때만 쓴다 */
 /** sql_query — 예제 테이블(setupSql)에 조회문을 쓴다. 결과 표가 기대 결과(expectedStdout, JSON)와 같으면 통과 */
-export type PracticeKind = 'concept' | 'code_output' | 'code_blank' | 'code_fix' | 'code_write' | 'code_scratch' | 'sql_query';
+/** web_task — HTML · CSS 를 고쳐 요구대로 만든다. 채점은 서버(jsdom)가 검사문으로 한다. 검사문(hiddenTests)은 화면에 오지 않는다 */
+export type PracticeKind =
+  | 'concept'
+  | 'code_output'
+  | 'code_blank'
+  | 'code_fix'
+  | 'code_write'
+  | 'code_scratch'
+  | 'sql_query'
+  | 'web_task';
 
 export interface PracticeProblem {
   kind: PracticeKind;

@@ -63,7 +63,20 @@ KIND_GUIDE = (
     "  채점은 결과 값만 비교한다(열 이름은 안 본다). 그래서 prompt에 쓸 테이블, 결과에 낼 열과 그 순서,\n"
     "  정렬 기준을 모두 적는다(예: 「tbl_menu에서 가격이 10000원 이상인 메뉴의 이름과 가격을 가격 높은 순으로」).\n"
     "  starterCode는 비워 두거나 `-- 여기에 조회문을 쓰세요` 한 줄\n"
-    "hiddenTests는 starterCode·referenceSolution 뒤에 같은 변수 공간에서 이어서 실행된다.\n"
+    "- web_task: 웹 실습(수업 자료가 HTML · CSS일 때만). 학생은 HTML 문서를 고쳐 요구대로 만든다. 서버의 jsdom이 채점한다.\n"
+    "  starterCode는 <style>을 포함한 짧은 HTML 문서(40줄 이하), referenceSolution은 요구대로 고친 전체 문서. <script>는 쓰지 않는다.\n"
+    "  모양을 고루 섞는다 — 빈칸 채우기(starterCode의 /* ① */ · <!-- ① --> 자리를 채움), 고치기(잘못된 속성 · 태그 · 선택자 하나),\n"
+    "  처음부터 만들기(요구한 요소를 새로 씀).\n"
+    "  hiddenTests는 검사문 2~5줄, 한 줄에 하나: check(조건, '학생에게 보일 한국어 문장');\n"
+    "  조건에는 이 도우미만 쓴다: $(선택자) · $$(선택자) · has(선택자) · count(선택자) · text(선택자) · attr(선택자, 속성) · css(선택자, 'CSS 속성').\n"
+    "  한 줄 식만 쓴다(반복문 · 함수 정의 · => 금지). 예: check(css('.menu', 'display') === 'flex', '메뉴가 가로 한 줄로 놓여요');\n"
+    "  css()는 그 요소에 직접 선언한 개별 속성만 검사한다(display · justify-content · align-items · flex-direction · position ·\n"
+    "  text-align · font-weight · width · margin-top · grid-template-columns 같은 것). 부모에게서 물려받는 값(font-size 등)과\n"
+    "  줄임 속성(margin · padding · border · background · font · list-style)은 검사하지 않는다. 색은 'rgb(0, 0, 255)' 꼴, 길이는 '16px' 꼴,\n"
+    "  grid-template-columns는 쓴 그대로('1fr 2fr')다. 화면 크기에 따라 달라지는 실제 너비 · 위치는 검사하지 않는다.\n"
+    "  검사하는 선택자 · id · class · 태그 · 글자는 모두 prompt나 starterCode에 나온 것이어야 한다. 속성값은 그 결과로 설명해도 된다\n"
+    "  (예: '메뉴가 가로 한 줄로 놓이고 가운데 정렬되게').\n"
+    "hiddenTests는 starterCode·referenceSolution 뒤에 같은 변수 공간에서 이어서 실행된다(web_task는 문서를 읽은 뒤 검사문만 돈다).\n"
     "hiddenTests에 정답 코드를 다시 쓰지 않는다.\n"
 )
 
@@ -83,7 +96,7 @@ PROBLEM_RULES = (
 
 SCHEMA = (
     '{{"problems": [{{\n'
-    '  "kind": "concept | code_output | code_blank | code_fix | code_write | code_scratch | sql_query",\n'
+    '  "kind": "concept | code_output | code_blank | code_fix | code_write | code_scratch | sql_query | web_task",\n'
     '  "topic": "짧은 주제 (예: 딕셔너리 컴프리헨션)",\n'
     '  "sourceFiles": ["근거가 된 수업 파일 경로"],\n'
     '  "prompt": "학생에게 보일 문제 문장",\n'

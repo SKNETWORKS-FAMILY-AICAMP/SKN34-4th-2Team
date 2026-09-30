@@ -13,9 +13,12 @@ from typing import Any, Literal
 
 # code_scratch — 뼈대 없이 빈 에디터에서 함수를 처음부터 짠다. starter_code 는 「뼈대 받기」를 눌렀을 때만 보이는 뼈대
 # sql_query — 예제 테이블(setup_sql)에 조회문을 쓴다. 결과 표가 모범 조회문과 같으면 통과(sql_problem.py)
-Kind = Literal["concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query"]
-KINDS: tuple[Kind, ...] = ("concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query")
-RUNNABLE: tuple[Kind, ...] = ("code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query")
+# web_task — HTML · CSS 를 요구대로 고친다. hidden_tests 는 check(…) 검사문, 채점은 jsdom(web_problem.py)
+Kind = Literal["concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query", "web_task"]
+KINDS: tuple[Kind, ...] = (
+    "concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query", "web_task",
+)
+RUNNABLE: tuple[Kind, ...] = ("code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query", "web_task")
 
 # 빈칸 표시. `__1__`은 올바른 파이썬 이름이라 빈칸이 남은 채로도 ast로 읽힌다.
 BLANK_RE = re.compile(r"__(\d)__")

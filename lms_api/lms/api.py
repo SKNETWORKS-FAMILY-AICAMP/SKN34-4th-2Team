@@ -29,7 +29,7 @@ from lms.posting_link import job_id_from_link
 from lms.publish import publish_scheduled_notices
 from lms.resume_text import build_profile, build_resume_text
 from lms.services import schedule_notice_vector
-from lms import practice_auto, practice_custom, practice_tutor, study_note_service, study_source_service
+from lms import practice_auto, practice_custom, practice_tutor, practice_web, study_note_service, study_source_service
 
 
 class LmsAuth(HttpBearer):
@@ -549,6 +549,19 @@ def practice_tutor_ask(request, body: TutorIn):
     """연습장 튜터 — 문제 셀엔 3단계 힌트(단계는 서버가 정한다), 일반 셀엔 코드 · 오류 설명"""
     user = _require_user(request)
     return _sources(lambda: practice_tutor.ask(user, body.model_dump()))
+
+
+class WebGradeIn(Schema):
+    setId: str
+    index: int
+    html: str = ""
+
+
+@api.post("/practice-web-grade")
+def practice_web_grade(request, body: WebGradeIn):
+    """웹 실습 채점 — 학생 HTML 을 서버 jsdom 에서 그 문제의 검사문(DB)으로 본다. 검사문은 브라우저가 보내지 않는다"""
+    user = _require_user(request)
+    return _sources(lambda: practice_web.grade(user, body.setId, body.index, body.html))
 
 
 @api.get("/practice-tutor")

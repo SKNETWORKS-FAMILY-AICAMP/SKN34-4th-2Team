@@ -4706,13 +4706,18 @@ html {
   border-color: transparent;
 }
 
+/* 편집 중이 아닐 때는 도구 줄을 빼고 위아래 여백을 맞춘다 — visibility: hidden 이면 높이는 남아 글 위만 비었다 */
 .py-nb-cell--markdown:not(.py-nb-cell--active) .py-nb-cell__tools {
-  visibility: hidden;
+  display: none;
 }
 
 .py-nb-md {
   padding: 4px 18px 14px;
   cursor: text;
+}
+
+.py-nb-cell--markdown:not(.py-nb-cell--active) .py-nb-md {
+  padding-top: 14px;
 }
 
 .nb-md {
@@ -9342,6 +9347,45 @@ a.coach-ask__card-title:hover {
   align-items: center;
   gap: 8px;
   padding: 10px 16px;
+}
+
+/* 웹 실습 — 왼쪽 HTML · CSS 편집기, 오른쪽 미리보기. 좁으면 위아래로 */
+.pb-web {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0 16px;
+}
+
+.pb-web__preview {
+  display: flex;
+  flex-direction: column;
+  min-height: 240px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.pb-web__label {
+  padding: 6px 12px;
+  background: var(--surface-variant);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* 미리보기는 학생이 쓴 페이지 그대로 — 테마와 상관없이 흰 바탕 */
+.pb-web__preview iframe {
+  flex: 1;
+  width: 100%;
+  min-height: 210px;
+  border: 0;
+  background: #ffffff;
+}
+
+@media (max-width: 900px) {
+  .pb-web {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .pb__choices .pb__actions {
