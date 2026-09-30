@@ -208,8 +208,8 @@ export function Shell() {
               type="button"
               className="rail__logout"
               onClick={() => {
-                signOut();
-                navigate(RoutePaths.login);
+                void signOut();
+                navigate(RoutePaths.login, { replace: true });
               }}
             >
               <Icon name="logout" size={18} />
