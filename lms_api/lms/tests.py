@@ -322,6 +322,32 @@ class ResumeWriteValidationTests(SimpleTestCase):
             _validate_resume_write(cur, self.actor, {"linked_job_id": "missing"}, None)
 
     @patch("lms.commands.resolve_row")
+    def test_original_that_is_not_the_default_is_accepted(self, resolve):
+        """대표가 아닌 기본 이력서(원본)도 바탕이 된다 — 대표를 바꾼 뒤 옛 대표의 맞춤 이력서도 저장된다."""
+        resolve.return_value = {"id": 7, "user_id": 1, "is_base_resume": False, "base_resume_id": None,
+                                "source_tailored_resume_id": None}
+        data = {"title": "고침"}
+        _validate_resume_write(Mock(), self.actor, data, {"id": 30, "user_id": 1, "cohort_id": 34, "base_resume_id": 7,
+                                                          "is_base_resume": False})
+        self.assertEqual(data["base_resume_id"], 7)
+
+    @patch("lms.commands.resolve_row")
+    def test_tailored_resume_cannot_be_a_parent(self, resolve):
+        for link in ({"base_resume_id": 3, "source_tailored_resume_id": None},
+                     {"base_resume_id": None, "source_tailored_resume_id": 9}):
+            resolve.return_value = {"id": 7, "user_id": 1, "is_base_resume": False, **link}
+            with self.assertRaises(ValueError, msg=link):
+                _validate_resume_write(Mock(), self.actor, {"base_resume_id": 7}, None)
+
+    @patch("lms.commands.resolve_row")
+    def test_resume_cannot_be_its_own_parent(self, resolve):
+        resolve.return_value = {"id": 7, "user_id": 1, "is_base_resume": False, "base_resume_id": None,
+                                "source_tailored_resume_id": None}
+        with self.assertRaises(ValueError):
+            _validate_resume_write(Mock(), self.actor, {"base_resume_id": 7},
+                                   {"id": 7, "user_id": 1, "cohort_id": 34, "base_resume_id": None, "is_base_resume": False})
+
+    @patch("lms.commands.resolve_row")
     def test_own_base_resume_is_accepted(self, resolve):
         resolve.return_value = {"id": 7, "user_id": 1, "is_base_resume": True}
         data = {"base_resume_id": 7}
