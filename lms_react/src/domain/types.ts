@@ -46,6 +46,7 @@ export type AttendanceStatusCode =
   | 'present'
   | 'late'
   | 'earlyLeave'
+  | 'outing'
   | 'absent'
   | 'officialLeave';
 
@@ -112,7 +113,13 @@ export interface AlertPopup {
   /** 'HH:mm' */
   startTime?: string;
   endTime?: string;
+  /** 'YYYY-MM-DD' — 이 날까지 보인다. 없으면 끌 때까지 */
+  endDate?: string;
   createdAt?: Date;
+  /** 지정 알림 대상 uid — 비어 있으면 기수 전체. 관리자 · 강사 스냅샷에만 온다. */
+  targetUserIds?: string[];
+  /** 확인한 학생 — 관리자 · 강사 스냅샷에만 온다. */
+  readBy?: { uid: string; readAt?: Date }[];
 }
 
 export interface Post {
@@ -791,6 +798,58 @@ export interface SeatPresence {
   period: number;
   userId: string;
   state: SeatPresenceState;
+}
+
+// ── 불시 자리 점검 ─────────────────────────────────────
+
+export type SpotCheckPeriod = 'am' | 'pm';
+export type SpotCheckState = 'present' | 'absent';
+
+export interface SpotCheckItem {
+  userId: string;
+  state: SpotCheckState;
+  /** 「무」일 때만 — 외출 · 조퇴 · 병원 등 */
+  reason?: string;
+}
+
+export interface SpotCheck {
+  id: string;
+  cohortId: string;
+  checkedAt: Date;
+  period: SpotCheckPeriod;
+  note?: string;
+  checkedBy?: string;
+  checkedByName?: string;
+  items: SpotCheckItem[];
+}
+
+export type AttendanceIssueType = 'late' | 'earlyLeave' | 'outing' | 'absent';
+export type OfficialLeaveType = 'vacation' | 'sick' | 'interview' | 'reserve' | 'cert' | 'other';
+export type AttendanceRequestStatus = 'submitted' | 'approved' | 'rejected';
+
+/** 출결 신청(예외 출결) — 지각 · 조퇴 · 외출 · 결석, 공가를 쓰면 공가 종류까지 */
+export interface AttendanceIssue {
+  id: string;
+  userId: string;
+  dateKey: string;
+  issueType: AttendanceIssueType | string;
+  status: AttendanceRequestStatus;
+  /** 서버가 만든 한 줄 요약 — 「조퇴 15:00 · 공가(병가)」 */
+  label?: string;
+  reason?: string;
+  /** 지각은 입실 예정, 조퇴는 퇴실, 외출은 나가는 시각 */
+  timeFrom?: string;
+  /** 외출 복귀 시각 */
+  timeTo?: string;
+  officialLeaveUsed: boolean;
+  officialLeaveType?: OfficialLeaveType | string;
+  officialLeaveOther?: string;
+  evidenceName?: string;
+  evidenceUrl?: string;
+  reviewComment?: string;
+  reviewedBy?: string;
+  reviewedAt?: Date;
+  submittedAt?: Date;
 }
 
 // ── 자격 시험 일정 ─────────────────────────────────────

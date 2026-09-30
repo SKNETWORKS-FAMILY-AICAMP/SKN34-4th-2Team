@@ -7,6 +7,8 @@ import type {
   AssessmentQuestion,
   AssessmentSubmission,
   Attendance,
+  AttendanceIssue,
+  AttendanceRequestStatus,
   Cohort,
   FormTask,
   MileageProduct,
@@ -25,6 +27,9 @@ import type {
   SeatingAssignment,
   SeatingGrid,
   SeatingRoom,
+  SpotCheck,
+  SpotCheckItem,
+  SpotCheckPeriod,
   Submission,
   SubmissionStatus,
   Todo,
@@ -40,10 +45,15 @@ import type {
 import { getDb, mutate as mutateStore, nextId, subscribe, type Database } from './store';
 import { dateKeyOf } from './seed';
 import { buildScopeKey, scopeLabel } from '../features/study/noteScope';
+import {
+  requestLabel,
+  resultingStatus,
+  type AttendanceRequestDraft,
+} from '../features/attendance/attendanceRequest';
 import { resumeStatusToServer } from '../features/resume/resumeGroups';
 import { remapAssignments } from '../domain/seatingLayout';
 import { http, readApiError } from './http';
-import { fetchBootstrap, lastBootstrapSession, mapStudyNote } from './bootstrap';
+import { fetchBootstrap, lastBootstrapSession, mapAlert, mapAttendanceIssue, mapStudyNote } from './bootstrap';
 import { getBootstrapDb, subscribeBootstrap } from './bootstrapStore';
 import { selectedCohortFor } from './cohortSelection';
 import { queryClient, queryKeys } from './queryClient';
@@ -378,7 +388,10 @@ export async function upsertAlertPopup(popup: AlertPopup): Promise<AlertPopup> {
       linkUrl: popup.linkUrl,
       startTime: popup.startTime,
       endTime: popup.endTime,
+      endDate: popup.endDate ?? null,
       cohortId: apiCohortId(),
+      // 없으면 서버가 대상을 그대로 둔다(노출 토글). 빈 목록이면 기수 전체로
+      ...(popup.targetUserIds !== undefined ? { targetUserIds: popup.targetUserIds } : {}),
     };
     const { data } = existing
       ? await http.patch<{ id?: string }>(`/alert-popups/${popup.id}`, body)
@@ -387,6 +400,72 @@ export async function upsertAlertPopup(popup: AlertPopup): Promise<AlertPopup> {
     return { ...popup, id: String(data.id ?? popup.id) };
   } catch (error) {
     throw new Error(await readApiError(error));
+  }
+}
+
+/** 노출 토글 — 누르는 즉시 화면에 반영하고, 저장이 실패하면 되돌린다 */
+export async function setAlertPopupActive(popup: AlertPopup, isActive: boolean): Promise<void> {
+  patchAlertLocal({ ...popup, isActive });
+  if (isTestMode()) return;
+  try {
+    await upsertAlertPopup({ ...popup, isActive });
+  } catch (error) {
+    patchAlertLocal(popup);
+    throw error;
+  }
+}
+
+/** 예약 공지 동작 토글 — 알림 팝업 토글과 같은 방식 */
+export async function setScheduledNoticeActive(notice: ScheduledNotice, isActive: boolean): Promise<void> {
+  patchScheduledLocal({ ...notice, isActive });
+  if (isTestMode()) return;
+  try {
+    await upsertScheduledNotice({ ...notice, isActive });
+  } catch (error) {
+    patchScheduledLocal(notice);
+    throw error;
+  }
+}
+
+/**
+ * 학생 화면의 새 알림 · 출결 신청 처리 결과 확인 — 그것만 가볍게 다시 받는다(스냅샷 전체는 1MB 가 넘는다).
+ * 서버가 학생 본인에게 보이는 켜진 알림과 본인 출결 신청만 준다.
+ */
+export async function refreshMyAlertPopups(): Promise<void> {
+  if (isTestMode()) return;
+  const { data } = await http.get<{
+    alertPopups?: Record<string, unknown>[];
+    dismissals?: Record<string, unknown>[];
+    readPopupIds?: unknown[];
+    attendanceIssues?: Record<string, unknown>[];
+  }>('/alert-popups/mine');
+  const uid = lastBootstrapSession().uid;
+  const dismissed: Record<string, string> = {};
+  for (const row of data.dismissals ?? []) {
+    const popupId = String(row.popupId ?? row.popup_id ?? '');
+    const dateKey = String(row.dateKey ?? row.date_key ?? '').slice(0, 10);
+    if (popupId && dateKey) dismissed[popupId] = dateKey;
+  }
+  const popups = (data.alertPopups ?? []).map(mapAlert);
+  queryClient.setQueryData<Database>(queryKeys.bootstrap, (prev) =>
+    prev
+      ? {
+          ...prev,
+          alertPopups: popups,
+          alertDismissals: uid ? { ...prev.alertDismissals, [uid]: dismissed } : prev.alertDismissals,
+          alertReadIds: data.readPopupIds ? data.readPopupIds.map(String) : prev.alertReadIds,
+          attendanceIssues: data.attendanceIssues ? data.attendanceIssues.map(mapAttendanceIssue) : prev.attendanceIssues,
+        }
+      : prev,
+  );
+}
+
+/** 학생이 알림을 확인했다 — 관리자 화면 「읽음 n/m」. 한 번만 보낸다 */
+export function markAlertRead(popupId: string): void {
+  if (currentDb().alertReadIds.includes(popupId)) return;
+  mutate((db) => ({ alertReadIds: [...db.alertReadIds, popupId] }));
+  if (!isTestMode() && isApiId(popupId)) {
+    void http.post(`/alert-popups/${popupId}/read`).catch(() => undefined);
   }
 }
 
@@ -411,7 +490,7 @@ export function dismissAlertToday(uid: string, popupId: string): void {
     },
   }));
   if (!isTestMode() && isApiId(popupId)) {
-    void http.post(`/alert-popups/${popupId}/dismiss`, { dateKey }).then(() => invalidateBootstrap());
+    void http.post(`/alert-popups/${popupId}/dismiss`, { dateKey }).catch(() => undefined);
   }
 }
 
@@ -712,6 +791,264 @@ export function setSeatPresence(
       throw error;
     },
   );
+}
+
+// ── 불시 자리 점검 ─────────────────────────────────────
+
+export function useSpotChecks(cohortId: string): SpotCheck[] {
+  return useDb((db) => db.spotChecks.filter((c) => c.cohortId === cohortId));
+}
+
+export interface SpotCheckDraft {
+  id?: string;
+  checkedAt: Date;
+  period: SpotCheckPeriod;
+  note?: string;
+  items: SpotCheckItem[];
+}
+
+/** 점검 한 번을 통째로 저장한다 — id 가 있으면 그 점검을 고쳐 쓴다. 저장된 id 를 돌려준다. */
+export async function saveSpotCheck(cohortId: string, draft: SpotCheckDraft, checker: User): Promise<string> {
+  const local: SpotCheck = {
+    id: draft.id ?? nextId('sc'),
+    cohortId,
+    checkedAt: draft.checkedAt,
+    period: draft.period,
+    note: draft.note,
+    checkedBy: checker.uid,
+    checkedByName: checker.displayName,
+    items: draft.items,
+  };
+  if (isTestMode()) {
+    mutate((db) => ({
+      spotChecks: [local, ...db.spotChecks.filter((c) => c.id !== local.id)].sort(
+        (a, b) => b.checkedAt.getTime() - a.checkedAt.getTime(),
+      ),
+    }));
+    return local.id;
+  }
+  try {
+    const data = await runCommand('savePresenceCheck', {
+      id: draft.id !== undefined && isApiId(draft.id) ? draft.id : undefined,
+      cohortId: apiCohortId(),
+      checkedAt: draft.checkedAt.toISOString(),
+      period: draft.period,
+      note: draft.note,
+      items: draft.items,
+    });
+    return String(data.id ?? local.id);
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
+}
+
+export async function deleteSpotCheck(id: string): Promise<void> {
+  mutate((db) => ({ spotChecks: db.spotChecks.filter((c) => c.id !== id) }));
+  if (isTestMode() || !isApiId(id)) return;
+  try {
+    await runCommand('deletePresenceCheck', { id });
+  } catch (error) {
+    await invalidateBootstrap();
+    throw new Error(await readApiError(error));
+  }
+}
+
+// ── 관리자 AI 어시스턴트 ───────────────────────────────
+
+export type AssistantAction =
+  | {
+      id: string;
+      type: 'send_alert';
+      title: string;
+      content: string;
+      linkUrl?: string | null;
+      /** 'YYYY-MM-DD' — 이 날까지 보인다. null 이면 끌 때까지 */
+      endDate?: string | null;
+      allStudents: boolean;
+      targets: { uid: string; name: string }[];
+    }
+  | { id: string; type: 'create_notice'; title: string; content: string; important: boolean };
+
+export interface AssistantTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/** 대화를 보내고 답과 확인 카드(제안)를 받는다. 제안은 executeAssistantAction 을 불러야 반영된다. */
+export async function askAdminAssistant(
+  messages: AssistantTurn[],
+): Promise<{ reply: string; actions: AssistantAction[] }> {
+  if (isTestMode()) return { reply: '테스트 모드에서는 AI 어시스턴트를 쓸 수 없습니다.', actions: [] };
+  try {
+    const { data } = await http.post<{ reply?: string; actions?: AssistantAction[] }>('/admin/assistant', {
+      messages,
+      cohortId: apiCohortId(),
+    });
+    return { reply: data.reply ?? '', actions: data.actions ?? [] };
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
+}
+
+export async function executeAssistantAction(action: AssistantAction): Promise<void> {
+  if (isTestMode()) return;
+  try {
+    await http.post('/admin/assistant/execute', { action, cohortId: apiCohortId() });
+    await invalidateBootstrap();
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
+}
+
+/** 출결 신청 — 날짜를 주면 그날 것만 */
+export function useAttendanceIssues(dateKey?: string): AttendanceIssue[] {
+  return useDb((db) =>
+    dateKey === undefined ? db.attendanceIssues : db.attendanceIssues.filter((i) => i.dateKey === dateKey),
+  );
+}
+
+// ── 출결 신청(예외 출결) ───────────────────────────────
+
+export function useMyAttendanceRequests(uid: string): AttendanceIssue[] {
+  return useDb((db) =>
+    db.attendanceIssues
+      .filter((i) => i.userId === uid)
+      .sort((a, b) => b.dateKey.localeCompare(a.dateKey) || (b.submittedAt?.getTime() ?? 0) - (a.submittedAt?.getTime() ?? 0)),
+  );
+}
+
+/** 학생 신청 · 고치기 — 증빙은 먼저 올리고 키를 붙인다. 반려된 것을 고치면 다시 확인 대기로 간다 */
+export async function submitAttendanceRequest(
+  draft: AttendanceRequestDraft,
+  file: File | null,
+  owner: User,
+): Promise<string> {
+  const evidence = file ? await uploadRecordEvidence(file) : undefined;
+  if (isTestMode()) {
+    const id = draft.id ?? nextId('ar');
+    const previous = getDb().attendanceIssues.find((i) => i.id === id);
+    const keepEvidence = evidence === undefined && draft.removeEvidence !== true;
+    const saved: AttendanceIssue = {
+      id,
+      userId: owner.uid,
+      dateKey: draft.dateKey,
+      issueType: draft.issueType,
+      status: 'submitted',
+      reason: draft.reason.trim(),
+      timeFrom: draft.timeFrom,
+      timeTo: draft.timeTo,
+      officialLeaveUsed: draft.officialLeaveUsed,
+      officialLeaveType: draft.officialLeaveUsed ? draft.officialLeaveType : undefined,
+      officialLeaveOther: draft.officialLeaveUsed ? draft.officialLeaveOther : undefined,
+      evidenceName: evidence?.name ?? (keepEvidence ? previous?.evidenceName : undefined),
+      evidenceUrl: evidence?.url ?? (keepEvidence ? previous?.evidenceUrl : undefined),
+      submittedAt: previous?.submittedAt ?? new Date(),
+    };
+    saved.label = requestLabel(saved);
+    mutate((db) => ({ attendanceIssues: [saved, ...db.attendanceIssues.filter((i) => i.id !== id)] }));
+    return id;
+  }
+  try {
+    const data = await runCommand('submitAttendanceRequest', {
+      ...draft,
+      id: draft.id !== undefined && isApiId(draft.id) ? draft.id : undefined,
+      evidence: evidence && { key: evidence.key, name: evidence.name, contentType: evidence.contentType, size: evidence.size },
+    });
+    return String(data.id ?? '');
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
+}
+
+/**
+ * 테스트 모드 출석부 반영 — 서버(attendance_requests.py)와 같은 규칙.
+ * 신청이 처음 덮어쓸 때 원래 상태를 기억했다가, 승인이 모두 빠지면 되돌린다.
+ */
+const attendanceBeforeRequests = new Map<string, Pick<Attendance, 'status' | 'statusSource'> | null>();
+
+function attendanceOf(userId: string, dateKey: string): Attendance | undefined {
+  return getDb().attendances.find((a) => a.userId === userId && a.dateKey === dateKey);
+}
+
+function syncLocalAttendance(userId: string, dateKey: string): void {
+  const approved = getDb().attendanceIssues.filter(
+    (i) => i.userId === userId && i.dateKey === dateKey && i.status === 'approved',
+  );
+  const key = `${userId}|${dateKey}`;
+  const current = attendanceOf(userId, dateKey);
+  const status = resultingStatus(approved);
+  if (status !== undefined) {
+    if (current?.statusSource !== 'form') {
+      attendanceBeforeRequests.set(key, current ? { status: current.status, statusSource: current.statusSource } : null);
+    }
+    stampAttendance(userId, dateKey, { status, statusSource: 'form' });
+    return;
+  }
+  if (current?.statusSource !== 'form') return;
+  const before = attendanceBeforeRequests.get(key) ?? null;
+  attendanceBeforeRequests.delete(key);
+  stampAttendance(userId, dateKey, { status: before?.status, statusSource: before?.statusSource });
+}
+
+export async function cancelAttendanceRequest(id: string): Promise<void> {
+  const before = currentDb().attendanceIssues;
+  const target = before.find((i) => i.id === id);
+  mutate((db) => ({ attendanceIssues: db.attendanceIssues.filter((i) => i.id !== id) }));
+  if (isTestMode()) {
+    if (target?.status === 'approved') syncLocalAttendance(target.userId, target.dateKey);
+    return;
+  }
+  if (!isApiId(id)) return;
+  try {
+    await runCommand('cancelAttendanceRequest', { id });
+  } catch (error) {
+    mutate(() => ({ attendanceIssues: before }));
+    throw new Error(await readApiError(error));
+  }
+}
+
+/** 승인 · 반려(여러 건) — 승인하면 그날 출석부 상태도 바꾸고, 승인을 거두면 원래대로 돌린다 */
+export async function reviewAttendanceRequests(
+  ids: string[],
+  decision: AttendanceRequestStatus,
+  reviewer: User,
+  comment?: string,
+): Promise<void> {
+  const picked = new Set(ids);
+  const now = new Date();
+  const changedDays = new Set(
+    currentDb()
+      .attendanceIssues.filter((i) => picked.has(i.id) && (decision === 'approved' || i.status === 'approved'))
+      .map((i) => `${i.userId}|${i.dateKey}`),
+  );
+  mutate((db) => ({
+    attendanceIssues: db.attendanceIssues.map((i) =>
+      picked.has(i.id)
+        ? {
+            ...i,
+            status: decision,
+            reviewComment: comment?.trim() || undefined,
+            reviewedBy: decision === 'submitted' ? undefined : reviewer.uid,
+            reviewedAt: decision === 'submitted' ? undefined : now,
+          }
+        : i,
+    ),
+  }));
+  if (isTestMode()) {
+    changedDays.forEach((day) => {
+      const [userId, dateKey] = day.split('|');
+      syncLocalAttendance(userId, dateKey);
+    });
+    return;
+  }
+  const apiIds = ids.filter(isApiId);
+  if (apiIds.length === 0) return;
+  try {
+    await runCommand('reviewAttendanceRequest', { ids: apiIds, decision, comment });
+  } catch (error) {
+    await invalidateBootstrap();
+    throw new Error(await readApiError(error));
+  }
 }
 
 // ── 좌석 배치 ──────────────────────────────────────────

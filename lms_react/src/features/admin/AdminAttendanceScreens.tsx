@@ -6,6 +6,7 @@ import {
   fillCheckOut,
   setAttendanceStatus,
   useAttendanceByDate,
+  useAttendanceIssues,
   useStudents,
 } from '../../data/repository';
 import { dateKeyOf } from '../../data/seed';
@@ -20,8 +21,10 @@ import type { AttendanceStatusCode } from '../../domain/types';
 import { AdminTargets } from '../../tour/targets';
 import { useTourTarget } from '../../tour/useTourTarget';
 import { Icon } from '../../ui/Icon';
-import { PageHeader, Select } from '../../ui/components';
+import { PageHeader, Select, Tabs } from '../../ui/components';
 import { useCurrentUser } from '../auth/session';
+import { AttendanceRequestsPanel } from '../attendance/AttendanceRequestsPanel';
+import { RequestStatusLabels, labelOf } from '../attendance/attendanceRequest';
 
 /** 출석 관리 — features/admin/presentation/admin_attendance_screen.dart */
 export function AdminAttendanceScreen() {
@@ -29,10 +32,14 @@ export function AdminAttendanceScreen() {
   const students = useStudents(user.cohortId).filter((s) => s.isActive);
   const noticeRef = useTourTarget(AdminTargets.attendanceDailyNotice);
 
+  const [tab, setTab] = useState<'roll' | 'requests'>('roll');
   const [dateKey, setDateKey] = useState(() => dateKeyOf(new Date()));
   const [query, setQuery] = useState('');
   const [posted, setPosted] = useState(false);
   const rows = useAttendanceByDate(dateKey);
+  const issues = useAttendanceIssues(dateKey);
+  const studentIds = new Set(students.map((s) => s.uid));
+  const pendingRequests = useAttendanceIssues().filter((i) => i.status === 'submitted' && studentIds.has(i.userId)).length;
 
   const rowOf = (uid: string) => rows.find((a) => a.userId === uid);
   const count = (status: string) => rows.filter((a) => a.status === status).length;
@@ -44,7 +51,7 @@ export function AdminAttendanceScreen() {
   const postDailyNotice = () => {
     createNotice({
       title: AttendanceForm.dailyNoticeTitle,
-      content: `${AttendanceForm.dailyNoticeContent}\n\n${AttendanceForm.url}`,
+      content: AttendanceForm.dailyNoticeContent,
       authorName: user.displayName,
       authorId: user.uid,
       isFavorite: true,
@@ -58,143 +65,161 @@ export function AdminAttendanceScreen() {
     <div className="admin-page admin-page--wide">
       <PageHeader
         title="출석 관리"
-        description={`${user.cohortName} · 고용24 입퇴실은 예시 데이터입니다. 지각·조퇴·외출·결석·공가는 당일 구글폼 선택값이 반영됩니다.`}
+        description={`${user.cohortName} · 고용24 입퇴실은 예시 데이터입니다. 지각·조퇴·외출·결석·공가는 학생이 LMS 「출결 신청」으로 내고, 승인하면 출석부에 반영됩니다.`}
       />
 
-      {posted && (
-        <div className="callout callout--success">오늘 출결 폼 공지를 게시판에 올렸습니다.</div>
-      )}
+      <Tabs
+        active={tab}
+        onChange={(id) => setTab(id as typeof tab)}
+        items={[
+          { id: 'roll', label: '출석부' },
+          { id: 'requests', label: '출결 신청 확인', count: pendingRequests },
+        ]}
+      />
 
-      {/* 날짜와 한 번에 채우는 단추들 */}
-      <div className="panel toolbar-card">
-        <input
-          className="input"
-          type="date"
-          style={{ width: 170 }}
-          value={dateKey}
-          onChange={(e) => setDateKey(e.target.value)}
-        />
-        <button
-          type="button"
-          className="btn btn--text btn--sm"
-          onClick={() => setDateKey(dateKeyOf(new Date()))}
-        >
-          오늘
-        </button>
-        <button
-          type="button"
-          className="btn btn--filled btn--md"
-          onClick={() => students.forEach((s) => fillCheckIn(s.uid, dateKey))}
-        >
-          <Icon name="login" size={18} />
-          예시 입실 채우기
-        </button>
-        <button
-          type="button"
-          className="btn btn--filled btn--md"
-          onClick={() => students.forEach((s) => fillCheckOut(s.uid, dateKey))}
-        >
-          <Icon name="logout" size={18} />
-          예시 퇴실 채우기
-        </button>
-        <button type="button" className="btn btn--outline btn--md" ref={noticeRef} onClick={postDailyNotice}>
-          <Icon name="campaign" size={18} />
-          매일 08:30 공지 등록
-        </button>
-      </div>
+      {tab === 'requests' && <AttendanceRequestsPanel reviewer={user} students={students} />}
 
-      {/* 상태별 숫자와 이름 검색 */}
-      <div className="panel toolbar-card toolbar-card--stack">
-        <div className="count-chips">
-          <span className="count-chip">전체 {students.length}</span>
-          {AttendanceStatuses.map((status) => (
-            <span
-              key={status}
-              className="count-chip"
-              style={{
-                color: AttendanceColorVars[status],
-                borderColor: AttendanceColorVars[status],
-                background: `color-mix(in srgb, ${AttendanceColorVars[status]} 10%, transparent)`,
-              }}
+      {tab === 'roll' && (
+        <>
+          {posted && (
+            <div className="callout callout--success">오늘 출결 신청 안내 공지를 게시판에 올렸습니다.</div>
+          )}
+
+          {/* 날짜와 한 번에 채우는 단추들 */}
+          <div className="panel toolbar-card">
+            <input
+              className="input"
+              type="date"
+              style={{ width: 170 }}
+              value={dateKey}
+              onChange={(e) => setDateKey(e.target.value)}
+            />
+            <button
+              type="button"
+              className="btn btn--text btn--sm"
+              onClick={() => setDateKey(dateKeyOf(new Date()))}
             >
-              {AttendanceLabels[status]} {count(status)}
-            </span>
-          ))}
-          <span className="count-chip count-chip--none">미기록 {unrecorded}</span>
-        </div>
+              오늘
+            </button>
+            <button
+              type="button"
+              className="btn btn--filled btn--md"
+              onClick={() => students.forEach((s) => fillCheckIn(s.uid, dateKey))}
+            >
+              <Icon name="login" size={18} />
+              예시 입실 채우기
+            </button>
+            <button
+              type="button"
+              className="btn btn--filled btn--md"
+              onClick={() => students.forEach((s) => fillCheckOut(s.uid, dateKey))}
+            >
+              <Icon name="logout" size={18} />
+              예시 퇴실 채우기
+            </button>
+            <button type="button" className="btn btn--outline btn--md" ref={noticeRef} onClick={postDailyNotice}>
+              <Icon name="campaign" size={18} />
+              매일 08:30 공지 등록
+            </button>
+          </div>
 
-        <label className="study-search">
-          <Icon name="search" size={20} />
-          <input
-            className="study-search__input"
-            value={query}
-            placeholder="이름 검색"
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </label>
-      </div>
+          {/* 상태별 숫자와 이름 검색 */}
+          <div className="panel toolbar-card toolbar-card--stack">
+            <div className="count-chips">
+              <span className="count-chip">전체 {students.length}</span>
+              {AttendanceStatuses.map((status) => (
+                <span
+                  key={status}
+                  className="count-chip"
+                  style={{
+                    color: AttendanceColorVars[status],
+                    borderColor: AttendanceColorVars[status],
+                    background: `color-mix(in srgb, ${AttendanceColorVars[status]} 10%, transparent)`,
+                  }}
+                >
+                  {AttendanceLabels[status]} {count(status)}
+                </span>
+              ))}
+              <span className="count-chip count-chip--none">미기록 {unrecorded}</span>
+            </div>
 
-      <div className="panel panel--flush">
-        <table className="table att-table">
-          <thead>
-            <tr>
-              <th>이름</th>
-              <th style={{ width: 110 }}>입실</th>
-              <th style={{ width: 110 }}>퇴실</th>
-              <th style={{ width: 200 }}>폼</th>
-              <th style={{ width: 150 }}>최종 상태</th>
-              <th style={{ width: 110 }}>출처</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((s) => {
-              const row = rowOf(s.uid);
-              const form = [
-                row?.formAttendanceType,
-                row?.officialLeaveUsed === true ? (row.officialLeaveType ?? '기타') : undefined,
-              ]
-                .filter((v): v is string => v !== undefined && v !== '')
-                .join(' · ');
-              return (
-                <tr key={s.uid}>
-                  <td>
-                    <strong>{s.displayName}</strong>
-                  </td>
-                  <td className="hint">{row?.checkInTime ?? '-'}</td>
-                  <td className="hint">{row?.checkOutTime ?? '-'}</td>
-                  <td className="hint">{form === '' ? '-' : form}</td>
-                  <td>
-                    <Select
-                      value={row?.status ?? ''}
-                      onChange={(e) =>
-                        setAttendanceStatus(
-                          s.uid,
-                          dateKey,
-                          (e.target.value || undefined) as AttendanceStatusCode,
-                        )
-                      }
-                    >
-                      <option value="">미기록</option>
-                      {AttendanceStatuses.map((status) => (
-                        <option key={status} value={status}>
-                          {AttendanceLabels[status]}
-                        </option>
-                      ))}
-                    </Select>
-                  </td>
-                  <td className="hint">
-                    {row?.statusSource === 'form'
-                      ? '구글폼'
-                      : row?.statusSource === 'manual'
-                        ? '수동'
-                        : '-'}
-                  </td>
+            <label className="study-search">
+              <Icon name="search" size={20} />
+              <input
+                className="study-search__input"
+                value={query}
+                placeholder="이름 검색"
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </label>
+          </div>
+
+          <div className="panel panel--flush">
+            <table className="table att-table">
+              <thead>
+                <tr>
+                  <th>이름</th>
+                  <th style={{ width: 110 }}>입실</th>
+                  <th style={{ width: 110 }}>퇴실</th>
+                  <th style={{ width: 220 }}>출결 신청</th>
+                  <th style={{ width: 150 }}>최종 상태</th>
+                  <th style={{ width: 110 }}>출처</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+              </thead>
+              <tbody>
+                {shown.map((s) => {
+                  const row = rowOf(s.uid);
+                  const form = [
+                    ...issues
+                      .filter((i) => i.userId === s.uid)
+                      .map((i) => `${labelOf(i)}${i.status === 'approved' ? '' : ` (${RequestStatusLabels[i.status]})`}`),
+                    row?.formAttendanceType,
+                    row?.officialLeaveUsed === true ? (row.officialLeaveType ?? '기타') : undefined,
+                  ]
+                    .filter((v): v is string => v !== undefined && v !== '')
+                    .join(' · ');
+                  return (
+                    <tr key={s.uid}>
+                      <td>
+                        <strong>{s.displayName}</strong>
+                      </td>
+                      <td className="hint">{row?.checkInTime ?? '-'}</td>
+                      <td className="hint">{row?.checkOutTime ?? '-'}</td>
+                      <td className="hint">{form === '' ? '-' : form}</td>
+                      <td>
+                        <Select
+                          value={row?.status ?? ''}
+                          onChange={(e) =>
+                            setAttendanceStatus(
+                              s.uid,
+                              dateKey,
+                              (e.target.value || undefined) as AttendanceStatusCode,
+                            )
+                          }
+                        >
+                          <option value="">미기록</option>
+                          {AttendanceStatuses.map((status) => (
+                            <option key={status} value={status}>
+                              {AttendanceLabels[status]}
+                            </option>
+                          ))}
+                        </Select>
+                      </td>
+                      <td className="hint">
+                        {row?.statusSource === 'form'
+                          ? '출결 신청'
+                          : row?.statusSource === 'manual'
+                            ? '수동'
+                            : '-'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }

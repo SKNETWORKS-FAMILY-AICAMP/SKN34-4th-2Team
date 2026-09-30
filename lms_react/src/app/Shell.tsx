@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { useSession } from '../features/auth/session';
-import { AttendanceForm, CohortStatusLabels } from '../domain/constants';
+import { CohortStatusLabels } from '../domain/constants';
 import { selectCohort } from '../data/cohortSelection';
 import { Icon } from '../ui/Icon';
 import { MoreMenu } from '../ui/MoreMenu';
@@ -12,6 +12,7 @@ import { isNavSelected, navFor, type NavItem, type NavSection } from './navigati
 import { RoutePaths, homeFor } from './routePaths';
 import { AlertPopupHost } from '../features/board/AlertPopupHost';
 import { ChatbotHost } from '../features/chatbot/ChatbotHost';
+import { AdminAssistantHost } from '../features/manager/AdminAssistantHost';
 import { useCohorts } from '../data/repository';
 import { AppbarCrumbs, CrumbsProvider } from './crumbs';
 
@@ -252,16 +253,10 @@ export function Shell() {
             <span className="spacer" />
 
             {user.role === 'student' && (
-              <a
-                className="appbar__action"
-                ref={attendanceFormRef}
-                href={AttendanceForm.url}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <Icon name="open_in_new" size={18} />
-                출결 폼
-              </a>
+              <Link className="appbar__action" ref={attendanceFormRef} to={RoutePaths.attendanceRequest}>
+                <Icon name="event_busy" size={18} />
+                출결 신청
+              </Link>
             )}
 
             <button
@@ -289,6 +284,7 @@ export function Shell() {
 
         <AlertPopupHost />
         <ChatbotHost />
+        <AdminAssistantHost />
       </div>
     </CrumbsProvider>
   );

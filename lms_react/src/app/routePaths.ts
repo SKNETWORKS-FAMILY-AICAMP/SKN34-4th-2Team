@@ -29,6 +29,7 @@ export const RoutePaths = {
   forms: '/forms',
   qualExams: '/qual-exams',
   seating: '/seating',
+  attendanceRequest: '/attendance-request',
 
   // 관리자 셸
   admin: '/admin',
@@ -51,7 +52,8 @@ export const RoutePaths = {
   adminBoard: '/admin/board',
   adminBoardNoticeCreate: '/admin/board/create',
   adminBoardScheduledCreate: '/admin/board/scheduled/create',
-  adminBoardAlertPopupCreate: '/admin/board/alert-popups/create',
+  adminAlertPopups: '/admin/alert-popups',
+  adminAlertPopupCreate: '/admin/alert-popups/create',
   adminMileage: '/admin/mileage',
   adminMileageProducts: '/admin/mileage/products',
   adminMileageProductsCreate: '/admin/mileage/products/create',
@@ -114,7 +116,7 @@ export const adminCohortEditPath = (id: string) => `/admin/cohorts/${id}/edit`;
 export const adminFormTaskEditPath = (id: string) => `/admin/form-tasks/${id}/edit`;
 export const adminBoardNoticeEditPath = (id: string) => `/admin/board/${id}/edit`;
 export const adminBoardScheduledEditPath = (id: string) => `/admin/board/scheduled/${id}/edit`;
-export const adminBoardAlertPopupEditPath = (id: string) => `/admin/board/alert-popups/${id}/edit`;
+export const adminAlertPopupEditPath = (id: string) => `/admin/alert-popups/${id}/edit`;
 export const adminStudyRoomPackagePath = (id: string) => `/admin/study-room/${id}`;
 export const adminMileageProductEditPath = (id: string) => `/admin/mileage/products/${id}/edit`;
 

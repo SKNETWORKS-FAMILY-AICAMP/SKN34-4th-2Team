@@ -207,7 +207,7 @@ export const seedNotices: Notice[] = [
     id: 'n1',
     title: '[출결] 오늘 예외 출결 제출',
     content:
-      '정상 출석 외에 지각 / 조퇴 / 외출 / 결석(공가 포함) 예정이 있으면 반드시 오늘 날짜로 구글폼을 제출해 주세요.',
+      '정상 출석 외에 지각 / 조퇴 / 외출 / 결석(공가 포함) 예정이 있으면 반드시 오늘 날짜로 「출결 신청」에서 신청해 주세요.',
     authorName: 'PLAYDATA 관리자',
     isFavorite: true,
     priority: 1,
@@ -248,7 +248,7 @@ export const seedScheduledNotices: ScheduledNotice[] = [
   {
     id: 'sn1',
     title: '[출결] 오늘 예외 출결 제출',
-    content: '정상 출석 외 예외 출결은 구글폼으로 제출해 주세요.',
+    content: '정상 출석 외 예외 출결은 LMS 「출결 신청」에서 신청해 주세요.',
     authorName: 'PLAYDATA 관리자',
     isFavorite: true,
     repeatType: 'daily',

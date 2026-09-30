@@ -1479,6 +1479,50 @@ def delete_scheduled(request, pk: int):
     return Response(result, status=status)
 
 
+@api.get("/alert-popups/mine")
+def my_alert_popups(request):
+    """학생 화면이 새 알림 · 출결 신청 처리 결과를 확인하는 가벼운 조회 — 1분마다 bootstrap 전체를 다시 받지 않게 한다."""
+    from lms.attendance_requests import public_request
+    from lms.jsonutil import public_row
+    from lms.storage import read_url
+
+    user = _require_user(request)
+    if user["role"] != "student" or not user.get("cohort_id"):
+        return {"alertPopups": [], "dismissals": [], "readPopupIds": [], "attendanceIssues": []}
+    with connection.cursor() as cur:
+        cur.execute(
+            """SELECT p.*, u.display_name AS author_name FROM alert_popups p
+               LEFT JOIN users u ON u.id = p.author_id
+               WHERE p.cohort_id = %s AND p.is_active = true
+                 AND (p.end_date IS NULL OR p.end_date >= (now() AT TIME ZONE 'Asia/Seoul')::date)
+                 AND (NOT EXISTS (SELECT 1 FROM alert_popup_targets t WHERE t.popup_id = p.id)
+                      OR EXISTS (SELECT 1 FROM alert_popup_targets t WHERE t.popup_id = p.id AND t.user_id = %s))
+               ORDER BY p.sort_order NULLS LAST, p.created_at DESC NULLS LAST""",
+            [user["cohort_id"], user["id"]],
+        )
+        popups = _dicts(cur)
+        cur.execute("SELECT * FROM alert_popup_dismissals WHERE user_id = %s", [user["id"]])
+        dismissals = _dicts(cur)
+        cur.execute("SELECT popup_id FROM alert_popup_reads WHERE user_id = %s", [user["id"]])
+        read_ids = [str(row[0]) for row in cur.fetchall()]
+        cur.execute(
+            """SELECT id, user_id, cohort_id, attendance_date, issue_type, status, details,
+                      evidence_storage_key, reviewed_by_id, reviewed_at, created_at
+               FROM attendance_issue_reports WHERE user_id = %s
+               ORDER BY attendance_date DESC, created_at DESC""",
+            [user["id"]],
+        )
+        issues = _dicts(cur)
+    uid_by_pk = {user["id"]: user["firebase_uid"]}
+    code_by_pk = {user["cohort_id"]: user.get("cohort_code")}
+    return {
+        "alertPopups": [public_row(p, uid_by_pk, code_by_pk) for p in popups],
+        "dismissals": [public_row(d, uid_by_pk, code_by_pk) for d in dismissals],
+        "readPopupIds": read_ids,
+        "attendanceIssues": [public_request(row, uid_by_pk, read_url) for row in issues],
+    }
+
+
 @api.post("/alert-popups")
 def create_alert(request, body: dict[str, Any] = Body(...)):
     user = _require_user(request)
@@ -1511,3 +1555,58 @@ def dismiss_alert(request, pk: int, body: dict[str, Any] | None = Body(None)):
         "dismissAlertPopup", user, {**_data(body), "popupId": pk}
     )
     return Response(result, status=status)
+
+
+@api.post("/alert-popups/{pk}/read")
+def read_alert(request, pk: int):
+    user = _require_user(request)
+    status, result = _run_op("markAlertRead", user, {"popupId": pk})
+    return Response(result, status=status)
+
+
+class AssistantIn(Schema):
+    messages: list[dict[str, Any]] = Field(default_factory=list)
+    cohortId: str = ""
+
+
+class AssistantActionIn(Schema):
+    action: dict[str, Any] = Field(default_factory=dict)
+    cohortId: str = ""
+
+
+def _assistant_cohort(user: dict, cohort_key: str) -> int | None:
+    with connection.cursor() as cur:
+        cohort_id = resolve_cohort(cur, cohort_key or None, user)
+    return cohort_id if cohort_id is not None and can_access_cohort(user, cohort_id) else None
+
+
+@api.post("/admin/assistant")
+def admin_assistant(request, body: AssistantIn):
+    from lms.admin_assistant import AssistantError, run_assistant
+
+    user = _require_user(request)
+    cohort_id = _assistant_cohort(user, body.cohortId)
+    if cohort_id is None:
+        return Response({"detail": "forbidden"}, status=403)
+    try:
+        return run_assistant(user, cohort_id, body.messages)
+    except AssistantError as exc:
+        return Response({"detail": exc.detail}, status=exc.status)
+
+
+@api.post("/admin/assistant/execute")
+def admin_assistant_execute(request, body: AssistantActionIn):
+    from lms.admin_assistant import AssistantError, execute_action
+
+    user = _require_user(request)
+    cohort_id = _assistant_cohort(user, body.cohortId)
+    if cohort_id is None:
+        return Response({"detail": "forbidden"}, status=403)
+    try:
+        return execute_action(user, cohort_id, body.action)
+    except AssistantError as exc:
+        return Response({"detail": exc.detail}, status=exc.status)
+    except PermissionError:
+        return Response({"detail": "forbidden"}, status=403)
+    except (KeyError, ValueError) as exc:
+        return Response({"detail": str(exc)}, status=400)
