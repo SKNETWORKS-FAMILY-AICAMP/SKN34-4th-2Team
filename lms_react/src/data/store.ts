@@ -46,6 +46,7 @@ import type {
   AssessmentQuestion,
   AssessmentSubmission,
   Attendance,
+  AttendanceIssue,
   Cohort,
   CurriculumSheet,
   FormResponse,
@@ -70,6 +71,7 @@ import type {
   SeatPresence,
   SeatingAssignment,
   SeatingRoom,
+  SpotCheck,
   StudyNote,
   StudySource,
   Submission,
@@ -119,7 +121,12 @@ export interface Database {
   seatingMeta: Record<string, { publishedRoomId?: string }>;
   projectTeams: ProjectTeam[];
   seatPresence: SeatPresence[];
+  /** 불시 자리 점검 — 최근 것이 앞 */
+  spotChecks: SpotCheck[];
+  /** 출결 신청(예외 출결) */
+  attendanceIssues: AttendanceIssue[];
   qualExams: QualExamSchedule[];
+  qualExamsSyncedAt?: Date;
   /** 수업일마다 만든 실습 문제 세트 — 기수 공용 */
   practiceSets: PracticeSet[];
   /** 학생별 풀이 기록 — 복습 추천·강사 대시보드의 재료 */
@@ -131,6 +138,8 @@ export interface Database {
   aiEvals: AiEvalResult[];
   /** 알림 팝업 「오늘 하루 보지 않기」 — uid → popupId → dateKey */
   alertDismissals: Record<string, Record<string, string>>;
+  /** 로그인한 학생이 이미 확인한 알림 id */
+  alertReadIds: string[];
 }
 
 function initial(): Database {
@@ -166,6 +175,8 @@ function initial(): Database {
     seatingMeta: seedSeatingMeta,
     projectTeams: seedProjectTeams,
     seatPresence: [],
+    spotChecks: [],
+    attendanceIssues: [],
     qualExams: seedQualExams,
     practiceSets: seedPracticeSets,
     practiceAttempts: seedPracticeAttempts,
@@ -174,6 +185,7 @@ function initial(): Database {
     aiLogs: seedAiLogs,
     aiEvals: seedAiEvals,
     alertDismissals: {},
+    alertReadIds: [],
   };
 }
 
@@ -229,6 +241,8 @@ export function emptyDb(): Database {
     seatingMeta: {},
     projectTeams: [],
     seatPresence: [],
+    spotChecks: [],
+    attendanceIssues: [],
     qualExams: [],
     practiceSets: [],
     practiceAttempts: [],
@@ -237,6 +251,7 @@ export function emptyDb(): Database {
     aiLogs: [],
     aiEvals: [],
     alertDismissals: {},
+    alertReadIds: [],
   };
 }
 

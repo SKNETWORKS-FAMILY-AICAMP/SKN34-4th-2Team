@@ -9,7 +9,12 @@ import { RoleLabels } from '../../domain/constants';
 import { Icon } from '../../ui/Icon';
 import { easeInCubic, easeInOutCubic, interval, lerp } from '../../utils/curves';
 import { LoginBrandStage } from './LoginBrandStage';
-import { useSession } from './session';
+import { useSession, type SignInStage } from './session';
+
+const STAGE_LABELS: Record<SignInStage, string> = {
+  auth: '로그인 중…',
+  data: '내 정보를 불러오는 중…',
+};
 
 /**
  * 로그인 — features/auth/presentation/login_screen.dart
@@ -31,6 +36,8 @@ export function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [demoOpen, setDemoOpen] = useState(false);
   const [exiting, setExiting] = useState(false);
+  const [stage, setStage] = useState<SignInStage | null>(null);
+  const busy = stage !== null || exiting || loading;
 
   const panelRef = useRef<HTMLDivElement>(null);
   const exitRef = useRef(0);
@@ -86,11 +93,13 @@ export function LoginScreen() {
     frameRef.current = window.requestAnimationFrame(step);
   };
 
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    if (exiting) return;
+  const run = (address: string, secret: string) => {
+    if (busy) return;
+    setError(null);
+    setStage('auth');
     void (async () => {
-      const result = await signIn(email, password);
+      const result = await signIn(address, secret, setStage);
+      setStage(null);
       if (!result.ok) {
         setError(result.message);
         return;
@@ -99,20 +108,29 @@ export function LoginScreen() {
     })();
   };
 
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (email.trim() === '' || password === '') {
+      setError('아이디와 비밀번호를 입력하세요.');
+      return;
+    }
+    run(email, password);
+  };
+
   const quickLogin = (address: string) => {
-    if (exiting) return;
+    if (busy) return;
     setEmail(address);
     setPassword(DemoAccounts.password);
-    setError(null);
-    void (async () => {
-      const result = await signIn(address, DemoAccounts.password);
-      if (!result.ok) {
-        setError(result.message);
-        return;
-      }
-      enter(result.role, result.mustChangePassword);
-    })();
+    run(address, DemoAccounts.password);
   };
+
+  const submitLabel = loading
+    ? '로그인 상태 확인 중…'
+    : stage !== null
+      ? STAGE_LABELS[stage]
+      : exiting
+        ? '이동 중…'
+        : '로그인';
 
   return (
     <div className={`login${exiting ? ' login--exiting' : ''}`}>
@@ -127,6 +145,7 @@ export function LoginScreen() {
               className="login__input"
               type="email"
               value={email}
+              readOnly={busy}
               autoComplete="username"
               placeholder="이메일을 입력하세요"
               onChange={(e) => {
@@ -143,6 +162,7 @@ export function LoginScreen() {
                 className="login__input"
                 type={showPassword ? 'text' : 'password'}
                 value={password}
+                readOnly={busy}
                 autoComplete="current-password"
                 placeholder="비밀번호를 입력하세요"
                 onChange={(e) => {
@@ -167,8 +187,9 @@ export function LoginScreen() {
 
           {error !== null && <p className="login__error">{error}</p>}
 
-          <button type="submit" className="login__submit">
-            로그인
+          <button type="submit" className="login__submit" disabled={busy} aria-busy={busy}>
+            {busy && <span className="login__spinner" aria-hidden="true" />}
+            {submitLabel}
           </button>
         </form>
 
@@ -186,6 +207,7 @@ export function LoginScreen() {
                   key={role}
                   type="button"
                   className="login__demo-btn"
+                  disabled={busy}
                   onClick={() => quickLogin(account.email)}
                 >
                   {RoleLabels[role]}

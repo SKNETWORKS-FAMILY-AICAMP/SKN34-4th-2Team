@@ -1,25 +1,18 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
+import { RoutePaths, adminBoardNoticeEditPath, adminBoardScheduledEditPath } from '../../app/routePaths';
 import {
-  RoutePaths,
-  adminBoardAlertPopupEditPath,
-  adminBoardNoticeEditPath,
-  adminBoardScheduledEditPath,
-} from '../../app/routePaths';
-import {
-  deleteAlertPopup,
   deleteNotice,
   deleteScheduledNotice,
   publishScheduledNotice,
-  upsertAlertPopup,
+  setScheduledNoticeActive,
   upsertScheduledNotice,
-  useAlertPopups,
   useNotices,
   useScheduledNotices,
 } from '../../data/repository';
 import { nextId } from '../../data/store';
-import type { AlertPopup, ScheduleRepeatType, ScheduledNotice } from '../../domain/types';
+import type { ScheduleRepeatType, ScheduledNotice } from '../../domain/types';
 import { AdminTargets } from '../../tour/targets';
 import { useTourTarget } from '../../tour/useTourTarget';
 import {
@@ -53,16 +46,16 @@ const weekdayLabels = ['월', '화', '수', '목', '금', '토', '일'];
 /** 게시판(관리자) — features/admin/presentation/admin_board_screen.dart */
 export function AdminBoardScreen() {
   const [tab, setTab] = useState('notices');
+  const [toggleError, setToggleError] = useState<string | null>(null);
   const notices = useNotices();
   const scheduled = useScheduledNotices();
-  const popups = useAlertPopups();
   const navigate = useNavigate();
   const createRef = useTourTarget(AdminTargets.boardCreate);
 
   return (
     <TabPage
       title="게시판 관리"
-      description="공지 · 예약 게시 · 로그인 알림 팝업을 관리합니다."
+      description="공지와 예약 게시를 관리합니다. 학생 화면에 뜨는 알림은 「알림 팝업」 메뉴에서 보냅니다."
       tabs={
         <Tabs
           active={tab}
@@ -70,26 +63,30 @@ export function AdminBoardScreen() {
           items={[
             { id: 'notices', label: '공지 관리', count: notices.length },
             { id: 'scheduled', label: '예약 공지', count: scheduled.length },
-            { id: 'popups', label: '알림 팝업', count: popups.length },
           ]}
         />
       }
       actions={
-          tab === 'notices' ? (
-            <Link className="btn btn--filled btn--md" ref={createRef} to={RoutePaths.adminBoardNoticeCreate}>
-              공지 작성
-            </Link>
-          ) : tab === 'scheduled' ? (
-            <Link className="btn btn--filled btn--md" to={RoutePaths.adminBoardScheduledCreate}>
-              예약 공지 등록
-            </Link>
-          ) : (
-            <Link className="btn btn--filled btn--md" to={RoutePaths.adminBoardAlertPopupCreate}>
-              팝업 등록
-            </Link>
-          )
+        tab === 'notices' ? (
+          <Link className="btn btn--filled btn--md" ref={createRef} to={RoutePaths.adminBoardNoticeCreate}>
+            공지 작성
+          </Link>
+        ) : (
+          <Link className="btn btn--filled btn--md" to={RoutePaths.adminBoardScheduledCreate}>
+            예약 공지 등록
+          </Link>
+        )
       }
     >
+      {toggleError !== null && (
+        <div className="callout callout--error" role="alert">
+          {toggleError}
+          <button type="button" className="btn btn--text btn--sm" onClick={() => setToggleError(null)}>
+            닫기
+          </button>
+        </div>
+      )}
+
       {tab === 'notices' && (
         <Card padded={false}>
           <DataTable
@@ -155,7 +152,14 @@ export function AdminBoardScreen() {
                 header: '동작',
                 width: '90px',
                 render: (s) => (
-                  <Toggle checked={s.isActive} onChange={(v) => void upsertScheduledNotice({ ...s, isActive: v })} />
+                  <Toggle
+                    checked={s.isActive}
+                    onChange={(v) =>
+                      setScheduledNoticeActive(s, v).catch((err: unknown) =>
+                        setToggleError(`「${s.title}」 동작을 바꾸지 못했습니다. ${err instanceof Error ? err.message : ''}`),
+                      )
+                    }
+                  />
                 ),
               },
               {
@@ -183,52 +187,6 @@ export function AdminBoardScreen() {
         </Card>
       )}
 
-      {tab === 'popups' && (
-        <Card padded={false}>
-          <DataTable
-            rows={popups}
-            rowKey={(p) => p.id}
-            empty="등록된 팝업이 없습니다."
-            columns={[
-              { key: 'title', header: '제목', render: (p) => p.title },
-              {
-                key: 'window',
-                header: '노출 시간',
-                width: '160px',
-                render: (p) =>
-                  p.startTime === undefined && p.endTime === undefined
-                    ? '종일'
-                    : `${p.startTime ?? '00:00'} ~ ${p.endTime ?? '23:59'}`,
-              },
-              {
-                key: 'active',
-                header: '노출',
-                width: '90px',
-                render: (p) => (
-                  <Toggle checked={p.isActive} onChange={(v) => void upsertAlertPopup({ ...p, isActive: v })} />
-                ),
-              },
-              {
-                key: 'actions',
-                header: '',
-                width: '140px',
-                align: 'right',
-                render: (p) => (
-                  <Row gap={4} wrap={false}>
-                    <Spacer />
-                    <Button size="sm" variant="outline" onClick={() => navigate(adminBoardAlertPopupEditPath(p.id))}>
-                      수정
-                    </Button>
-                    <Button size="sm" variant="danger" onClick={() => void deleteAlertPopup(p.id)}>
-                      삭제
-                    </Button>
-                  </Row>
-                ),
-              },
-            ]}
-          />
-        </Card>
-      )}
     </TabPage>
   );
 }
@@ -315,89 +273,6 @@ export function AdminScheduledNoticeFormScreen() {
         </div>
         <Checkbox checked={isFavorite} onChange={setFavorite} label="중요 공지로 올립니다" />
         <Toggle checked={isActive} onChange={setActive} label="예약 동작" />
-        <Row>
-          <Spacer />
-          <Button variant="outline" onClick={() => navigate(RoutePaths.adminBoard)}>
-            취소
-          </Button>
-          <Button onClick={save} disabled={saving}>
-            {saving ? '저장 중' : '저장'}
-          </Button>
-        </Row>
-      </Card>
-    </div>
-  );
-}
-
-/** 알림 팝업 등록·수정 — admin_alert_popup_form_screen.dart */
-export function AdminAlertPopupFormScreen() {
-  const { popupId } = useParams<{ popupId: string }>();
-  const popups = useAlertPopups();
-  const existing = popups.find((p) => p.id === popupId);
-  const user = useCurrentUser();
-  const navigate = useNavigate();
-
-  const [title, setTitle] = useState(existing?.title ?? '');
-  const [content, setContent] = useState(existing?.content ?? '');
-  const [linkUrl, setLinkUrl] = useState(existing?.linkUrl ?? '');
-  const [startTime, setStartTime] = useState(existing?.startTime ?? '');
-  const [endTime, setEndTime] = useState(existing?.endTime ?? '');
-  const [isActive, setActive] = useState(existing?.isActive ?? true);
-  const [sortOrder, setSortOrder] = useState(String(existing?.sortOrder ?? 0));
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  const save = () => {
-    if (title.trim() === '') {
-      setError('제목을 입력해 주세요.');
-      return;
-    }
-    const popup: AlertPopup = {
-      id: existing?.id ?? nextId('ap'),
-      title: title.trim(),
-      content: content.trim(),
-      authorName: user.displayName,
-      isActive,
-      sortOrder: Number(sortOrder) || 0,
-      linkUrl: linkUrl.trim() === '' ? undefined : linkUrl.trim(),
-      startTime: startTime === '' ? undefined : startTime,
-      endTime: endTime === '' ? undefined : endTime,
-      createdAt: existing?.createdAt ?? new Date(),
-    };
-    setSaving(true);
-    void upsertAlertPopup(popup)
-      .then(() => navigate(RoutePaths.adminBoard))
-      .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : '저장에 실패했습니다.');
-        setSaving(false);
-      });
-  };
-
-  return (
-    <div className="screen__inner">
-      <PageHeader title={existing === undefined ? '알림 팝업 등록' : '알림 팝업 수정'} />
-      <Card>
-        <Field label="제목" error={error ?? undefined}>
-          <TextInput value={title} onChange={(e) => setTitle(e.target.value)} />
-        </Field>
-        <Field label="내용">
-          <TextArea rows={4} value={content} onChange={(e) => setContent(e.target.value)} />
-        </Field>
-        <Field label="링크" hint="비워 두면 링크 없이 안내만 보여 줍니다.">
-          <TextInput value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://" />
-        </Field>
-        <div className="grid grid--2">
-          <Field label="노출 시작" hint="비우면 종일 노출합니다.">
-            <TextInput type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
-          </Field>
-          <Field label="노출 종료">
-            <TextInput type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
-          </Field>
-        </div>
-        <Field label="표시 순서" hint="작을수록 먼저 보여 줍니다.">
-          <TextInput type="number" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} />
-        </Field>
-        <Toggle checked={isActive} onChange={setActive} label="지금 노출" />
         <Row>
           <Spacer />
           <Button variant="outline" onClick={() => navigate(RoutePaths.adminBoard)}>

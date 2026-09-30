@@ -25,8 +25,8 @@ export const studentTour: TourDefinition = {
     },
     {
       id: 'attendance_form',
-      title: '출결 폼',
-      body: '예외 출결을 제출하는 구글 폼입니다. 누르면 새 창이 열립니다.',
+      title: '출결 신청',
+      body: '지각 · 조퇴 · 외출 · 결석(공가 포함)이 있으면 여기서 신청합니다. 매니저가 확인하면 출석부에 반영됩니다.',
       targetId: StudentTargets.attendanceForm,
       route: RoutePaths.dashboard,
     },

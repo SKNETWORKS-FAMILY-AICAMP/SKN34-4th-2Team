@@ -29,3 +29,11 @@ def run_practice_auto():
     from lms.practice_auto import run_daily
 
     return run_daily()
+
+
+@shared_task
+def sync_qual_exams():
+    """매일 새벽 — 공공데이터포털 국가자격 시험 일정을 system_cache 에 받아 둔다"""
+    from lms.external_feeds import sync_qual_exams as sync
+
+    return sync()

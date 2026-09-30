@@ -1,23 +1,17 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
-import { RoutePaths, adminFormTaskEditPath, adminStudyRoomPackagePath } from '../../app/routePaths';
+import { RoutePaths, adminStudyRoomPackagePath } from '../../app/routePaths';
 import {
-  deleteFormTask,
   deleteInflearnPackage,
-  upsertFormTask,
   upsertInflearnPackage,
   useCohorts,
-  useFormResponses,
-  useFormTasks,
   useInflearnPackages,
-  useStudents,
   useStudySources,
   useYoutubeRecommendations,
 } from '../../data/repository';
 import { nextId } from '../../data/store';
 import type {
-  FormTask,
   InflearnCourse,
   InflearnPackage,
   InflearnPackageType,
@@ -26,24 +20,19 @@ import type {
 import { Icon } from '../../ui/Icon';
 import { StudySourcesPanel } from '../study/StudySourcesPanel';
 import {
-  Badge,
   Button,
   Card,
   Chip,
-  Dialog,
   Field,
   PageHeader,
   Row,
   Select,
   Spacer,
-  TabPage,
   StatTile,
   TextArea,
   TextInput,
   Toggle,
 } from '../../ui/components';
-import { formatDate, formatDateTime } from '../../utils/format';
-import { useCurrentUser } from '../auth/session';
 
 const packageTypeLabels: Record<InflearnPackageType, string> = {
   review: '예복습',
@@ -51,174 +40,8 @@ const packageTypeLabels: Record<InflearnPackageType, string> = {
   bonus: '보너스',
 };
 
-const toInputDateTime = (d: Date) => {
-  const pad = (v: number) => String(v).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-
-/** 설문 · 제출(관리자) — admin_form_tasks_screen.dart */
-export function AdminFormTasksScreen() {
-  const user = useCurrentUser();
-  const tasks = useFormTasks();
-  const responses = useFormResponses();
-  const students = useStudents(user.cohortId).filter((s) => s.isActive);
-  const navigate = useNavigate();
-  const [detail, setDetail] = useState<FormTask | null>(null);
-
-  return (
-    <TabPage
-      title="설문 · 제출 관리"
-      description="구글폼 설문을 등록하고 학생별 제출 여부를 확인합니다."
-      actions={
-        <Link className="btn btn--filled btn--md" to={RoutePaths.adminFormTasksCreate}>
-          <Icon name="add" size={18} />
-          설문 등록
-        </Link>
-      }
-    >
-      {tasks.length === 0 ? (
-        <div className="list-page__empty">
-          <Icon name="assignment" size={44} />
-          <p>등록된 설문이 없습니다</p>
-        </div>
-      ) : (
-        <div className="list-page__body">
-          {tasks.map((t) => {
-            const count = responses.filter((r) => r.taskId === t.id).length;
-            return (
-              <div key={t.id} className="task-row">
-                <button type="button" className="task-row__main" onClick={() => setDetail(t)}>
-                  <span className="task-row__icon">
-                    <Icon name="description" size={22} />
-                  </span>
-                  <span className="task-row__body">
-                    <strong>{t.title}</strong>
-                    <span className="hint">
-                      마감 {formatDate(t.dueAt)} · 제출 {count}명
-                    </span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="icon-btn"
-                  aria-label="삭제"
-                  onClick={() => deleteFormTask(t.id)}
-                >
-                  <Icon name="delete" size={20} />
-                </button>
-                <button
-                  type="button"
-                  className="icon-btn"
-                  aria-label="수정"
-                  onClick={() => navigate(adminFormTaskEditPath(t.id))}
-                >
-                  <Icon name="chevron_right" size={20} />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {detail !== null && (
-        <Dialog
-          title={`${detail.title} 제출 현황`}
-          width={560}
-          onClose={() => setDetail(null)}
-          actions={<Button onClick={() => setDetail(null)}>닫기</Button>}
-        >
-          <ul className="list">
-            {students.map((s) => {
-              const response = responses.find((r) => r.taskId === detail.id && r.userId === s.uid);
-              return (
-                <li key={s.uid} className="list__item">
-                  <span>{s.displayName}</span>
-                  <Spacer />
-                  {response === undefined ? (
-                    <Badge tone="warning">미제출</Badge>
-                  ) : (
-                    <>
-                      <span className="hint">{formatDateTime(response.submittedAt)}</span>
-                      <Badge tone="success">제출</Badge>
-                    </>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </Dialog>
-      )}
-    </TabPage>
-  );
-}
-
-/** 설문 등록·수정 — admin_form_task_form */
-export function AdminFormTaskFormScreen() {
-  const { taskId } = useParams<{ taskId: string }>();
-  const tasks = useFormTasks();
-  const existing = tasks.find((t) => t.id === taskId);
-  const navigate = useNavigate();
-
-  const [title, setTitle] = useState(existing?.title ?? '');
-  const [description, setDescription] = useState(existing?.description ?? '');
-  const [formUrl, setFormUrl] = useState(existing?.formUrl ?? '');
-  const [guideUrl, setGuideUrl] = useState(existing?.notionGuideUrl ?? '');
-  const [dueAt, setDueAt] = useState(
-    toInputDateTime(existing?.dueAt ?? new Date(Date.now() + 7 * 86400000)),
-  );
-  const [published, setPublished] = useState(existing?.published ?? true);
-  const [error, setError] = useState<string | null>(null);
-
-  const save = () => {
-    if (title.trim() === '' || formUrl.trim() === '') {
-      setError('제목과 폼 주소는 반드시 입력해야 합니다.');
-      return;
-    }
-    upsertFormTask({
-      id: existing?.id ?? nextId('form'),
-      title: title.trim(),
-      description: description.trim(),
-      formUrl: formUrl.trim(),
-      notionGuideUrl: guideUrl.trim() === '' ? undefined : guideUrl.trim(),
-      dueAt: new Date(dueAt),
-      published,
-      responseCount: existing?.responseCount ?? 0,
-      createdAt: existing?.createdAt ?? new Date(),
-    });
-    navigate(RoutePaths.adminFormTasks);
-  };
-
-  return (
-    <div className="screen__inner">
-      <PageHeader title={existing === undefined ? '설문 등록' : '설문 수정'} />
-      <Card>
-        <Field label="제목" error={error ?? undefined}>
-          <TextInput value={title} onChange={(e) => setTitle(e.target.value)} />
-        </Field>
-        <Field label="설명">
-          <TextArea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
-        </Field>
-        <Field label="구글폼 주소">
-          <TextInput value={formUrl} onChange={(e) => setFormUrl(e.target.value)} placeholder="https://docs.google.com/forms/..." />
-        </Field>
-        <Field label="작성 가이드(노션)">
-          <TextInput value={guideUrl} onChange={(e) => setGuideUrl(e.target.value)} placeholder="https://notion.so/..." />
-        </Field>
-        <Field label="마감 일시">
-          <TextInput type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} />
-        </Field>
-        <Toggle checked={published} onChange={setPublished} label="학생에게 공개" />
-        <Row>
-          <Spacer />
-          <Button variant="outline" onClick={() => navigate(RoutePaths.adminFormTasks)}>
-            취소
-          </Button>
-          <Button onClick={save}>저장</Button>
-        </Row>
-      </Card>
-    </div>
-  );
-}
+/** 설문 · 제출(관리자) — 화면은 features/forms 에 둔다(LMS 설문 편집 · 결과) */
+export { AdminFormTaskFormScreen, AdminFormTasksScreen } from '../forms/AdminFormScreens';
 
 /** 학습실(관리자) — admin_study_room_screen.dart */
 export function AdminStudyRoomScreen() {

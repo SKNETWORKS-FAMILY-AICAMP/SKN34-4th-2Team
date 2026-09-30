@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
-import { RoutePaths } from '../../app/routePaths';
+import { RoutePaths, formFillPath } from '../../app/routePaths';
 import {
+  markFormResponded,
   useAttendanceOfUser,
   useCurriculumSheets,
   useFormResponses,
@@ -479,10 +480,25 @@ function FormTasksSection() {
                 마감 {formatDate(task.dueAt)} · {formatDueIn(task.dueAt)}
               </span>
               <div className="form-row__actions">
-                <a className="btn btn--filled btn--md" href={task.formUrl} target="_blank" rel="noreferrer">
-                  <Icon name="description" size={17} />
-                  구글폼 작성
-                </a>
+                {task.mode === 'builtin' ? (
+                  <Link className="btn btn--filled btn--md" to={formFillPath(task.id)}>
+                    <Icon name="edit_square" size={17} />
+                    {responded ? '응답 고치기' : '설문 작성'}
+                  </Link>
+                ) : (
+                  <a
+                    className="btn btn--filled btn--md"
+                    href={task.formUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => {
+                      if (!responded) markFormResponded(task.id, user);
+                    }}
+                  >
+                    <Icon name="open_in_new" size={17} />
+                    외부 폼 작성
+                  </a>
+                )}
                 {task.notionGuideUrl !== undefined && (
                   <a className="btn btn--outline btn--md" href={task.notionGuideUrl} target="_blank" rel="noreferrer">
                     <Icon name="menu_book" size={17} />

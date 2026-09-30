@@ -90,6 +90,8 @@ class AlertPopups(models.Model):
     link_url = models.CharField(blank=True, null=True)
     start_time = models.TimeField(blank=True, null=True)
     end_time = models.TimeField(blank=True, null=True)
+    # 이 날(한국 시각)까지만 보인다. 비우면 끌 때까지 계속
+    end_date = models.DateField(blank=True, null=True)
     created_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(blank=True, null=True)
 
@@ -244,6 +246,7 @@ class AttendanceIssueReports(models.Model):
     issue_type = models.CharField()
     details = models.JSONField(default=dict, blank=True)
     evidence_storage_key = models.CharField(blank=True, null=True)
+    external_response_id = models.CharField(unique=True, blank=True, null=True)
     status = models.CharField(default='submitted')
     reviewed_by = models.ForeignKey('Users', models.SET_NULL, related_name='reviewed_attendance_issues', blank=True, null=True)
     reviewed_at = models.DateTimeField(blank=True, null=True)
@@ -323,6 +326,8 @@ class SubmissionTasks(models.Model):
     guide_url = models.CharField(blank=True, null=True)
     due_at = models.DateTimeField(blank=True, null=True)
     published = models.BooleanField(default=False)
+    # submission_type='builtin' 일 때 LMS 가 보여 줄 질문 목록(form_surveys.clean_questions 모양)
+    questions = models.JSONField(blank=True, null=True)
     created_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(blank=True, null=True)
 
@@ -768,6 +773,63 @@ class SeatPresences(models.Model):
             models.UniqueConstraint(fields=['cohort', 'user', 'presence_date', 'period'], name='uq_seat_presence')
         ]
         indexes = [models.Index(fields=['cohort', 'presence_date', 'period'])]
+
+
+class PresenceChecks(models.Model):
+    """불시 자리 점검 한 번 — 점검 시각과 오전/오후, 점검한 사람."""
+
+    cohort = models.ForeignKey(Cohorts, models.PROTECT)
+    checked_at = models.DateTimeField()
+    period = models.CharField()
+    note = models.TextField(blank=True, null=True)
+    checked_by = models.ForeignKey(
+        'Users', models.SET_NULL, db_column='checked_by', related_name='presence_checks', blank=True, null=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'presence_checks'
+        indexes = [models.Index(fields=['cohort', 'checked_at'])]
+        constraints = [models.CheckConstraint(condition=models.Q(period__in=('am', 'pm')), name='ck_presence_check_period')]
+
+
+class PresenceCheckItems(models.Model):
+    presence_check = models.ForeignKey(PresenceChecks, models.CASCADE, related_name='items')
+    user = models.ForeignKey('Users', models.PROTECT)
+    state = models.CharField()
+    reason = models.CharField(blank=True, null=True)
+
+    class Meta:
+        db_table = 'presence_check_items'
+        constraints = [
+            models.UniqueConstraint(fields=['presence_check', 'user'], name='uq_presence_check_item'),
+            models.CheckConstraint(condition=models.Q(state__in=('present', 'absent')), name='ck_presence_check_item_state'),
+        ]
+
+
+class AlertPopupTargets(models.Model):
+    """지정 알림 대상 — 팝업에 대상이 하나도 없으면 기수 전체에게 보인다."""
+
+    popup = models.ForeignKey(AlertPopups, models.CASCADE, related_name='targets')
+    user = models.ForeignKey('Users', models.CASCADE)
+
+    class Meta:
+        db_table = 'alert_popup_targets'
+        constraints = [models.UniqueConstraint(fields=['popup', 'user'], name='uq_alert_popup_target')]
+        indexes = [models.Index(fields=['user'])]
+
+
+class AlertPopupReads(models.Model):
+    """학생이 알림을 처음 확인한 때 — 관리자 화면의 「읽음 n/m」"""
+
+    popup = models.ForeignKey(AlertPopups, models.CASCADE, related_name='reads')
+    user = models.ForeignKey('Users', models.CASCADE)
+    read_at = models.DateTimeField()
+
+    class Meta:
+        db_table = 'alert_popup_reads'
+        constraints = [models.UniqueConstraint(fields=['popup', 'user'], name='uq_alert_popup_read')]
 
 
 class ScheduledNotices(models.Model):
