@@ -86,7 +86,7 @@ export function InstructorAttendanceScreen() {
     if (list === null || item === undefined) return;
     const prev = item.previousElementSibling as HTMLElement | null;
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    list.scrollTo({ top: Math.max(0, item.offsetTop - (prev?.offsetHeight ?? 0)), behavior: reduce ? 'auto' : 'smooth' });
+    list.scrollTo?.({ top: Math.max(0, item.offsetTop - (prev?.offsetHeight ?? 0)), behavior: reduce ? 'auto' : 'smooth' });
   }, [index]);
 
   // 좌석 번호는 확정된 배치에서 읽는다. 자리를 옮기면 여기도 따라 바뀐다.
