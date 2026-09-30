@@ -10,6 +10,7 @@ import type {
   AttendanceIssue,
   AttendanceRequestStatus,
   Cohort,
+  FormAnswer,
   FormTask,
   MileageProduct,
   MileageTransaction,
@@ -876,17 +877,20 @@ export interface AssistantTurn {
   content: string;
 }
 
-/** 대화를 보내고 답과 확인 카드(제안)를 받는다. 제안은 executeAssistantAction 을 불러야 반영된다. */
+/**
+ * 대화를 보내고 답과 확인 카드(제안)를 받는다. 제안은 executeAssistantAction 을 불러야 반영된다.
+ * context 는 이번에 조회한 학생 목록 — 다음 질문 때 그 답 뒤에 붙여 보내야 '아까 그 학생들'이 통한다.
+ */
 export async function askAdminAssistant(
   messages: AssistantTurn[],
-): Promise<{ reply: string; actions: AssistantAction[] }> {
-  if (isTestMode()) return { reply: '테스트 모드에서는 AI 어시스턴트를 쓸 수 없습니다.', actions: [] };
+): Promise<{ reply: string; actions: AssistantAction[]; context: string }> {
+  if (isTestMode()) return { reply: '테스트 모드에서는 AI 어시스턴트를 쓸 수 없습니다.', actions: [], context: '' };
   try {
-    const { data } = await http.post<{ reply?: string; actions?: AssistantAction[] }>('/admin/assistant', {
-      messages,
-      cohortId: apiCohortId(),
-    });
-    return { reply: data.reply ?? '', actions: data.actions ?? [] };
+    const { data } = await http.post<{ reply?: string; actions?: AssistantAction[]; context?: string }>(
+      '/admin/assistant',
+      { messages, cohortId: apiCohortId() },
+    );
+    return { reply: data.reply ?? '', actions: data.actions ?? [], context: data.context ?? '' };
   } catch (error) {
     throw new Error(await readApiError(error));
   }
@@ -2011,35 +2015,93 @@ export function useFormResponses(taskId?: string) {
   );
 }
 
-export function upsertFormTask(task: FormTask): void {
-  if (!isTestMode()) {
-    void runCommand('upsert', {
-      table: 'form_tasks',
-      id: task.id || undefined,
+/** 설문 등록 · 수정. 새 설문이면 task.id 를 비워 보낸다. 서버가 붙인 id 를 돌려준다 */
+export async function saveFormTask(task: FormTask): Promise<string> {
+  const exists = currentDb().formTasks.some((t) => t.id === task.id);
+  if (isTestMode()) {
+    const id = exists ? task.id : nextId('form');
+    mutate((db) => ({
+      formTasks: exists
+        ? db.formTasks.map((t) => (t.id === task.id ? { ...task, id } : t))
+        : [{ ...task, id }, ...db.formTasks],
+    }));
+    return id;
+  }
+  try {
+    const data = await runCommand('saveFormTask', {
+      id: exists ? task.id : undefined,
       cohortId: apiCohortId(),
       title: task.title,
       description: task.description,
+      mode: task.mode === 'builtin' ? 'builtin' : 'external_form',
       formUrl: task.formUrl,
+      questions: task.mode === 'builtin' ? task.questions : [],
       notionGuideUrl: task.notionGuideUrl,
-      dueAt: task.dueAt?.toISOString(),
+      dueAt: task.dueAt.toISOString(),
       published: task.published,
     });
+    return String(data.id ?? task.id);
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
+}
+
+export async function deleteFormTask(id: string): Promise<void> {
+  const before = currentDb();
+  mutate((db) => ({
+    formTasks: db.formTasks.filter((t) => t.id !== id),
+    formResponses: db.formResponses.filter((r) => r.taskId !== id),
+  }));
+  if (isTestMode()) return;
+  try {
+    await runCommand('deleteFormTask', { id });
+  } catch (error) {
+    mutate(() => ({ formTasks: before.formTasks, formResponses: before.formResponses }));
+    throw new Error(await readApiError(error));
+  }
+}
+
+/** LMS 설문 제출 — 마감 전이면 다시 내서 고칠 수 있다. 서버가 정리한 답으로 화면을 맞춘다 */
+export async function submitFormResponse(
+  task: FormTask,
+  answers: Record<string, FormAnswer>,
+  user: User,
+): Promise<void> {
+  let saved = answers;
+  let submittedAt = new Date();
+  if (!isTestMode()) {
+    try {
+      const data = await runCommand('submitFormResponse', { taskId: task.id, answers });
+      if (data.answers && typeof data.answers === 'object') saved = data.answers as Record<string, FormAnswer>;
+      if (typeof data.submittedAt === 'string') submittedAt = new Date(data.submittedAt);
+    } catch (error) {
+      throw new Error(await readApiError(error));
+    }
   }
   mutate((db) => {
-    const exists = db.formTasks.some((t) => t.id === task.id);
+    const previous = db.formResponses.find((r) => r.taskId === task.id && r.userId === user.uid);
     return {
-      formTasks: exists
-        ? db.formTasks.map((t) => (t.id === task.id ? task : t))
-        : [{ ...task, id: task.id || nextId('form') }, ...db.formTasks],
+      formResponses: [
+        ...db.formResponses.filter((r) => r !== previous),
+        {
+          id: previous?.id ?? nextId('fr'),
+          taskId: task.id,
+          userId: user.uid,
+          userEmail: user.personalEmail ?? user.email,
+          userDisplayName: user.displayName,
+          source: 'builtin',
+          answers: saved,
+          submittedAt,
+        },
+      ],
+      formTasks: previous
+        ? db.formTasks
+        : db.formTasks.map((t) => (t.id === task.id ? { ...t, responseCount: t.responseCount + 1 } : t)),
     };
   });
 }
 
-export function deleteFormTask(id: string): void {
-  mutate((db) => ({ formTasks: db.formTasks.filter((t) => t.id !== id) }));
-  if (!isTestMode()) void runCommand('upsert', { table: 'form_tasks', id, action: 'delete' });
-}
-
+/** 외부 폼 링크를 열면 제출로 친다(외부 폼은 실제 제출을 알 길이 없다) */
 export function markFormResponded(taskId: string, user: User): void {
   mutate((db) => ({
     formResponses: [

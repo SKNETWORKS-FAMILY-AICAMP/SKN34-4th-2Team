@@ -1148,9 +1148,28 @@ export const seedCurriculumSheets: CurriculumSheet[] = [
 
 export const seedFormTasks: FormTask[] = [
   {
+    id: 'form4',
+    title: '프로젝트 주제 · 팀 희망 조사',
+    description: '다음 주 팀 편성에 씁니다. LMS 안에서 바로 답하면 됩니다.',
+    mode: 'builtin',
+    formUrl: '',
+    questions: [
+      { id: 'track', type: 'single', title: '관심 분야', required: true, options: ['LLM · RAG', '컴퓨터 비전', '데이터 분석', '웹 서비스'] },
+      { id: 'tools', type: 'multi', title: '써 본 도구', required: false, options: ['git', 'Docker', 'FastAPI', 'React'] },
+      { id: 'confidence', type: 'scale', title: '코딩 자신감', required: true, scaleMax: 5, minLabel: '낮음', maxLabel: '높음' },
+      { id: 'idea', type: 'long', title: '해 보고 싶은 주제', description: '없으면 비워 두세요.', required: false },
+    ],
+    dueAt: daysAhead(5),
+    published: true,
+    responseCount: 1,
+    createdAt: daysAgo(1),
+  },
+  {
     id: 'form1',
     title: '34기 OT 참여 설문',
     description: '온보딩 설문입니다. 노션 가이드를 참고해 작성해 주세요.',
+    mode: 'external',
+    questions: [],
     formUrl: 'https://docs.google.com/forms/d/e/example/viewform',
     notionGuideUrl: 'https://notion.so/example-guide',
     dueAt: daysAhead(7),
@@ -1162,6 +1181,8 @@ export const seedFormTasks: FormTask[] = [
     id: 'form2',
     title: '이력서 클리닉 신청',
     description: '현직자 이력서 클리닉 신청 폼입니다. 선착순 10명.',
+    mode: 'external',
+    questions: [],
     formUrl: 'https://docs.google.com/forms/d/e/example2/viewform',
     dueAt: daysAhead(2),
     published: true,
@@ -1172,6 +1193,8 @@ export const seedFormTasks: FormTask[] = [
     id: 'form3',
     title: '중간 만족도 조사',
     description: '과정 중간 만족도 조사입니다.',
+    mode: 'external',
+    questions: [],
     formUrl: 'https://docs.google.com/forms/d/e/example3/viewform',
     dueAt: daysAgo(4),
     published: true,
@@ -1198,6 +1221,16 @@ export const seedFormResponses: FormResponse[] = [
     taskId: 'form1',
     source: 'google',
     submittedAt: daysAgo(1),
+  },
+  {
+    id: 'fr3',
+    userId: 'demo-student-002',
+    userEmail: 'demo-student-002@gmail.com',
+    userDisplayName: '김하늘',
+    taskId: 'form4',
+    source: 'builtin',
+    answers: { track: 'LLM · RAG', tools: ['git', 'FastAPI'], confidence: 4, idea: '강의 노트 기반 질의응답 봇' },
+    submittedAt: daysAgo(0),
   },
 ];
 

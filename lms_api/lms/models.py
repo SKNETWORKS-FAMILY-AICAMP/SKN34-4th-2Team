@@ -326,6 +326,8 @@ class SubmissionTasks(models.Model):
     guide_url = models.CharField(blank=True, null=True)
     due_at = models.DateTimeField(blank=True, null=True)
     published = models.BooleanField(default=False)
+    # submission_type='builtin' 일 때 LMS 가 보여 줄 질문 목록(form_surveys.clean_questions 모양)
+    questions = models.JSONField(blank=True, null=True)
     created_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(blank=True, null=True)
 

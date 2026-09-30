@@ -109,6 +109,8 @@ export const instructorAssessmentEditPath = (id: string) => `/instructor/assessm
 export const instructorAssessmentSubmissionPath = (id: string, submissionId: string) =>
   `/instructor/assessments/${id}/submissions/${submissionId}`;
 
+export const formFillPath = (id: string) => `/forms/${encodeURIComponent(id)}`;
+
 export const adminAssessmentDetailPath = (id: string) => `/admin/assessments/${id}`;
 export const adminStudentDetailPath = (uid: string) => `/admin/students/${uid}`;
 export const adminStudentEditPath = (uid: string) => `/admin/students/${uid}/edit`;

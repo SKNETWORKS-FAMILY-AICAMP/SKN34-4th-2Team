@@ -435,11 +435,14 @@ function mapAssessmentSubmission(row: Record<string, unknown>): AssessmentSubmis
 }
 
 function mapFormTask(row: Record<string, unknown>): FormTask {
+  const type = row.submissionType ?? row.submission_type;
   return {
     id: String(row.id ?? row.pk ?? ''),
     title: String(row.title ?? ''),
     description: String(row.description ?? ''),
+    mode: type === 'builtin' ? 'builtin' : 'external',
     formUrl: String(row.formUrl ?? row.form_url ?? ''),
+    questions: Array.isArray(row.questions) ? (row.questions as FormTask['questions']) : [],
     notionGuideUrl: row.notionGuideUrl ? String(row.notionGuideUrl) : undefined,
     dueAt: asDate(row.dueAt ?? row.due_at) ?? new Date(),
     published: Boolean(row.published ?? true),
@@ -449,7 +452,9 @@ function mapFormTask(row: Record<string, unknown>): FormTask {
 }
 
 function mapFormResponse(row: Record<string, unknown>): FormResponse {
+  const response = row.response as { answers?: FormResponse['answers'] } | null | undefined;
   return {
+    answers: response && typeof response.answers === 'object' ? response.answers : undefined,
     id: String(row.id ?? `${row.taskId ?? row.task_id}-${row.userId ?? row.user_id}`),
     userId: String(row.userId ?? row.user_id ?? ''),
     userEmail: String(row.userEmail ?? row.user_email ?? ''),

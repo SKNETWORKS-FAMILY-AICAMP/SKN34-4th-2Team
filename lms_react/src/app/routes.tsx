@@ -6,6 +6,7 @@ import { RoutePaths } from './routePaths';
 import { DashboardScreen } from '../features/dashboard/DashboardScreen';
 import { BoardScreen } from '../features/board/BoardScreen';
 import { RecordsScreen, RecordFormRoute, RecordTypeSelectScreen } from '../features/records/RecordsScreen';
+import { FormFillScreen } from '../features/forms/FormFillScreen';
 import { FormTasksScreen } from '../features/forms/FormTasksScreen';
 import { QualExamScreen } from '../features/qual/QualExamScreen';
 import { SeatingScreen } from '../features/seating/SeatingScreen';
@@ -142,6 +143,7 @@ export const studentRoutes: AppRoute[] = [
   { path: RoutePaths.recordsCreate, element: <RecordTypeSelectScreen />, roles: student },
   { path: '/records/create/:type', element: <RecordFormRoute />, roles: student },
   { path: RoutePaths.forms, element: <FormTasksScreen />, roles: student },
+  { path: '/forms/:taskId', element: <FormFillScreen />, roles: student },
   { path: RoutePaths.qualExams, element: <QualExamScreen />, roles: student },
   { path: RoutePaths.seating, element: <SeatingScreen />, roles: student },
   { path: RoutePaths.attendanceRequest, element: <AttendanceRequestScreen />, roles: student },

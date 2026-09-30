@@ -1099,3 +1099,8 @@ OPS.update(MANAGER_OPS)
 from lms.attendance_requests import ATTENDANCE_REQUEST_OPS  # noqa: E402
 
 OPS.update(ATTENDANCE_REQUEST_OPS)
+
+# 설문 · 제출 — LMS 안에서 만드는 설문과 외부 폼 링크
+from lms.form_surveys import FORM_SURVEY_OPS  # noqa: E402
+
+OPS.update(FORM_SURVEY_OPS)

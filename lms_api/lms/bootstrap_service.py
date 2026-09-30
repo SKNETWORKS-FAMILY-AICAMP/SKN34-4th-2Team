@@ -206,11 +206,12 @@ def build_bootstrap(user: dict) -> dict:
                 private_filter,
             ),
             "forms": (
-                """SELECT st.*, stc.cohort_id, st.external_url AS form_url,
+                """SELECT DISTINCT ON (st.id) st.*, stc.cohort_id, st.external_url AS form_url,
                           st.guide_url AS notion_guide_url
                    FROM submission_tasks st
                    JOIN submission_task_cohorts stc ON stc.task_id = st.id
-                   WHERE stc.cohort_id = ANY(%s)""",
+                   WHERE stc.cohort_id = ANY(%s)
+                   ORDER BY st.id""",
                 cohort_filter,
             ),
             "inflearn": ("SELECT * FROM inflearn_packages WHERE cohort_id = ANY(%s)", cohort_filter),
@@ -244,8 +245,10 @@ def build_bootstrap(user: dict) -> dict:
                 private_filter,
             ),
             "form_responses": (
-                """SELECT sr.*, sr.external_response_id AS google_response_id
+                """SELECT sr.*, COALESCE(st.legacy_id, st.id::text) AS task_id,
+                          sr.external_response_id AS google_response_id
                    FROM submission_responses sr
+                   JOIN submission_tasks st ON st.id = sr.task_id
                    WHERE sr.task_id IN (
                      SELECT task_id FROM submission_task_cohorts WHERE cohort_id = ANY(%s)
                    ) AND (%s = false OR sr.user_id = %s)""",

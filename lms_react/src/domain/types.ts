@@ -648,11 +648,33 @@ export interface CurriculumSheet {
 
 // ── 설문 · 제출 ────────────────────────────────────────
 
+export type FormQuestionType = 'short' | 'long' | 'single' | 'multi' | 'scale' | 'date';
+
+export interface FormQuestion {
+  id: string;
+  type: FormQuestionType;
+  title: string;
+  description?: string;
+  required: boolean;
+  /** single · multi 의 보기 */
+  options?: string[];
+  /** scale — 1 부터 이 값까지 */
+  scaleMax?: number;
+  minLabel?: string;
+  maxLabel?: string;
+}
+
+/** short · long · single · date 는 글자, multi 는 목록, scale 은 숫자 */
+export type FormAnswer = string | string[] | number;
+
 export interface FormTask {
   id: string;
   title: string;
   description: string;
+  /** builtin: LMS 안에서 답한다 · external: 구글폼 같은 외부 링크 */
+  mode: 'builtin' | 'external';
   formUrl: string;
+  questions: FormQuestion[];
   notionGuideUrl?: string;
   dueAt: Date;
   published: boolean;
@@ -666,8 +688,9 @@ export interface FormResponse {
   userEmail: string;
   userDisplayName: string;
   taskId: string;
-  /** manual | google */
+  /** manual(외부 링크를 엶) | google | builtin(LMS 에서 냄) */
   source: string;
+  answers?: Record<string, FormAnswer>;
   submittedAt?: Date;
 }
 

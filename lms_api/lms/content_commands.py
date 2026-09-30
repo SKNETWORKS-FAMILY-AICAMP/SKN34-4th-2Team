@@ -194,6 +194,8 @@ def op_mark_form_responded(cur, user, p):
     task = resolve_row(cur, "submission_tasks", p["taskId"])
     if not task:
         raise KeyError("form")
+    if task.get("submission_type") == "builtin":
+        raise ValueError("LMS 설문은 답을 내야 제출됩니다.")
     cur.execute("SELECT cohort_id FROM submission_task_cohorts WHERE task_id = %s", [task["id"]])
     if not any(can_access_cohort(user, cohort_id) for (cohort_id,) in cur.fetchall()):
         raise PermissionError("cohort")
