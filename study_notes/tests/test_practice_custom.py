@@ -45,11 +45,12 @@ class MakeProblemsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             custom.make_problems([], scope_label="x", count=6, runner=object())
 
-    def test_web_only_materials_are_an_error(self) -> None:
+    def test_web_materials_ask_for_web_tasks(self) -> None:
         web = [{"path": "01_html/01_web.html", "commit": "", "content": "<h1>제목</h1>", "truncated": False}]
-        with mock.patch.object(custom, "build_practice_set") as build, self.assertRaises(ValueError):
+        result = BuildResult(problems=[], stats={}, usage=Usage())
+        with mock.patch.object(custom, "build_practice_set", return_value=result) as build:
             custom.make_problems(web, scope_label="x", count=6, runner=object())
-        build.assert_not_called()
+        self.assertEqual(build.call_args.kwargs["kind_counts"], "concept 2개, web_task 4개")
 
 
 if __name__ == "__main__":

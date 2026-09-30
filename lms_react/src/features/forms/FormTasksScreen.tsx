@@ -1,3 +1,6 @@
+import { Link } from 'react-router-dom';
+
+import { formFillPath } from '../../app/routePaths';
 import { markFormResponded, useFormResponses, useFormTasks } from '../../data/repository';
 import { toTime } from '../../utils/format';
 import type { FormTask } from '../../domain/types';
@@ -12,7 +15,7 @@ import { useCurrentUser } from '../auth/session';
  * 설문 · 제출 — features/forms/presentation/form_tasks_screen.dart
  *
  * 머리글이 없다. 좁은 한 줄기(520px)로 「해야 할 설문」과 「제출 완료」가 차례로 선다.
- * 카드 하나에 구글폼으로 가는 문과 노션 가이드가 붙는다.
+ * LMS 설문은 작성 화면(FormFillScreen)으로, 외부 폼은 새 창으로 간다. 노션 가이드가 붙을 수 있다.
  */
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -89,18 +92,25 @@ function FormTaskCard({ task, done }: { task: FormTask; done: boolean }) {
       </p>
 
       <div className="form-card__actions">
-        <a
-          className="btn btn--filled btn--sm"
-          href={task.formUrl}
-          target="_blank"
-          rel="noreferrer"
-          onClick={() => {
-            if (!done) markFormResponded(task.id, user);
-          }}
-        >
-          <Icon name="description" size={16} />
-          구글폼 작성
-        </a>
+        {task.mode === 'builtin' ? (
+          <Link className={`btn btn--${done ? 'outline' : 'filled'} btn--sm`} to={formFillPath(task.id)}>
+            <Icon name={done ? 'edit_note' : 'edit_square'} size={16} />
+            {!done ? '설문 작성' : dueMs < Date.now() ? '내 응답 보기' : '응답 보기 · 고치기'}
+          </Link>
+        ) : (
+          <a
+            className="btn btn--filled btn--sm"
+            href={task.formUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={() => {
+              if (!done) markFormResponded(task.id, user);
+            }}
+          >
+            <Icon name="open_in_new" size={16} />
+            외부 폼 작성
+          </a>
+        )}
         {task.notionGuideUrl !== undefined && task.notionGuideUrl !== '' && (
           <a
             className="btn btn--outline btn--sm"

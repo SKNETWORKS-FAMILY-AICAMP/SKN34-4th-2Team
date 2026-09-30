@@ -142,6 +142,8 @@ export interface SeatGridProps {
   rotated?: boolean;
   /** 확인·보류 상태로 칸을 물들인다(자리 확인 화면). */
   presenceOf?(userId: string): SeatPresenceState;
+  /** 확인·보류 칸에 적을 말 — 불시 점검은 유 · 무 */
+  presenceLabels?: { confirmed: string; held: string };
   /** 퇴소한 학생이 앉아 있는 좌석 — 붉게 칠한다. */
   inactiveSeatIds?: ReadonlySet<string>;
   /** seatId → 팀 강조색. 팀끼리 뭉쳐 앉았는지 한눈에 본다. */
@@ -164,6 +166,7 @@ export function SeatGrid({
   compact = false,
   rotated = false,
   presenceOf,
+  presenceLabels,
   inactiveSeatIds,
   seatTints,
   seatAttrs,
@@ -193,6 +196,7 @@ export function SeatGrid({
                 highlighted={userId !== undefined && userId === highlightUserId}
                 highlightCaption={highlightCaption}
                 presence={userId !== undefined ? presenceOf?.(userId) : undefined}
+                presenceLabels={presenceLabels}
                 inactive={inactiveSeatIds?.has(cell.seatId) ?? false}
                 tint={seatTints?.[cell.seatId]}
                 attrs={seatAttrs}
@@ -236,6 +240,7 @@ function Cell({
   highlighted,
   highlightCaption,
   presence,
+  presenceLabels = { confirmed: '확인', held: '보류' },
   inactive,
   tint,
   attrs,
@@ -248,6 +253,7 @@ function Cell({
   highlighted: boolean;
   highlightCaption: string;
   presence?: SeatPresenceState;
+  presenceLabels?: { confirmed: string; held: string };
   inactive: boolean;
   tint?: string;
   attrs?: SeatGridProps['seatAttrs'];
@@ -296,8 +302,8 @@ function Cell({
         {occupied ? name : '—'}
       </span>
       {highlighted && <span className="seat__mark">{highlightCaption}</span>}
-      {!highlighted && presence === 'confirmed' && <span className="seat__mark seat__mark--ok">확인</span>}
-      {!highlighted && presence === 'held' && <span className="seat__mark seat__mark--hold">보류</span>}
+      {!highlighted && presence === 'confirmed' && <span className="seat__mark seat__mark--ok">{presenceLabels.confirmed}</span>}
+      {!highlighted && presence === 'held' && <span className="seat__mark seat__mark--hold">{presenceLabels.held}</span>}
       {highlighted && <span className="seat__me">나</span>}
     </div>
   );

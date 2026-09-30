@@ -10,6 +10,8 @@ import {
   type CompletionResult,
 } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore } from '@codemirror/commands';
+import { html } from '@codemirror/lang-html';
+import { javascript } from '@codemirror/lang-javascript';
 import { python, pythonLanguage } from '@codemirror/lang-python';
 import { MySQL, schemaCompletionSource, sql, type SQLNamespace } from '@codemirror/lang-sql';
 import { bracketMatching, HighlightStyle, indentOnInput, indentUnit, syntaxHighlighting } from '@codemirror/language';
@@ -67,8 +69,9 @@ export function CodeEditor({
   onFocus?: () => void;
   /** 값이 바뀔 때마다 편집기에 포커스를 준다(노트북에서 다음 셀로 넘어갈 때). */
   focusSignal?: number;
-  /** markdown 이면 파이썬 색칠·자동완성·괄호 자동 닫기를 끈다. sql 은 SQL 셀(수업이 MySQL 이라 그 말로 색칠) */
-  language?: 'python' | 'markdown' | 'sql';
+  /** markdown 이면 파이썬 색칠·자동완성·괄호 자동 닫기를 끈다. sql 은 SQL 셀(수업이 MySQL 이라 그 말로 색칠).
+   *  html 은 웹 실습 문제 — <style> 안 CSS 까지 색칠하고 태그를 닫아 준다 */
+  language?: 'python' | 'markdown' | 'sql' | 'html' | 'javascript';
   readOnly?: boolean;
   label?: string;
   minLines?: number;
@@ -120,7 +123,11 @@ export function CodeEditor({
                   autocompletion({ activateOnTyping: true, icons: false }),
                   syntaxHighlighting(pyHighlight),
                 ]
-              : [EditorView.lineWrapping]),
+              : language === 'html'
+                ? [bracketMatching(), html(), autocompletion({ activateOnTyping: true, icons: false }), syntaxHighlighting(pyHighlight)]
+                : language === 'javascript'
+                  ? [bracketMatching(), closeBrackets(), javascript(), syntaxHighlighting(pyHighlight)]
+                  : [EditorView.lineWrapping]),
           Prec.highest(
             keymap.of([
               { key: 'Mod-Enter', run: () => fire(latest.current.onRun) },

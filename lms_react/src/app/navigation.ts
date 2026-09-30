@@ -30,6 +30,7 @@ export const studentNav: NavSection[] = [
       { icon: 'menu_book', label: '학습실', path: RoutePaths.studyRoom, targetId: StudentTargets.navStudyRoom },
       { icon: 'forum', label: '게시판', path: RoutePaths.board, targetId: StudentTargets.navBoard },
       { icon: 'event_seat', label: '자리 배치', path: RoutePaths.seating, targetId: StudentTargets.navSeating },
+      { icon: 'event_busy', label: '출결 신청', path: RoutePaths.attendanceRequest },
       { icon: 'ballot', label: '설문 · 제출', path: RoutePaths.forms, targetId: StudentTargets.navForms },
       { icon: 'workspace_premium', label: '자격 시험 일정', path: RoutePaths.qualExams, targetId: StudentTargets.navQualExams },
       { icon: 'history', label: '기록실', path: RoutePaths.records, targetId: StudentTargets.navRecords },
@@ -102,6 +103,7 @@ export const adminNav: NavSection[] = [
     collapsible: true,
     items: [
       { icon: 'forum', label: '게시판', path: RoutePaths.adminBoard, targetId: AdminTargets.navBoard },
+      { icon: 'notifications_active', label: '알림 팝업', path: RoutePaths.adminAlertPopups },
       { icon: 'card_giftcard', label: '마일리지', path: RoutePaths.adminMileage, targetId: AdminTargets.navMileage },
     ],
   },

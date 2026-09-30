@@ -19,7 +19,7 @@ class OpsLogTests(unittest.TestCase):
             status="success",
             snapshot={
                 "promptVersion": "student_chatbot_v2",
-                "model": "gpt-5.6-sol",
+                "model": "gpt-5.6-luna",
                 "route": "lms",
                 "namespaces": ["policy", "notice"],
                 "student_scopes": ["student_private"],

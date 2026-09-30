@@ -29,6 +29,7 @@ export const RoutePaths = {
   forms: '/forms',
   qualExams: '/qual-exams',
   seating: '/seating',
+  attendanceRequest: '/attendance-request',
 
   // 관리자 셸
   admin: '/admin',
@@ -51,7 +52,8 @@ export const RoutePaths = {
   adminBoard: '/admin/board',
   adminBoardNoticeCreate: '/admin/board/create',
   adminBoardScheduledCreate: '/admin/board/scheduled/create',
-  adminBoardAlertPopupCreate: '/admin/board/alert-popups/create',
+  adminAlertPopups: '/admin/alert-popups',
+  adminAlertPopupCreate: '/admin/alert-popups/create',
   adminMileage: '/admin/mileage',
   adminMileageProducts: '/admin/mileage/products',
   adminMileageProductsCreate: '/admin/mileage/products/create',
@@ -107,6 +109,8 @@ export const instructorAssessmentEditPath = (id: string) => `/instructor/assessm
 export const instructorAssessmentSubmissionPath = (id: string, submissionId: string) =>
   `/instructor/assessments/${id}/submissions/${submissionId}`;
 
+export const formFillPath = (id: string) => `/forms/${encodeURIComponent(id)}`;
+
 export const adminAssessmentDetailPath = (id: string) => `/admin/assessments/${id}`;
 export const adminStudentDetailPath = (uid: string) => `/admin/students/${uid}`;
 export const adminStudentEditPath = (uid: string) => `/admin/students/${uid}/edit`;
@@ -114,7 +118,7 @@ export const adminCohortEditPath = (id: string) => `/admin/cohorts/${id}/edit`;
 export const adminFormTaskEditPath = (id: string) => `/admin/form-tasks/${id}/edit`;
 export const adminBoardNoticeEditPath = (id: string) => `/admin/board/${id}/edit`;
 export const adminBoardScheduledEditPath = (id: string) => `/admin/board/scheduled/${id}/edit`;
-export const adminBoardAlertPopupEditPath = (id: string) => `/admin/board/alert-popups/${id}/edit`;
+export const adminAlertPopupEditPath = (id: string) => `/admin/alert-popups/${id}/edit`;
 export const adminStudyRoomPackagePath = (id: string) => `/admin/study-room/${id}`;
 export const adminMileageProductEditPath = (id: string) => `/admin/mileage/products/${id}/edit`;
 

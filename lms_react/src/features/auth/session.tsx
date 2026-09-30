@@ -20,10 +20,17 @@ import type { User, UserRole } from '../../domain/types';
 
 const STORAGE_KEY = 'lms_react_session_uid';
 
+/** 로그인 요청(auth) → 첫 화면 데이터 받기(data) */
+export type SignInStage = 'auth' | 'data';
+
 export interface Session {
   user: User | null;
   loading: boolean;
-  signIn(email: string, password: string): Promise<{ ok: true; role: UserRole; mustChangePassword: boolean } | { ok: false; message: string }>;
+  signIn(
+    email: string,
+    password: string,
+    onStage?: (stage: SignInStage) => void,
+  ): Promise<{ ok: true; role: UserRole; mustChangePassword: boolean } | { ok: false; message: string }>;
   signOut(): Promise<void>;
   changePassword(
     next: string,
@@ -125,7 +132,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [uid]);
 
-  const signIn = useCallback(async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string, onStage?: (stage: SignInStage) => void) => {
+    onStage?.('auth');
     if (isTestMode()) {
       const result = demoSignIn(email, password);
       if (!result.ok) return result;
@@ -144,6 +152,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         user?: Record<string, unknown>;
       }>('/login', { email: email.trim(), password });
       useSessionStore.getState().setTokens(data.access, data.refresh);
+      onStage?.('data');
       const db = await queryClient.fetchQuery({ queryKey: queryKeys.bootstrap, queryFn: fetchBootstrap });
       setUid(data.uid);
       setMustChange(Boolean(data.mustChangePassword));
@@ -156,18 +165,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    if (!isTestMode()) {
-      try {
-        await http.post('/logout');
-      } catch {
-        /* 토큰이 없어도 화면은 나간다 */
-      }
-      useSessionStore.getState().clear();
-      queryClient.clear();
-    }
+    // 사용자부터 비운다 — 남아 있으면 로그인 화면이 홈으로 되돌려 보내 화면이 튄다
     setUid(null);
     setMustChange(false);
     setLiveUser(null);
+    if (isTestMode()) return;
+    useSessionStore.getState().clear();
+    // 캐시는 로그인 화면으로 넘어간 뒤에 비운다 — 먼저 비우면 빈 대시보드가 잠깐 보인다
+    setTimeout(() => queryClient.clear(), 0);
+    // 서버 /logout 은 하는 일이 없어 기다리지 않는다
+    void http.post('/logout').catch(() => undefined);
   }, []);
 
   const changePassword = useCallback(async (next: string, current?: string) => {

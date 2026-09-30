@@ -21,7 +21,7 @@ from study_notes.practice.models import PracticeProblem
 from study_notes.practice.runner import Job, Runner
 from study_notes.practice.verify import RUN_TIMEOUT_MS
 
-BLIND_KINDS = ("code_blank", "code_fix", "code_write", "code_scratch")
+BLIND_KINDS = ("code_blank", "code_fix", "code_write", "code_scratch", "web_task")
 MAX_SHOWN_SOLUTION = 1200
 
 WHAT_TO_WRITE = {
@@ -29,13 +29,14 @@ WHAT_TO_WRITE = {
     "code_fix": "버그를 고친 전체 코드",
     "code_write": "함수를 완성한 전체 코드",
     "code_scratch": "문제의 함수를 처음부터 작성한 전체 코드",
+    "web_task": "요구대로 고친 전체 HTML 문서(<style> 포함, <script> 없이)",
 }
 
 BLIND_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
-        "당신은 파이썬을 배우는 부트캠프 학생입니다. 문제 문장과 시작 코드만 보고 풉니다.\n"
-        "표준 라이브러리와 numpy, pandas만 씁니다. 응답은 JSON 객체 하나입니다.",
+        "당신은 파이썬 · 웹(HTML · CSS)을 배우는 부트캠프 학생입니다. 문제 문장과 시작 코드만 보고 풉니다.\n"
+        "파이썬은 표준 라이브러리와 numpy, pandas만 씁니다. 응답은 JSON 객체 하나입니다.",
     ),
     (
         "human",
@@ -49,10 +50,17 @@ class Solver(Protocol):
     def __call__(self, problems: list[PracticeProblem], usage: Usage) -> dict[int, str]: ...
 
 
+def _job_kind(p: PracticeProblem) -> str:
+    """다시 풀어 본 풀이를 어디서 돌릴지 — LLM 이 쓴 풀이라 web-js 도 서버 jsdom 에서 돌려도 된다"""
+    if p.kind == "web_task":
+        return "web-js" if p.packages == ["web-js"] else "web"
+    return "js" if p.packages == ["js"] else "python"
+
+
 def solve_blind(problems: list[PracticeProblem], usage: Usage) -> dict[int, str]:
     """{문제 번호: 풀이 코드}. 모범답안 · 테스트는 보여 주지 않는다. 처음부터 문제는 뼈대도 안 보인다(학생처럼)."""
     listing = [
-        {"index": i, "write": WHAT_TO_WRITE[p.kind], "prompt": p.prompt,
+        {"index": i, "write": WHAT_TO_WRITE[p.kind] + (" (JavaScript)" if p.packages == ["js"] else ""), "prompt": p.prompt,
          **({} if p.kind == "code_scratch" else {"starterCode": p.starter_code})}
         for i, p in enumerate(problems)
     ]
@@ -76,7 +84,7 @@ def blind_failures(problems: list[PracticeProblem], runner: Runner, usage: Usage
     if not targets:
         return {}
     solutions = solver([p for _, p in targets], usage)
-    jobs = [Job(f"b{n}", [solutions[n], p.hidden_tests], RUN_TIMEOUT_MS)
+    jobs = [Job(f"b{n}", [solutions[n], p.hidden_tests], RUN_TIMEOUT_MS, kind=_job_kind(p))
             for n, (_i, p) in enumerate(targets) if solutions.get(n, "").strip()]
     results = runner.run(jobs)
     failures: dict[int, str] = {}

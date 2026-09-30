@@ -17,7 +17,7 @@ from datetime import timedelta
 
 from django.db import connection, transaction
 
-from lms.practice_service import SQL_MARK
+from lms.practice_service import stored_kind
 from lms.study_note_service import StudyNoteError, _call, _dicts, _one
 from lms.study_source_service import StudySourceError
 
@@ -65,10 +65,11 @@ def _j(value):
 
 
 def _problem_payload(p: dict) -> dict:
-    # SQL 조회 문제는 code_write 로 저장돼 있다(practice_service.SQL_MARK) — 튜터에는 원래 모양으로 넘긴다
-    sql = p["kind"] == "code_write" and (_j(p["packages"]) or []) == SQL_MARK
+    # SQL 조회 · 웹 실습은 code_write 로 저장돼 있다(practice_service.stored_kind) — 튜터에는 원래 모양으로 넘긴다
+    kind = stored_kind(p)
+    sql = kind == "sql_query"
     return {
-        "kind": "sql_query" if sql else p["kind"], "topic": p["topic"], "prompt": p["prompt"], "choices": _j(p["choices"]) or [],
+        "kind": kind, "topic": p["topic"], "prompt": p["prompt"], "choices": _j(p["choices"]) or [],
         "answerIndex": p["answer_index"], "expectedStdout": p["expected_stdout"], "starterCode": p["starter_code"],
         "referenceSolution": p["reference_solution"],
         "hiddenTests": "" if sql else p["hidden_tests"],

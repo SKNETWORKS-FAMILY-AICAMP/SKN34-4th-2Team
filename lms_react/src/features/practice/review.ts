@@ -18,6 +18,7 @@ const MINUTES: Record<PracticeKind, number> = {
   code_write: 3,
   code_scratch: 5,
   sql_query: 3,
+  web_task: 3,
 };
 
 /** 수업 세트인지 — 학생이 만든 세트(note · file)는 「오늘 복습」 · 과목 목록에 넣지 않고 「내가 만든 문제」로 따로 */

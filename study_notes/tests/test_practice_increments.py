@@ -153,6 +153,27 @@ class QuotaTests(unittest.TestCase):
         self.assertIn(f"sql_query {sql_share}개", counts)
         self.assertIn("code_output", counts)
 
+    def test_file_without_code_gets_at_most_two_concepts(self) -> None:
+        # LLM파트 09-07 — 설명만 있는 긴 노트북이 5문제를 받아 코드 문제를 못 냈다
+        overview = notebook(("markdown", "# RunPod 소개\n" + "GPU 클라우드 설명 문장입니다. " * 300))
+        lesson = notebook(*[("code", f"x{i} = {i}\n" * 40) for i in range(13)])
+        plan = plan_day("d", [("01_overview.ipynb", "c", overview), ("02_sllm.ipynb", "c", lesson)], {})
+        quota = {f.path: f.quota for f in plan.targets}
+        self.assertEqual(quota["01_overview.ipynb"], 2)
+        self.assertEqual(plan.total, 2 + MAX_PER_FILE)
+        counts = plan.kind_counts()
+        self.assertIn("concept 2개", counts)
+        self.assertIn("01_overview.ipynb: 2개 (코드 없음 — concept 문제만)", plan.focus_note())
+
+    def test_many_codeless_files_turn_code_slots_into_concepts(self) -> None:
+        files = [(f"{i}.md", "c", f"# 제목 {i}\n" + "설명 " * 400) for i in range(3)]
+        files.append(("lesson.py", "c", "\n\n".join(f"def f{i}(x):\n    return x + {i}" for i in range(40))))
+        plan = plan_day("d", files, {})
+        concept_only = sum(f.quota for f in plan.targets if not f.has_code)
+        counts = dict(part.rsplit(" ", 1) for part in plan.kind_counts().split(", "))
+        self.assertEqual(int(counts["concept"].rstrip("개")), concept_only)
+        self.assertEqual(sum(int(v.rstrip("개")) for v in counts.values()), plan.total)
+
     def test_sql_only_day_is_all_sql(self) -> None:
         plan = plan_day("d", [("book.sql", "c", "SELECT title FROM book WHERE price > 1000;\n" * 40)], {})
         self.assertNotIn("code_output", plan.kind_counts())

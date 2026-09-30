@@ -1,10 +1,17 @@
 import { useState } from 'react';
 
-import { useQualExams } from '../../data/repository';
+import { syncQualExams, useQualExams, useQualExamsSyncedAt } from '../../data/repository';
+import { readApiError } from '../../data/http';
 import type { QualExamSchedule } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { ErrorState, PageHeader, Skeleton } from '../../ui/components';
 import { formatYmd, parseYmd } from '../../utils/format';
+import { useCurrentUser } from '../auth/session';
+
+function syncedLabel(at: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${at.getMonth() + 1}/${at.getDate()} ${pad(at.getHours())}:${pad(at.getMinutes())} 기준`;
+}
 
 /**
  * 자격 시험 일정 — features/dashboard/presentation/qual_exam_schedules_screen.dart
@@ -20,7 +27,25 @@ const examDayOf = (e: QualExamSchedule) => e.docExamStartDt ?? e.pracExamStartDt
 
 export function QualExamScreen() {
   const examsQuery = useQualExams();
+  const syncedAt = useQualExamsSyncedAt();
+  const user = useCurrentUser();
   const [query, setQuery] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
+  const refresh = async () => {
+    setSyncing(true);
+    setSyncMessage(null);
+    try {
+      const counts = await syncQualExams();
+      const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
+      setSyncMessage(`최신 일정 ${total}건을 받았습니다.`);
+    } catch (error) {
+      setSyncMessage(await readApiError(error));
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   if (examsQuery.loading) return <Skeleton rows={3} />;
   if (examsQuery.error !== null) {
@@ -68,9 +93,25 @@ export function QualExamScreen() {
           />
         </label>
 
-        <p className="qual-count">
-          {today.getFullYear()}년 · 다가오는 {upcoming.length}건
-        </p>
+        <div className="qual-meta">
+          <p className="qual-count">
+            {today.getFullYear()}년 · 다가오는 {upcoming.length}건
+          </p>
+          {syncedAt !== undefined && <span className="hint">{syncedLabel(syncedAt)}</span>}
+          {user.role === 'admin' && (
+            <button
+              type="button"
+              className="btn btn--text btn--sm"
+              onClick={() => void refresh()}
+              disabled={syncing}
+              title="공공데이터포털에서 지금 다시 받기"
+            >
+              <Icon name="refresh" size={16} />
+              {syncing ? '받는 중…' : '지금 새로고침'}
+            </button>
+          )}
+        </div>
+        {syncMessage !== null && <p className="hint">{syncMessage}</p>}
 
         {upcoming.length === 0 ? (
           <p className="qual-empty">조건에 맞는 시험 일정이 없습니다</p>

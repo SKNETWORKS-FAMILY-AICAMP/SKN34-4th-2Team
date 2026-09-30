@@ -122,7 +122,7 @@ Django 가 만드는 노트 키(`lms_api/lms/study_scope.py`)는 여기 `build_s
 
 ```text
 OPENAI_API_KEY=
-STUDY_NOTES_MODEL=          # 비우면 LMS_NODE_MODEL, 그것도 없으면 gpt-5.6-sol
+STUDY_NOTES_MODEL=          # 비우면 LMS_NODE_MODEL, 그것도 없으면 gpt-6-luna
 STUDY_NOTES_CACHE_DIR=      # 저장소를 받아 둘 곳. 비우면 임시 폴더/skn34-study-notes
 FIREBASE_PROJECT_ID=skn34-3rd-2team
 ```

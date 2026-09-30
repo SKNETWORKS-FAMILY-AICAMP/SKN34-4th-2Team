@@ -7,7 +7,10 @@ import type {
   AssessmentQuestion,
   AssessmentSubmission,
   Attendance,
+  AttendanceIssue,
+  AttendanceRequestStatus,
   Cohort,
+  FormAnswer,
   FormTask,
   MileageProduct,
   MileageTransaction,
@@ -25,6 +28,9 @@ import type {
   SeatingAssignment,
   SeatingGrid,
   SeatingRoom,
+  SpotCheck,
+  SpotCheckItem,
+  SpotCheckPeriod,
   Submission,
   SubmissionStatus,
   Todo,
@@ -36,14 +42,21 @@ import type {
   PracticeSet,
   StudyNote,
   StudyNoteScopeType,
+  WeeklyYoutube,
 } from '../domain/types';
+import { useQuery } from '@tanstack/react-query';
 import { getDb, mutate as mutateStore, nextId, subscribe, type Database } from './store';
 import { dateKeyOf } from './seed';
 import { buildScopeKey, scopeLabel } from '../features/study/noteScope';
+import {
+  requestLabel,
+  resultingStatus,
+  type AttendanceRequestDraft,
+} from '../features/attendance/attendanceRequest';
 import { resumeStatusToServer } from '../features/resume/resumeGroups';
 import { remapAssignments } from '../domain/seatingLayout';
 import { http, readApiError } from './http';
-import { fetchBootstrap, lastBootstrapSession, mapStudyNote } from './bootstrap';
+import { fetchBootstrap, lastBootstrapSession, mapAlert, mapAttendanceIssue, mapStudyNote } from './bootstrap';
 import { getBootstrapDb, subscribeBootstrap } from './bootstrapStore';
 import { selectedCohortFor } from './cohortSelection';
 import { queryClient, queryKeys } from './queryClient';
@@ -398,7 +411,10 @@ export async function upsertAlertPopup(popup: AlertPopup): Promise<AlertPopup> {
       linkUrl: popup.linkUrl,
       startTime: popup.startTime,
       endTime: popup.endTime,
+      endDate: popup.endDate ?? null,
       cohortId: apiCohortId(),
+      // 없으면 서버가 대상을 그대로 둔다(노출 토글). 빈 목록이면 기수 전체로
+      ...(popup.targetUserIds !== undefined ? { targetUserIds: popup.targetUserIds } : {}),
     };
     const { data } = existing
       ? await http.patch<{ id?: string }>(`/alert-popups/${popup.id}`, body)
@@ -407,6 +423,72 @@ export async function upsertAlertPopup(popup: AlertPopup): Promise<AlertPopup> {
     return { ...popup, id: String(data.id ?? popup.id) };
   } catch (error) {
     throw new Error(await readApiError(error));
+  }
+}
+
+/** 노출 토글 — 누르는 즉시 화면에 반영하고, 저장이 실패하면 되돌린다 */
+export async function setAlertPopupActive(popup: AlertPopup, isActive: boolean): Promise<void> {
+  patchAlertLocal({ ...popup, isActive });
+  if (isTestMode()) return;
+  try {
+    await upsertAlertPopup({ ...popup, isActive });
+  } catch (error) {
+    patchAlertLocal(popup);
+    throw error;
+  }
+}
+
+/** 예약 공지 동작 토글 — 알림 팝업 토글과 같은 방식 */
+export async function setScheduledNoticeActive(notice: ScheduledNotice, isActive: boolean): Promise<void> {
+  patchScheduledLocal({ ...notice, isActive });
+  if (isTestMode()) return;
+  try {
+    await upsertScheduledNotice({ ...notice, isActive });
+  } catch (error) {
+    patchScheduledLocal(notice);
+    throw error;
+  }
+}
+
+/**
+ * 학생 화면의 새 알림 · 출결 신청 처리 결과 확인 — 그것만 가볍게 다시 받는다(스냅샷 전체는 1MB 가 넘는다).
+ * 서버가 학생 본인에게 보이는 켜진 알림과 본인 출결 신청만 준다.
+ */
+export async function refreshMyAlertPopups(): Promise<void> {
+  if (isTestMode()) return;
+  const { data } = await http.get<{
+    alertPopups?: Record<string, unknown>[];
+    dismissals?: Record<string, unknown>[];
+    readPopupIds?: unknown[];
+    attendanceIssues?: Record<string, unknown>[];
+  }>('/alert-popups/mine');
+  const uid = lastBootstrapSession().uid;
+  const dismissed: Record<string, string> = {};
+  for (const row of data.dismissals ?? []) {
+    const popupId = String(row.popupId ?? row.popup_id ?? '');
+    const dateKey = String(row.dateKey ?? row.date_key ?? '').slice(0, 10);
+    if (popupId && dateKey) dismissed[popupId] = dateKey;
+  }
+  const popups = (data.alertPopups ?? []).map(mapAlert);
+  queryClient.setQueryData<Database>(queryKeys.bootstrap, (prev) =>
+    prev
+      ? {
+          ...prev,
+          alertPopups: popups,
+          alertDismissals: uid ? { ...prev.alertDismissals, [uid]: dismissed } : prev.alertDismissals,
+          alertReadIds: data.readPopupIds ? data.readPopupIds.map(String) : prev.alertReadIds,
+          attendanceIssues: data.attendanceIssues ? data.attendanceIssues.map(mapAttendanceIssue) : prev.attendanceIssues,
+        }
+      : prev,
+  );
+}
+
+/** 학생이 알림을 확인했다 — 관리자 화면 「읽음 n/m」. 한 번만 보낸다 */
+export function markAlertRead(popupId: string): void {
+  if (currentDb().alertReadIds.includes(popupId)) return;
+  mutate((db) => ({ alertReadIds: [...db.alertReadIds, popupId] }));
+  if (!isTestMode() && isApiId(popupId)) {
+    void http.post(`/alert-popups/${popupId}/read`).catch(() => undefined);
   }
 }
 
@@ -431,7 +513,7 @@ export function dismissAlertToday(uid: string, popupId: string): void {
     },
   }));
   if (!isTestMode() && isApiId(popupId)) {
-    void http.post(`/alert-popups/${popupId}/dismiss`, { dateKey }).then(() => invalidateBootstrap());
+    void http.post(`/alert-popups/${popupId}/dismiss`, { dateKey }).catch(() => undefined);
   }
 }
 
@@ -732,6 +814,267 @@ export function setSeatPresence(
       throw error;
     },
   );
+}
+
+// ── 불시 자리 점검 ─────────────────────────────────────
+
+export function useSpotChecks(cohortId: string): SpotCheck[] {
+  return useDb((db) => db.spotChecks.filter((c) => c.cohortId === cohortId));
+}
+
+export interface SpotCheckDraft {
+  id?: string;
+  checkedAt: Date;
+  period: SpotCheckPeriod;
+  note?: string;
+  items: SpotCheckItem[];
+}
+
+/** 점검 한 번을 통째로 저장한다 — id 가 있으면 그 점검을 고쳐 쓴다. 저장된 id 를 돌려준다. */
+export async function saveSpotCheck(cohortId: string, draft: SpotCheckDraft, checker: User): Promise<string> {
+  const local: SpotCheck = {
+    id: draft.id ?? nextId('sc'),
+    cohortId,
+    checkedAt: draft.checkedAt,
+    period: draft.period,
+    note: draft.note,
+    checkedBy: checker.uid,
+    checkedByName: checker.displayName,
+    items: draft.items,
+  };
+  if (isTestMode()) {
+    mutate((db) => ({
+      spotChecks: [local, ...db.spotChecks.filter((c) => c.id !== local.id)].sort(
+        (a, b) => b.checkedAt.getTime() - a.checkedAt.getTime(),
+      ),
+    }));
+    return local.id;
+  }
+  try {
+    const data = await runCommand('savePresenceCheck', {
+      id: draft.id !== undefined && isApiId(draft.id) ? draft.id : undefined,
+      cohortId: apiCohortId(),
+      checkedAt: draft.checkedAt.toISOString(),
+      period: draft.period,
+      note: draft.note,
+      items: draft.items,
+    });
+    return String(data.id ?? local.id);
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
+}
+
+export async function deleteSpotCheck(id: string): Promise<void> {
+  mutate((db) => ({ spotChecks: db.spotChecks.filter((c) => c.id !== id) }));
+  if (isTestMode() || !isApiId(id)) return;
+  try {
+    await runCommand('deletePresenceCheck', { id });
+  } catch (error) {
+    await invalidateBootstrap();
+    throw new Error(await readApiError(error));
+  }
+}
+
+// ── 관리자 AI 어시스턴트 ───────────────────────────────
+
+export type AssistantAction =
+  | {
+      id: string;
+      type: 'send_alert';
+      title: string;
+      content: string;
+      linkUrl?: string | null;
+      /** 'YYYY-MM-DD' — 이 날까지 보인다. null 이면 끌 때까지 */
+      endDate?: string | null;
+      allStudents: boolean;
+      targets: { uid: string; name: string }[];
+    }
+  | { id: string; type: 'create_notice'; title: string; content: string; important: boolean };
+
+export interface AssistantTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/**
+ * 대화를 보내고 답과 확인 카드(제안)를 받는다. 제안은 executeAssistantAction 을 불러야 반영된다.
+ * context 는 이번에 조회한 학생 목록 — 다음 질문 때 그 답 뒤에 붙여 보내야 '아까 그 학생들'이 통한다.
+ */
+export async function askAdminAssistant(
+  messages: AssistantTurn[],
+): Promise<{ reply: string; actions: AssistantAction[]; context: string }> {
+  if (isTestMode()) return { reply: '테스트 모드에서는 AI 어시스턴트를 쓸 수 없습니다.', actions: [], context: '' };
+  try {
+    const { data } = await http.post<{ reply?: string; actions?: AssistantAction[]; context?: string }>(
+      '/admin/assistant',
+      { messages, cohortId: apiCohortId() },
+    );
+    return { reply: data.reply ?? '', actions: data.actions ?? [], context: data.context ?? '' };
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
+}
+
+export async function executeAssistantAction(action: AssistantAction): Promise<void> {
+  if (isTestMode()) return;
+  try {
+    await http.post('/admin/assistant/execute', { action, cohortId: apiCohortId() });
+    await invalidateBootstrap();
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
+}
+
+/** 출결 신청 — 날짜를 주면 그날 것만 */
+export function useAttendanceIssues(dateKey?: string): AttendanceIssue[] {
+  return useDb((db) =>
+    dateKey === undefined ? db.attendanceIssues : db.attendanceIssues.filter((i) => i.dateKey === dateKey),
+  );
+}
+
+// ── 출결 신청(예외 출결) ───────────────────────────────
+
+export function useMyAttendanceRequests(uid: string): AttendanceIssue[] {
+  return useDb((db) =>
+    db.attendanceIssues
+      .filter((i) => i.userId === uid)
+      .sort((a, b) => b.dateKey.localeCompare(a.dateKey) || (b.submittedAt?.getTime() ?? 0) - (a.submittedAt?.getTime() ?? 0)),
+  );
+}
+
+/** 학생 신청 · 고치기 — 증빙은 먼저 올리고 키를 붙인다. 반려된 것을 고치면 다시 확인 대기로 간다 */
+export async function submitAttendanceRequest(
+  draft: AttendanceRequestDraft,
+  file: File | null,
+  owner: User,
+): Promise<string> {
+  const evidence = file ? await uploadRecordEvidence(file) : undefined;
+  if (isTestMode()) {
+    const id = draft.id ?? nextId('ar');
+    const previous = getDb().attendanceIssues.find((i) => i.id === id);
+    const keepEvidence = evidence === undefined && draft.removeEvidence !== true;
+    const saved: AttendanceIssue = {
+      id,
+      userId: owner.uid,
+      dateKey: draft.dateKey,
+      issueType: draft.issueType,
+      status: 'submitted',
+      reason: draft.reason.trim(),
+      timeFrom: draft.timeFrom,
+      timeTo: draft.timeTo,
+      officialLeaveUsed: draft.officialLeaveUsed,
+      officialLeaveType: draft.officialLeaveUsed ? draft.officialLeaveType : undefined,
+      officialLeaveOther: draft.officialLeaveUsed ? draft.officialLeaveOther : undefined,
+      evidenceName: evidence?.name ?? (keepEvidence ? previous?.evidenceName : undefined),
+      evidenceUrl: evidence?.url ?? (keepEvidence ? previous?.evidenceUrl : undefined),
+      submittedAt: previous?.submittedAt ?? new Date(),
+    };
+    saved.label = requestLabel(saved);
+    mutate((db) => ({ attendanceIssues: [saved, ...db.attendanceIssues.filter((i) => i.id !== id)] }));
+    return id;
+  }
+  try {
+    const data = await runCommand('submitAttendanceRequest', {
+      ...draft,
+      id: draft.id !== undefined && isApiId(draft.id) ? draft.id : undefined,
+      evidence: evidence && { key: evidence.key, name: evidence.name, contentType: evidence.contentType, size: evidence.size },
+    });
+    return String(data.id ?? '');
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
+}
+
+/**
+ * 테스트 모드 출석부 반영 — 서버(attendance_requests.py)와 같은 규칙.
+ * 신청이 처음 덮어쓸 때 원래 상태를 기억했다가, 승인이 모두 빠지면 되돌린다.
+ */
+const attendanceBeforeRequests = new Map<string, Pick<Attendance, 'status' | 'statusSource'> | null>();
+
+function attendanceOf(userId: string, dateKey: string): Attendance | undefined {
+  return getDb().attendances.find((a) => a.userId === userId && a.dateKey === dateKey);
+}
+
+function syncLocalAttendance(userId: string, dateKey: string): void {
+  const approved = getDb().attendanceIssues.filter(
+    (i) => i.userId === userId && i.dateKey === dateKey && i.status === 'approved',
+  );
+  const key = `${userId}|${dateKey}`;
+  const current = attendanceOf(userId, dateKey);
+  const status = resultingStatus(approved);
+  if (status !== undefined) {
+    if (current?.statusSource !== 'form') {
+      attendanceBeforeRequests.set(key, current ? { status: current.status, statusSource: current.statusSource } : null);
+    }
+    stampAttendance(userId, dateKey, { status, statusSource: 'form' });
+    return;
+  }
+  if (current?.statusSource !== 'form') return;
+  const before = attendanceBeforeRequests.get(key) ?? null;
+  attendanceBeforeRequests.delete(key);
+  stampAttendance(userId, dateKey, { status: before?.status, statusSource: before?.statusSource });
+}
+
+export async function cancelAttendanceRequest(id: string): Promise<void> {
+  const before = currentDb().attendanceIssues;
+  const target = before.find((i) => i.id === id);
+  mutate((db) => ({ attendanceIssues: db.attendanceIssues.filter((i) => i.id !== id) }));
+  if (isTestMode()) {
+    if (target?.status === 'approved') syncLocalAttendance(target.userId, target.dateKey);
+    return;
+  }
+  if (!isApiId(id)) return;
+  try {
+    await runCommand('cancelAttendanceRequest', { id });
+  } catch (error) {
+    mutate(() => ({ attendanceIssues: before }));
+    throw new Error(await readApiError(error));
+  }
+}
+
+/** 승인 · 반려(여러 건) — 승인하면 그날 출석부 상태도 바꾸고, 승인을 거두면 원래대로 돌린다 */
+export async function reviewAttendanceRequests(
+  ids: string[],
+  decision: AttendanceRequestStatus,
+  reviewer: User,
+  comment?: string,
+): Promise<void> {
+  const picked = new Set(ids);
+  const now = new Date();
+  const changedDays = new Set(
+    currentDb()
+      .attendanceIssues.filter((i) => picked.has(i.id) && (decision === 'approved' || i.status === 'approved'))
+      .map((i) => `${i.userId}|${i.dateKey}`),
+  );
+  mutate((db) => ({
+    attendanceIssues: db.attendanceIssues.map((i) =>
+      picked.has(i.id)
+        ? {
+            ...i,
+            status: decision,
+            reviewComment: comment?.trim() || undefined,
+            reviewedBy: decision === 'submitted' ? undefined : reviewer.uid,
+            reviewedAt: decision === 'submitted' ? undefined : now,
+          }
+        : i,
+    ),
+  }));
+  if (isTestMode()) {
+    changedDays.forEach((day) => {
+      const [userId, dateKey] = day.split('|');
+      syncLocalAttendance(userId, dateKey);
+    });
+    return;
+  }
+  const apiIds = ids.filter(isApiId);
+  if (apiIds.length === 0) return;
+  try {
+    await runCommand('reviewAttendanceRequest', { ids: apiIds, decision, comment });
+  } catch (error) {
+    await invalidateBootstrap();
+    throw new Error(await readApiError(error));
+  }
 }
 
 // ── 좌석 배치 ──────────────────────────────────────────
@@ -1370,6 +1713,33 @@ export interface StudySourceSync {
   errors: { owner: string; error: string }[];
 }
 
+/** 이번 주 커리큘럼 YouTube 추천. 서버가 12시간 캐시하므로 화면을 열 때마다 불러도 된다. force 는 강사·관리자만 */
+export async function fetchWeeklyYoutube(cohortId: string, force = false): Promise<WeeklyYoutube> {
+  if (isTestMode()) {
+    return { cohortId, weekKey: null, weekLabel: null, topics: [], videos: [], cached: false, fetchedAt: null, message: null };
+  }
+  const { data } = await http.get<WeeklyYoutube>('/study/youtube-weekly', { params: { cohortId, force } });
+  return data;
+}
+
+export function useWeeklyYoutube(cohortId: string) {
+  return useQuery({
+    queryKey: ['youtube-weekly', cohortId],
+    queryFn: () => fetchWeeklyYoutube(cohortId),
+    enabled: !isTestMode() && cohortId !== '',
+    staleTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** 관리자 — 공공데이터포털에서 시험 일정을 지금 다시 받는다 */
+export async function syncQualExams(): Promise<Record<string, number>> {
+  if (isTestMode()) return {};
+  const { data } = await http.post<{ counts: Record<string, number> }>('/qual-exams/sync', {});
+  await invalidateBootstrap();
+  return data.counts;
+}
+
 /** 테스트(데모)는 GitHub 에 못 나가니 연결만 기억한다 */
 let demoOwners: GithubOwner[] = [];
 
@@ -1403,6 +1773,23 @@ export async function removeGithubOwner(id: string): Promise<GithubOwner[]> {
   }
   const { data } = await http.delete<{ owners: GithubOwner[] }>(`/study-sources/github/${encodeURIComponent(id)}`);
   return data.owners;
+}
+
+/** 웹 실습 채점 결과 — 검사문마다 통과 여부. error 는 채점 자체를 못 했을 때(문법 · 서버) */
+export interface WebGrade {
+  passed: boolean;
+  checks: { message: string; ok: boolean }[];
+  error: string;
+}
+
+/**
+ * 웹 실습(web_task) 채점 — 서버의 jsdom 이 그 문제의 검사문(DB)으로 본다. 검사문은 브라우저에 없다.
+ * setId · index 는 원래 세트의 문제 자리(다시 풀 문제도 원래 자리 — usePracticeSetMode.originOf)
+ */
+export async function gradeWebProblem(setId: string, index: number, html: string): Promise<WebGrade> {
+  if (isTestMode()) return { passed: false, checks: [], error: '데모에서는 웹 실습 채점을 할 수 없어요.' };
+  const { data } = await http.post<WebGrade>('/practice-web-grade', { setId, index, html });
+  return { passed: Boolean(data.passed), checks: data.checks ?? [], error: data.error ?? '' };
 }
 
 /** 복습 문제 자동 출제(매일 18:30) — 마지막으로 돌린 결과 */
@@ -1665,35 +2052,93 @@ export function useFormResponses(taskId?: string) {
   );
 }
 
-export function upsertFormTask(task: FormTask): void {
-  if (!isTestMode()) {
-    void runCommand('upsert', {
-      table: 'form_tasks',
-      id: task.id || undefined,
+/** 설문 등록 · 수정. 새 설문이면 task.id 를 비워 보낸다. 서버가 붙인 id 를 돌려준다 */
+export async function saveFormTask(task: FormTask): Promise<string> {
+  const exists = currentDb().formTasks.some((t) => t.id === task.id);
+  if (isTestMode()) {
+    const id = exists ? task.id : nextId('form');
+    mutate((db) => ({
+      formTasks: exists
+        ? db.formTasks.map((t) => (t.id === task.id ? { ...task, id } : t))
+        : [{ ...task, id }, ...db.formTasks],
+    }));
+    return id;
+  }
+  try {
+    const data = await runCommand('saveFormTask', {
+      id: exists ? task.id : undefined,
       cohortId: apiCohortId(),
       title: task.title,
       description: task.description,
+      mode: task.mode === 'builtin' ? 'builtin' : 'external_form',
       formUrl: task.formUrl,
+      questions: task.mode === 'builtin' ? task.questions : [],
       notionGuideUrl: task.notionGuideUrl,
-      dueAt: task.dueAt?.toISOString(),
+      dueAt: task.dueAt.toISOString(),
       published: task.published,
     });
+    return String(data.id ?? task.id);
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
+}
+
+export async function deleteFormTask(id: string): Promise<void> {
+  const before = currentDb();
+  mutate((db) => ({
+    formTasks: db.formTasks.filter((t) => t.id !== id),
+    formResponses: db.formResponses.filter((r) => r.taskId !== id),
+  }));
+  if (isTestMode()) return;
+  try {
+    await runCommand('deleteFormTask', { id });
+  } catch (error) {
+    mutate(() => ({ formTasks: before.formTasks, formResponses: before.formResponses }));
+    throw new Error(await readApiError(error));
+  }
+}
+
+/** LMS 설문 제출 — 마감 전이면 다시 내서 고칠 수 있다. 서버가 정리한 답으로 화면을 맞춘다 */
+export async function submitFormResponse(
+  task: FormTask,
+  answers: Record<string, FormAnswer>,
+  user: User,
+): Promise<void> {
+  let saved = answers;
+  let submittedAt = new Date();
+  if (!isTestMode()) {
+    try {
+      const data = await runCommand('submitFormResponse', { taskId: task.id, answers });
+      if (data.answers && typeof data.answers === 'object') saved = data.answers as Record<string, FormAnswer>;
+      if (typeof data.submittedAt === 'string') submittedAt = new Date(data.submittedAt);
+    } catch (error) {
+      throw new Error(await readApiError(error));
+    }
   }
   mutate((db) => {
-    const exists = db.formTasks.some((t) => t.id === task.id);
+    const previous = db.formResponses.find((r) => r.taskId === task.id && r.userId === user.uid);
     return {
-      formTasks: exists
-        ? db.formTasks.map((t) => (t.id === task.id ? task : t))
-        : [{ ...task, id: task.id || nextId('form') }, ...db.formTasks],
+      formResponses: [
+        ...db.formResponses.filter((r) => r !== previous),
+        {
+          id: previous?.id ?? nextId('fr'),
+          taskId: task.id,
+          userId: user.uid,
+          userEmail: user.personalEmail ?? user.email,
+          userDisplayName: user.displayName,
+          source: 'builtin',
+          answers: saved,
+          submittedAt,
+        },
+      ],
+      formTasks: previous
+        ? db.formTasks
+        : db.formTasks.map((t) => (t.id === task.id ? { ...t, responseCount: t.responseCount + 1 } : t)),
     };
   });
 }
 
-export function deleteFormTask(id: string): void {
-  mutate((db) => ({ formTasks: db.formTasks.filter((t) => t.id !== id) }));
-  if (!isTestMode()) void runCommand('upsert', { table: 'form_tasks', id, action: 'delete' });
-}
-
+/** 외부 폼 링크를 열면 제출로 친다(외부 폼은 실제 제출을 알 길이 없다) */
 export function markFormResponded(taskId: string, user: User): void {
   mutate((db) => ({
     formResponses: [
@@ -1876,6 +2321,11 @@ export function updateMileageSettings(patch: Partial<import('../domain/types').M
 /** ⬇︎ Query 로 바꾼 것 (시범) */
 export function useQualExams(): Query<QualExamSchedule[]> {
   return { data: useDb((db) => db.qualExams), loading: false, error: null };
+}
+
+/** 시험 일정을 마지막으로 받은 때 */
+export function useQualExamsSyncedAt(): Date | undefined {
+  return useDb((db) => db.qualExamsSyncedAt);
 }
 
 // ── 실습 문제 ──────────────────────────────────────────

@@ -1,4 +1,5 @@
-/* 복습 문제 · 연습장 창 — 첨삭 창(review.css 의 .rv-window · .rv-dockbar)과 같은 크기 · 모양 */
+/* 복습 문제 · 연습장 창 — 첨삭 창(review.css 의 .rv-window · .rv-dockbar)과 같은 크기 · 모양
+   창 머리 아이콘 · 탭 글자 · 노트북 제목의 왼쪽을 20px 한 줄에 맞춘다(예전엔 20 · 28 · 16px 로 어긋났다) */
 
 .pd-window {
   pointer-events: auto;
@@ -35,7 +36,7 @@
 }
 
 .pd-head__text strong {
-  font-size: 17px;
+  font-size: 16px;
 }
 
 .pd-head__text span {
@@ -45,12 +46,20 @@
 
 /* 탭 — 브라우저 탭처럼 창 머리 아래에 */
 .pd-tabs {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  padding: 0 12px;
+  padding: 0 12px 0 8px;
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
+  transition: box-shadow 0.15s ease;
+}
+
+/* 노트북을 내렸을 때 — 내용이 탭 줄 밑으로 들어간다는 표시 */
+.pd-tabs--scrolled {
+  box-shadow: 0 8px 14px -10px rgb(0 0 0 / 55%);
 }
 
 .pd-tab {
@@ -59,20 +68,20 @@
   flex: 0 0 auto;
   gap: 2px;
   margin-bottom: -1px;
-  padding: 0 4px 0 12px;
+  padding: 0 4px 0 8px;
   border: 1px solid transparent;
   border-bottom: 0;
   border-radius: 10px 10px 0 0;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 14px;
 }
 
+/* 고른 탭은 밑줄로 — 몸통과 같은 색으로 이어 붙이면 내린 내용이 탭 안으로 빨려 드는 것처럼 보였다 */
 .pd-tab--on {
-  border-color: var(--border);
-  background: var(--background);
   color: var(--text-primary);
   font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--primary);
 }
 
 .pd-tab__label {
@@ -107,7 +116,7 @@
   color: var(--primary);
   cursor: pointer;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 /* 몸통 — 노트북은 여기서 스크롤하고 튜터는 오른쪽에 붙어 있다 */
@@ -122,7 +131,12 @@
   position: absolute;
   inset: 0;
   overflow-y: auto;
-  padding: 16px 16px 20px;
+  padding: 16px 20px 20px;
+}
+
+/* 창 안의 노트북 제목 — 창 머리(16px)와 한 단계 차이만 */
+.pd-pane .study-head__title {
+  font-size: 20px;
 }
 
 .pd-pane[hidden] {
@@ -137,6 +151,10 @@
 .pd-pane .py-layout--tutor {
   grid-template-columns: minmax(0, 1fr) 330px;
   gap: 16px;
+  /* 화면용 규칙(ui.css)은 튜터가 열리면 노트북을 가운데 1080px 자리에 두려고 왼쪽 여백을 준다.
+     창 안에서는 그 여백만큼(30px) 제목이 창 머리 · 탭보다 안쪽으로 밀렸다 */
+  margin-left: 0;
+  margin-right: 0;
 }
 
 /* 화면용 튜터는 위 막대 아래(top 80px)에 붙고 화면 높이를 쓴다. 창 안에서는 창 몸통 높이를 쓴다 */

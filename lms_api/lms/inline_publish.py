@@ -30,6 +30,7 @@ def start_inline_publisher(*, interval_sec: float = 60.0) -> None:
     def _loop() -> None:
         # runserver 기동 직후 DB 준비 대기
         time.sleep(5)
+        next_qual_check = 0.0
         while True:
             try:
                 from lms.publish import publish_scheduled_notices
@@ -39,6 +40,17 @@ def start_inline_publisher(*, interval_sec: float = 60.0) -> None:
                     logger.info("inline publish: %s notice(s)", count)
             except Exception:
                 logger.exception("inline publish failed")
+            # 시험 일정은 하루 넘게 묵었을 때만 받는다. 확인은 한 시간에 한 번
+            if time.monotonic() >= next_qual_check:
+                next_qual_check = time.monotonic() + 3600
+                try:
+                    from lms.external_feeds import sync_qual_exams_if_stale
+
+                    synced = sync_qual_exams_if_stale()
+                    if synced:
+                        logger.info("inline qual exams synced: %s", synced)
+                except Exception as exc:
+                    logger.warning("inline qual exams sync failed: %s", type(exc).__name__)
             time.sleep(interval_sec)
 
     thread = threading.Thread(target=_loop, name="lms-inline-publish", daemon=True)

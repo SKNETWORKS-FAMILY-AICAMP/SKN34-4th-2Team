@@ -56,7 +56,8 @@ def _call(path: str, payload: dict, timeout: int) -> dict:
     req = urllib.request.Request(
         f"{base}/api/v1/study-notes{path}",
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        # 두 EC2 로 나뉘면 AI 서버가 이 값으로 Django 를 알아본다(웹 채점은 검사문을 실행하므로 확인한다 — study_notes/api.py)
+        headers={"Content-Type": "application/json", "X-LMS-AI-Token": os.environ.get("LMS_AI_SHARED_TOKEN") or ""},
         method="POST",
     )
     try:

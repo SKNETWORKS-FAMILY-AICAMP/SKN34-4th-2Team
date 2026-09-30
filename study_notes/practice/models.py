@@ -13,9 +13,12 @@ from typing import Any, Literal
 
 # code_scratch — 뼈대 없이 빈 에디터에서 함수를 처음부터 짠다. starter_code 는 「뼈대 받기」를 눌렀을 때만 보이는 뼈대
 # sql_query — 예제 테이블(setup_sql)에 조회문을 쓴다. 결과 표가 모범 조회문과 같으면 통과(sql_problem.py)
-Kind = Literal["concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query"]
-KINDS: tuple[Kind, ...] = ("concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query")
-RUNNABLE: tuple[Kind, ...] = ("code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query")
+# web_task — HTML · CSS 를 요구대로 고친다. hidden_tests 는 check(…) 검사문, 채점은 jsdom(web_problem.py)
+Kind = Literal["concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query", "web_task"]
+KINDS: tuple[Kind, ...] = (
+    "concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query", "web_task",
+)
+RUNNABLE: tuple[Kind, ...] = ("code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query", "web_task")
 
 # 빈칸 표시. `__1__`은 올바른 파이썬 이름이라 빈칸이 남은 채로도 ast로 읽힌다.
 BLANK_RE = re.compile(r"__(\d)__")
@@ -93,6 +96,9 @@ def parse_draft(raw: Any) -> tuple[PracticeProblem | None, str]:
         source_files=_str_list(raw.get("sourceFiles")),
         explanation=_text(raw.get("explanation")).strip(),
     )
+    # JS 코드 문제 — 종류는 파이썬 코드 문제와 같고 언어만 다르다(js_problem.py). 검증 · 채점이 이 표시로 갈린다
+    if kind.startswith("code_") and str(raw.get("language") or "").strip().lower() in ("javascript", "js"):
+        problem.packages = ["js"]
 
     if kind == "concept":
         choices = _str_list(raw.get("choices"))

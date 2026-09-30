@@ -517,6 +517,11 @@ def op_upsert_sql(cur, user, p):
             _require_staff(user)
         if row and table == "resumes":
             _delete_resume(cur, row["id"])
+        elif row and table == "alert_popups":
+            cur.execute("DELETE FROM alert_popup_targets WHERE popup_id = %s", [row["id"]])
+            cur.execute("DELETE FROM alert_popup_dismissals WHERE popup_id = %s", [row["id"]])
+            cur.execute("DELETE FROM alert_popup_reads WHERE popup_id = %s", [row["id"]])
+            cur.execute("DELETE FROM alert_popups WHERE id = %s", [row["id"]])
         elif row:
             cur.execute(f"DELETE FROM {table} WHERE id = %s", [row["id"]])
         return {"ok": True}
@@ -835,6 +840,15 @@ def _hhmm(value) -> str | None:
     return text[:5] if len(text) >= 5 else text
 
 
+def _alert_end_date(value) -> date | None:
+    if value in (None, ""):
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError as exc:
+        raise ValueError("노출 마지막 날은 YYYY-MM-DD 형식이어야 합니다.") from exc
+
+
 def op_upsert_scheduled(cur, user, p):
     _require_staff(user)
     from lms.publish import compute_next_publish_at
@@ -903,28 +917,41 @@ def op_upsert_alert(cur, user, p):
     link_url = p.get("linkUrl") or None
     start_time = _hhmm(p.get("startTime"))
     end_time = _hhmm(p.get("endTime"))
+    end_date = _alert_end_date(p.get("endDate"))
+    # 없으면 대상을 건드리지 않는다(노출 토글처럼 일부만 고칠 때). 빈 목록이면 기수 전체로 되돌린다.
+    targets = p.get("targetUserIds")
     row_id = p.get("id")
     if row_id and p.get("action") != "insert":
         row = resolve_row(cur, "alert_popups", row_id)
         if not row:
             raise KeyError("alert_popup")
+        if user["role"] != "admin" and not can_access_cohort(user, row["cohort_id"]):
+            raise PermissionError("cohort")
+        # endDate 를 안 보낸 부분 수정(예전 화면 · 다른 명령)은 마지막 날을 그대로 둔다
+        keep_end_date = "endDate" not in p
         cur.execute(
             """UPDATE alert_popups
                SET title=%s, content=%s, is_active=%s, sort_order=%s, link_url=%s,
-                   start_time=%s, end_time=%s, updated_at=now()
+                   start_time=%s, end_time=%s, end_date = CASE WHEN %s THEN end_date ELSE %s END,
+                   updated_at=now()
                WHERE id=%s""",
-            [title, content, is_active, sort_order, link_url, start_time, end_time, row["id"]],
+            [title, content, is_active, sort_order, link_url, start_time, end_time,
+             keep_end_date, end_date, row["id"]],
         )
+        if targets is not None:
+            set_alert_targets(cur, row["id"], row["cohort_id"], targets)
         return {"id": str(row["id"])}
     cur.execute(
         """INSERT INTO alert_popups
            (cohort_id, title, content, author_id, is_active, sort_order, link_url,
-            start_time, end_time, created_at, updated_at)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s, now(), now()) RETURNING id""",
-        [cohort_id, title, content, user["id"], is_active, sort_order, link_url, start_time, end_time],
+            start_time, end_time, end_date, created_at, updated_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, now(), now()) RETURNING id""",
+        [cohort_id, title, content, user["id"], is_active, sort_order, link_url, start_time, end_time, end_date],
     )
     pk = cur.fetchone()[0]
     cur.execute("UPDATE alert_popups SET legacy_id = %s WHERE id = %s", [str(pk), pk])
+    if targets:
+        set_alert_targets(cur, pk, cohort_id, targets)
     return {"id": str(pk)}
 
 
@@ -938,6 +965,23 @@ def op_dismiss_alert(cur, user, p):
            VALUES (%s,%s,%s)
            ON CONFLICT (user_id, popup_id) DO UPDATE SET date_key = EXCLUDED.date_key""",
         [user["id"], popup["id"], date_key],
+    )
+    return {"ok": True}
+
+
+def op_mark_alert_read(cur, user, p):
+    """학생이 알림을 확인했다 — 처음 한 번만 남긴다"""
+    if user.get("role") != "student":
+        return {"ok": True}
+    popup = resolve_row(cur, "alert_popups", p.get("popupId") or p.get("id"))
+    if not popup:
+        raise KeyError("alert_popup")
+    if popup["cohort_id"] != user.get("cohort_id"):
+        raise PermissionError("cohort")
+    cur.execute(
+        """INSERT INTO alert_popup_reads (popup_id, user_id, read_at) VALUES (%s, %s, now())
+           ON CONFLICT (popup_id, user_id) DO NOTHING""",
+        [popup["id"], user["id"]],
     )
     return {"ok": True}
 
@@ -1029,6 +1073,7 @@ OPS = {
     "upsertScheduledNotice": op_upsert_scheduled,
     "upsertAlertPopup": op_upsert_alert,
     "dismissAlertPopup": op_dismiss_alert,
+    "markAlertRead": op_mark_alert_read,
 }
 
 # 좌석 배치 쓰기(강의실 틀 · 배치 · 프로젝트 팀)는 따로 둔다 — 위 도우미를 쓰므로 맨 끝에서 불러온다.
@@ -1045,3 +1090,18 @@ OPS.update(PRACTICE_OPS)
 from lms.content_commands import CONTENT_OPS  # noqa: E402
 
 OPS.update(CONTENT_OPS)
+
+# 불시 자리 점검 · 학생 조건 조회 · 지정 알림 대상
+from lms.manager_commands import MANAGER_OPS, set_alert_targets  # noqa: E402
+
+OPS.update(MANAGER_OPS)
+
+# 출결 신청(예외 출결) — 학생 신청 · 매니저 승인
+from lms.attendance_requests import ATTENDANCE_REQUEST_OPS  # noqa: E402
+
+OPS.update(ATTENDANCE_REQUEST_OPS)
+
+# 설문 · 제출 — LMS 안에서 만드는 설문과 외부 폼 링크
+from lms.form_surveys import FORM_SURVEY_OPS  # noqa: E402
+
+OPS.update(FORM_SURVEY_OPS)
