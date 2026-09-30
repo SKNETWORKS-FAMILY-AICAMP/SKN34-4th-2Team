@@ -4330,6 +4330,46 @@ html {
   gap: 8px;
 }
 
+/* 제목 · 진행 막대 · 도구 줄 — 넓은 화면에서는 스크롤해도 상단 막대(70) 밑에 붙는다.
+   붙어 있는 동안(useStickyTop 의 --stuck)은 설명 줄을 접어 셀 자리를 덜 가린다.
+   좁은 화면은 상단 막대가 숨었다 나왔다 해서 함께 스크롤한다 */
+.py-top {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+@media (min-width: 901px) {
+  .py-top {
+    position: sticky;
+    top: 70px;
+    z-index: 15;
+    /* 뒤로 지나가는 셀을 가린다. 아래 여백은 바탕만 늘리고 셀과의 간격은 그대로 */
+    padding-bottom: 12px;
+    margin-bottom: -12px;
+    background: var(--background);
+  }
+
+  /* 셀로 스크롤해 가면(문제로 바로 가기 · 다음 문제) 붙어 있는 머리 밑에 선다 */
+  .py-playground [data-cell-id] {
+    scroll-margin-top: calc(70px + var(--py-top-h, 0px) + 12px);
+  }
+}
+
+.py-top--stuck {
+  gap: 10px;
+  padding-top: 8px;
+  box-shadow: 0 1px 0 var(--border), 0 10px 16px -12px var(--shadow);
+}
+
+.py-top--stuck .study-head__desc {
+  display: none;
+}
+
+.py-top--stuck .study-head__title {
+  font-size: 18px;
+}
+
 .py-toolbar__run {
   display: inline-flex;
   gap: 6px;
@@ -9458,18 +9498,30 @@ a.coach-ask__card-title:hover {
   padding: 10px 16px;
 }
 
-/* 웹 실습 — 왼쪽 HTML · CSS 편집기, 오른쪽 미리보기. 좁으면 위아래로 */
+/* 웹 실습 — 셀이 넓으면 왼쪽 편집기(넓게) · 오른쪽 미리보기, 좁으면(튜터가 열린 보통 화면) 편집기를 셀 폭 그대로 쓰고
+   미리보기를 아래에. 예전엔 늘 반반이라 튜터가 열리면 편집기가 380px 안팎으로 좁았다 */
 .pb-web {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  container-type: inline-size;
   padding: 0 16px;
+}
+
+.pb-web__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+/* 나란히 두어도 편집기가 650px 넘게 남을 때만 — 900 에선 543px 로 HTML 한 줄이 잘렸다 */
+@container (min-width: 1100px) {
+  .pb-web__grid {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
 }
 
 .pb-web__preview {
   display: flex;
   flex-direction: column;
-  min-height: 240px;
+  min-height: 280px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -9486,15 +9538,9 @@ a.coach-ask__card-title:hover {
 .pb-web__preview iframe {
   flex: 1;
   width: 100%;
-  min-height: 210px;
+  min-height: 250px;
   border: 0;
   background: #ffffff;
-}
-
-@media (max-width: 900px) {
-  .pb-web {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .pb__choices .pb__actions {

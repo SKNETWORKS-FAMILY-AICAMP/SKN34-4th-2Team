@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { usePageCrumbs } from '../../app/crumbs';
@@ -107,6 +107,10 @@ function Playground({
   const tutor = useTutor();
   const tutorOpen = Boolean(tutor?.target);
 
+  const [playground, setPlayground] = useState<HTMLDivElement | null>(null);
+  const topRef = useRef<HTMLDivElement>(null);
+  const stuck = useStickyTop(playground, topRef);
+
   // 들어오면 튜터를 열어 둔다 — 지금 고른 셀(없으면 앞 셀부터). 한 번만 연다: 사용자가 닫으면 그대로 둔다.
   // 복습 세트는 문제 셀이 늦게 오므로 셀이 튜터에 올라올 때까지 기다린다.
   // 좁은 화면에서는 튜터가 노트북을 덮는 서랍이라 열지 않는다(styles.css 의 1100px 기준과 같다).
@@ -139,18 +143,21 @@ function Playground({
   return (
     <div className={`py-layout${tutorOpen ? ' py-layout--tutor' : ''}`}>
       {!embedded && <PlaygroundCrumbs mode={mode} />}
-      <div className="screen__inner py-playground">
-        <header className="study-head">
-          {note ? <NoteCodeTitle title={note.title} /> : <PlaygroundTitle mode={mode} />}
-          <span className={`py-status py-status--${status}`} title={`Pyodide ${PYODIDE_VERSION}`}>
-            <span className="py-status__lamp" />
-            <span>
-              <strong>Python</strong> · {STATUS_TEXT[status]}
+      <div className="screen__inner py-playground" ref={setPlayground}>
+        {/* 제목 · 진행 막대 · 도구 줄은 스크롤해도 위에 붙어 있다. 붙어 있는 동안은 설명 줄을 접는다 */}
+        <div className={`py-top${stuck ? ' py-top--stuck' : ''}`} ref={topRef}>
+          <header className="study-head">
+            {note ? <NoteCodeTitle title={note.title} /> : <PlaygroundTitle mode={mode} />}
+            <span className={`py-status py-status--${status}`} title={`Pyodide ${PYODIDE_VERSION}`}>
+              <span className="py-status__lamp" />
+              <span>
+                <strong>Python</strong> · {STATUS_TEXT[status]}
+              </span>
             </span>
-          </span>
-        </header>
+          </header>
 
-        <NotebookToolbar nb={nb} set={mode.set} />
+          <NotebookToolbar nb={nb} set={mode.set} />
+        </div>
 
         {setId && !mode.set && (
           <div className="py-kernel-note" role="status">
@@ -246,6 +253,41 @@ function useNoteCode(nb: Notebook, note: NoteCodeRequest | undefined) {
 }
 
 /** 노트 코드 탭의 제목 */
+/**
+ * 위에 붙는 머리(제목 · 도구 줄) — 붙어 있는지 돌려주고, 높이를 --py-top-h 로 셀에 알린다(셀로 스크롤할 때 머리 밑에 서게).
+ * 붙는 자리는 CSS 가 정한다: 화면은 상단 막대 밑, 창(.pd-pane)은 창 몸통 맨 위, 좁은 화면은 붙지 않는다.
+ */
+function useStickyTop(root: HTMLElement | null, topRef: RefObject<HTMLDivElement | null>): boolean {
+  const [stuck, setStuck] = useState(false);
+
+  useEffect(() => {
+    const top = topRef.current;
+    if (root === null || top === null || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      root.style.setProperty('--py-top-h', `${Math.round(top.getBoundingClientRect().height)}px`);
+    });
+    observer.observe(top);
+    return () => observer.disconnect();
+  }, [root, topRef]);
+
+  useEffect(() => {
+    const top = topRef.current;
+    if (root === null || top === null) return;
+    // 머리는 연습장의 첫 줄이다 — 연습장이 위로 지나가는데 머리가 남아 있으면 붙은 것
+    const check = () => setStuck(top.getBoundingClientRect().top - root.getBoundingClientRect().top > 0.5);
+    check();
+    // 창(.pd-pane) 안의 스크롤은 window 로 올라오지 않아서 capture 로 받는다
+    window.addEventListener('scroll', check, { capture: true, passive: true });
+    window.addEventListener('resize', check);
+    return () => {
+      window.removeEventListener('scroll', check, { capture: true });
+      window.removeEventListener('resize', check);
+    };
+  }, [root, topRef]);
+
+  return stuck;
+}
+
 function NoteCodeTitle({ title }: { title: string }) {
   return (
     <div>
