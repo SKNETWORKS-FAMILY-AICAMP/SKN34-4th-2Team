@@ -418,6 +418,8 @@ class AdminAssistantTests(TestCase):
         action = result["actions"][0]
         self.assertEqual((action["type"], action["targets"]), ("send_alert", [{"uid": "uid-a", "name": "홍길동"}]))
 
+        self.assertEqual(result["context"], "[조회한 학생 1명] 홍길동(uid-a)")
+
     def test_student_is_forbidden(self):
         from lms.admin_assistant import AssistantError
 
@@ -437,3 +439,75 @@ class AdminAssistantTests(TestCase):
         self.assertEqual(payload["targetUserIds"], ["uid-a"])
         self.assertEqual(payload["cohortId"], "cohort_34")
         self.assertEqual(result["popupId"], "91")
+
+
+class AssistantReadToolTests(TestCase):
+    COHORT = {"id": 2, "code": "cohort_34", "name": "34기"}
+
+    def _session(self):
+        from lms.admin_assistant import _Session
+
+        return _Session(STAFF, self.COHORT)
+
+    def test_attendance_stats_counts_and_filters_by_status(self):
+        cur = MagicMock()
+        cur.fetchall.return_value = [
+            ("uid-a", "홍길동", "late", 3), ("uid-a", "홍길동", "absent", 1),
+            ("uid-b", "김철수", "late", 1), ("uid-c", "이영희", "present", 9),
+        ]
+        session = self._session()
+        result = session._tool_attendance_stats(cur, {
+            "from_date": "2026-09-01", "to_date": "2026-09-30", "status": "late", "min_count": 3,
+        })
+        self.assertEqual(result["totals"]["late"], 4)
+        self.assertEqual([s["uid"] for s in result["students"]], ["uid-a"])
+        self.assertEqual(result["students"][0]["absent"], 1)
+        self.assertEqual(session.memo(), "[조회한 학생 1명] 홍길동(uid-a)")
+
+    def test_attendance_stats_rejects_too_long_range(self):
+        with self.assertRaises(ValueError):
+            self._session()._tool_attendance_stats(MagicMock(), {"from_date": "2026-01-01", "to_date": "2026-09-30"})
+
+    def test_student_profile_returns_candidates_when_name_is_ambiguous(self):
+        cur = MagicMock()
+        cur.fetchall.return_value = [
+            (1, "uid-a", "김민수", "a@x", 3, 0), (2, "uid-b", "김민수정", "b@x", 4, 0),
+            (3, "uid-c", "박김민수", "c@x", 5, 0),
+        ]
+        result = self._session()._tool_student_profile(cur, {"name": "민수"})
+        self.assertTrue(result["ambiguous"])
+        self.assertEqual(len(result["candidates"]), 3)
+
+    def test_student_profile_prefers_exact_name(self):
+        cur = MagicMock()
+        cur.fetchall.side_effect = [
+            [(1, "uid-a", "김민수", "a@x", 3, 12000), (2, "uid-b", "김민수정", "b@x", 4, 0)],
+            [], [], [], [],
+        ]
+        cur.fetchone.return_value = (1, 5000)
+        result = self._session()._tool_student_profile(cur, {"name": "김민수"})
+        self.assertEqual((result["uid"], result["mileageBalance"]), ("uid-a", 12000))
+        self.assertEqual(result["pendingPurchases"], {"count": 1, "amount": 5000})
+        self.assertNotIn("pk", result)
+
+    @patch("lms.admin_assistant.find_students")
+    def test_form_status_lists_missing_students_for_titled_task(self, find):
+        find.return_value = {"students": [{"uid": "uid-a", "name": "홍길동"}, {"uid": "uid-b", "name": "김철수"}]}
+        cur = MagicMock()
+        cur.fetchall.side_effect = [
+            [(7, "프로젝트 주제 조사", "builtin", None, True, 1)],
+            [("uid-a",)],
+        ]
+        session = self._session()
+        result = session._tool_form_status(cur, {"title": "주제"})
+        task = result["tasks"][0]
+        self.assertEqual((task["mode"], task["submitted"], task["total"]), ("builtin", 1, 2))
+        self.assertEqual(task["missing"], [{"uid": "uid-b", "name": "김철수"}])
+        self.assertIn("김철수(uid-b)", session.memo())
+
+    def test_unknown_tool_and_bad_args_become_errors_for_the_model(self):
+        session = self._session()
+        self.assertIn("error", session.run_tool("drop_table", {}))
+        with patch("lms.admin_assistant.connection") as connection:
+            connection.cursor.return_value.__enter__.return_value = MagicMock()
+            self.assertIn("error", session.run_tool("attendance_stats", {"status": "sleeping"}))

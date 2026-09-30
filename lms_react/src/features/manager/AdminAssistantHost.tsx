@@ -32,12 +32,17 @@ interface Message {
   role: 'user' | 'assistant' | 'error';
   text: string;
   cards?: CardState[];
+  /** 화면에는 안 보이고 다음 질문 때만 같이 보내는 조회 결과 */
+  context?: string;
 }
 
 const EXAMPLES = [
   '오늘 입실 체크 안 했는데 출결 신청도 안 한 학생들에게 출결 신청 알림 보내줘',
   '오늘 확인 대기 중인 출결 신청 알려줘',
   '오늘 출결 현황 요약해줘',
+  '이번 달 지각 3번 이상인 학생 알려줘',
+  '지금 처리해야 할 대기 건 정리해줘',
+  '설문 안 낸 학생 알려줘',
   '방금 불시 점검에서 자리에 없던 학생 알려줘',
   '내일 오전 특강 안내 공지 만들어줘',
 ];
@@ -92,20 +97,24 @@ export function AdminAssistantHost() {
     const history: AssistantTurn[] = [
       ...messages
         .filter((m): m is Message & { role: 'user' | 'assistant' } => m.role !== 'error')
-        .map((m) => ({ role: m.role, content: [m.text, ...(m.cards ?? []).map(cardSummary)].join('\n').trim() }))
+        .map((m) => ({
+          role: m.role,
+          content: [m.text, ...(m.cards ?? []).map(cardSummary), m.context ?? ''].join('\n').trim(),
+        }))
         .filter((t) => t.content !== ''),
       { role: 'user', content: question },
     ];
     setMessages((m) => [...m, { id: newId('u'), role: 'user', text: question }]);
     setThinking(true);
     askAdminAssistant(history)
-      .then(({ reply, actions }) =>
+      .then(({ reply, actions, context }) =>
         setMessages((m) => [
           ...m,
           {
             id: newId('a'),
             role: 'assistant',
             text: reply,
+            context,
             cards: actions.map((action) => ({ action, status: 'pending' as const })),
           },
         ]),
