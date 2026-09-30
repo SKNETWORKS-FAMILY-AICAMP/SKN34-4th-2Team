@@ -83,6 +83,25 @@ class NoteInBatchesTests(unittest.TestCase):
         batches.assert_not_called()
 
 
+class PackMaterialsTests(unittest.TestCase):
+    def test_every_file_gets_a_share_and_short_files_stay_whole(self) -> None:
+        # LLM파트 08-19 — 앞 파일이 예산을 다 써 뒤 파일이 생략되던 날
+        sizes = [("a.ipynb", 19_000), ("b.ipynb", 8_700), ("c.ipynb", 15_600), ("d.ipynb", 5_600), ("e.ipynb", 3_700), ("f.ipynb", 320)]
+        mats = [{"path": p, "commit": "c", "content": p[0] * n, "truncated": False} for p, n in sizes]
+        packed = pipeline.pack_materials(mats)
+        self.assertNotIn("분량 제한으로 생략", packed)
+        body = {p: packed.split(f"### {p}")[1].split("\n", 1)[1].split("\n\n###")[0] for p, _ in sizes}
+        self.assertEqual(len(body["f.ipynb"]), 320)
+        self.assertEqual(len(body["e.ipynb"]), 3_700)
+        self.assertLessEqual(sum(len(b) for b in body.values()), pipeline.MAX_TOTAL_CHARS)
+        self.assertGreater(len(body["d.ipynb"]), 5_000)
+        self.assertIn("### a.ipynb (일부만)", packed)
+
+    def test_small_day_is_untouched(self) -> None:
+        mats = [{"path": "a.py", "commit": "c", "content": "x = 1", "truncated": False}]
+        self.assertEqual(pipeline.pack_materials(mats), "### a.py\nx = 1")
+
+
 class TidyHeadingsTests(unittest.TestCase):
     def test_extra_h2_goes_down_and_path_label_is_dropped(self) -> None:
         note = "## 핵심 코드와 개념\n## 파일 경로: `01_html/09_iframe.html`\n### 파일 경로: `a.css`\n## 실행 체크리스트"
