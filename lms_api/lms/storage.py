@@ -74,6 +74,24 @@ def put_object(key: str, data: bytes, content_type: str) -> None:
     path.write_bytes(data)
 
 
+def get_object(key: str) -> bytes | None:
+    """저장된 파일을 읽는다. 없으면 None (빈 파일은 b'')."""
+    target = _s3_target()
+    if target:
+        bucket, region = target
+        client = boto3.client("s3", region_name=region, config=Config(signature_version="s3v4"))
+        try:
+            return client.get_object(Bucket=bucket, Key=key)["Body"].read()
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in {"NoSuchKey", "404"}:
+                return None
+            raise
+    path = local_path(key)
+    if path is None:
+        raise ValueError("bad storage key")
+    return path.read_bytes() if path.is_file() else None
+
+
 def read_url(key: str | None) -> str | None:
     """화면이 여는 주소. 옛 데이터처럼 이미 주소(http)면 그대로 둔다."""
     if not key:
