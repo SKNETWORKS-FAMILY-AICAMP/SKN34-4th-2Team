@@ -129,7 +129,7 @@ function draw() {
         <button class="mid${on('예','보통')}" onclick="mark('예','보통')">추천 · 보통<kbd>2</kbd></button>
         <button class="no${on('아니오')}" onclick="mark('아니오','')">추천 안 함<kbd>3</kbd></button>
       </div>
-      <div class="q">높음 = 직무가 같고 주된 기술이 겹친다 · 보통 = 직무는 같은데 주된 기술이 다르다</div>
+      <div class="q">높음 = 직무가 같고 주된 기술이 겹친다(사소한 요건 한두 개는 없어도 됨) · 보통 = 직무는 같은데 주된 기술이 다르거나, 필수 전공 · 연차가 모자란다</div>
       <textarea rows="2" placeholder="메모 (선택)" oninput="memo(this.value)">${esc(m.memo || '')}</textarea>
     </div>
     <details><summary>모델의 판단 보기 — 먼저 스스로 정한 뒤 펼치세요</summary>

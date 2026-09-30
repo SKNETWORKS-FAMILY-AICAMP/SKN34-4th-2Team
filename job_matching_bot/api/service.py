@@ -608,11 +608,14 @@ class RecommendService(_LivenessMixin):
     # ── ⑤-2 「높음」은 다 맞아야 ─────────────────────
     @staticmethod
     def require_all_met(fit: schemas.JobFit, filter_result: dict) -> schemas.JobFit:
-        """필수 요건이 하나라도 확인되지 않으면 「높음」을 「보통」으로 내린다.
+        """전공 · 연차 같은 하드 요건이 안 맞으면 「높음」을 「보통」으로 내린다.
 
-        - LLM 이 적은 `concerns`(필수 자격요건 중 이력서에서 확인되지 않는 것)
-        - 하드 필터에서 안 맞는 것이 드러난 확인 필요(전공 불일치 · 연차 6개월 이내 모자람). 이력서에 전공을 안 적은
-          것은 넣지 않는다 — 안 맞는다는 증거가 아니다(hard_filter.APPLICANT_UNMET)
+        하드 필터에서 안 맞는 것이 드러난 확인 필요(전공 불일치 · 연차 6개월 이내 모자람)만 본다. 이력서에 전공을 안
+        적은 것은 넣지 않는다 — 안 맞는다는 증거가 아니다(hard_filter.APPLICANT_UNMET).
+
+        LLM 이 적은 `concerns` 로는 내리지 않는다. 처음(2026-09-29)에는 넣었는데, 「CDN · DNS 이해」「기획 단계 참여
+        경험」 같은 사소한 요건 하나로 내려간 5건을 사람 넷 중 다수가 높음으로 매겼다. 채점 기준(높음 = 직무가 같고
+        주된 기술이 겹친다)에 맞춰 하드 요건만 남겼다(2026-09-30). concerns 는 카드에 그대로 보여 준다.
 
         프롬프트로 시켜 봤더니(2026-09-28) 재정렬이 21~38초로 느려지고 추론 강도에 따라 흔들렸다.
         판정이 끝난 뒤 코드로 맞추면 시간이 늘지 않고 규칙대로 나온다. 올리지는 않는다.
@@ -620,7 +623,7 @@ class RecommendService(_LivenessMixin):
         if fit.fit != "높음":
             return fit
         unmet = [u for u in filter_result.get("unknown", []) if u.startswith(APPLICANT_UNMET)]
-        if not fit.concerns and not unmet:
+        if not unmet:
             return fit
         return fit.model_copy(update={"fit": "보통", "concerns": [*unmet, *fit.concerns]})
 
