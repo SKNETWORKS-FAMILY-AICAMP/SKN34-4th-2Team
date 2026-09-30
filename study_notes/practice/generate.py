@@ -63,8 +63,12 @@ KIND_GUIDE = (
     "  채점은 결과 값만 비교한다(열 이름은 안 본다). 그래서 prompt에 쓸 테이블, 결과에 낼 열과 그 순서,\n"
     "  정렬 기준을 모두 적는다(예: 「tbl_menu에서 가격이 10000원 이상인 메뉴의 이름과 가격을 가격 높은 순으로」).\n"
     "  starterCode는 비워 두거나 `-- 여기에 조회문을 쓰세요` 한 줄\n"
-    "- web_task: 웹 실습(수업 자료가 HTML · CSS일 때만). 학생은 HTML 문서를 고쳐 요구대로 만든다. 서버의 jsdom이 채점한다.\n"
-    "  starterCode는 <style>을 포함한 짧은 HTML 문서(40줄 이하), referenceSolution은 요구대로 고친 전체 문서. <script>는 쓰지 않는다.\n"
+    "- web_task: 웹 실습(수업 자료가 HTML · CSS 또는 페이지를 다루는 JavaScript일 때). 학생은 HTML 문서를 고쳐 요구대로 만든다.\n"
+    "  starterCode는 <style>을 포함한 짧은 HTML 문서(40줄 이하), referenceSolution은 요구대로 고친 전체 문서.\n"
+    "  HTML · CSS 수업이면 <script>를 쓰지 않는다. 파일 지시에 'HTML + JavaScript'라고 적힌 몫은 문서 안의 <script>(바깥 src 금지)로\n"
+    "  페이지를 다루는 문제를 낸다(요소 찾기 · 글자 · 클래스 · 인라인 스타일 바꾸기 · 이벤트 처리). 이때 검사문은 먼저 click(선택자) ·\n"
+    "  type(선택자, '글자')로 동작을 흉내 낸 뒤 결과를 본다. 예: check(type('#item', '사과') && click('#add') && count('#list li') === 1, '누르면 항목이 생겨요');\n"
+    "  스크립트가 바꾼 스타일은 css() 대신 style(선택자, 'CSS 속성'), 클래스는 hasClass(선택자, '이름'), 입력값은 value(선택자)로 본다.\n"
     "  모양을 고루 섞는다 — 빈칸 채우기(starterCode의 /* ① */ · <!-- ① --> 자리를 채움), 고치기(잘못된 속성 · 태그 · 선택자 하나),\n"
     "  처음부터 만들기(요구한 요소를 새로 씀).\n"
     "  hiddenTests는 검사문 2~5줄, 한 줄에 하나: check(조건, '학생에게 보일 한국어 문장');\n"
@@ -76,6 +80,12 @@ KIND_GUIDE = (
     "  grid-template-columns는 쓴 그대로('1fr 2fr')다. 화면 크기에 따라 달라지는 실제 너비 · 위치는 검사하지 않는다.\n"
     "  검사하는 선택자 · id · class · 태그 · 글자는 모두 prompt나 starterCode에 나온 것이어야 한다. 속성값은 그 결과로 설명해도 된다\n"
     "  (예: '메뉴가 가로 한 줄로 놓이고 가운데 정렬되게').\n"
+    "- JavaScript 코드 문제: 파일 지시에 'JavaScript'라고 적힌 몫은 code_output · code_blank · code_fix · code_write · code_scratch를\n"
+    "  JavaScript로 내고 문제마다 \"language\": \"javascript\"를 넣는다. 위 파이썬 규칙 대신 이 규칙을 따른다:\n"
+    "  수업의 핵심 JavaScript만 쓴다(자료형 · 형 변환 · 연산자 · 스코프 · 함수 · 배열 · 객체). document · window · require · fetch ·\n"
+    "  setTimeout · Math.random · Date.now · prompt · alert · eval은 쓰지 않는다. code_output은 console.log로 숫자 · 짧은 글자 · true/false를\n"
+    "  한두 줄만 찍는다. hiddenTests는 한 줄에 하나씩 assert(조건, '학생에게 보일 한국어 문장'); 2~4개(assert는 채점기가 준다,\n"
+    "  code_scratch는 3~5개). 빈칸은 __1__ · __2__ 로 비운다. 코드와 테스트는 한 스크립트로 이어서 돈다.\n"
     "hiddenTests는 starterCode·referenceSolution 뒤에 같은 변수 공간에서 이어서 실행된다(web_task는 문서를 읽은 뒤 검사문만 돈다).\n"
     "hiddenTests에 정답 코드를 다시 쓰지 않는다.\n"
 )
@@ -103,7 +113,8 @@ SCHEMA = (
     '  "choices": [], "answerIndex": 0,\n'
     '  "starterCode": "", "expectedStdout": "", "blankAnswers": [],\n'
     '  "referenceSolution": "", "hiddenTests": "", "setupSql": "",\n'
-    '  "explanation": "정답 해설 2~3문장"\n'
+    '  "explanation": "정답 해설 2~3문장",\n'
+    '  "language": "python | javascript (코드 문제만)"\n'
     "}}]}}"
 )
 

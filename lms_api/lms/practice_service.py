@@ -15,6 +15,8 @@ SQL_MARK = ["sqlite3"]
 # 웹 실습(web_task)도 같다 — code_write + ["web"]. hidden_tests 는 DOM · CSS 검사문(check(…))이고 화면에는 보내지 않는다.
 # 채점은 서버가 한다(practice_web.py) — 검사문을 브라우저가 보내면 서버에서 남의 JS 를 돌리게 된다
 WEB_MARK = ["web"]
+# 스크립트가 있는 웹 실습 — 학생 스크립트는 서버에서 돌리지 않고 브라우저 iframe 이 채점한다. 그래서 검사문을 화면에 보낸다
+WEB_JS_MARK = ["web-js"]
 
 
 def stored_kind(p: dict) -> str:
@@ -22,7 +24,7 @@ def stored_kind(p: dict) -> str:
     packages = _json(p["packages"]) if isinstance(p.get("packages"), str) else p.get("packages")
     if p["kind"] == "code_write" and packages == SQL_MARK:
         return "sql_query"
-    if p["kind"] == "code_write" and packages == WEB_MARK:
+    if p["kind"] == "code_write" and packages in (WEB_MARK, WEB_JS_MARK):
         return "web_task"
     return p["kind"]
 
@@ -32,7 +34,7 @@ def _stored(problem: dict) -> dict:
     if problem.get("kind") == "sql_query":
         return {**problem, "kind": "code_write", "packages": SQL_MARK, "hiddenTests": problem.get("setupSql") or ""}
     if problem.get("kind") == "web_task":
-        return {**problem, "kind": "code_write", "packages": WEB_MARK}
+        return {**problem, "kind": "code_write", "packages": WEB_JS_MARK if problem.get("packages") == WEB_JS_MARK else WEB_MARK}
     return problem
 
 
@@ -48,7 +50,8 @@ def _problem_json(p: dict) -> dict:
         "starterCode": p["starter_code"], "expectedStdout": p["expected_stdout"],
         "blankAnswers": _json(p["blank_answers"]),
         "referenceSolution": p["reference_solution"],
-        "hiddenTests": "" if kind in ("sql_query", "web_task") else p["hidden_tests"],
+        # 서버가 채점하는 웹 실습(["web"])만 검사문을 숨긴다. web-js 는 브라우저가 채점해야 해서 보낸다
+        "hiddenTests": "" if kind == "sql_query" or (kind == "web_task" and packages == WEB_MARK) else p["hidden_tests"],
         "setupSql": p["hidden_tests"] if sql else "",
         "packages": packages,
     }

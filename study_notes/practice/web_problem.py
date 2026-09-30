@@ -25,6 +25,19 @@ MAX_DOC_CHARS = 4000
 # 검사문은 한 줄 식만 — 반복 · 함수 정의 · 바깥으로 나가는 이름은 쓰지 않는다(jsdom vm 을 벗어날 길을 막는다)
 FORBIDDEN = re.compile(r"\b(while|for|function|constructor|prototype|process|require|import|eval|Function|globalThis|fetch|setTimeout|__proto__)\b|=>")
 SCRIPT_TAG = re.compile(r"<script\b", re.I)
+SCRIPT_SRC = re.compile(r"<script[^>]*\bsrc=", re.I)
+WEB_MARK = ["web"]
+# <script> 가 있는 문서 — 출제 검증은 jsdom 이 LLM 이 쓴 스크립트를 돌리고, 학생 채점은 브라우저 iframe 이 한다.
+# 학생 스크립트를 서버에서 돌리지 않는다(Node vm 은 완전한 격리가 아니다)
+WEB_JS_MARK = ["web-js"]
+
+
+def has_script(problem: PracticeProblem) -> bool:
+    return bool(SCRIPT_TAG.search(problem.reference_solution) or SCRIPT_TAG.search(problem.starter_code))
+
+
+def mark(problem: PracticeProblem) -> list[str]:
+    return WEB_JS_MARK if has_script(problem) else WEB_MARK
 
 
 def check_lines(tests: str) -> list[str]:
@@ -34,8 +47,8 @@ def check_lines(tests: str) -> list[str]:
 def static_check(problem: PracticeProblem) -> str:
     """실행 전에 거를 이유. 비어 있으면 통과."""
     for name, doc in (("시작 문서", problem.starter_code), ("모범 문서", problem.reference_solution)):
-        if SCRIPT_TAG.search(doc):
-            return f"{name}에 <script> 가 있음 (웹 실습은 HTML · CSS 만)"
+        if SCRIPT_SRC.search(doc):
+            return f"{name}가 바깥 스크립트(src)를 불러옴"
         if len(doc) > MAX_DOC_CHARS:
             return f"{name}가 {len(doc)}자로 김"
     lines = check_lines(problem.hidden_tests)
@@ -50,9 +63,10 @@ def static_check(problem: PracticeProblem) -> str:
 
 
 def jobs_for(key: str, problem: PracticeProblem, timeout_ms: int) -> list[Job]:
+    kind = "web-js" if has_script(problem) else "web"
     return [
-        Job(f"{key}:starter", [problem.starter_code, problem.hidden_tests], timeout_ms, kind="web"),
-        Job(f"{key}:reference", [problem.reference_solution, problem.hidden_tests], timeout_ms, kind="web"),
+        Job(f"{key}:starter", [problem.starter_code, problem.hidden_tests], timeout_ms, kind=kind),
+        Job(f"{key}:reference", [problem.reference_solution, problem.hidden_tests], timeout_ms, kind=kind),
     ]
 
 

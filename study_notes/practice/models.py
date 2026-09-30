@@ -96,6 +96,9 @@ def parse_draft(raw: Any) -> tuple[PracticeProblem | None, str]:
         source_files=_str_list(raw.get("sourceFiles")),
         explanation=_text(raw.get("explanation")).strip(),
     )
+    # JS 코드 문제 — 종류는 파이썬 코드 문제와 같고 언어만 다르다(js_problem.py). 검증 · 채점이 이 표시로 갈린다
+    if kind.startswith("code_") and str(raw.get("language") or "").strip().lower() in ("javascript", "js"):
+        problem.packages = ["js"]
 
     if kind == "concept":
         choices = _str_list(raw.get("choices"))

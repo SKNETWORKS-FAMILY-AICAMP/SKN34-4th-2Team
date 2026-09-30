@@ -24,7 +24,7 @@ import ast
 import re
 from dataclasses import dataclass
 
-from study_notes.practice import sql_problem, web_problem
+from study_notes.practice import js_problem, sql_problem, web_problem
 from study_notes.practice.models import RUNNABLE, PracticeProblem, fill_blanks
 from study_notes.practice.runner import Job, RunResult, Runner
 
@@ -230,8 +230,15 @@ def verify_problems(problems: list[PracticeProblem], runner: Runner) -> list[Ver
             if reason:
                 verdicts[i] = Verdict(problem, False, f"실행 전 거름 — {reason}")
                 continue
-            problem.packages = ["web"]
+            problem.packages = web_problem.mark(problem)
             jobs += web_problem.jobs_for(f"p{i}", problem, RUN_TIMEOUT_MS)
+            continue
+        if js_problem.is_js(problem):
+            reason = js_problem.static_check(problem)
+            if reason:
+                verdicts[i] = Verdict(problem, False, f"실행 전 거름 — {reason}")
+                continue
+            jobs += js_problem.jobs_for(f"p{i}", problem, RUN_TIMEOUT_MS)
             continue
         # 빈칸 문제는 빈칸이 남은 원본이 문법상 안 맞을 수 있다(`i __1__ step`). 채운 코드만 본다.
         codes = [] if problem.kind == "code_blank" else [problem.starter_code]

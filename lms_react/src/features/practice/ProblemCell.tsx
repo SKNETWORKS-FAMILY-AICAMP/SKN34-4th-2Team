@@ -10,16 +10,19 @@ import { KIND_LABEL } from './practiceLabels';
 import {
   gradeOutput,
   gradeReport,
+  outputMatches,
   remainingBlanks,
   splitTests,
   type GradeReport,
   type TestStatus,
 } from './practiceGrading';
 import type { RunResult, TableData } from './pythonProtocol';
+import { runJs } from './jsRunner';
 import { HIDE_AT, REASON_LABEL } from './reports';
 import { sqlSchema } from './sqlDialect';
 import { expectedAsTable, gradeSql, parseExpected, sqlProblemSteps, type ExpectedTable } from './sqlGrading';
 import type { TutorSnapshot } from './TutorContext';
+import { gradeWebScript } from './webScriptGrader';
 
 export { KIND_LABEL };
 
@@ -120,6 +123,11 @@ export function ProblemCell({
   const setupSql = problem.setupSql ?? '';
   const expected = isSql ? parseExpected(problem.expectedStdout) : null;
   const isWeb = problem.kind === 'web_task';
+  // JS 코드 문제 — 파이썬과 같은 종류, 브라우저 Web Worker 에서 돈다(jsRunner.ts)
+  const isJs = problem.packages?.length === 1 && problem.packages[0] === 'js';
+  // 스크립트가 있는 웹 실습 — 브라우저 iframe 이 채점한다(webScriptGrader.ts). 서버 채점은 스크립트 없는 것만
+  const isWebJs = isWeb && problem.packages?.length === 1 && problem.packages[0] === 'web-js';
+  const codeLanguage = isSql ? 'sql' : isWeb ? 'html' : isJs ? 'javascript' : 'python';
   const [webReport, setWebReport] = useState<WebGrade | null>(null);
   // 미리보기는 칠 때마다 다시 그리지 않고 조금 늦춰 따라간다
   const preview = useDeferredValue(code);
@@ -153,7 +161,8 @@ export function ProblemCell({
       await runSqlProblem();
       return;
     }
-    const r = await runInSession(problem.kind === 'code_output' ? problem.starterCode : code);
+    const source = problem.kind === 'code_output' ? problem.starterCode : code;
+    const r = isJs ? await runJs([source]) : await runInSession(source);
     const out: Line[] = r.stdout ? [{ kind: 'out', text: r.stdout.replace(/\n$/, '') }] : [];
     if (r.timedOut) out.push({ kind: 'err', text: '시간 제한에 걸려 멈췄어요.' });
     else if (r.stopped) out.push({ kind: 'err', text: '실행을 중단했어요.' });
@@ -202,7 +211,7 @@ export function ProblemCell({
       return;
     }
     setWorking('grade');
-    const r = await grade([code, problem.hiddenTests]);
+    const r = isJs ? await runJs([code, problem.hiddenTests]) : await grade([code, problem.hiddenTests]);
     const next = gradeReport(tests, r);
     setReport(next);
     if (!r.stopped) onAttempt(next.passed);
@@ -217,10 +226,10 @@ export function ProblemCell({
   };
 
   const gradeWebCode = async () => {
-    if (working || !gradeWeb) return;
+    if (working || (!gradeWeb && !isWebJs)) return;
     setWorking('grade');
     try {
-      const r = await gradeWeb(code);
+      const r = isWebJs ? await gradeWebScript(code, problem.hiddenTests) : await gradeWeb!(code);
       setWebReport(r);
       // 채점 자체를 못 했으면(서버 · 데모) 시도로 세지 않는다
       if (!r.error) onAttempt(r.passed);
@@ -233,7 +242,8 @@ export function ProblemCell({
   const submitOutput = async () => {
     if (!answer.trim() || working) return;
     setWorking('grade');
-    const verdict = await gradeOutput(answer, problem.expectedStdout, grade);
+    // JS 는 글자 그대로만 — 값 비교(ast.literal_eval)는 파이썬 표기용이다
+    const verdict = isJs ? (outputMatches(answer, problem.expectedStdout) ? 'exact' : 'wrong') : await gradeOutput(answer, problem.expectedStdout, grade);
     setWorking(null);
     setLooseMatch(verdict === 'value');
     setSubmitted(verdict !== 'wrong');
@@ -244,7 +254,7 @@ export function ProblemCell({
     <div className={`pb${passed ? ' pb--passed' : ''}`}>
       <div className="pb__head">
         <span className="pb__num">문제 {number}</span>
-        <span className="pb__kind">{KIND_LABEL[problem.kind]}</span>
+        <span className="pb__kind">{KIND_LABEL[problem.kind]}{isJs || isWebJs ? ' · JavaScript' : ''}</span>
         <span className="pb__topic">{problem.topic}</span>
         {note && <span className="pb__note">{note}</span>}
         <span className="py-grow" />
@@ -291,6 +301,8 @@ export function ProblemCell({
       <div className="pb__prompt">
         <NotebookMarkdown source={problem.prompt} />
         {KIND_HINT[problem.kind] && <p className="pb__hint">{inlineHint(KIND_HINT[problem.kind]!)}</p>}
+        {isJs && <p className="pb__hint">JavaScript 로 풀어요. 「실행」하면 `console.log` 출력이 아래에 보여요.</p>}
+        {isWebJs && <p className="pb__hint">미리보기에서 버튼을 눌러 보며 스크립트를 확인할 수 있어요. 채점은 이 브라우저에서 해요.</p>}
       </div>
 
       {isSql && <SqlProblemInfo number={number} setupSql={setupSql} expected={expected} />}
@@ -338,7 +350,7 @@ export function ProblemCell({
 
       {problem.kind === 'code_output' && (
         <>
-          <CodeEditor value={problem.starterCode} readOnly minLines={2} label={`문제 ${number} 코드`} markedLines={markedLines} />
+          <CodeEditor value={problem.starterCode} readOnly minLines={2} label={`문제 ${number} 코드`} markedLines={markedLines} language={codeLanguage} />
           <div className="pb__answer">
             <label htmlFor={`pb-answer-${number}`}>출력을 그대로 적어 보세요</label>
             <textarea
@@ -389,7 +401,7 @@ export function ProblemCell({
             markedLines={markedLines}
             minLines={3}
             label={`문제 ${number} 코드`}
-            language={isSql ? 'sql' : 'python'}
+            language={codeLanguage}
             sqlSchema={isSql ? () => sqlSchema([setupSql]) : undefined}
           />
           <div className="pb__actions">
@@ -438,11 +450,12 @@ export function ProblemCell({
             <div className="pb-web__preview">
               <span className="pb-web__label">미리보기 · 고칠 때마다 바뀌어요</span>
               {/* sandbox 빈 값 — 학생이 쓴 <script> · 링크 이동 · 폼 보내기를 막는다. 채점은 서버가 따로 한다 */}
-              <iframe title={`문제 ${number} 미리보기`} sandbox="" srcDoc={preview} />
+              {/* 스크립트 있는 문제는 눌러 볼 수 있게 allow-scripts 만 — 이 페이지(부모)에는 닿지 못한다 */}
+              <iframe title={`문제 ${number} 미리보기`} sandbox={isWebJs ? 'allow-scripts' : ''} srcDoc={preview} />
             </div>
           </div>
           <div className="pb__actions">
-            <button type="button" className="btn btn--filled btn--sm" onClick={gradeWebCode} disabled={working !== null || !gradeWeb}>
+            <button type="button" className="btn btn--filled btn--sm" onClick={gradeWebCode} disabled={working !== null || (!gradeWeb && !isWebJs)}>
               <Icon name={working === 'grade' ? 'hourglass_top' : 'task_alt'} size={18} />
               {working === 'grade' ? '채점 중…' : '채점'}
             </button>
@@ -558,7 +571,7 @@ export function ProblemCell({
             readOnly
             minLines={2}
             label={`문제 ${number} 모범답안`}
-            language={isSql ? 'sql' : isWeb ? 'html' : 'python'}
+            language={codeLanguage}
           />
         </div>
       )}

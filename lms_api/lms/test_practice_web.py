@@ -32,6 +32,15 @@ class StorageTests(SimpleTestCase):
         self.assertEqual(back["kind"], "web_task")
         self.assertEqual(back["hiddenTests"], "", "화면에는 검사문을 보내지 않는다")
 
+    def test_web_js_keeps_its_mark_and_sends_checks(self) -> None:
+        stored = _stored({**WEB, "packages": ["web-js"]})
+        self.assertEqual(stored["packages"], ["web-js"])
+        row = db_row(stored)
+        row["packages"] = '["web-js"]'
+        back = _problem_json(row)
+        self.assertEqual((back["kind"], back["packages"]), ("web_task", ["web-js"]))
+        self.assertEqual(back["hiddenTests"], WEB["hiddenTests"], "브라우저가 채점하므로 검사문을 보낸다")
+
     def test_plain_code_write_stays(self) -> None:
         self.assertEqual(stored_kind({"kind": "code_write", "packages": "[]"}), "code_write")
 
@@ -51,6 +60,11 @@ class GradeTests(SimpleTestCase):
         out, call = self.grade({"kind": "code_write", "packages": '["web"]', "hidden_tests": "check(has('ul'), '목록');"})
         self.assertTrue(out["passed"])
         self.assertEqual(call.call_args.args[1], {"html": "<ul></ul>", "checks": "check(has('ul'), '목록');"})
+
+    def test_web_js_is_graded_in_the_browser_not_here(self) -> None:
+        with self.assertRaises(StudySourceError) as caught:
+            self.grade({"kind": "code_write", "packages": '["web-js"]', "hidden_tests": "check(has('ul'), '목록');"})
+        self.assertEqual(caught.exception.status, 422)
 
     def test_other_kinds_are_refused(self) -> None:
         with self.assertRaises(StudySourceError) as caught:

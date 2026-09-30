@@ -38,8 +38,14 @@ class StaticRuleTests(unittest.TestCase):
     def test_good_problem_passes(self) -> None:
         self.assertEqual(static_check(draft()), "")
 
-    def test_script_is_not_allowed(self) -> None:
-        self.assertIn("<script>", static_check(draft(referenceSolution=REFERENCE + "<script>alert(1)</script>")))
+    def test_inline_script_marks_web_js_and_outside_script_is_refused(self) -> None:
+        from study_notes.practice.web_problem import mark
+
+        with_script = draft(referenceSolution=REFERENCE + "<script>document.title = 'x';</script>")
+        self.assertEqual(static_check(with_script), "")
+        self.assertEqual(mark(with_script), ["web-js"])
+        self.assertEqual(mark(draft()), ["web"])
+        self.assertIn("src", static_check(draft(referenceSolution=REFERENCE + '<script src="https://x/y.js"></script>')))
 
     def test_checks_are_one_line_calls_only(self) -> None:
         self.assertIn("check(", static_check(draft(hiddenTests=CHECKS + "\nconst x = 1;")))

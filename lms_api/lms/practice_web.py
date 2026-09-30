@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from django.db import connection
 
-from lms.practice_service import _problem_id, stored_kind
+from lms.practice_service import WEB_MARK, _json, _problem_id, stored_kind
 from lms.study_note_service import StudyNoteError, _call, _one
 from lms.study_source_service import StudySourceError
 
@@ -34,6 +34,9 @@ def grade(user: dict, set_key: str, index: int, html: str) -> dict:
         row = _one(cur)
     if not row or stored_kind(row) != "web_task":
         raise StudySourceError(422, "웹 실습 문제가 아닙니다.")
+    if _json(row["packages"]) != WEB_MARK:
+        # 스크립트가 있는 문제(web-js)는 학생 스크립트를 서버에서 돌리지 않는다 — 브라우저가 채점한다
+        raise StudySourceError(422, "이 문제는 브라우저에서 채점합니다.")
     try:
         return _call("/proxy/practice/web-grade", {"html": html, "checks": row["hidden_tests"] or ""}, GRADE_TIMEOUT)
     except StudyNoteError as exc:

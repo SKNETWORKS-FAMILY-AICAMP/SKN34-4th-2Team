@@ -50,10 +50,17 @@ class Solver(Protocol):
     def __call__(self, problems: list[PracticeProblem], usage: Usage) -> dict[int, str]: ...
 
 
+def _job_kind(p: PracticeProblem) -> str:
+    """다시 풀어 본 풀이를 어디서 돌릴지 — LLM 이 쓴 풀이라 web-js 도 서버 jsdom 에서 돌려도 된다"""
+    if p.kind == "web_task":
+        return "web-js" if p.packages == ["web-js"] else "web"
+    return "js" if p.packages == ["js"] else "python"
+
+
 def solve_blind(problems: list[PracticeProblem], usage: Usage) -> dict[int, str]:
     """{문제 번호: 풀이 코드}. 모범답안 · 테스트는 보여 주지 않는다. 처음부터 문제는 뼈대도 안 보인다(학생처럼)."""
     listing = [
-        {"index": i, "write": WHAT_TO_WRITE[p.kind], "prompt": p.prompt,
+        {"index": i, "write": WHAT_TO_WRITE[p.kind] + (" (JavaScript)" if p.packages == ["js"] else ""), "prompt": p.prompt,
          **({} if p.kind == "code_scratch" else {"starterCode": p.starter_code})}
         for i, p in enumerate(problems)
     ]
@@ -77,7 +84,7 @@ def blind_failures(problems: list[PracticeProblem], runner: Runner, usage: Usage
     if not targets:
         return {}
     solutions = solver([p for _, p in targets], usage)
-    jobs = [Job(f"b{n}", [solutions[n], p.hidden_tests], RUN_TIMEOUT_MS, kind="web" if p.kind == "web_task" else "python")
+    jobs = [Job(f"b{n}", [solutions[n], p.hidden_tests], RUN_TIMEOUT_MS, kind=_job_kind(p))
             for n, (_i, p) in enumerate(targets) if solutions.get(n, "").strip()]
     results = runner.run(jobs)
     failures: dict[int, str] = {}
