@@ -20,10 +20,17 @@ import type { User, UserRole } from '../../domain/types';
 
 const STORAGE_KEY = 'lms_react_session_uid';
 
+/** 로그인 요청(auth) → 첫 화면 데이터 받기(data) */
+export type SignInStage = 'auth' | 'data';
+
 export interface Session {
   user: User | null;
   loading: boolean;
-  signIn(email: string, password: string): Promise<{ ok: true; role: UserRole; mustChangePassword: boolean } | { ok: false; message: string }>;
+  signIn(
+    email: string,
+    password: string,
+    onStage?: (stage: SignInStage) => void,
+  ): Promise<{ ok: true; role: UserRole; mustChangePassword: boolean } | { ok: false; message: string }>;
   signOut(): Promise<void>;
   changePassword(
     next: string,
@@ -125,7 +132,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [uid]);
 
-  const signIn = useCallback(async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string, onStage?: (stage: SignInStage) => void) => {
+    onStage?.('auth');
     if (isTestMode()) {
       const result = demoSignIn(email, password);
       if (!result.ok) return result;
@@ -144,6 +152,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         user?: Record<string, unknown>;
       }>('/login', { email: email.trim(), password });
       useSessionStore.getState().setTokens(data.access, data.refresh);
+      onStage?.('data');
       const db = await queryClient.fetchQuery({ queryKey: queryKeys.bootstrap, queryFn: fetchBootstrap });
       setUid(data.uid);
       setMustChange(Boolean(data.mustChangePassword));

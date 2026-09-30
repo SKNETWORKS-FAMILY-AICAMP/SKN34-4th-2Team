@@ -764,8 +764,44 @@ html {
   transition: background 120ms ease;
 }
 
-.login__submit:hover {
+.login__submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.login__submit:hover:not(:disabled) {
   background: #16d6e8;
+}
+
+.login__submit:disabled {
+  cursor: progress;
+  background: #0a8f9c;
+}
+
+.login__spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+  animation: spin 0.8s linear infinite;
+}
+
+.login__demo-btn:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.login__input:read-only {
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login__spinner {
+    animation-duration: 2.4s;
+  }
 }
 
 .login__demo-toggle {
