@@ -120,8 +120,63 @@ class NoticeVectorCountTests(TestCase):
         delete.assert_called_once_with("cohort_34", 17, 2)
         cursor.assert_not_called()
 
+    @patch("lms.services.notice_vectors.delete_notice_vectors")
+    @patch("lms.services.notice_vectors.upsert_notice_vectors", side_effect=RuntimeError("image extraction failed"))
+    def test_failed_image_extraction_keeps_previous_vectors(self, _upsert, delete):
+        with self.assertRaises(RuntimeError):
+            sync_notice_vector("cohort_34", 17, {"image_storage_key": "notices/a/b.png"}, previous_chunk_count=2)
+        delete.assert_not_called()
+
+    @patch("lms.services.connection.cursor")
+    @patch("lms.services.notice_vectors.delete_notice_vectors")
+    @patch("lms.services.notice_vectors.upsert_notice_vectors")
+    def test_only_scheduled_attendance_is_excluded(self, upsert, delete, cursor):
+        cursor.return_value.__enter__.return_value.fetchone.return_value = ("scheduled",)
+        count = sync_notice_vector(
+            "cohort_34", 17, {"title": "[출결] 오늘 예외 출결 제출", "content": "내용"},
+            previous_chunk_count=2,
+        )
+        self.assertEqual(count, 0)
+        upsert.assert_not_called()
+        delete.assert_called_once_with("cohort_34", 17, 2, start=0)
+
+        cursor.return_value.__enter__.return_value.fetchone.return_value = (None,)
+        upsert.return_value = 1
+        self.assertEqual(sync_notice_vector(
+            "cohort_34", 18, {"title": "[출결] 오늘 예외 출결 제출", "content": "내용"}
+        ), 1)
+        upsert.assert_called_once()
+
 
 class NoticeImageTests(SimpleTestCase):
+    def test_image_text_is_combined_with_notice_body(self):
+        from lms.notice_vectors import build_records
+
+        records = build_records("cohort_34", 17, {
+            "title": "정기 상담 공지", "content": "본문 안내", "image_text": "신청 마감 10월 5일"
+        })
+        self.assertTrue(records[0]["page_content"].startswith("정기 상담 공지\n\n본문 안내"))
+        self.assertIn("신청 마감 10월 5일", records[0]["page_content"])
+
+        table = build_records("cohort_34", 18, {
+            "title": "정기 상담 공지", "content": "", "image_text": "09:50~10:00\n" * 60
+        })
+        self.assertGreater(len(table), 1)
+        self.assertTrue(all(row["page_content"].startswith("정기 상담 공지\n\n") for row in table))
+        self.assertIn("09:50~10:00", table[0]["page_content"])
+
+    @patch("lms.storage.put_object")
+    @patch("lms.storage.get_object", side_effect=[None, b"\x89PNG\r\n\x1a\nimage"])
+    @patch("lms.notice_vectors.extract_image_text", return_value="신청 마감 10월 5일")
+    def test_existing_image_is_extracted_and_cached(self, extract, get, put):
+        from lms.notice_vectors import image_text_for_notice
+
+        text = image_text_for_notice("notices/manager-a/old.png")
+        self.assertEqual(text, "신청 마감 10월 5일")
+        self.assertEqual(get.call_count, 2)
+        extract.assert_called_once_with(b"\x89PNG\r\n\x1a\nimage", "image/png")
+        put.assert_called_once_with("notices/manager-a/old.png.txt", text.encode(), "text/plain; charset=utf-8")
+
     def test_only_own_uploaded_key_or_https_url_is_accepted(self):
         user = {"firebase_uid": "manager-a"}
         own = f"notices/manager-a/{'a' * 32}.png"
@@ -132,8 +187,9 @@ class NoticeImageTests(SimpleTestCase):
 
     @patch("lms.storage.read_url", return_value="/api/files?t=token")
     @patch("lms.storage.put_object")
+    @patch("lms.notice_vectors.extract_image_text", return_value="신청 마감 10월 5일")
     @patch("lms.api._require_user", return_value={"role": "admin", "firebase_uid": "manager-a"})
-    def test_png_upload_checks_file_bytes_and_returns_saved_key(self, _user, put, _url):
+    def test_png_upload_checks_file_bytes_and_returns_saved_key(self, _user, extract, put, _url):
         file = Mock(content_type="image/png", size=12, name="notice.png")
         file.read.return_value = b"not an image"
         self.assertEqual(upload_notice_image(Mock(), file).status_code, 400)
@@ -143,7 +199,10 @@ class NoticeImageTests(SimpleTestCase):
         file.read.return_value = data
         result = upload_notice_image(Mock(), file)
         self.assertRegex(result["key"], r"^notices/manager-a/[0-9a-f]{32}\.png$")
-        put.assert_called_once_with(result["key"], data, "image/png")
+        extract.assert_called_once_with(data, "image/png")
+        self.assertEqual(put.call_count, 2)
+        put.assert_any_call(result["key"], data, "image/png")
+        put.assert_any_call(result["key"] + ".txt", "신청 마감 10월 5일".encode(), "text/plain; charset=utf-8")
 
 
 class JsonBodyContractTests(SimpleTestCase):

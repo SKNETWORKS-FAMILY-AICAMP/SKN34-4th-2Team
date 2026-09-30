@@ -1309,6 +1309,7 @@ def create_notice(request, body: dict[str, Any] = Body(...)):
             data={
                 "title": title,
                 "content": content,
+                "image_storage_key": image_key,
                 "author_id": user["id"],
                 "author_name": user["display_name"],
                 "is_favorite": bool(data.get("isFavorite")),
@@ -1351,7 +1352,7 @@ def patch_notice(request, pk: int, body: dict[str, Any] = Body(...)):
         schedule_notice_vector(
             cohort_code=code,
             notice_id=pk,
-            data={"title": title, "content": content, "author_id": author_id},
+            data={"title": title, "content": content, "image_storage_key": image_key, "author_id": author_id},
             previous_chunk_count=chunk_count,
         )
     return {"ok": True}
@@ -1450,6 +1451,7 @@ NOTICE_IMAGE_TYPES = {key: ext for key, ext in RECORD_FILE_TYPES.items() if key.
 def upload_notice_image(request, file: UploadedFile = File(...)):
     import uuid
 
+    from lms import notice_vectors
     from lms.storage import put_object, read_url
 
     user = _require_user(request)
@@ -1473,7 +1475,12 @@ def upload_notice_image(request, file: UploadedFile = File(...)):
         return Response({"detail": "올바른 이미지 파일이 아닙니다."}, status=400)
     key = f"notices/{user['firebase_uid']}/{uuid.uuid4().hex}{NOTICE_IMAGE_TYPES[content_type]}"
     try:
+        extracted_text = notice_vectors.extract_image_text(data, content_type)
+    except Exception:  # noqa: BLE001 — OpenAI 권한 · 네트워크 · 미지원 이미지
+        return Response({"detail": "이미지의 글자를 읽지 못했습니다. 이미지를 확인하고 다시 시도해 주세요."}, status=502)
+    try:
         put_object(key, data, content_type)
+        put_object(key + ".txt", extracted_text.encode("utf-8"), "text/plain; charset=utf-8")
     except Exception:  # noqa: BLE001 — S3 권한 · 네트워크
         return Response({"detail": "이미지를 저장하지 못했습니다. 잠시 뒤 다시 시도해 주세요."}, status=502)
     return {"key": key, "url": read_url(key)}

@@ -6,7 +6,8 @@ gunicorn>=22.0
 psycopg[binary]>=3.1
 celery>=5.4
 redis>=5.0,<6
-openai>=1.0
+openai>=1.0,<3
 pinecone>=5.0
+boto3>=1.35,<2
 # simplejwt 가 rest_framework 패키지를 import 하므로 런타임 의존으로 유지
 djangorestframework>=3.15
