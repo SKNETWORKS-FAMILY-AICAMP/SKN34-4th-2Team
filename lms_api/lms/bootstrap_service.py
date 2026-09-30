@@ -377,7 +377,7 @@ def build_bootstrap(user: dict) -> dict:
     public_notices = pub(notices)
     for row, public_notice in zip(notices, public_notices):
         if row.get("image_storage_key"):
-            public_notice["imageUrl"] = signed_read_url(row["image_storage_key"])
+            public_notice["imageUrl"] = read_url(row["image_storage_key"])
 
     return {
         "me": {**user, "uid": user["firebase_uid"], "cohortId": user.get("cohort_code")},

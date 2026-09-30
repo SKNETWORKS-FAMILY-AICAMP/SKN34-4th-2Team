@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { RobotHead } from '../../ui/RobotHead';
 import { Button, Row, Spacer } from '../../ui/components';
-import { http } from '../../data/http';
+import { API_BASE, http } from '../../data/http';
+import { useSessionStore } from '../../data/sessionStore';
 import { useSession } from '../auth/session';
 import { answerFor, chatbotGreeting, quickTopics } from './chatbotAnswers';
 
@@ -10,8 +11,7 @@ import { answerFor, chatbotGreeting, quickTopics } from './chatbotAnswers';
  * 학생 챗봇 — features/chatbot/presentation/student_chatbot_host.dart
  *
  * 화면 오른쪽 아래에 떠 있다가 누르면 대화 패널이 열린다. 답은 데모 클라이언트와
- * 같은 규칙으로 고르고, 한 번에 뱉지 않고 몇 글자씩 흘려보낸다 — 실제 앱의
- * 스트리밍이 그렇게 보였다.
+ * 같은 규칙으로 고른다. 실제 답변은 서버의 토큰을 받는 즉시 표시한다.
  */
 interface Message {
   id: string;
@@ -31,6 +31,7 @@ export function ChatbotHost() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [thinking, setThinking] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [topic, setTopic] = useState<string | null>(null);
   // 로봇 버튼을 누를 때마다 1씩 올린다. 그때만 머리가 한 번 튄다.
   const [bounce, setBounce] = useState(0);
@@ -62,6 +63,7 @@ export function ChatbotHost() {
     const id = `bot-${Date.now()}`;
     // API 대기 중에도 thinking 이 true 일 수 있다. 타이핑 직전에 잠깐 더 보여 준다.
     setThinking(true);
+    setBusy(true);
     const start = window.setTimeout(() => {
       setThinking(false);
       setMessages((m) => [...m, { id, role: 'bot', text: '', streaming: true }]);
@@ -76,6 +78,7 @@ export function ChatbotHost() {
           timers.current.push(window.setTimeout(tick, 22));
         } else {
           setMessages((m) => m.map((msg) => (msg.id === id ? { ...msg, streaming: false } : msg)));
+          setBusy(false);
         }
       };
       tick();
@@ -89,21 +92,87 @@ export function ChatbotHost() {
       stream(answerFor(question));
       return;
     }
-    // 서버(LLM) 응답을 기다리는 동안 로딩을 보여 준다.
     setThinking(true);
+    setBusy(true);
     void (async () => {
       const requestStarted = performance.now();
-      try {
-        const { data } = await http.post<{ answer?: string }>('/chat', { message: question });
-        const networkMs = performance.now() - requestStarted;
-        stream(data.answer || '답변을 받지 못했습니다.', () => {
-          if (import.meta.env.DEV) console.debug('[chatbot latency ms]', {
-            request: Math.round(networkMs),
-            first_char: Math.round(performance.now() - requestStarted),
-          });
+      let requestMs = 0;
+      const logFirstChar = () => {
+        if (import.meta.env.DEV) console.debug('[chatbot latency ms]', {
+          request: Math.round(requestMs),
+          first_char: Math.round(performance.now() - requestStarted),
         });
+      };
+      const id = `bot-${Date.now()}`;
+      let text = '';
+      const append = (delta: string) => {
+        if (!text && delta) window.requestAnimationFrame(logFirstChar);
+        text += delta;
+        setThinking(false);
+        setMessages((items) => {
+          const found = items.some((item) => item.id === id);
+          return found
+            ? items.map((item) => (item.id === id ? { ...item, text } : item))
+            : [...items, { id, role: 'bot', text, streaming: true }];
+        });
+      };
+      let response: Response | undefined;
+      try {
+        const access = useSessionStore.getState().access;
+        response = await fetch(`${API_BASE}/chat/stream`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/x-ndjson',
+            ...(access ? { Authorization: `Bearer ${access}` } : {}),
+          },
+          body: JSON.stringify({ message: question }),
+        });
+        requestMs = performance.now() - requestStarted;
       } catch {
-        stream('학습 도우미에 잠시 연결하지 못했습니다. 잠시 후 다시 시도하세요.');
+        // 연결 전 실패는 기존 JSON 경로로 재시도한다.
+      }
+      if (!response?.ok || !response.headers.get('content-type')?.includes('application/x-ndjson') || !response.body) {
+        try {
+          const { data } = await http.post<{ answer?: string }>('/chat', { message: question });
+          requestMs = performance.now() - requestStarted;
+          stream(data.answer || '답변을 받지 못했습니다.', logFirstChar);
+        } catch {
+          stream('학습 도우미에 잠시 연결하지 못했습니다. 잠시 후 다시 시도하세요.');
+        }
+        return;
+      }
+      try {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let completed = false;
+        while (!completed) {
+          const { value, done } = await reader.read();
+          buffer += decoder.decode(value, { stream: !done });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            let event: { type: string; content?: string; message?: string };
+            try {
+              event = JSON.parse(line) as typeof event;
+            } catch {
+              throw new Error('답변을 읽지 못했습니다.');
+            }
+            if (event.type === 'token' && event.content) append(event.content);
+            if (event.type === 'error') throw new Error(event.message || '답변 생성 중 오류가 발생했습니다.');
+            if (event.type === 'done') completed = true;
+          }
+          if (done && !completed) throw new Error('답변 전송이 중단됐습니다.');
+        }
+        if (!text) append('답변을 받지 못했습니다.');
+      } catch (error) {
+        append(`${text ? '\n\n' : ''}${error instanceof Error ? error.message : '답변 생성 중 오류가 발생했습니다.'}`);
+      } finally {
+        setThinking(false);
+        setBusy(false);
+        setMessages((items) => items.map((item) => (item.id === id ? { ...item, streaming: false } : item)));
       }
     })();
   };
@@ -111,7 +180,7 @@ export function ChatbotHost() {
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const question = draft.trim();
-    if (question === '' || thinking) return;
+    if (question === '' || busy) return;
     setDraft('');
     ask(question);
   };
@@ -239,7 +308,7 @@ export function ChatbotHost() {
           placeholder="궁금한 점을 적어 주세요"
           onChange={(e) => setDraft(e.target.value)}
         />
-        <Button type="submit" size="sm" disabled={draft.trim() === '' || thinking}>
+        <Button type="submit" size="sm" disabled={draft.trim() === '' || busy}>
           보내기
         </Button>
       </form>

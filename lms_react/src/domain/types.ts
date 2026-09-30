@@ -79,6 +79,7 @@ export interface Notice {
   channelLabel?: string;
   scheduledNoticeId?: string;
   imageUrl?: string;
+  imageStorageKey?: string;
   createdAt?: Date;
 }
 

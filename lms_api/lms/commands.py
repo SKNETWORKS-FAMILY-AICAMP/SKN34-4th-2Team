@@ -263,7 +263,8 @@ def op_update_notice(cur, user, p):
     code = cur.fetchone()[0]
     schedule_notice_vector(
         cohort_code=code, notice_id=row["id"],
-        data={"title": title, "content": content, "author_id": row.get("author_id")},
+        data={"title": title, "content": content, "image_storage_key": row.get("image_storage_key"),
+              "author_id": row.get("author_id")},
         previous_chunk_count=row.get("vector_chunk_count") or 0,
     )
 
