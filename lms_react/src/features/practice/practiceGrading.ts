@@ -90,7 +90,14 @@ export function splitTests(hiddenTests: string): TestCase[] {
     .split('\n')
     .map((text, i) => ({ text: text.trim(), line: i + 1 }))
     .filter((l) => l.text.startsWith('assert'))
-    .map((l) => ({ line: l.line, expr: l.text.replace(/^assert\s+/, '').replace(/,\s*(['"]).*\1\s*$/, '') }));
+    .map((l) => ({ line: l.line, expr: testExpr(l.text) }));
+}
+
+/** 학생에게 보일 식 — 파이썬 `assert x == 1, '문장'`, JS `assert(x === 1, '문장');` 둘 다 조건만 */
+function testExpr(text: string): string {
+  const js = /^assert\((.*)\)\s*;?\s*$/.exec(text);
+  const body = js ? js[1] : text.replace(/^assert\s+/, '');
+  return body.replace(/,\s*(['"`]).*\1\s*$/, '');
 }
 
 export type TestStatus = 'pass' | 'fail' | 'skip';
@@ -134,7 +141,8 @@ export function gradeReport(tests: TestCase[], result: RunResult): GradeReport {
   });
   if (failAt < 0) return { passed: false, statuses, headline: '테스트 준비 중에 멈췄어요', detail: message };
   // 처음부터 문제에서 흔하다 — 함수를 안 만들었거나 이름을 다르게 지었다
-  if (e.type === 'NameError') {
+  // JS 는 ReferenceError
+  if (e.type === 'NameError' || e.type === 'ReferenceError') {
     return {
       passed: false,
       statuses,

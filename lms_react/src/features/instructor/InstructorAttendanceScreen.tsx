@@ -5,15 +5,17 @@ import {
   useAttendanceByDate,
   usePublishedSeating,
   useSeatPresence,
+  useSpotChecks,
   useStudents,
 } from '../../data/repository';
 import { dateKeyOf } from '../../data/seed';
 import { ClassPeriods, attendanceLabel, currentPeriod, nearestPeriod } from '../../domain/constants';
-import type { SeatPresenceState, User } from '../../domain/types';
+import type { SeatPresenceState, SpotCheck, User } from '../../domain/types';
 import { InstructorTargets } from '../../tour/targets';
 import { useTourTarget } from '../../tour/useTourTarget';
 import { Icon } from '../../ui/Icon';
-import { Badge } from '../../ui/components';
+import { Badge, Tabs } from '../../ui/components';
+import { SpotCheckHistory, SpotCheckRunner } from '../manager/SpotCheck';
 import { PanelHandle, useStoredSize } from '../resume/ResumeEditScreen';
 import { FitWidth, SeatGrid } from '../seating/SeatingScreen';
 import { useCurrentUser } from '../auth/session';
@@ -58,6 +60,11 @@ export function InstructorAttendanceScreen() {
   // 0 이면 보류 카드는 내용만큼(최대 45%)
   const [heldHeight, setHeldHeight] = useStoredSize('instructor_roll_held_height', 0);
 
+  const [mode, setMode] = useState<'roll' | 'spot' | 'history'>('roll');
+  const [editingCheck, setEditingCheck] = useState<SpotCheck | undefined>(undefined);
+  const [savedNotice, setSavedNotice] = useState(false);
+  const spotChecks = useSpotChecks(user.cohortId);
+
   const period = Number(periodId);
   const presence = useSeatPresence(dateKey, period);
   const attendance = useAttendanceByDate(dateKey);
@@ -86,7 +93,7 @@ export function InstructorAttendanceScreen() {
     if (list === null || item === undefined) return;
     const prev = item.previousElementSibling as HTMLElement | null;
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    list.scrollTo({ top: Math.max(0, item.offsetTop - (prev?.offsetHeight ?? 0)), behavior: reduce ? 'auto' : 'smooth' });
+    list.scrollTo?.({ top: Math.max(0, item.offsetTop - (prev?.offsetHeight ?? 0)), behavior: reduce ? 'auto' : 'smooth' });
   }, [index]);
 
   // 좌석 번호는 확정된 배치에서 읽는다. 자리를 옮기면 여기도 따라 바뀐다.
@@ -101,7 +108,7 @@ export function InstructorAttendanceScreen() {
         <div>
           <h1 className="page-head__title">자리 확인</h1>
           <p className="page-head__desc">
-            {user.cohortName} · 교시마다 자리에 있는지 확인합니다. 학생 조작은 없고, 확인·보류만 기록됩니다.
+            {user.cohortName} · 교시마다 자리에 있는지 확인합니다. 불시 점검은 시각과 유/무를 문서로 남깁니다.
             (출석 상태는 변경되지 않음)
           </p>
           <p className="running-period">
@@ -109,6 +116,49 @@ export function InstructorAttendanceScreen() {
           </p>
         </div>
       </header>
+      <Tabs
+        active={mode}
+        onChange={(id) => {
+          setMode(id as typeof mode);
+          if (id !== 'spot') setEditingCheck(undefined);
+        }}
+        items={[
+          { id: 'roll', label: '교시 호명' },
+          { id: 'spot', label: '불시 점검' },
+          { id: 'history', label: '점검 이력', count: spotChecks.length },
+        ]}
+      />
+      {savedNotice && mode === 'history' && (
+        <div className="callout callout--success">점검을 저장했습니다. 여기서 CSV(엑셀)로 내려받을 수 있습니다.</div>
+      )}
+      {mode === 'spot' && (
+        <SpotCheckRunner
+          cohortId={user.cohortId}
+          checker={user}
+          students={students}
+          editing={editingCheck}
+          onSaved={() => {
+            setEditingCheck(undefined);
+            setSavedNotice(true);
+            setMode('history');
+          }}
+          onCancelEdit={() => setEditingCheck(undefined)}
+        />
+      )}
+      {mode === 'history' && (
+        <SpotCheckHistory
+          cohortId={user.cohortId}
+          cohortName={user.cohortName}
+          students={students}
+          onEdit={(check) => {
+            setEditingCheck(check);
+            setSavedNotice(false);
+            setMode('spot');
+          }}
+        />
+      )}
+      {mode === 'roll' && (
+      <>
       {markError && <p role="alert">자리 확인을 저장하지 못했습니다. 다시 시도해 주세요.</p>}
 
       <div className="roll-toolbar" ref={summaryRef}>
@@ -351,6 +401,8 @@ export function InstructorAttendanceScreen() {
           </tbody>
         </table>
       </section>
+      </>
+      )}
     </div>
   );
 }

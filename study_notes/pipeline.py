@@ -186,16 +186,27 @@ def response_text(response) -> str:
     return str(content)
 
 
+def _shares(lengths: list[int], budget: int) -> list[int]:
+    """파일마다 쓸 글자 수 — 짧은 파일은 다 넣고, 남은 예산을 긴 파일끼리 고르게 나눈다(파일당 MAX_CHARS_PER_FILE 까지)."""
+    shares = [0] * len(lengths)
+    left = budget
+    order = sorted(range(len(lengths)), key=lambda i: lengths[i])
+    for n, i in enumerate(order):
+        fair = left // (len(order) - n)
+        shares[i] = min(lengths[i], MAX_CHARS_PER_FILE, fair)
+        left -= shares[i]
+    return shares
+
+
 def pack_materials(materials: list[Material]) -> str:
-    """수업 자료를 파일 제목과 함께 한 덩어리로. 전체 글자 수 예산을 넘으면 뒤 파일은 줄이거나 뺀다."""
-    budget = MAX_TOTAL_CHARS
+    """수업 자료를 파일 제목과 함께 한 덩어리로. 전체 글자 수 예산을 넘으면 파일마다 고르게 줄인다.
+
+    예전엔 앞 파일부터 채워 뒤 파일은 「분량 제한으로 생략」됐다. 출제는 그 파일에도 문제를 배정해서 LLM 이 「내용이
+    없는 파일로는 못 낸다」며 하루를 통째로 거절했다(2026-09-29 LLM파트 08-19, 파일 6개 중 2개 생략)."""
+    shares = _shares([len(item["content"]) for item in materials], MAX_TOTAL_CHARS)
     chunks: list[str] = []
-    for item in materials:
-        if budget <= 0:
-            chunks.append(f"### {item['path']}\n(분량 제한으로 생략)")
-            continue
-        body = item["content"][: min(MAX_CHARS_PER_FILE, budget)]
-        budget -= len(body)
+    for item, share in zip(materials, shares):
+        body = item["content"][:share]
         note = " (일부만)" if item["truncated"] or len(item["content"]) > len(body) else ""
         chunks.append(f"### {item['path']}{note}\n{body}")
     return "\n\n".join(chunks)

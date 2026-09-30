@@ -6,9 +6,11 @@ import { RoutePaths } from './routePaths';
 import { DashboardScreen } from '../features/dashboard/DashboardScreen';
 import { BoardScreen } from '../features/board/BoardScreen';
 import { RecordsScreen, RecordFormRoute, RecordTypeSelectScreen } from '../features/records/RecordsScreen';
+import { FormFillScreen } from '../features/forms/FormFillScreen';
 import { FormTasksScreen } from '../features/forms/FormTasksScreen';
 import { QualExamScreen } from '../features/qual/QualExamScreen';
 import { SeatingScreen } from '../features/seating/SeatingScreen';
+import { AttendanceRequestScreen } from '../features/attendance/AttendanceRequestScreen';
 import {
   StudyNoteSourceScreen,
   StudyNotesScreen,
@@ -74,9 +76,11 @@ const AdminSeatingScreen = lazyNamed(loadAdminAttendanceScreens, 'AdminSeatingSc
 const loadAdminRecordsScreen = tracked(() => import('../features/admin/AdminRecordsScreen'));
 const AdminRecordsScreen = lazyNamed(loadAdminRecordsScreen, 'AdminRecordsScreen');
 const loadAdminBoardScreens = tracked(() => import('../features/admin/AdminBoardScreens'));
-const AdminAlertPopupFormScreen = lazyNamed(loadAdminBoardScreens, 'AdminAlertPopupFormScreen');
 const AdminBoardScreen = lazyNamed(loadAdminBoardScreens, 'AdminBoardScreen');
 const AdminScheduledNoticeFormScreen = lazyNamed(loadAdminBoardScreens, 'AdminScheduledNoticeFormScreen');
+const loadAdminAlertPopupScreens = tracked(() => import('../features/admin/AdminAlertPopupScreens'));
+const AdminAlertPopupFormScreen = lazyNamed(loadAdminAlertPopupScreens, 'AdminAlertPopupFormScreen');
+const AdminAlertPopupsScreen = lazyNamed(loadAdminAlertPopupScreens, 'AdminAlertPopupsScreen');
 const loadAdminLearningScreens = tracked(() => import('../features/admin/AdminLearningScreens'));
 const AdminFormTaskFormScreen = lazyNamed(loadAdminLearningScreens, 'AdminFormTaskFormScreen');
 const AdminFormTasksScreen = lazyNamed(loadAdminLearningScreens, 'AdminFormTasksScreen');
@@ -115,6 +119,7 @@ export const prefetchByRole: Record<string, (() => Promise<unknown>)[]> = {
     loadAdminAttendanceScreens,
     loadAdminRecordsScreen,
     loadAdminBoardScreens,
+    loadAdminAlertPopupScreens,
     loadAdminLearningScreens,
     loadAdminMileageScreens,
     loadAdminAiQualityScreen,
@@ -138,8 +143,10 @@ export const studentRoutes: AppRoute[] = [
   { path: RoutePaths.recordsCreate, element: <RecordTypeSelectScreen />, roles: student },
   { path: '/records/create/:type', element: <RecordFormRoute />, roles: student },
   { path: RoutePaths.forms, element: <FormTasksScreen />, roles: student },
+  { path: '/forms/:taskId', element: <FormFillScreen />, roles: student },
   { path: RoutePaths.qualExams, element: <QualExamScreen />, roles: student },
   { path: RoutePaths.seating, element: <SeatingScreen />, roles: student },
+  { path: RoutePaths.attendanceRequest, element: <AttendanceRequestScreen />, roles: student },
   { path: RoutePaths.studyRoom, element: <StudyRoomScreen />, roles: student },
   { path: RoutePaths.studyRoomNotes, element: <StudyNotesScreen />, roles: student },
   { path: RoutePaths.studyRoomPlayground, element: <PythonPlaygroundScreen />, roles: student },
@@ -265,16 +272,10 @@ export const adminRoutes: AppRoute[] = [
     element: <AdminScheduledNoticeFormScreen />,
     roles: admin,
   },
-  {
-    path: RoutePaths.adminBoardAlertPopupCreate,
-    element: <AdminAlertPopupFormScreen />,
-    roles: admin,
-  },
-  {
-    path: '/admin/board/alert-popups/:popupId/edit',
-    element: <AdminAlertPopupFormScreen />,
-    roles: admin,
-  },
+
+  { path: RoutePaths.adminAlertPopups, element: <AdminAlertPopupsScreen />, roles: admin },
+  { path: RoutePaths.adminAlertPopupCreate, element: <AdminAlertPopupFormScreen />, roles: admin },
+  { path: '/admin/alert-popups/:popupId/edit', element: <AdminAlertPopupFormScreen />, roles: admin },
 
   { path: RoutePaths.adminMileage, element: <AdminMileageHubScreen />, roles: admin },
   { path: RoutePaths.adminMileageProducts, element: <AdminMileageProductsScreen />, roles: admin },

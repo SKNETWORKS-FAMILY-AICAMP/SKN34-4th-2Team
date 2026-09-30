@@ -46,7 +46,7 @@ export const adminTour: TourDefinition = {
     {
       id: 'attendance_daily',
       title: '출결 공지',
-      body: '매일 08:30 출결 폼 공지를 여기서 등록할 수 있습니다.',
+      body: '매일 08:30 출결 신청 안내 공지를 여기서 등록할 수 있습니다.',
       targetId: AdminTargets.attendanceDailyNotice,
       route: RoutePaths.adminAttendance,
       skippableIfMissing: true,
@@ -103,7 +103,7 @@ export const adminTour: TourDefinition = {
     {
       id: 'nav_board',
       title: '게시판',
-      body: '공지·예약 공지·알림 팝업을 관리합니다.',
+      body: '공지·예약 공지를 관리합니다. 학생 화면에 뜨는 알림은 바로 아래 「알림 팝업」 메뉴에서 보냅니다.',
       targetId: AdminTargets.navBoard,
       route: RoutePaths.adminBoard,
     },

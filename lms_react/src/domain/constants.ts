@@ -52,11 +52,11 @@ export const OfficialLeaveLabels: Record<string, string> = {
 };
 
 export const AttendanceForm = {
-  url: 'https://forms.gle/HFraX15h7PB7iMic7',
-  dailyNoticeTitle: '[출결] 오늘 예외 출결 제출',
+  dailyNoticeTitle: '[출결] 오늘 예외 출결 신청',
   dailyNoticeContent:
     '정상 출석 외에 지각 / 조퇴 / 외출 / 결석(공가 포함) 예정이 있으면 ' +
-    '반드시 오늘 날짜로 구글폼을 제출해 주세요.',
+    '반드시 오늘 날짜로 LMS 왼쪽 메뉴 「출결 신청」에서 신청해 주세요. ' +
+    '증빙(진단서 · 면접 확인서 등)은 신청할 때 함께 올릴 수 있습니다.',
 } as const;
 
 // ── 교시 ──────────────────────────────────────────────

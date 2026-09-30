@@ -8,10 +8,11 @@ from typing import Any, Callable
 
 from django.db import close_old_connections, connection
 
+from lms.attendance_requests import public_request
 from lms.jsonutil import public_row
 from lms.practice_service import practice_snapshot
 from lms.seating_layout import seating_payload
-from lms.storage import read_url, signed_read_url
+from lms.storage import read_url
 
 
 def _dicts(cur):
@@ -156,13 +157,18 @@ def build_bootstrap(user: dict) -> dict:
                 "SELECT * FROM notices WHERE cohort_id = ANY(%s) ORDER BY created_at DESC NULLS LAST",
                 cohort_filter,
             ),
+            # 학생에게는 기수 전체 알림과 자기에게 지정된 알림만 보낸다
             "alerts": (
                 """SELECT p.*, u.display_name AS author_name FROM alert_popups p
                    LEFT JOIN users u ON u.id = p.author_id WHERE p.cohort_id = ANY(%s)
+                   AND (%s = false
+                        OR NOT EXISTS (SELECT 1 FROM alert_popup_targets t WHERE t.popup_id = p.id)
+                        OR EXISTS (SELECT 1 FROM alert_popup_targets t WHERE t.popup_id = p.id AND t.user_id = %s))
                    ORDER BY p.sort_order NULLS LAST, p.created_at DESC NULLS LAST""",
-                cohort_filter,
+                private_filter,
             ),
             "dismissals": ("SELECT * FROM alert_popup_dismissals WHERE user_id = %s", [user["id"]]),
+            "my_alert_reads": ("SELECT popup_id FROM alert_popup_reads WHERE user_id = %s", [user["id"]]),
             "todos": ("SELECT * FROM todos WHERE user_id = %s", [user["id"]]),
             "attendances": (
                 """SELECT a.*, a.attendance_date AS date_key FROM attendances a
@@ -200,11 +206,12 @@ def build_bootstrap(user: dict) -> dict:
                 private_filter,
             ),
             "forms": (
-                """SELECT st.*, stc.cohort_id, st.external_url AS form_url,
+                """SELECT DISTINCT ON (st.id) st.*, stc.cohort_id, st.external_url AS form_url,
                           st.guide_url AS notion_guide_url
                    FROM submission_tasks st
                    JOIN submission_task_cohorts stc ON stc.task_id = st.id
-                   WHERE stc.cohort_id = ANY(%s)""",
+                   WHERE stc.cohort_id = ANY(%s)
+                   ORDER BY st.id""",
                 cohort_filter,
             ),
             "inflearn": ("SELECT * FROM inflearn_packages WHERE cohort_id = ANY(%s)", cohort_filter),
@@ -218,7 +225,7 @@ def build_bootstrap(user: dict) -> dict:
             ),
             "sheets": ("SELECT * FROM curriculum_sheets WHERE cohort_id = ANY(%s)", cohort_filter),
             "mileage_settings": ("SELECT * FROM mileage_settings WHERE cohort_id = ANY(%s)", cohort_filter),
-            "cache": ("SELECT * FROM system_cache", []),
+            "cache": ("SELECT * FROM system_cache WHERE key LIKE 'qualExam%%'", []),
             "rooms": (
                 "SELECT * FROM cohort_seating WHERE cohort_id = ANY(%s) AND (%s = false OR published = true)",
                 [cohort_ids, is_student],
@@ -238,8 +245,10 @@ def build_bootstrap(user: dict) -> dict:
                 private_filter,
             ),
             "form_responses": (
-                """SELECT sr.*, sr.external_response_id AS google_response_id
+                """SELECT sr.*, COALESCE(st.legacy_id, st.id::text) AS task_id,
+                          sr.external_response_id AS google_response_id
                    FROM submission_responses sr
+                   JOIN submission_tasks st ON st.id = sr.task_id
                    WHERE sr.task_id IN (
                      SELECT task_id FROM submission_task_cohorts WHERE cohort_id = ANY(%s)
                    ) AND (%s = false OR sr.user_id = %s)""",
@@ -265,6 +274,37 @@ def build_bootstrap(user: dict) -> dict:
             specs["logs"] = ("SELECT * FROM ai_generation_logs WHERE cohort_id = ANY(%s)", cohort_filter)
         if not is_student:
             specs["seat_presences"] = ("SELECT * FROM seat_presences WHERE cohort_id = ANY(%s)", cohort_filter)
+            specs["presence_checks"] = (
+                """SELECT pc.*, u.display_name AS checked_by_name FROM presence_checks pc
+                   LEFT JOIN users u ON u.id = pc.checked_by
+                   WHERE pc.cohort_id = ANY(%s) ORDER BY pc.checked_at DESC""",
+                cohort_filter,
+            )
+            specs["presence_check_items"] = (
+                """SELECT i.* FROM presence_check_items i
+                   JOIN presence_checks pc ON pc.id = i.presence_check_id
+                   WHERE pc.cohort_id = ANY(%s)""",
+                cohort_filter,
+            )
+            specs["alert_targets"] = (
+                """SELECT t.popup_id, t.user_id FROM alert_popup_targets t
+                   JOIN alert_popups p ON p.id = t.popup_id WHERE p.cohort_id = ANY(%s)""",
+                cohort_filter,
+            )
+            specs["alert_reads"] = (
+                """SELECT r.popup_id, r.user_id, r.read_at FROM alert_popup_reads r
+                   JOIN alert_popups p ON p.id = r.popup_id WHERE p.cohort_id = ANY(%s)""",
+                cohort_filter,
+            )
+        # 출결 신청 — 학생은 자기 것만
+        specs["attendance_issues"] = (
+            """SELECT id, user_id, cohort_id, attendance_date, issue_type, status, details,
+                      evidence_storage_key, reviewed_by_id, reviewed_at, created_at
+               FROM attendance_issue_reports
+               WHERE cohort_id = ANY(%s) AND (%s = false OR user_id = %s)
+               ORDER BY attendance_date DESC, created_at DESC""",
+            private_filter,
+        )
         if user["role"] in ("admin", "instructor"):
             specs["assessments"] = ("SELECT * FROM assessments WHERE cohort_id = ANY(%s)", cohort_filter)
             specs["questions"] = (
@@ -287,6 +327,29 @@ def build_bootstrap(user: dict) -> dict:
         todos = fetched["todos"]
         attendances = fetched["attendances"]
         seat_presences = fetched.get("seat_presences", [])
+        presence_checks = fetched.get("presence_checks", [])
+        items_by_check: dict[int, list] = {}
+        for item in fetched.get("presence_check_items", []):
+            items_by_check.setdefault(item["presence_check_id"], []).append({
+                "userId": uid_by_pk.get(item["user_id"]),
+                "state": item["state"],
+                "reason": item["reason"],
+            })
+        for check in presence_checks:
+            check["items"] = items_by_check.get(check["id"], [])
+        targets_by_popup: dict[int, list] = {}
+        for target in fetched.get("alert_targets", []):
+            if target["user_id"] in uid_by_pk:
+                targets_by_popup.setdefault(target["popup_id"], []).append(uid_by_pk[target["user_id"]])
+        reads_by_popup: dict[int, list] = {}
+        for read in fetched.get("alert_reads", []):
+            if read["user_id"] in uid_by_pk:
+                reads_by_popup.setdefault(read["popup_id"], []).append({
+                    "uid": uid_by_pk[read["user_id"]],
+                    "readAt": read["read_at"].isoformat() if read.get("read_at") else None,
+                })
+        my_alert_reads = [str(row["popup_id"]) for row in fetched.get("my_alert_reads", [])]
+        attendance_issues = fetched.get("attendance_issues", [])
         submissions = fetched["submissions"]
         for submission in submissions:
             submission["file_urls"] = [
@@ -378,6 +441,14 @@ def build_bootstrap(user: dict) -> dict:
     for row, public_notice in zip(notices, public_notices):
         if row.get("image_storage_key"):
             public_notice["imageUrl"] = read_url(row["image_storage_key"])
+    public_alerts = pub(alerts)
+    if not is_student:
+        for row, public_alert in zip(alerts, public_alerts):
+            public_alert["targetUserIds"] = targets_by_popup.get(row["id"], [])
+            public_alert["readBy"] = reads_by_popup.get(row["id"], [])
+    public_checks = pub(presence_checks)
+    for row, public_check in zip(presence_checks, public_checks):
+        public_check["checkedBy"] = uid_by_pk.get(row["checked_by"])
 
     return {
         "me": {**user, "uid": user["firebase_uid"], "cohortId": user.get("cohort_code")},
@@ -385,11 +456,14 @@ def build_bootstrap(user: dict) -> dict:
         "cohorts": pub(cohorts),
         "notices": public_notices,
         "scheduledNotices": pub(scheduled),
-        "alertPopups": pub(alerts),
+        "alertPopups": public_alerts,
         "alertPopupDismissals": pub(dismissals),
+        "alertPopupReadIds": my_alert_reads,
         "todos": pub(todos),
         "attendances": pub(attendances),
         "seatPresences": pub(seat_presences),
+        "presenceChecks": public_checks,
+        "attendanceIssues": [public_request(row, uid_by_pk, read_url) for row in attendance_issues],
         "submissions": pub(submissions),
         "resumes": pub(resumes),
         "resumeFeedbacks": pub(feedbacks),

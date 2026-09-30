@@ -109,13 +109,15 @@ class RunSourceTests(unittest.TestCase):
         fake.assert_not_called()  # 새 셀이 없으면 LLM 을 부르지 않는다
         self.assertEqual(again["coverage"]["days"], {"2026-09-22": 4})
 
-    def test_web_lesson_is_not_made_yet_and_says_why(self) -> None:
-        repo = FakeRepo({"2026-09-23": {"01_html/01_web.html": "<h1>제목</h1>\n" * 60, "02_css/01.css": "p { color: red; }\n" * 60}})
+    def test_web_lesson_asks_for_concepts_and_web_tasks(self) -> None:
+        repo = FakeRepo({"2026-09-23": {"01_html/01_web.html": "<h1>제목</h1>\n\n" * 60, "02_css/01.css": "p { color: red; }\n\n" * 60}})
         out, fake = self.run_source(repo, today="2026-09-24")
-        fake.assert_not_called()
-        self.assertEqual(out["sets"], [])
-        self.assertIn("웹 수업", out["note"])
-        self.assertEqual(out["webDays"], ["2026-09-23"], "Django 가 그날 노트를 미리 만든다")
+        kinds = fake.call_args.kwargs["kind_counts"]
+        self.assertIn("web_task", kinds)
+        self.assertNotIn("code_output", kinds, "웹 수업에는 파이썬 코드 문제를 내지 않는다")
+        materials = "".join(m["content"] for m in fake.call_args.kwargs["materials"])
+        self.assertIn("```html", materials)
+        self.assertEqual(len(out["sets"]), 1)
 
     def test_empty_repo_is_a_note_not_a_failure(self) -> None:
         from study_notes import api
@@ -145,10 +147,13 @@ class RunSourceTests(unittest.TestCase):
             verifier.__truediv__.return_value.__truediv__.return_value.__truediv__.return_value.exists.return_value = True
             api.proxy_practice(request)
 
-    def test_web_files_are_left_out_of_a_mixed_day(self) -> None:
-        repo = FakeRepo({"2026-09-22": {"02_vit.ipynb": notebook(LONG), "index.html": "<h1>제목</h1>\n" * 60}})
-        out, _fake = self.run_source(repo)
-        self.assertEqual(out["sets"][0]["files"], ["02_vit.ipynb"])
+    def test_mixed_day_gets_python_and_web_problems(self) -> None:
+        repo = FakeRepo({"2026-09-22": {"02_vit.ipynb": notebook(LONG), "index.html": "<h1>제목</h1>\n\n" * 60}})
+        out, fake = self.run_source(repo)
+        self.assertEqual(sorted(out["sets"][0]["files"]), ["02_vit.ipynb", "index.html"])
+        kinds = fake.call_args.kwargs["kind_counts"]
+        self.assertIn("web_task", kinds)
+        self.assertIn("code_output", kinds)
 
     def test_late_commit_on_same_day_adds_only_new_cells(self) -> None:
         repo = FakeRepo({"2026-09-22": {"02_vit.ipynb": notebook(LONG)}})

@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from typing import Any
 
+from study_notes.git_tools import is_web_file
 from study_notes.pipeline import MAX_CHARS_PER_FILE, Material
 
 SIMILAR_RATIO = 0.9
@@ -28,6 +29,8 @@ MIN_NEW_CHARS = 200
 MIN_PER_FILE = 1
 # 그날 수업 파일이 하나뿐이어도 8문제는 낸다
 MAX_PER_FILE = 8
+# 코드 셀이 없는 파일(설명만 있는 노트북 · .md)이 받을 수 있는 문제 수 — 모두 개념 문제
+MAX_CONCEPT_ONLY = 2
 SUMMARY_CHARS = 600
 
 # 하루 문제 구성 — 연습장에서 돌려 보는 코드 문제를 중심으로(개념 확인은 성취도평가도 한다)
@@ -43,11 +46,26 @@ _FILL_ORDER = [
 ]
 
 
-def kind_mix(total: int, *, sql: bool = False) -> dict[str, int]:
+def is_js_file(path: str) -> bool:
+    return path.lower().endswith(".js")
+
+
+def kind_mix(total: int, *, sql: bool = False, web: bool = False, js: bool = False) -> dict[str, int]:
     """문제 total 개의 종류별 개수. total 이 하루 구성(12)이면 KIND_MIX 그대로.
 
     sql — 그날 자료가 SQL(.sql)이면 코드 문제 대신 SQL 조회 문제를 낸다. 파이썬 코드 문제는 수업과 상관없어진다.
+    web — 웹 수업(.html · .css)이면 1/3 개념 + 웹 실습(web_task). 태그 · 속성 · 선택자처럼 외워 둘 개념이 많다.
+    js — JS 수업(.js)이면 1/3 개념 + JS 코드 문제(종류는 파이썬 코드 문제와 같다, js_problem.py).
     """
+    if web:
+        concept = round(total / 3)
+        return {"concept": concept, "web_task": total - concept}
+    if js:
+        concept = round(total / 3)
+        mix = {"concept": concept}
+        for kind in [k for k in _FILL_ORDER if k != "concept"][:max(0, total - concept)]:
+            mix[kind] = mix.get(kind, 0) + 1
+        return mix
     if sql:
         concept = min(2, total // 4)
         return {"concept": concept, "sql_query": total - concept}
@@ -119,6 +137,11 @@ class FileIncrement:
     quota: int = 0
 
     @property
+    def has_code(self) -> bool:
+        """새 부분에 코드 셀이 있는지 — 없으면(설명만 있는 노트북 · .md) 개념 문제만 낸다"""
+        return any(c.kind == "code" for c in self.new_cells)
+
+    @property
     def continues(self) -> bool:
         """앞서 출제한 부분이 있는 파일 — 수업이 이어진 것"""
         return bool(self.seen_cells)
@@ -144,11 +167,35 @@ class DayPlan:
         예전엔 .sql 이 하나라도 있으면 코드 문제를 모두 SQL 로 냈다. 파이썬 파일 7개 + .sql 1개인 날(web_crawling 07-01)
         LLM 이 「SQL 자료는 파일 하나라 SQL 10문제는 못 낸다」며 빈 결과를 돌려줬다(2026-09-29)."""
         sql = sum(f.quota for f in self.targets if is_sql_file(f.path))
-        if sql == 0 or sql >= self.total:
-            return kind_counts_text(kind_mix(self.total, sql=sql > 0))
-        mix = kind_mix(self.total - sql)
-        mix["sql_query"] = sql
-        return kind_counts_text(mix)
+        js = sum(f.quota for f in self.targets if is_js_file(f.path))
+        web = sum(f.quota for f in self.targets if is_web_file(f.path) and not is_js_file(f.path))
+        if sql and sql >= self.total:
+            return kind_counts_text(kind_mix(self.total, sql=True))
+        mix = kind_mix(self.total - sql - web - js)
+        # 코드가 없는 파일의 몫은 개념 문제로 — 그만큼 코드 문제를 뒤(채우는 순서의 끝)부터 뺀다(LLM파트 09-07)
+        concept_only = sum(f.quota for f in self.targets if not f.has_code and not is_sql_file(f.path))
+        extra = max(0, concept_only - mix.get("concept", 0))
+        for kind in reversed(_FILL_ORDER):
+            if extra == 0:
+                break
+            if kind != "concept" and mix.get(kind, 0) > 0:
+                mix[kind] -= 1
+                mix["concept"] = mix.get("concept", 0) + 1
+                extra -= 1
+        if sql:
+            mix["sql_query"] = sql
+        if web:
+            # 웹 파일 몫은 따로 — 1/3 개념 + 웹 실습
+            for kind, n in kind_mix(web, web=True).items():
+                mix[kind] = mix.get(kind, 0) + n
+        if not js:
+            return kind_counts_text(mix)
+        # .js 몫 — 코드 문제 종류는 파이썬과 같은 이름이라 JavaScript 로 낼 것을 따로 적는다
+        js_mix = kind_mix(js, js=True)
+        for kind, n in js_mix.items():
+            mix[kind] = mix.get(kind, 0) + n
+        js_code = {k: n for k, n in js_mix.items() if k != "concept"}
+        return f'{kind_counts_text(mix)} — 그중 JavaScript 코드 문제("language": "javascript"): {kind_counts_text(js_code)}'
 
     def materials(self) -> list[Material]:
         """LLM 에 넘길 자료 — 파일마다 「앞부분 요약 + 새 부분」"""
@@ -170,7 +217,7 @@ class DayPlan:
         lines = [
             "각 파일의 [새로 진행한 부분]에서만 출제하세요. [앞서 배운 부분]은 문맥으로만 참고하고 다시 묻지 마세요.",
             "파일별 문제 수(합이 전체 개수):",
-            *[f"- {f.path}: {f.quota}개" for f in self.targets],
+            *[f"- {f.path}: {f.quota}개{_file_tag(f)}" for f in self.targets],
         ]
         return "\n".join(lines)
 
@@ -204,7 +251,8 @@ def split_cells(path: str, raw: str) -> list[Cell]:
             if text.strip():
                 cells.append(Cell(kind="markdown" if c.get("cell_type") == "markdown" else "code", text=text.strip("\n")))
         return cells
-    kind = "code" if path.lower().endswith((".py", ".sql")) else "text"
+    # 웹 파일(.html · .css · .js)도 코드다 — 설명만 있는 파일로 보면 개념 문제 2개로 묶인다(has_code)
+    kind = "code" if path.lower().endswith((".py", ".sql")) or is_web_file(path) else "text"
     return _split_blocks(raw, kind)
 
 
@@ -272,11 +320,12 @@ def plan_day(
 
 def _distribute(targets: list[FileIncrement], quota: int) -> None:
     """파일마다 1개씩 주고, 남은 개수는 한 개씩 「새 내용 ÷ (받은 수 + 1)」이 가장 큰 파일에 준다.
-    합이 정확히 quota 이고(파일당 최대치가 허락하는 한) 새 내용이 많은 파일이 더 받는다."""
+    합이 정확히 quota 이고(파일당 최대치가 허락하는 한) 새 내용이 많은 파일이 더 받는다.
+    코드가 없는 파일은 MAX_CONCEPT_ONLY 까지만 — 설명 글이 길어 5문제를 받았다가 코드 문제를 못 낸 날이 있었다."""
     for f in targets:
         f.quota = MIN_PER_FILE
     for _ in range(quota - MIN_PER_FILE * len(targets)):
-        open_ = [f for f in targets if f.quota < MAX_PER_FILE]
+        open_ = [f for f in targets if f.quota < (MAX_PER_FILE if f.has_code or is_sql_file(f.path) else MAX_CONCEPT_ONLY)]
         if not open_:
             break
         best = max(open_, key=lambda f: f.new_chars / (f.quota + 1))
@@ -287,7 +336,7 @@ def _material_text(f: FileIncrement) -> str:
     parts = []
     if f.seen_cells:
         parts.append("[앞서 배운 부분 — 요약, 다시 묻지 않음]\n" + _summary(f.seen_cells))
-    parts.append(("[새로 진행한 부분]\n" if f.seen_cells else "") + "\n\n".join(_cell_text(c) for c in f.new_cells))
+    parts.append(("[새로 진행한 부분]\n" if f.seen_cells else "") + "\n\n".join(_cell_text(c, _fence(f.path)) for c in f.new_cells))
     return "\n\n".join(parts)
 
 
@@ -303,5 +352,22 @@ def _summary(cells: list[Cell]) -> str:
     return text[:SUMMARY_CHARS] or "(요약할 제목 없음)"
 
 
-def _cell_text(c: Cell) -> str:
-    return c.text if c.kind != "code" else f"```python\n{c.text}\n```"
+def _file_tag(f: FileIncrement) -> str:
+    """파일별 지시에 붙이는 말 — 그 파일 몫을 어떤 문제로 낼지"""
+    if is_js_file(f.path):
+        return ' (JavaScript — 코드 문제는 JavaScript 로, "language": "javascript")'
+    if is_web_file(f.path) and any("<script" in c.text.lower() for c in f.new_cells):
+        return " (HTML + JavaScript — web_task 에 <script> 를 써서 페이지를 다루는 문제로)"
+    if not f.has_code and not is_sql_file(f.path):
+        return " (코드 없음 — concept 문제만)"
+    return ""
+
+
+def _fence(path: str) -> str:
+    """코드 블록 언어 — 웹 파일은 확장자대로"""
+    ext = path.lower().rsplit(".", 1)[-1]
+    return {"html": "html", "css": "css", "js": "javascript", "sql": "sql"}.get(ext, "python")
+
+
+def _cell_text(c: Cell, lang: str = "python") -> str:
+    return c.text if c.kind != "code" else f"```{lang}\n{c.text}\n```"

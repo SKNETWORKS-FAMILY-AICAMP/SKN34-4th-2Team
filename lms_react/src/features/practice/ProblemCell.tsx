@@ -1,5 +1,6 @@
-import { useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import { useDeferredValue, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 
+import type { WebGrade } from '../../data/repository';
 import type { PracticeAttempt, PracticeKind, PracticeProblem, PracticeReport, PracticeReportReason } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { CodeEditor } from './CodeEditor';
@@ -9,16 +10,19 @@ import { KIND_LABEL } from './practiceLabels';
 import {
   gradeOutput,
   gradeReport,
+  outputMatches,
   remainingBlanks,
   splitTests,
   type GradeReport,
   type TestStatus,
 } from './practiceGrading';
 import type { RunResult, TableData } from './pythonProtocol';
+import { runJs } from './jsRunner';
 import { HIDE_AT, REASON_LABEL } from './reports';
 import { sqlSchema } from './sqlDialect';
 import { expectedAsTable, gradeSql, parseExpected, sqlProblemSteps, type ExpectedTable } from './sqlGrading';
 import type { TutorSnapshot } from './TutorContext';
+import { gradeWebScript } from './webScriptGrader';
 
 export { KIND_LABEL };
 
@@ -28,6 +32,7 @@ const KIND_HINT: Partial<Record<PracticeKind, string>> = {
   code_write: '함수를 완성하고 채점하세요. 실행해 보거나 아래 빈 셀에서 불러 시험해 봐도 됩니다.',
   code_scratch: '문제에 적힌 함수를 빈 칸에서부터 작성하세요. 이름이 같아야 채점됩니다. 막히면 「뼈대 받기」로 이름·인자를 받을 수 있어요.',
   sql_query: '예제 테이블에 조회문을 쓰고 채점하세요. 결과의 값·열 순서가 기대 결과와 같으면 정답이에요(열 이름은 안 봐요). 수업의 MySQL 문법 그대로 써도 돼요.',
+  web_task: 'HTML · CSS 를 요구대로 고치고 채점하세요. 오른쪽 미리보기는 고칠 때마다 바뀌어요. 채점은 서버가 검사 항목마다 봐요.',
 };
 
 /** 이만큼 틀리면 모범답안을 볼 수 있게 한다 */
@@ -55,6 +60,7 @@ export function ProblemCell({
   grade,
   runSql,
   gradeSql: gradeSqlSteps,
+  gradeWeb,
   onFocus,
   focusSignal,
   onRunAndNext,
@@ -78,6 +84,8 @@ export function ProblemCell({
   /** SQL 문제 — 실행(노트북 세션 DB) · 채점(새 DB). steps 는 문장 목록 JSON */
   runSql?: (steps: string[]) => Promise<RunResult>;
   gradeSql?: (steps: string[]) => Promise<RunResult>;
+  /** 웹 실습 — 서버(jsdom)가 그 문제의 검사문으로 채점한다. 검사문은 브라우저에 없다 */
+  gradeWeb?: (html: string) => Promise<WebGrade>;
   onFocus: () => void;
   focusSignal: number;
   onRunAndNext: () => void;
@@ -114,17 +122,28 @@ export function ProblemCell({
     isSql;
   const setupSql = problem.setupSql ?? '';
   const expected = isSql ? parseExpected(problem.expectedStdout) : null;
+  const isWeb = problem.kind === 'web_task';
+  // JS 코드 문제 — 파이썬과 같은 종류, 브라우저 Web Worker 에서 돈다(jsRunner.ts)
+  const isJs = problem.packages?.length === 1 && problem.packages[0] === 'js';
+  // 스크립트가 있는 웹 실습 — 브라우저 iframe 이 채점한다(webScriptGrader.ts). 서버 채점은 스크립트 없는 것만
+  const isWebJs = isWeb && problem.packages?.length === 1 && problem.packages[0] === 'web-js';
+  const codeLanguage = isSql ? 'sql' : isWeb ? 'html' : isJs ? 'javascript' : 'python';
+  const [webReport, setWebReport] = useState<WebGrade | null>(null);
+  // 미리보기는 칠 때마다 다시 그리지 않고 조금 늦춰 따라간다
+  const preview = useDeferredValue(code);
 
   // 튜터는 물을 때 읽는다 — 그 사이 고친 코드 · 새 출력이 가야 한다
   const snapshot = useRef<TutorSnapshot>({ code: '', run: '', grade: '' });
   snapshot.current = {
-    code: problem.kind === 'code_output' ? problem.starterCode : isCode ? code : '',
+    code: problem.kind === 'code_output' ? problem.starterCode : isCode || isWeb ? code : '',
     run: [
       ...lines.map((l) => l.text),
       ...(value !== null ? [`Out: ${value}`] : []),
       ...(table ? [`결과 ${table.shape[0]}행: ${table.columns.join(' | ')}`, ...table.rows.slice(0, 5).map((r) => r.join(' | '))] : []),
     ].join('\n'),
-    grade: report
+    grade: webReport
+      ? `${webReport.passed ? '통과' : '실패'} · ${webReport.error || webReport.checks.map((c) => `${c.ok ? '✓' : '✗'} ${c.message}`).join(' / ')}`
+      : report
       ? `${report.passed ? '통과' : '실패'} · ${report.headline}${report.detail ? `\n${report.detail}` : ''}`
       : submitted !== null
         ? `${submitted ? '정답' : '오답'} · 학생 답: ${problem.kind === 'concept' ? 'ABCD'[pick ?? 0] : answer}`
@@ -142,7 +161,8 @@ export function ProblemCell({
       await runSqlProblem();
       return;
     }
-    const r = await runInSession(problem.kind === 'code_output' ? problem.starterCode : code);
+    const source = problem.kind === 'code_output' ? problem.starterCode : code;
+    const r = isJs ? await runJs([source]) : await runInSession(source);
     const out: Line[] = r.stdout ? [{ kind: 'out', text: r.stdout.replace(/\n$/, '') }] : [];
     if (r.timedOut) out.push({ kind: 'err', text: '시간 제한에 걸려 멈췄어요.' });
     else if (r.stopped) out.push({ kind: 'err', text: '실행을 중단했어요.' });
@@ -191,7 +211,7 @@ export function ProblemCell({
       return;
     }
     setWorking('grade');
-    const r = await grade([code, problem.hiddenTests]);
+    const r = isJs ? await runJs([code, problem.hiddenTests]) : await grade([code, problem.hiddenTests]);
     const next = gradeReport(tests, r);
     setReport(next);
     if (!r.stopped) onAttempt(next.passed);
@@ -205,10 +225,25 @@ export function ProblemCell({
     onAttempt(ok);
   };
 
+  const gradeWebCode = async () => {
+    if (working || (!gradeWeb && !isWebJs)) return;
+    setWorking('grade');
+    try {
+      const r = isWebJs ? await gradeWebScript(code, problem.hiddenTests) : await gradeWeb!(code);
+      setWebReport(r);
+      // 채점 자체를 못 했으면(서버 · 데모) 시도로 세지 않는다
+      if (!r.error) onAttempt(r.passed);
+    } catch {
+      setWebReport({ passed: false, checks: [], error: '채점하지 못했어요. 잠시 후 다시 해 보세요.' });
+    }
+    setWorking(null);
+  };
+
   const submitOutput = async () => {
     if (!answer.trim() || working) return;
     setWorking('grade');
-    const verdict = await gradeOutput(answer, problem.expectedStdout, grade);
+    // JS 는 글자 그대로만 — 값 비교(ast.literal_eval)는 파이썬 표기용이다
+    const verdict = isJs ? (outputMatches(answer, problem.expectedStdout) ? 'exact' : 'wrong') : await gradeOutput(answer, problem.expectedStdout, grade);
     setWorking(null);
     setLooseMatch(verdict === 'value');
     setSubmitted(verdict !== 'wrong');
@@ -219,7 +254,7 @@ export function ProblemCell({
     <div className={`pb${passed ? ' pb--passed' : ''}`}>
       <div className="pb__head">
         <span className="pb__num">문제 {number}</span>
-        <span className="pb__kind">{KIND_LABEL[problem.kind]}</span>
+        <span className="pb__kind">{KIND_LABEL[problem.kind]}{isJs || isWebJs ? ' · JavaScript' : ''}</span>
         <span className="pb__topic">{problem.topic}</span>
         {note && <span className="pb__note">{note}</span>}
         <span className="py-grow" />
@@ -266,6 +301,8 @@ export function ProblemCell({
       <div className="pb__prompt">
         <NotebookMarkdown source={problem.prompt} />
         {KIND_HINT[problem.kind] && <p className="pb__hint">{inlineHint(KIND_HINT[problem.kind]!)}</p>}
+        {isJs && <p className="pb__hint">JavaScript 로 풀어요. 「실행」하면 `console.log` 출력이 아래에 보여요.</p>}
+        {isWebJs && <p className="pb__hint">미리보기에서 버튼을 눌러 보며 스크립트를 확인할 수 있어요. 채점은 이 브라우저에서 해요.</p>}
       </div>
 
       {isSql && <SqlProblemInfo number={number} setupSql={setupSql} expected={expected} />}
@@ -313,7 +350,7 @@ export function ProblemCell({
 
       {problem.kind === 'code_output' && (
         <>
-          <CodeEditor value={problem.starterCode} readOnly minLines={2} label={`문제 ${number} 코드`} markedLines={markedLines} />
+          <CodeEditor value={problem.starterCode} readOnly minLines={2} label={`문제 ${number} 코드`} markedLines={markedLines} language={codeLanguage} />
           <div className="pb__answer">
             <label htmlFor={`pb-answer-${number}`}>출력을 그대로 적어 보세요</label>
             <textarea
@@ -364,7 +401,7 @@ export function ProblemCell({
             markedLines={markedLines}
             minLines={3}
             label={`문제 ${number} 코드`}
-            language={isSql ? 'sql' : 'python'}
+            language={codeLanguage}
             sqlSchema={isSql ? () => sqlSchema([setupSql]) : undefined}
           />
           <div className="pb__actions">
@@ -390,6 +427,83 @@ export function ProblemCell({
             )}
           </div>
         </>
+      )}
+
+      {isWeb && (
+        <>
+          <div className="pb-web">
+            <CodeEditor
+              value={code}
+              onChange={(next) => {
+                onCodeChange(next);
+                setWebReport(null);
+              }}
+              onRun={gradeWebCode}
+              onRunAndNext={onRunAndNext}
+              onFocus={onFocus}
+              focusSignal={focusSignal}
+              markedLines={markedLines}
+              minLines={8}
+              label={`문제 ${number} HTML · CSS`}
+              language="html"
+            />
+            <div className="pb-web__preview">
+              <span className="pb-web__label">미리보기 · 고칠 때마다 바뀌어요</span>
+              {/* sandbox 빈 값 — 학생이 쓴 <script> · 링크 이동 · 폼 보내기를 막는다. 채점은 서버가 따로 한다 */}
+              {/* 스크립트 있는 문제는 눌러 볼 수 있게 allow-scripts 만 — 이 페이지(부모)에는 닿지 못한다 */}
+              <iframe title={`문제 ${number} 미리보기`} sandbox={isWebJs ? 'allow-scripts' : ''} srcDoc={preview} />
+            </div>
+          </div>
+          <div className="pb__actions">
+            <button type="button" className="btn btn--filled btn--sm" onClick={gradeWebCode} disabled={working !== null || (!gradeWeb && !isWebJs)}>
+              <Icon name={working === 'grade' ? 'hourglass_top' : 'task_alt'} size={18} />
+              {working === 'grade' ? '채점 중…' : '채점'}
+            </button>
+            <button
+              type="button"
+              className="btn btn--text btn--sm"
+              onClick={() => {
+                onCodeChange(problem.starterCode);
+                setWebReport(null);
+              }}
+            >
+              처음 코드로
+            </button>
+            {canReveal && (
+              <button type="button" className="btn btn--text btn--sm" onClick={() => setShowSolution((v) => !v)}>
+                {showSolution ? '모범답안 숨기기' : '모범답안 보기'}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
+      {webReport && (
+        <Verdict
+          ok={webReport.passed}
+          title={
+            webReport.error ||
+            (webReport.passed
+              ? `정답이에요 · 검사 ${webReport.checks.length}개 모두 통과`
+              : `검사 ${webReport.checks.length}개 중 ${webReport.checks.filter((c) => c.ok).length}개 통과`)
+          }
+        >
+          {webReport.checks.length > 0 && (
+            <ul className="pb__tests">
+              {webReport.checks.map((c, i) => (
+                <li key={i} className={`pb__test pb__test--${c.ok ? 'pass' : 'fail'}`}>
+                  <Icon name={c.ok ? 'check_circle' : 'cancel'} size={16} />
+                  <span>{c.message}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {webReport.passed && <NotebookMarkdown source={problem.explanation} />}
+          {!webReport.passed && !webReport.error && tries < REVEAL_AFTER_TRIES && problem.referenceSolution && (
+            <p className="pb__muted">두 번 틀리면 모범답안을 볼 수 있어요.</p>
+          )}
+          <SourceLink files={problem.sourceFiles} />
+        </Verdict>
       )}
 
       {(lines.length > 0 || value !== null || table) && (
@@ -457,7 +571,7 @@ export function ProblemCell({
             readOnly
             minLines={2}
             label={`문제 ${number} 모범답안`}
-            language={isSql ? 'sql' : 'python'}
+            language={codeLanguage}
           />
         </div>
       )}

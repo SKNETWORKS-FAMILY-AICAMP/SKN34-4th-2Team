@@ -1,0 +1,128 @@
+/* 출결 신청 — 학생 신청 화면 · 관리자 확인 탭 */
+
+.attendance-request {
+  gap: 16px;
+}
+
+.attendance-request__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.attendance-request__form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.attendance-request__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px 16px;
+  align-items: start;
+}
+
+.attendance-request__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.attendance-request__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.attendance-request__item {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.attendance-request__item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.attendance-request__reason {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+}
+
+.attendance-request__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.attendance-request__meta a {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 관리자 확인 탭 */
+.att-requests__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.att-requests__reason {
+  white-space: pre-wrap;
+  max-width: 320px;
+}
+
+.att-requests__review-note {
+  display: block;
+  margin-top: 2px;
+}
+
+/* 학생 — 처리 결과 알림 */
+.attendance-result-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.attendance-result-list__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.attendance-result-list p {
+  margin: 4px 0 0;
+}
+
+.attendance-request__notice {
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .attendance-request__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .attendance-request__item-head strong {
+    width: 100%;
+  }
+}

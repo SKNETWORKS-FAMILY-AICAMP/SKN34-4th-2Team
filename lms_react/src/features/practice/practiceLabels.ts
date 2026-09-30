@@ -9,4 +9,5 @@ export const KIND_LABEL: Record<PracticeKind, string> = {
   code_write: '함수 작성',
   code_scratch: '처음부터',
   sql_query: 'SQL 조회',
+  web_task: '웹 실습',
 };

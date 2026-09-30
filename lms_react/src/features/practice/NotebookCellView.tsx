@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 
+import { gradeWebProblem } from '../../data/repository';
 import { Icon } from '../../ui/Icon';
 import { CodeEditor } from './CodeEditor';
 import type { Cell, CellType } from './notebookModel';
@@ -83,6 +84,13 @@ function ProblemCellRow({ cell, nb, mode }: { cell: Cell; nb: Notebook; mode: Pr
           grade={nb.gradeProblem}
           runSql={nb.runSqlProblemInSession}
           gradeSql={nb.gradeSqlProblem}
+          gradeWeb={(html) => {
+            // 다시 풀 문제도 원래 세트 · 자리로 채점한다(검사문은 서버의 그 문제에 있다)
+            const origin = mode.originOf(index);
+            return origin
+              ? gradeWebProblem(origin.setId, origin.index, html)
+              : Promise.resolve({ passed: false, checks: [], error: '이 문제는 채점할 수 없어요.' });
+          }}
           onFocus={() => nb.setActiveId(cell.id)}
           focusSignal={nb.focusSignalOf(cell.id)}
           onRunAndNext={() => nb.focusNext(cell.id)}

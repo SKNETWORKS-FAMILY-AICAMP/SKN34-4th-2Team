@@ -364,7 +364,8 @@ export function TutorPanel() {
               <>
                 <button type="button" onClick={() => send('more')} disabled={sending || level >= 3}>
                   <Icon name="lightbulb" size={15} />
-                  {level >= 3 ? '마지막 힌트까지 봤어요' : `힌트 더 (${level + 1}/3)`}
+                  {/* 괄호 숫자는 누르면 받을 단계 — 「힌트 더 (1/3)」은 하나 받은 것처럼 읽혔다 */}
+                  {level >= 3 ? '마지막 힌트까지 봤어요' : level === 0 ? '힌트 보기 (1/3)' : `다음 힌트 (${level + 1}/3)`}
                 </button>
                 <button type="button" onClick={() => send('ask', '어디가 틀렸는지 알려 주세요')} disabled={sending}>
                   어디가 틀렸어요?

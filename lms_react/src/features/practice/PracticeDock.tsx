@@ -6,9 +6,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type MouseEvent,
   type ReactNode,
+  type UIEvent,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -173,6 +175,18 @@ export function PracticeDockHost({ children }: { children: ReactNode }) {
   const value = useMemo(() => ({ open }), [open]);
   const shown = tabs.find((t) => t.key === active) ?? tabs[0];
 
+  // 노트북을 내리면 탭 줄 아래에 그림자 — 없으면 내용이 탭에서 뚝 잘려 보였다
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [scrolled, setScrolled] = useState(false);
+  const onBodyScroll = useCallback((e: UIEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.classList.contains('pd-pane')) setScrolled(target.scrollTop > 0);
+  }, []);
+  useEffect(() => {
+    const pane = bodyRef.current?.querySelector<HTMLElement>('.pd-pane:not([hidden])');
+    setScrolled((pane?.scrollTop ?? 0) > 0);
+  }, [shown?.key, minimized]);
+
   return (
     <PracticeDockContext.Provider value={value}>
       {children}
@@ -197,7 +211,7 @@ export function PracticeDockHost({ children }: { children: ReactNode }) {
                   <Icon name="close" size={20} />
                 </button>
               </header>
-              <div className="pd-tabs" role="tablist">
+              <div className={`pd-tabs${scrolled ? ' pd-tabs--scrolled' : ''}`} role="tablist">
                 {tabs.map((tab) => (
                   <PracticeTabButton
                     key={tab.key}
@@ -214,7 +228,7 @@ export function PracticeDockHost({ children }: { children: ReactNode }) {
                   </button>
                 )}
               </div>
-              <div className="pd-body">
+              <div className="pd-body" ref={bodyRef} onScrollCapture={onBodyScroll}>
                 <Suspense fallback={<div className="pd-loading">연습장을 불러오는 중…</div>}>
                   {tabs.map((tab) => (
                     <div key={tab.key} className="pd-pane" hidden={tab.key !== shown?.key} role="tabpanel">

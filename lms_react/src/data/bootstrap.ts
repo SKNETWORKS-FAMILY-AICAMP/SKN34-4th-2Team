@@ -5,6 +5,7 @@ import type {
   AssessmentAnswerEntry,
   AssessmentSubmission,
   Attendance,
+  AttendanceIssue,
   Cohort,
   CurriculumSheet,
   FormResponse,
@@ -25,6 +26,7 @@ import type {
   SeatingAssignment,
   SeatingCellType,
   SeatingRoom,
+  SpotCheck,
   StudyNote,
   StudyNoteScopeType,
   Submission,
@@ -180,8 +182,65 @@ export function mapAlert(row: Record<string, unknown>): AlertPopup {
     linkUrl: row.linkUrl || row.link_url ? String(row.linkUrl ?? row.link_url) : undefined,
     startTime: hhmm(row.startTime ?? row.start_time),
     endTime: hhmm(row.endTime ?? row.end_time),
+    endDate: row.endDate || row.end_date ? String(row.endDate ?? row.end_date).slice(0, 10) : undefined,
     createdAt: asDate(row.createdAt ?? row.created_at),
+    targetUserIds: Array.isArray(row.targetUserIds) ? (row.targetUserIds as unknown[]).map(String) : undefined,
+    readBy: Array.isArray(row.readBy)
+      ? (row.readBy as Record<string, unknown>[]).map((r) => ({ uid: String(r.uid ?? ''), readAt: asDate(r.readAt) }))
+      : undefined,
   };
+}
+
+export function mapSpotCheck(row: Record<string, unknown>): SpotCheck {
+  const items = Array.isArray(row.items) ? (row.items as Record<string, unknown>[]) : [];
+  return {
+    id: String(row.pk ?? row.id ?? ''),
+    cohortId: String(row.cohortId ?? ''),
+    checkedAt: asDate(row.checkedAt ?? row.checked_at) ?? new Date(0),
+    period: row.period === 'pm' ? 'pm' : 'am',
+    note: row.note ? String(row.note) : undefined,
+    checkedBy: row.checkedBy ? String(row.checkedBy) : undefined,
+    checkedByName: row.checkedByName ? String(row.checkedByName) : undefined,
+    items: items
+      .filter((i) => i.userId)
+      .map((i) => ({
+        userId: String(i.userId),
+        state: i.state === 'absent' ? 'absent' : 'present',
+        reason: i.reason ? String(i.reason) : undefined,
+      })),
+  };
+}
+
+export function mapAttendanceIssue(row: Record<string, unknown>): AttendanceIssue {
+  const text = (value: unknown) => (value === null || value === undefined || value === '' ? undefined : String(value));
+  const status = String(row.status ?? 'submitted');
+  return {
+    id: String(row.pk ?? row.id ?? ''),
+    userId: String(row.userId ?? ''),
+    dateKey: String(row.attendanceDate ?? '').slice(0, 10),
+    issueType: String(row.issueType ?? 'other'),
+    status: status === 'approved' || status === 'rejected' ? status : 'submitted',
+    label: text(row.label),
+    reason: text(row.reason),
+    timeFrom: text(row.timeFrom),
+    timeTo: text(row.timeTo),
+    officialLeaveUsed: row.officialLeaveUsed === true,
+    officialLeaveType: text(row.officialLeaveType),
+    officialLeaveOther: text(row.officialLeaveOther),
+    evidenceName: text(row.evidenceName),
+    evidenceUrl: text(row.evidenceUrl),
+    reviewComment: text(row.reviewComment),
+    reviewedBy: text(row.reviewedBy),
+    reviewedAt: asDate(row.reviewedAt),
+    submittedAt: asDate(row.submittedAt),
+  };
+}
+
+/** 서버는 입실 · 퇴실을 시각(timestamptz)으로 준다 — 화면은 한국 시각 'HH:mm' 을 쓴다 */
+function clockOf(value: unknown): string | undefined {
+  const at = asDate(value);
+  if (at === undefined) return hhmm(value);
+  return at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Seoul' });
 }
 
 export function mapCohort(row: Record<string, unknown>): Cohort {
@@ -208,8 +267,8 @@ function mapAttendance(row: Record<string, unknown>): Attendance {
     type: String(row.type ?? 'checkIn'),
     dateKey: String(row.dateKey ?? row.date_key ?? '').slice(0, 10),
     status: row.status as Attendance['status'],
-    checkInTime: hhmm(row.checkInTime ?? row.check_in_time),
-    checkOutTime: hhmm(row.checkOutTime ?? row.check_out_time),
+    checkInTime: row.checkInAt != null ? clockOf(row.checkInAt) : hhmm(row.checkInTime ?? row.check_in_time),
+    checkOutTime: row.checkOutAt != null ? clockOf(row.checkOutAt) : hhmm(row.checkOutTime ?? row.check_out_time),
     statusSource: row.statusSource || row.status_source ? String(row.statusSource ?? row.status_source) : undefined,
   };
 }
@@ -377,11 +436,14 @@ function mapAssessmentSubmission(row: Record<string, unknown>): AssessmentSubmis
 }
 
 function mapFormTask(row: Record<string, unknown>): FormTask {
+  const type = row.submissionType ?? row.submission_type;
   return {
     id: String(row.id ?? row.pk ?? ''),
     title: String(row.title ?? ''),
     description: String(row.description ?? ''),
+    mode: type === 'builtin' ? 'builtin' : 'external',
     formUrl: String(row.formUrl ?? row.form_url ?? ''),
+    questions: Array.isArray(row.questions) ? (row.questions as FormTask['questions']) : [],
     notionGuideUrl: row.notionGuideUrl ? String(row.notionGuideUrl) : undefined,
     dueAt: asDate(row.dueAt ?? row.due_at) ?? new Date(),
     published: Boolean(row.published ?? true),
@@ -391,7 +453,9 @@ function mapFormTask(row: Record<string, unknown>): FormTask {
 }
 
 function mapFormResponse(row: Record<string, unknown>): FormResponse {
+  const response = row.response as { answers?: FormResponse['answers'] } | null | undefined;
   return {
+    answers: response && typeof response.answers === 'object' ? response.answers : undefined,
     id: String(row.id ?? `${row.taskId ?? row.task_id}-${row.userId ?? row.user_id}`),
     userId: String(row.userId ?? row.user_id ?? ''),
     userEmail: String(row.userEmail ?? row.user_email ?? ''),
@@ -622,20 +686,44 @@ function mapTeams(payload: Record<string, unknown>, fallbackCohort: string): Pro
   });
 }
 
-function mapQualExams(payload: Record<string, unknown>): QualExamSchedule[] {
-  const cache = rowsOf(payload, 'systemCache');
+const QUAL_DATE_FIELDS = [
+  'docRegStartDt', 'docRegEndDt', 'docExamStartDt', 'docExamEndDt', 'docPassDt',
+  'pracRegStartDt', 'pracRegEndDt', 'pracExamStartDt', 'pracExamEndDt', 'pracPassDt',
+] as const;
+
+/** 옛 캐시(Firestore 시절)는 없는 날짜를 '' 로 둔다. 화면은 `??` 로 필기 → 실기를 고르므로 비운다 */
+function mapQualExam(item: Record<string, unknown>): QualExamSchedule {
+  const exam = { ...item } as Record<string, unknown>;
+  for (const field of QUAL_DATE_FIELDS) {
+    const value = exam[field];
+    exam[field] = typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+  }
+  return exam as unknown as QualExamSchedule;
+}
+
+function qualCacheRows(payload: Record<string, unknown>) {
+  return rowsOf(payload, 'systemCache').filter((row) => String(row.key ?? '').toLowerCase().includes('qual'));
+}
+
+export function mapQualExams(payload: Record<string, unknown>): QualExamSchedule[] {
   const out: QualExamSchedule[] = [];
-  for (const row of cache) {
-    if (!String(row.key ?? '').toLowerCase().includes('qual')) continue;
+  for (const row of qualCacheRows(payload)) {
     const data = row.data;
     const items = Array.isArray(data) ? data : data && typeof data === 'object' && Array.isArray((data as { items?: unknown[] }).items)
       ? (data as { items: unknown[] }).items
       : [];
     for (const item of items) {
-      if (item && typeof item === 'object') out.push(item as QualExamSchedule);
+      if (item && typeof item === 'object') out.push(mapQualExam(item as Record<string, unknown>));
     }
   }
   return out;
+}
+
+function qualSyncedAt(payload: Record<string, unknown>): Date | undefined {
+  const times = qualCacheRows(payload)
+    .map((row) => asDate(row.syncedAt ?? row.synced_at))
+    .filter((d): d is Date => d !== undefined);
+  return times.length ? new Date(Math.max(...times.map((d) => d.getTime()))) : undefined;
 }
 
 /**
@@ -749,6 +837,8 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
       userId: String(row.userId ?? row.user_id ?? ''),
       state: row.state === 'confirmed' || row.state === 'held' ? row.state : 'unknown',
     })),
+    spotChecks: rowsOf(payload, 'presenceChecks').map(mapSpotCheck),
+    attendanceIssues: rowsOf(payload, 'attendanceIssues').map(mapAttendanceIssue),
     resumes: withNames(mapResumes(rowsOf(payload, 'resumes')), nameOf),
     resumeFeedbacks: rowsOf(payload, 'resumeFeedbacks').map(mapResumeFeedback),
     assessments: rowsOf(payload, 'assessments').map(mapAssessment),
@@ -791,6 +881,7 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
       decidedAt: asDate(v.decidedAt) ?? new Date(0),
     })),
     qualExams: mapQualExams(payload),
+    qualExamsSyncedAt: qualSyncedAt(payload),
     aiLogs: rowsOf(payload, 'aiGenerationLogs').map((row) => ({
       id: String(row.id ?? row.pk ?? ''),
       type: String(row.type ?? ''),
@@ -802,6 +893,7 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
       createdAt: asDate(row.createdAt ?? row.created_at),
     })),
     alertDismissals: dismissals,
+    alertReadIds: Array.isArray(payload.alertPopupReadIds) ? (payload.alertPopupReadIds as unknown[]).map(String) : [],
   };
 }
 
