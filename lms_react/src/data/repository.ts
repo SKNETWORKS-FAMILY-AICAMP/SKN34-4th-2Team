@@ -41,7 +41,9 @@ import type {
   PracticeSet,
   StudyNote,
   StudyNoteScopeType,
+  WeeklyYoutube,
 } from '../domain/types';
+import { useQuery } from '@tanstack/react-query';
 import { getDb, mutate as mutateStore, nextId, subscribe, type Database } from './store';
 import { dateKeyOf } from './seed';
 import { buildScopeKey, scopeLabel } from '../features/study/noteScope';
@@ -1687,6 +1689,33 @@ export interface StudySourceSync {
   errors: { owner: string; error: string }[];
 }
 
+/** 이번 주 커리큘럼 YouTube 추천. 서버가 12시간 캐시하므로 화면을 열 때마다 불러도 된다. force 는 강사·관리자만 */
+export async function fetchWeeklyYoutube(cohortId: string, force = false): Promise<WeeklyYoutube> {
+  if (isTestMode()) {
+    return { cohortId, weekKey: null, weekLabel: null, topics: [], videos: [], cached: false, fetchedAt: null, message: null };
+  }
+  const { data } = await http.get<WeeklyYoutube>('/study/youtube-weekly', { params: { cohortId, force } });
+  return data;
+}
+
+export function useWeeklyYoutube(cohortId: string) {
+  return useQuery({
+    queryKey: ['youtube-weekly', cohortId],
+    queryFn: () => fetchWeeklyYoutube(cohortId),
+    enabled: !isTestMode() && cohortId !== '',
+    staleTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** 관리자 — 공공데이터포털에서 시험 일정을 지금 다시 받는다 */
+export async function syncQualExams(): Promise<Record<string, number>> {
+  if (isTestMode()) return {};
+  const { data } = await http.post<{ counts: Record<string, number> }>('/qual-exams/sync', {});
+  await invalidateBootstrap();
+  return data.counts;
+}
+
 /** 테스트(데모)는 GitHub 에 못 나가니 연결만 기억한다 */
 let demoOwners: GithubOwner[] = [];
 
@@ -2193,6 +2222,11 @@ export function updateMileageSettings(patch: Partial<import('../domain/types').M
 /** ⬇︎ Query 로 바꾼 것 (시범) */
 export function useQualExams(): Query<QualExamSchedule[]> {
   return { data: useDb((db) => db.qualExams), loading: false, error: null };
+}
+
+/** 시험 일정을 마지막으로 받은 때 */
+export function useQualExamsSyncedAt(): Date | undefined {
+  return useDb((db) => db.qualExamsSyncedAt);
 }
 
 // ── 실습 문제 ──────────────────────────────────────────

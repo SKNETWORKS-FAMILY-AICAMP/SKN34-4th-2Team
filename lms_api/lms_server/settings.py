@@ -147,6 +147,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "lms.tasks.run_practice_auto",
         "schedule": crontab(hour=18, minute=30),
     },
+    # 국가자격 시험 일정 — 공공데이터포털(lms/external_feeds.py)
+    "qual-exams-daily": {
+        "task": "lms.tasks.sync_qual_exams",
+        "schedule": crontab(hour=5, minute=10),
+    },
 }
 # beat 의 crontab 시각을 한국 시간으로 — 없으면 UTC 라 18:30 이 새벽 3:30 이 된다
 CELERY_TIMEZONE = TIME_ZONE

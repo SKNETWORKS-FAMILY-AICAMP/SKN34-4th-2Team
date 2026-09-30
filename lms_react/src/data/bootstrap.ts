@@ -680,20 +680,44 @@ function mapTeams(payload: Record<string, unknown>, fallbackCohort: string): Pro
   });
 }
 
-function mapQualExams(payload: Record<string, unknown>): QualExamSchedule[] {
-  const cache = rowsOf(payload, 'systemCache');
+const QUAL_DATE_FIELDS = [
+  'docRegStartDt', 'docRegEndDt', 'docExamStartDt', 'docExamEndDt', 'docPassDt',
+  'pracRegStartDt', 'pracRegEndDt', 'pracExamStartDt', 'pracExamEndDt', 'pracPassDt',
+] as const;
+
+/** 옛 캐시(Firestore 시절)는 없는 날짜를 '' 로 둔다. 화면은 `??` 로 필기 → 실기를 고르므로 비운다 */
+function mapQualExam(item: Record<string, unknown>): QualExamSchedule {
+  const exam = { ...item } as Record<string, unknown>;
+  for (const field of QUAL_DATE_FIELDS) {
+    const value = exam[field];
+    exam[field] = typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+  }
+  return exam as unknown as QualExamSchedule;
+}
+
+function qualCacheRows(payload: Record<string, unknown>) {
+  return rowsOf(payload, 'systemCache').filter((row) => String(row.key ?? '').toLowerCase().includes('qual'));
+}
+
+export function mapQualExams(payload: Record<string, unknown>): QualExamSchedule[] {
   const out: QualExamSchedule[] = [];
-  for (const row of cache) {
-    if (!String(row.key ?? '').toLowerCase().includes('qual')) continue;
+  for (const row of qualCacheRows(payload)) {
     const data = row.data;
     const items = Array.isArray(data) ? data : data && typeof data === 'object' && Array.isArray((data as { items?: unknown[] }).items)
       ? (data as { items: unknown[] }).items
       : [];
     for (const item of items) {
-      if (item && typeof item === 'object') out.push(item as QualExamSchedule);
+      if (item && typeof item === 'object') out.push(mapQualExam(item as Record<string, unknown>));
     }
   }
   return out;
+}
+
+function qualSyncedAt(payload: Record<string, unknown>): Date | undefined {
+  const times = qualCacheRows(payload)
+    .map((row) => asDate(row.syncedAt ?? row.synced_at))
+    .filter((d): d is Date => d !== undefined);
+  return times.length ? new Date(Math.max(...times.map((d) => d.getTime()))) : undefined;
 }
 
 /**
@@ -851,6 +875,7 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
       decidedAt: asDate(v.decidedAt) ?? new Date(0),
     })),
     qualExams: mapQualExams(payload),
+    qualExamsSyncedAt: qualSyncedAt(payload),
     aiLogs: rowsOf(payload, 'aiGenerationLogs').map((row) => ({
       id: String(row.id ?? row.pk ?? ''),
       type: String(row.type ?? ''),

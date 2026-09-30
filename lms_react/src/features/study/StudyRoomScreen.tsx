@@ -10,6 +10,7 @@ import { RoutePaths } from '../../app/routePaths';
 import {
   deleteStudyNote,
   fetchLessonFile,
+  fetchWeeklyYoutube,
   fetchStudySourceTree,
   refreshStudyNote,
   requestStudyNote,
@@ -19,10 +20,12 @@ import {
   usePracticeSets,
   useStudyNotes,
   useStudySources,
+  useWeeklyYoutube,
   useYoutubeRecommendations,
   type StudySourceTree,
 } from '../../data/repository';
 import { readApiError } from '../../data/http';
+import { queryClient } from '../../data/queryClient';
 import type { InflearnPackage, PracticeSet, StudyNote, StudyNoteScopeType } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import {
@@ -156,69 +159,182 @@ function StudyRoomSummary({ cohortId, uid }: { cohortId: string; uid: string }) 
   );
 }
 
-/** 이번 주 커리큘럼 추천 — widgets/youtube_recommendation_section.dart */
+function youtubeThumb(videoId?: string): string | undefined {
+  return videoId ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` : undefined;
+}
+
+/** 영상 카드 한 장 — 썸네일 · 제목 · 채널/주제 */
+function VideoCard({
+  href,
+  title,
+  thumb,
+  meta,
+  chips,
+}: {
+  href: string;
+  title: string;
+  thumb?: string;
+  meta: string[];
+  chips?: { label: string; on?: boolean }[];
+}) {
+  return (
+    <a className="study-video" href={href} target="_blank" rel="noreferrer">
+      <span className="study-video__thumb">
+        {thumb !== undefined && <img src={thumb} alt="" loading="lazy" />}
+        <Icon
+          name="play_circle"
+          size={36}
+          className={thumb !== undefined ? 'study-video__play' : undefined}
+        />
+      </span>
+      <strong className="study-video__title">{title}</strong>
+      {meta.length > 0 && (
+        <span className="study-video__meta">
+          {meta.map((m, i) => (
+            <span key={m}>{i > 0 ? `· ${m}` : m}</span>
+          ))}
+        </span>
+      )}
+      {chips !== undefined && chips.length > 0 && (
+        <span className="study-video__tags">
+          {chips.map((c) => (
+            <span key={c.label} className={`chip${c.on ? ' chip--on' : ''}`}>
+              {c.label}
+            </span>
+          ))}
+        </span>
+      )}
+    </a>
+  );
+}
+
+/**
+ * 이번 주 커리큘럼 추천 — widgets/youtube_recommendation_section.dart
+ *
+ * 서버가 이번 주 커리큘럼 주제로 YouTube 를 찾아 12시간 캐시한다. 매니저가 직접 고른 영상이 있으면 위에 따로 둔다.
+ */
 function YoutubeRecommendations({ cohortName }: { cohortName: string }) {
   const user = useCurrentUser();
-  const videos = useYoutubeRecommendations().filter((v) => v.isPublished);
-  const [nonce, setNonce] = useState(0);
+  const curated = useYoutubeRecommendations().filter((v) => v.isPublished);
+  const weekly = useWeeklyYoutube(user.cohortId);
+  const [topic, setTopic] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const canRefresh = user.role !== 'student';
 
-  // 내 기술과 겹치는 태그가 많은 것을 앞에 둔다.
-  const ranked = videos
+  const data = weekly.data;
+  const topics = data?.topics ?? [];
+  const videos = (data?.videos ?? []).filter((v) => topic === null || v.topicLabel === topic);
+
+  // 매니저가 고른 영상은 내 기술과 겹치는 태그가 많은 것을 앞에 둔다
+  const rankedCurated = curated
     .map((v) => ({
       video: v,
       matched: v.tags.filter((t) => user.skills.some((s) => s.toLowerCase() === t.toLowerCase())),
     }))
     .sort((a, b) => b.matched.length - a.matched.length);
 
+  const refresh = async () => {
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      const next = await fetchWeeklyYoutube(user.cohortId, true);
+      queryClient.setQueryData(['youtube-weekly', user.cohortId], next);
+      setTopic(null);
+    } catch (error) {
+      setRefreshError(await readApiError(error));
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const loadError = weekly.isError ? '추천 영상을 불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요.' : null;
+  const notice = refreshError ?? loadError ?? data?.message ?? null;
+
   return (
-    <section className="study-youtube" key={nonce}>
+    <section className="study-youtube">
       <header className="study-section__head">
         <h2 className="study-section__title">이번 주 커리큘럼 추천</h2>
-        <button
-          type="button"
-          className="icon-btn"
-          aria-label="새로고침"
-          title="새로고침"
-          onClick={() => setNonce((n) => n + 1)}
-        >
-          <Icon name="refresh" size={20} />
-        </button>
+        {data?.weekLabel && <span className="study-youtube__week">{data.weekLabel}</span>}
+        {canRefresh && (
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="새 영상 찾기"
+            title="YouTube 에서 새로 찾기"
+            disabled={refreshing || weekly.isLoading}
+            onClick={() => void refresh()}
+          >
+            <Icon name="refresh" size={20} />
+          </button>
+        )}
       </header>
       <p className="study-section__desc">
-        「{cohortName} 커리큘럼」 기준으로 이번 주 주제 영상을 추천합니다.
+        「{cohortName} 커리큘럼」의 이번 주 주제로 YouTube 영상을 찾았습니다.
       </p>
 
-      {ranked.length === 0 ? (
-        <div className="study-card study-card--empty">
-          이번 주 추천 영상이 준비되면 여기에 표시됩니다.
-        </div>
-      ) : (
-        <div className="study-videos">
-          {ranked.map(({ video, matched }) => (
-            <a
-              key={video.id}
-              className="study-video"
-              href={video.youtubeUrl}
-              target="_blank"
-              rel="noreferrer"
+      {topics.length > 1 && (
+        <div className="study-youtube__topics" role="group" aria-label="주제로 거르기">
+          <button
+            type="button"
+            className={`chip${topic === null ? ' chip--on' : ''}`}
+            onClick={() => setTopic(null)}
+          >
+            전체
+          </button>
+          {topics.map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={`chip${topic === t ? ' chip--on' : ''}`}
+              onClick={() => setTopic(topic === t ? null : t)}
             >
-              <span className="study-video__thumb">
-                <Icon name="play_circle" size={30} />
-              </span>
-              <strong className="study-video__title">{video.title}</strong>
-              <span className="study-video__tags">
-                {video.tags.map((tag) => (
-                  <span key={tag} className={`chip${matched.includes(tag) ? ' chip--on' : ''}`}>
-                    {tag}
-                  </span>
-                ))}
-              </span>
-              {matched.length > 0 && (
-                <span className="hint">내 스택과 {matched.length}개 일치</span>
-              )}
-            </a>
+              {t}
+            </button>
           ))}
         </div>
+      )}
+
+      {rankedCurated.length > 0 && (
+        <div className="study-videos">
+          {rankedCurated.map(({ video, matched }) => (
+            <VideoCard
+              key={`curated-${video.id}`}
+              href={video.youtubeUrl}
+              title={video.title}
+              thumb={youtubeThumb(video.videoId)}
+              meta={['매니저 추천', ...(matched.length > 0 ? [`내 스택과 ${matched.length}개 일치`] : [])]}
+              chips={video.tags.map((tag) => ({ label: tag, on: matched.includes(tag) }))}
+            />
+          ))}
+        </div>
+      )}
+
+      {weekly.isLoading || refreshing ? (
+        <div className="study-card study-card--empty" aria-busy="true">
+          <span className="spinner study-youtube__spinner" aria-hidden="true" /> 이번 주 영상을 찾는 중…
+        </div>
+      ) : videos.length === 0 ? (
+        rankedCurated.length === 0 && (
+          <div className="study-card study-card--empty">
+            {notice ?? '이번 주 추천 영상이 준비되면 여기에 표시됩니다.'}
+          </div>
+        )
+      ) : (
+        <>
+          {notice !== null && <p className="hint">{notice}</p>}
+          <div className="study-videos">
+            {videos.map((v) => (
+              <VideoCard
+                key={v.videoId}
+                href={v.url || `https://www.youtube.com/watch?v=${v.videoId}`}
+                title={v.title}
+                thumb={v.thumbnailUrl || youtubeThumb(v.videoId)}
+                meta={[v.channelTitle, v.topicLabel].filter((m) => m !== '')}
+              />
+            ))}
+          </div>
+        </>
       )}
     </section>
   );

@@ -1439,6 +1439,33 @@ def qual_exams(request, year: str = ""):
     return {"items": rows}
 
 
+@api.post("/qual-exams/sync")
+def qual_exams_sync(request):
+    """관리자 — 공공데이터포털에서 시험 일정을 지금 다시 받는다"""
+    from lms.external_feeds import FeedError, sync_qual_exams
+
+    user = _require_user(request)
+    if user["role"] != "admin":
+        return Response({"detail": "forbidden"}, status=403)
+    try:
+        counts = sync_qual_exams()
+    except FeedError as exc:
+        return Response({"detail": exc.detail}, status=exc.status)
+    return {"ok": True, "counts": {str(year): n for year, n in counts.items()}}
+
+
+@api.get("/study/youtube-weekly")
+def study_youtube_weekly(request, cohortId: str = "", force: bool = False):
+    """이번 주 커리큘럼 주제로 찾은 YouTube 영상(12시간 캐시). force 는 강사·관리자만."""
+    from lms.external_feeds import FeedError, weekly_youtube
+
+    user = _require_user(request)
+    try:
+        return weekly_youtube(user, cohortId, force=force)
+    except FeedError as exc:
+        return Response({"detail": exc.detail}, status=exc.status)
+
+
 @api.post("/scheduled-notices")
 def create_scheduled(request, body: dict[str, Any] = Body(...)):
     user = _require_user(request)

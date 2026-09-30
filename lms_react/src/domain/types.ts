@@ -482,6 +482,28 @@ export interface YoutubeRecommendation {
   createdAt?: Date;
 }
 
+/** 이번 주 커리큘럼 주제로 서버가 YouTube 에서 찾은 영상(12시간 캐시) */
+export interface WeeklyYoutubeVideo {
+  videoId: string;
+  title: string;
+  channelTitle: string;
+  thumbnailUrl: string;
+  url: string;
+  topicLabel: string;
+  publishedAt?: string | null;
+}
+
+export interface WeeklyYoutube {
+  cohortId: string;
+  weekKey: string | null;
+  weekLabel: string | null;
+  topics: string[];
+  videos: WeeklyYoutubeVideo[];
+  cached: boolean;
+  fetchedAt: string | null;
+  message: string | null;
+}
+
 export interface StudyNoteFileRef {
   path: string;
   commit: string;

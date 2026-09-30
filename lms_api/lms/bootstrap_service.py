@@ -224,7 +224,7 @@ def build_bootstrap(user: dict) -> dict:
             ),
             "sheets": ("SELECT * FROM curriculum_sheets WHERE cohort_id = ANY(%s)", cohort_filter),
             "mileage_settings": ("SELECT * FROM mileage_settings WHERE cohort_id = ANY(%s)", cohort_filter),
-            "cache": ("SELECT * FROM system_cache", []),
+            "cache": ("SELECT * FROM system_cache WHERE key LIKE 'qualExam%%'", []),
             "rooms": (
                 "SELECT * FROM cohort_seating WHERE cohort_id = ANY(%s) AND (%s = false OR published = true)",
                 [cohort_ids, is_student],
