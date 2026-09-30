@@ -1,0 +1,14 @@
+# Run from the repository root with --env-file .env -f deploy/docker-compose.ai.yml.
+# EC2 security group must allow host port 8001 only from the Django EC2 SG.
+services:
+  ai:
+    image: ${ECR_AI_IMAGE:?Set ECR_AI_IMAGE in the deployment environment}
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    ports:
+      - "8001:8000"
+    # Keep the existing production worker/keep-alive settings on internal port 8000.
+    command: >
+      python -m uvicorn app.integrated:app --app-dir cover_letter_rag
+      --host 0.0.0.0 --port 8000 --workers 2 --timeout-keep-alive 120
