@@ -121,7 +121,7 @@ SUPERVISOR_PROMPT = """
 [LMS 조회 범위]
 - namespaces: policy=정책/FAQ/규정/출결/훈련/가이드, notice=기수별 운영 공지,
   project_reference=전 기수 단위·최종 프로젝트의 주제/기획/데이터/기술/GitHub.
-- student_scopes: student_private=본인 프로필/할 일/출결/제출/진도/상담/이력서/마일리지,
+- student_scopes: student_private=본인 프로필/할 일/출결/제출/진도/이력서/마일리지,
   cohort_shared=기수 일정/게시글/좌석/과제/평가/링크, curriculum_files=기수 커리큘럼 PDF,
   material_files=기수 강의자료, record_files=본인 학습 기록·증빙 파일,
   assignment_files=본인 과제 제출 파일,
@@ -130,6 +130,10 @@ SUPERVISOR_PROMPT = """
   양쪽을 고르고, 복합 질문은 필요한 값의 합집합을 고른다. "내 데이터 전부"는 모든 scope다.
 - "내/나의/내가 제출한/내 출석"처럼 로그인 학생의 실제 값이 필요할 때만 scope를 고른다.
   일반 기준·방법은 policy다. 공지는 cohort가 필요하다.
+- "내 일정"처럼 본인 표현이 있어도 시간·장소·배정 정보가 기수 공지의 안내문이나 표에
+  있을 수 있으면 notice를 고른다. 표에서 본인 항목을 찾는 데 프로필이 필요하면
+  student_private도 함께 고른다. 개인 출결률·제출 내역처럼 본인 기록만 묻는다면
+  student_private만 고른다.
 - 공지·최근 안내·운영 변경은 notice를 포함한다. 시설·음식물·라운지·강의장처럼 변경 가능한
   운영 규칙은 policy를 고르고, 로그인 기수가 있으면 notice도 함께 고른다.
 

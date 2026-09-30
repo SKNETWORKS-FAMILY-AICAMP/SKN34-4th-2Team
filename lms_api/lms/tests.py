@@ -149,21 +149,36 @@ class NoticeVectorCountTests(TestCase):
 
 
 class NoticeImageTests(SimpleTestCase):
-    def test_image_text_is_combined_with_notice_body(self):
+    def test_table_values_keep_their_column_labels(self):
         from lms.notice_vectors import build_records
 
-        records = build_records("cohort_34", 17, {
-            "title": "정기 상담 공지", "content": "본문 안내", "image_text": "신청 마감 10월 5일"
+        records = build_records("cohort_34", 39, {
+            "title": "정기 상담 공지",
+            "image_text": (
+                "| 일자 | 시간 | 송희 매니저 (상담실 A) | 희애 매니저 (상담실 B) |\n"
+                "|---|---|---|---|\n"
+                "| 9/30 (수) | 15:50~16:00 | 김진화 | 최인영 |"
+            ),
         })
-        self.assertTrue(records[0]["page_content"].startswith("정기 상담 공지\n\n본문 안내"))
-        self.assertIn("신청 마감 10월 5일", records[0]["page_content"])
+        text = records[0]["page_content"]
+        self.assertIn("송희 매니저 (상담실 A): 김진화", text)
+        self.assertIn("희애 매니저 (상담실 B): 최인영", text)
 
-        table = build_records("cohort_34", 18, {
-            "title": "정기 상담 공지", "content": "", "image_text": "09:50~10:00\n" * 60
+    def test_image_text_is_a_single_separate_record(self):
+        from lms.notice_vectors import CHUNK_OVERLAP, CHUNK_SIZE, build_records, chunk_text
+
+        body = "본문 안내\n" * 90
+        image_text = "09:50~10:00\n" * 160
+        records = build_records("cohort_34", 17, {
+            "title": "정기 상담 공지", "content": body, "image_text": image_text
         })
-        self.assertGreater(len(table), 1)
-        self.assertTrue(all(row["page_content"].startswith("정기 상담 공지\n\n") for row in table))
-        self.assertIn("09:50~10:00", table[0]["page_content"])
+        self.assertEqual((CHUNK_SIZE, CHUNK_OVERLAP), (500, 40))
+        self.assertEqual(len(records), len(chunk_text(body)) + 1)
+        self.assertTrue(all(row["page_content"].startswith("정기 상담 공지\n\n") for row in records))
+        self.assertTrue(all("[첨부 이미지에서 추출한 텍스트]" not in row["page_content"] for row in records[:-1]))
+        self.assertTrue(records[-1]["page_content"].startswith("정기 상담 공지\n\n[첨부 이미지에서 추출한 텍스트]"))
+        self.assertGreater(len(records[-1]["page_content"]), len(image_text))
+        self.assertEqual(records[-1]["page_content"].count("09:50~10:00"), 160)
 
     @patch("lms.storage.put_object")
     @patch("lms.storage.get_object", side_effect=[None, b"\x89PNG\r\n\x1a\nimage"])

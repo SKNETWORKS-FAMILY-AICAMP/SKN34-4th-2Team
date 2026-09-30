@@ -75,6 +75,32 @@ def timestamp_to_iso(value: Any) -> str:
     return ""
 
 
+def label_table_cells(text: str) -> str:
+    """Markdown 표의 각 값을 열 이름과 묶어 의미를 명시한다."""
+    lines = text.splitlines()
+    labeled = []
+    index = 0
+    while index < len(lines):
+        header = [cell.strip() for cell in lines[index].strip().strip("|").split("|")]
+        if (
+            lines[index].strip().startswith("|")
+            and index + 1 < len(lines)
+            and lines[index + 1].strip().startswith("|")
+            and all(re.fullmatch(r":?-+:?", cell.strip()) for cell in lines[index + 1].strip().strip("|").split("|"))
+        ):
+            index += 2
+            while index < len(lines) and lines[index].strip().startswith("|"):
+                cells = [cell.strip() for cell in lines[index].strip().strip("|").split("|")]
+                if len(cells) != len(header):
+                    break
+                labeled.append("; ".join(f"{name}: {value}" for name, value in zip(header, cells) if value))
+                index += 1
+            continue
+        labeled.append(lines[index])
+        index += 1
+    return "\n".join(labeled)
+
+
 def extract_image_text(data: bytes, content_type: str) -> str:
     """PDF 정책 수집과 같은 시각 추출 단계. GPT 출력은 이후 텍스트 임베딩한다."""
     from openai import OpenAI
@@ -118,9 +144,11 @@ def build_records(cohort_code: str, notice_id: int, data: dict[str, Any]) -> lis
     title = normalize_text(str(data.get("title") or ""))
     content = str(data.get("content") or "")
     image_text = str(data.get("image_text") or "").strip()
+    chunks = chunk_text(content)
     if image_text:
-        content += "\n\n[첨부 이미지에서 추출한 텍스트]\n" + image_text
-    chunks = chunk_text(content) or ([title] if title else [])
+        chunks.append(normalize_text("[첨부 이미지에서 추출한 텍스트]\n" + label_table_cells(image_text)))
+    if not chunks and title:
+        chunks = [title]
     records = []
     for index, chunk in enumerate(chunks):
         page_content = f"{title}\n\n{chunk}" if title and chunk != title else chunk
