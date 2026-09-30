@@ -109,6 +109,26 @@ class NormalizeTest(unittest.TestCase):
         self.assertEqual(job.status, "CLOSED")
 
 
+class IngestSkillTest(unittest.TestCase):
+    """적재할 때 사람인과 같은 규칙으로 필수 · 우대 기술을 뽑는다(LLM 없이)."""
+
+    def test_required_and_preferred_skills_come_from_sections(self):
+        import tempfile
+
+        from job_matching_bot.ingest import ingest
+        from job_matching_bot.ingestion.sqlite_store import SqliteJobStore
+
+        body = "담당업무\nㆍ서비스 개발\n자격요건\nㆍPython, Django 개발 경험\n우대사항\nㆍAWS 사용 경험\n"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ingest([_record(description=body)], source="JOBKOREA_POC", store_path=root / "s.sqlite",
+                   raw_root=root / "raw", as_of=AS_OF, extract=True, allow_llm=False)
+            with SqliteJobStore(root / "s.sqlite") as store:
+                job = store.get("JOBKOREA-50018510").job
+        self.assertEqual(["Python", "Django"], job.required_skills)
+        self.assertEqual(["AWS"], job.preferred_skills)
+
+
 @unittest.skipUnless(DETAILS.exists(), "수집본이 없으면 건너뛴다")
 class RealSampleTest(unittest.TestCase):
     @classmethod

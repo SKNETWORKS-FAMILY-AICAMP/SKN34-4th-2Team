@@ -262,11 +262,13 @@ function PracticeLine({
   const [dates, setDates] = useState<string[] | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [loadError, setLoadError] = useState('');
+  const [loading, setLoading] = useState(false);
   const madeOn = (date: string) => sets.find((s) => s.lessonDate === date)?.problems.length ?? 0;
 
   const open = () => {
     setDates([]);
     setLoadError('');
+    setLoading(true);
     fetchStudySourceTree(sourceId)
       .then((tree) => {
         setDates(tree.dates);
@@ -276,7 +278,8 @@ function PracticeLine({
       })
       .catch(async (e) => {
         setLoadError(await readApiError(e));
-      });
+      })
+      .finally(() => setLoading(false));
   };
 
   const toggle = (date: string) =>
@@ -296,7 +299,11 @@ function PracticeLine({
             출제할 수업 날짜를 골라 주세요(한 번에 {MAX_PICK}일까지). 이미 낸 날짜는 새로 올라온 부분만 더 내요.
           </span>
           {loadError !== '' && <span className="hint source-practice__error">{loadError}</span>}
-          {dates.length === 0 && loadError === '' && <span className="hint">수업 날짜를 불러오는 중…</span>}
+          {loading && <span className="hint">수업 날짜를 불러오는 중…</span>}
+          {/* 서버는 수업 파일(study_notes/git_tools.py 의 ALLOWED_SUFFIXES)이 올라온 날만 수업 날짜로 센다 */}
+          {!loading && dates.length === 0 && loadError === '' && (
+            <span className="hint">아직 수업 파일이 올라온 날이 없어요.</span>
+          )}
           <span className="source-practice__dates">
             {dates.map((d) => (
               <button key={d} type="button" className={`chip${picked.includes(d) ? ' chip--on' : ''}`} onClick={() => toggle(d)}>

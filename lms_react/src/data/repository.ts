@@ -246,24 +246,44 @@ export function useNotice(id: string | undefined): Notice | undefined {
   return useDb((db) => db.notices.find((n) => n.id === id));
 }
 
-export function createNotice(notice: Omit<Notice, 'id' | 'createdAt'>): string {
+export async function createNotice(notice: Omit<Notice, 'id' | 'createdAt'>): Promise<string> {
   const id = nextId('n');
-  mutate((db) => ({
-    notices: [{ ...notice, id, createdAt: new Date() }, ...db.notices],
-  }));
-  if (!isTestMode()) {
-    void http.post('/notices', { ...notice, cohortId: apiCohortId() }).then(() => invalidateBootstrap());
+  if (isTestMode()) {
+    mutate((db) => ({ notices: [{ ...notice, id, createdAt: new Date() }, ...db.notices] }));
+    return id;
   }
-  return id;
+  try {
+    const { data } = await http.post<{ id: string }>('/notices', { ...notice, cohortId: apiCohortId() });
+    await invalidateBootstrap();
+    return data.id;
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
 }
 
-export function updateNotice(id: string, patch: Partial<Notice>): void {
-  mutate((db) => ({
-    notices: db.notices.map((n) => (n.id === id ? { ...n, ...patch } : n)),
-  }));
-  if (!isTestMode() && isApiId(id)) {
-    void http.patch(`/notices/${id}`, patch).then(() => invalidateBootstrap());
+export async function updateNotice(id: string, patch: Partial<Notice>): Promise<void> {
+  if (isTestMode()) {
+    mutate((db) => ({ notices: db.notices.map((n) => (n.id === id ? { ...n, ...patch } : n)) }));
+    return;
   }
+  if (isApiId(id)) {
+    try {
+      await http.patch(`/notices/${id}`, patch);
+      await invalidateBootstrap();
+    } catch (error) {
+      throw new Error(await readApiError(error));
+    }
+  }
+}
+
+export async function uploadNoticeImage(file: File): Promise<{ key: string; url: string }> {
+  if (isTestMode()) return { key: `demo/${file.name}`, url: `demo://${encodeURIComponent(file.name)}` };
+  const form = new FormData();
+  form.append('file', file);
+  const { data } = await http.post<{ key: string; url: string }>('/uploads/notice-image', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
 }
 
 export function deleteNotice(id: string): void {
@@ -680,22 +700,38 @@ export function useSeatPresence(dateKey: string, period: number) {
   );
 }
 
+/** 자리 확인 저장 줄 — 연달아 눌러도 누른 차례대로 서버에 닿게 한다 */
+let seatPresenceWrites: Promise<unknown> = Promise.resolve();
+
+/**
+ * 호명은 확인·보류를 빠르게 연달아 누른다. 화면에 먼저 반영하고 서버 저장은 뒤에서 차례로 보낸다.
+ * 저장이 되면 캐시가 이미 같은 값이라 스냅샷을 다시 받지 않는다(받으면 누를 때마다 전체를 새로 읽는다).
+ * 실패하면 스냅샷을 다시 받아 서버 값으로 되돌린다.
+ */
 export function setSeatPresence(
   dateKey: string,
   period: number,
   userId: string,
   state: SeatPresenceState,
 ): Promise<void> {
-  if (!isTestMode()) {
-    return runCommand('setSeatPresence', { dateKey, period, userId, state }).then(() => undefined);
-  }
   mutate((db) => {
     const rest = db.seatPresence.filter(
       (p) => !(p.dateKey === dateKey && p.period === period && p.userId === userId),
     );
     return { seatPresence: [...rest, { dateKey, period, userId, state }] };
   });
-  return Promise.resolve();
+  if (isTestMode()) return Promise.resolve();
+  const request = seatPresenceWrites
+    .catch(() => undefined)
+    .then(() => http.post('/command', { op: 'setSeatPresence', payload: { dateKey, period, userId, state } }));
+  seatPresenceWrites = request;
+  return request.then(
+    () => undefined,
+    async (error: unknown) => {
+      await invalidateBootstrap();
+      throw error;
+    },
+  );
 }
 
 // ── 좌석 배치 ──────────────────────────────────────────

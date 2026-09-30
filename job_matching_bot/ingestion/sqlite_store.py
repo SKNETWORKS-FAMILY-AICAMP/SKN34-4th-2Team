@@ -14,7 +14,6 @@ from dataclasses import replace
 import hashlib
 import json
 import os
-import re
 import sqlite3
 import threading
 import time
@@ -167,26 +166,12 @@ class _Result:
         return iter(self._rows)
 
 
-def _adapt_sql(sql: str) -> str:
-    sql = sql.strip()
-    upper = sql.upper()
-    if upper.startswith("INSERT OR IGNORE"):
-        sql = "INSERT" + sql[len("INSERT OR IGNORE") :]
-        if "ON CONFLICT" not in sql.upper():
-            sql = sql.rstrip(";") + " ON CONFLICT DO NOTHING"
-    elif upper.startswith("INSERT OR REPLACE"):
-        sql = "INSERT" + sql[len("INSERT OR REPLACE") :]
-        if "ON CONFLICT" not in sql.upper():
-            sql = sql.rstrip(";") + (
-                " ON CONFLICT (job_id) DO UPDATE SET "
-                "checked_at = EXCLUDED.checked_at, alive = EXCLUDED.alive"
-            )
-    sql = re.sub(r"(?<![:\w]):([A-Za-z_][A-Za-z0-9_]*)", r"%(\1)s", sql)
-    return sql.replace("?", "%s")
-
-
 class _PgConn:
-    """기존 sqlite3 SQL(?, :name, INSERT OR IGNORE)을 psycopg로 돌린다."""
+    """psycopg 연결을 sqlite3 연결처럼 쓰게 한다. SQL 은 PostgreSQL 문법(`%s`, `%(name)s`)으로 쓴다.
+
+    결과는 `_Row` 로 감싸 `row[0]`·`row["col"]` 둘 다 되고 날짜는 ISO 문자열로 나온다.
+    호출하는 쪽(첨삭의 마감일 판정 등)이 문자열을 전제한다.
+    """
 
     def __init__(self, conn: psycopg.Connection, on_close: Any = None):
         self._pg = conn
@@ -195,11 +180,10 @@ class _PgConn:
         self._on_close = on_close
 
     def execute(self, sql: str, params: Any = None) -> _Result:
-        adapted = _adapt_sql(sql)
         if params is None:
-            cur = self._pg.execute(adapted)
+            cur = self._pg.execute(sql)
         else:
-            cur = self._pg.execute(adapted, params)
+            cur = self._pg.execute(sql, params)
         rows = []
         if cur.description:
             for raw in cur.fetchall():
@@ -207,12 +191,11 @@ class _PgConn:
         return _Result(rows, cur.rowcount)
 
     def executemany(self, sql: str, seq: Iterable[Any]) -> _Result:
-        adapted = _adapt_sql(sql)
         rows = list(seq)
         if not rows:
             return _Result([], 0)
         with self._pg.cursor() as cur:
-            cur.executemany(adapted, rows)
+            cur.executemany(sql, rows)
             return _Result([], cur.rowcount)
 
     def executescript(self, script: str) -> None:
@@ -454,7 +437,7 @@ class SqliteJobStore:
     def _table_columns(self, table: str) -> set[str]:
         rows = self.conn.execute(
             "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema = current_schema() AND table_name = ?",
+            "WHERE table_schema = current_schema() AND table_name = %s",
             (table,),
         )
         return {row[0] for row in rows}
@@ -543,13 +526,113 @@ class SqliteJobStore:
         )
 
     def get(self, job_id: str) -> JobRecord | None:
-        row = self.conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+        row = self.conn.execute("SELECT * FROM jobs WHERE job_id = %s", (job_id,)).fetchone()
         return self._row_to_record(row) if row else None
+
+    def get_many(self, job_ids: Iterable[str]) -> dict[str, JobRecord]:
+        """여러 공고를 한 번에 — {job_id: 기록}. 없는 id 는 빠진다.
+
+        추천 필터가 검색 결과 25건을 `get` 으로 한 건씩 읽으면 RDS(us-east-1) 왕복만 5.0초였다.
+        한 번에 읽으면 0.55초(2026-09-28, 로컬에서 잼).
+        """
+        ids = list(dict.fromkeys(job_ids))
+        found: dict[str, JobRecord] = {}
+        for chunk in _chunks(ids, self._IN_CHUNK):
+            for row in self.conn.execute("SELECT * FROM jobs WHERE job_id = ANY(%s)", (chunk,)):
+                record = self._row_to_record(row)
+                found[record.job.job_id] = record
+        return found
+
+    # ── 요건 채우기(ingestion/requirements_llm) ────────────────────
+    # 볼 공고는 **경력 공고인데 최소 연차가 빈 것**만. 전공 · 자격증까지 넣으면 거의 모든 공고가 대상인데
+    # (둘 다 비어 있는 게 보통) 새 공고 40건을 뽑아 보니 채울 것이 나온 건 1건이었다(2026-09-29).
+    # 이 공고들에서 전공 · 자격증도 같이 뽑아 빈 칸이면 채운다.
+    _REQUIREMENT_GAP = "(career_type = 'EXPERIENCED' AND min_career_years IS NULL)"
+
+    def requirement_targets(self, limit: int, job_ids: Iterable[str] | None = None,
+                            min_days_left: int | None = None) -> list[JobRecord]:
+        """요건을 뽑아 볼 공고 — 열려 있고 본문이 있고, 빈 칸이 있고, 이 본문으로 아직 안 본 것. 새 공고부터.
+
+        `min_days_left` — 마감이 그만큼 남은 공고만(마감일 없는 상시 채용은 넣는다). 기존 공고를 한꺼번에 채울 때
+        곧 마감될 것에 비용을 쓰지 않으려고 둔다(2026-09-29 대상 1만 1천여 건 중 2주 안 마감이 4,549건).
+        """
+        sql = (
+            "SELECT * FROM jobs WHERE status = 'OPEN' AND NOT COALESCE(body_is_image, false)"
+            " AND length(description) > 200 AND " + self._REQUIREMENT_GAP +
+            " AND (field_provenance -> 'requirements_llm' ->> 'hash') IS DISTINCT FROM content_hash"
+        )
+        params: tuple = ()
+        if job_ids is not None:
+            sql += " AND job_id = ANY(%s)"
+            params = (list(job_ids),)
+        if min_days_left is not None:
+            sql += " AND (COALESCE(deadline, '') = '' OR deadline::date >= current_date + %s::int)"
+            params = (*params, min_days_left)
+        rows = self.conn.execute(sql + " ORDER BY first_seen_at DESC LIMIT %s", (*params, limit)).fetchall()
+        return [self._row_to_record(r) for r in rows]
+
+    def entry_targets(self, limit: int) -> list[JobRecord]:
+        """본문에 「신입도 지원 가능」류가 있는 열린 경력 공고 중 아직 신입 여부를 안 본 것(requirements_llm.entry 없음)."""
+        rows = self.conn.execute(
+            "SELECT * FROM jobs WHERE status = 'OPEN' AND career_type = 'EXPERIENCED'"
+            " AND description ~ '신입\\s*(도|지원|가능|환영)'"
+            " AND (field_provenance -> 'requirements_llm' -> 'entry') IS NULL"
+            " ORDER BY first_seen_at DESC LIMIT %s",
+            (limit,),
+        ).fetchall()
+        return [self._row_to_record(r) for r in rows]
+
+    def fill_requirements(self, job_id: str, values: dict[str, Any], marker: dict[str, Any]) -> int:
+        """뽑은 요건을 **빈 칸에만** 적고, 본 표시(`field_provenance.requirements_llm`)를 남긴다.
+
+        빈 칸인지는 SQL 이 한 번 더 본다 — 뽑는 사이에 적재가 값을 채웠으면 그 값을 둔다.
+        """
+        sets = ["field_provenance = jsonb_set(COALESCE(field_provenance, '{}'::jsonb), '{requirements_llm}', %s)"]
+        params: list[Any] = [Jsonb(marker)]
+        if values.get("career_type") == "ANY":
+            # 신입도 받는 경력 공고 — 경력 공고일 때만 경력무관으로, 최소 연차는 비운다(신입 검색 연차 ≤ 1 에서 빠지지 않게)
+            sets.append("career_type = CASE WHEN career_type = 'EXPERIENCED' THEN 'ANY' ELSE career_type END")
+            sets.append("min_career_years = CASE WHEN career_type = 'EXPERIENCED' THEN NULL ELSE min_career_years END")
+        if "min_career_years" in values:
+            sets.append("min_career_years = COALESCE(min_career_years, %s)")
+            params.append(values["min_career_years"])
+        for column, pair in (("required_majors", "required_major_terms"),
+                             ("required_certifications", "required_certification_groups")):
+            if column in values:
+                empty = f"COALESCE({column}, '[]'::jsonb) = '[]'::jsonb"
+                sets.append(f"{column} = CASE WHEN {empty} THEN %s ELSE {column} END")
+                sets.append(f"{pair} = CASE WHEN {empty} THEN %s ELSE {pair} END")
+                params += [Jsonb(values[column]), Jsonb(values[pair])]
+        with self.conn:
+            return self.conn.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE job_id = %s", (*params, job_id)).rowcount
+
+    def set_company_types(self, source: str, types: dict[str, str], *, complete: bool) -> int:
+        """{공고 번호: 기업형태} 를 `company_type` 에 적는다. 바뀐 줄 수를 돌려준다.
+
+        잡코리아는 상세에 기업형태 칸이 없어 목록의 기업형태 거르기로 알아낸 값을 적는다
+        (crawling/jobkorea.sweep_company_types). `complete` 면 이번 목록에 없던 그 출처 공고를
+        "미기재"로 되돌린다 — 대기업에서 빠진 공고가 계속 대기업으로 남지 않게.
+        """
+        changed = 0
+        with self.conn:
+            for gno, label in types.items():
+                changed += self.conn.execute(
+                    "UPDATE jobs SET company_type = %s WHERE source = %s AND source_job_id = %s "
+                    "AND company_type IS DISTINCT FROM %s",
+                    (label, source, gno, label),
+                ).rowcount
+            if complete:
+                changed += self.conn.execute(
+                    "UPDATE jobs SET company_type = '미기재' WHERE source = %s AND company_type <> '미기재' "
+                    "AND NOT (source_job_id = ANY(%s))",
+                    (source, list(types)),
+                ).rowcount
+        return changed
 
     def iter_records(self, status: str | None = None) -> Iterator[JobRecord]:
         sql, params = "SELECT * FROM jobs", ()
         if status:
-            sql, params = sql + " WHERE status = ?", (status,)
+            sql, params = sql + " WHERE status = %s", (status,)
         for row in self.conn.execute(sql + " ORDER BY job_id", params):
             yield self._row_to_record(row)
 
@@ -599,14 +682,14 @@ class SqliteJobStore:
             revisions=record.revisions,
         )
         columns = ", ".join(values)
-        placeholders = ", ".join(f":{name}" for name in values)
+        placeholders = ", ".join(f"%({name})s" for name in values)
         updates = ", ".join(f"{name} = excluded.{name}" for name in values if name != "job_id")
         self.conn.execute(
             f"INSERT INTO jobs ({columns}) VALUES ({placeholders}) "
             f"ON CONFLICT(job_id) DO UPDATE SET {updates}",
             values,
         )
-        self.conn.execute("DELETE FROM job_tags WHERE job_id = ?", (job.job_id,))
+        self.conn.execute("DELETE FROM job_tags WHERE job_id = %s", (job.job_id,))
         rows = [
             (job.job_id, kind, str(value))
             for kind in TAG_FIELDS
@@ -614,7 +697,9 @@ class SqliteJobStore:
             if str(value).strip()
         ]
         if rows:
-            self.conn.executemany("INSERT OR IGNORE INTO job_tags (job_id, kind, value) VALUES (?, ?, ?)", rows)
+            self.conn.executemany(
+                "INSERT INTO job_tags (job_id, kind, value) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", rows
+            )
 
     def put(self, record: JobRecord) -> None:
         """레코드 하나를 그대로 넣는다. 이관과 테스트용. 판정 없이 덮어쓴다."""
@@ -624,7 +709,7 @@ class SqliteJobStore:
         """collected 공고의 기존 행 중 판정에 필요한 컬럼만."""
         found: dict[tuple[str, str], sqlite3.Row] = {}
         for chunk in _chunks(keys, self._IN_CHUNK):
-            marks = ", ".join("(?, ?)" for _ in chunk)
+            marks = ", ".join("(%s, %s)" for _ in chunk)
             params = [v for key in chunk for v in key]
             rows = self.conn.execute(
                 "SELECT source, source_job_id, content_hash, first_seen_at, revisions, "
@@ -640,7 +725,7 @@ class SqliteJobStore:
         """`refresh`가 이어받을 값. `_existing_light`보다 생애주기 열을 더 가져온다."""
         found: dict[tuple[str, str], sqlite3.Row] = {}
         for chunk in _chunks(keys, self._IN_CHUNK):
-            marks = ", ".join("(?, ?)" for _ in chunk)
+            marks = ", ".join("(%s, %s)" for _ in chunk)
             params = [v for key in chunk for v in key]
             rows = self.conn.execute(
                 "SELECT source, source_job_id, content_hash, first_seen_at, last_seen_at, "
@@ -774,12 +859,12 @@ class SqliteJobStore:
                     "embed_hash": embed,
                 }
             self.conn.executemany(
-                "UPDATE jobs SET status = ?, last_seen_at = ?, missing_runs = 0 WHERE job_id = ?", lifecycle_only
+                "UPDATE jobs SET status = %s, last_seen_at = %s, missing_runs = 0 WHERE job_id = %s", lifecycle_only
             )
 
             # ② 이번에 안 보인 같은 소스의 공고: 만료 / 목록에서 봄 / 미관측 누적 / 삭제
             rows = self.conn.execute(
-                "SELECT job_id, source_job_id, deadline, status, missing_runs FROM jobs WHERE source = ?",
+                "SELECT job_id, source_job_id, deadline, status, missing_runs FROM jobs WHERE source = %s",
                 (source,),
             ).fetchall()
             seen_ids = {sid for (_, sid) in seen}
@@ -808,20 +893,23 @@ class SqliteJobStore:
                     bump.append((runs, row["status"], row["job_id"]))
                     report.still_missing.append(row["job_id"])
 
-            self.conn.executemany("UPDATE jobs SET status = 'EXPIRED' WHERE job_id = ?", [(j,) for j in expire])
+            self.conn.executemany("UPDATE jobs SET status = 'EXPIRED' WHERE job_id = %s", [(j,) for j in expire])
             self.conn.executemany(
-                "UPDATE jobs SET status = ?, last_seen_at = ?, missing_runs = 0 WHERE job_id = ?",
+                "UPDATE jobs SET status = %s, last_seen_at = %s, missing_runs = 0 WHERE job_id = %s",
                 [(s, timestamp, j) for (s, j) in touch],
             )
             self.conn.executemany(
-                "UPDATE jobs SET missing_runs = ?, status = ? WHERE job_id = ?", bump
+                "UPDATE jobs SET missing_runs = %s, status = %s WHERE job_id = %s", bump
             )
         return report
 
     # ── 인덱스 추적 (적재 단계가 쓴다) ─────────────────────────
-    # embed_hash         지금 내용으로 만든 지문(쓸 때마다 갱신)
-    # indexed_embed_hash 마지막으로 인덱스에 올렸을 때의 지문
-    # 둘이 다르면 올릴 대상, 같으면 건너뛴다. 인덱스를 조회하지 않고 판정한다.
+    # embed_hash         크롤로 받은 내용으로 만든 지문(적재가 쓸 때마다 갱신). 적재가 「변경 없음」을
+    #                    가를 때만 쓴다 — 요건 채우기가 바꾼 값은 담지 않는다. 담으면 다음 날 같은 공고가
+    #                    다시 들어올 때 지문이 달라 통째로 다시 쓰이고, 채운 값이 사이트 값으로 돌아간다.
+    # indexed_embed_hash 마지막으로 인덱스에 올렸을 때의 지문(채운 값 포함)
+    # 올릴지는 지금 값으로 만든 지문과 indexed_embed_hash 를 견준다(retrieval/upsert.plan).
+    # 인덱스를 조회하지 않고 판정한다.
 
     def index_state(self) -> dict[str, tuple[str | None, str | None]]:
         """{job_id: (embed_hash, indexed_embed_hash)}. 전 행."""
@@ -831,12 +919,16 @@ class SqliteJobStore:
         }
 
     def mark_indexed(self, hashes: dict[str, str], at: datetime) -> None:
-        """벡터를 올린 뒤 부른다. 바로 커밋해 중간에 멈춰도 올린 만큼은 기록이 남는다."""
+        """벡터를 올린 뒤 부른다. 바로 커밋해 중간에 멈춰도 올린 만큼은 기록이 남는다.
+
+        `embed_hash`(크롤 지문)는 건드리지 않는다 — 채운 값이 든 지문으로 덮으면 다음 적재가 같은 공고를
+        바뀐 것으로 보고 다시 써서 채운 값을 지운다.
+        """
         stamp = at.isoformat()
         with self.conn:
             self.conn.executemany(
-                "UPDATE jobs SET embed_hash = ?, indexed_embed_hash = ?, indexed_at = ? WHERE job_id = ?",
-                [(h, h, stamp, job_id) for job_id, h in hashes.items()],
+                "UPDATE jobs SET indexed_embed_hash = %s, indexed_at = %s WHERE job_id = %s",
+                [(h, stamp, job_id) for job_id, h in hashes.items()],
             )
 
     def group_keys(self) -> dict[str, str | None]:
@@ -851,19 +943,23 @@ class SqliteJobStore:
         current = self.group_keys()
         changed = [(key, job_id) for job_id, key in keys.items() if current.get(job_id) != key]
         with self.conn:
-            self.conn.executemany("UPDATE jobs SET group_key = ? WHERE job_id = ?", changed)
+            self.conn.executemany("UPDATE jobs SET group_key = %s WHERE job_id = %s", changed)
         return len(changed)
 
     def clear_indexed(self, job_ids: Iterable[str]) -> None:
         with self.conn:
             self.conn.executemany(
-                "UPDATE jobs SET indexed_embed_hash = NULL, indexed_at = NULL WHERE job_id = ?",
+                "UPDATE jobs SET indexed_embed_hash = NULL, indexed_at = NULL WHERE job_id = %s",
                 [(j,) for j in job_ids],
             )
 
     def refresh_embed_hashes(self) -> int:
         """저장된 embed_hash를 다시 계산한다. 지문 규칙이 바뀌었거나 이관 직후처럼
-        값이 비어 있을 때 한 번 돌린다. 바뀐 행 수를 돌려준다."""
+        값이 비어 있을 때 한 번 돌린다. 바뀐 행 수를 돌려준다.
+
+        요건 채우기가 채운 행은 채운 값으로 계산된다. 그 행은 다음 적재 때 한 번 다시 쓰여
+        사이트 값으로 돌아가고, 그날 밤 요건 채우기가 다시 채운다.
+        """
         changed: list[tuple[str, str]] = []
         for row in self.conn.execute("SELECT * FROM jobs"):
             job = Job(**{name: _decode(name, row[name]) for name in JOB_FIELDS})
@@ -871,7 +967,7 @@ class SqliteJobStore:
             if fresh != row["embed_hash"]:
                 changed.append((fresh, row["job_id"]))
         with self.conn:
-            self.conn.executemany("UPDATE jobs SET embed_hash = ? WHERE job_id = ?", changed)
+            self.conn.executemany("UPDATE jobs SET embed_hash = %s WHERE job_id = %s", changed)
         return len(changed)
 
     # ── 목록 관측 기록 (야간 배치가 쓴다) ──────────────────────
@@ -913,12 +1009,12 @@ class SqliteJobStore:
                 # seen_at은 갱신하고 first_seen_at은 처음 값을 지킨다. 상세를 아직
                 # 못 받은 공고가 얼마나 기다렸는지 재는 근거가 된다.
                 "INSERT INTO list_seen (source, source_job_id, cat_mcls, seen_at, first_seen_at) "
-                "VALUES (?, ?, ?, ?, ?) "
+                "VALUES (%s, %s, %s, %s, %s) "
                 "ON CONFLICT(source, source_job_id, cat_mcls) DO UPDATE SET seen_at = excluded.seen_at",
                 [(source, job_id, cat, stamp, stamp) for cat, ids in seen.items() for job_id in ids],
             )
             self.conn.executemany(
-                "INSERT INTO list_sweeps (cat_mcls, swept_at, total_count, seen) VALUES (?, ?, ?, ?) "
+                "INSERT INTO list_sweeps (cat_mcls, swept_at, total_count, seen) VALUES (%s, %s, %s, %s) "
                 "ON CONFLICT(cat_mcls) DO UPDATE SET swept_at = excluded.swept_at, "
                 "total_count = excluded.total_count, seen = excluded.seen",
                 [(cat, stamp, total, len(seen.get(cat, ()))) for cat, total in complete.items()],
@@ -926,7 +1022,7 @@ class SqliteJobStore:
             self.conn.execute(
                 # 제 출처만 지운다. 사이트마다 수집 주기가 달라, 한쪽 배치가 다른
                 # 쪽 관측을 지우면 그쪽 공고가 통째로 사라진 것처럼 보인다.
-                "DELETE FROM list_seen WHERE source = ? AND seen_at < ?",
+                "DELETE FROM list_seen WHERE source = %s AND seen_at < %s",
                 (source, (at - timedelta(days=keep_days)).isoformat()),
             )
 
@@ -1002,7 +1098,7 @@ class SqliteJobStore:
                 "INSERT INTO list_jobs (source, source_job_id, job_id, source_url, company, title, "
                 "keywords, region, career_type, min_career_years, education, employment_type, "
                 "condition_text, deadline, support_text, seen_at, first_seen_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
                 "ON CONFLICT(source, source_job_id) DO UPDATE SET "
                 "source_url = excluded.source_url, company = excluded.company, "
                 "title = excluded.title, keywords = excluded.keywords, "
@@ -1017,7 +1113,7 @@ class SqliteJobStore:
             # 여기서 지워도 잃는 것이 없다.
             self.conn.execute(
                 # 관측 표와 같은 이유로 제 출처만 지운다.
-                "DELETE FROM list_jobs WHERE source = ? AND seen_at < ?",
+                "DELETE FROM list_jobs WHERE source = %s AND seen_at < %s",
                 (source, (at - timedelta(days=keep_days)).isoformat()),
             )
         return len(rows)
@@ -1030,15 +1126,15 @@ class SqliteJobStore:
         원문 링크로 안내한다.
         """
         row = self.conn.execute(
-            "SELECT * FROM list_jobs WHERE job_id = ?", (job_id,)
+            "SELECT * FROM list_jobs WHERE job_id = %s", (job_id,)
         ).fetchone()
         return dict(row) if row is not None else None
 
     def source_job_ids(self, source: str, statuses: Iterable[str] | None = None) -> set[str]:
-        sql, params = "SELECT source_job_id FROM jobs WHERE source = ?", [source]
+        sql, params = "SELECT source_job_id FROM jobs WHERE source = %s", [source]
         if statuses:
             statuses = list(statuses)
-            sql += f" AND status IN ({', '.join('?' for _ in statuses)})"
+            sql += f" AND status IN ({', '.join('%s' for _ in statuses)})"
             params.extend(statuses)
         return {row[0] for row in self.conn.execute(sql, params)}
 
@@ -1064,7 +1160,7 @@ class SqliteJobStore:
         swept = {row["cat_mcls"]: row["swept_at"] for row in self.conn.execute("SELECT cat_mcls, swept_at FROM list_sweeps")}
         evidence: dict[str, bool] = {}
         # 같은 출처의 기록만 — 사람인 · 잡코리아 공고번호가 겹치면 남의 기록이 근거가 된다.
-        for row in self.conn.execute("SELECT source_job_id, cat_mcls, seen_at FROM list_seen WHERE source = ?", (source,)):
+        for row in self.conn.execute("SELECT source_job_id, cat_mcls, seen_at FROM list_seen WHERE source = %s", (source,)):
             job_id = row["source_job_id"]
             if job_id not in candidates:
                 continue
@@ -1086,7 +1182,7 @@ class SqliteJobStore:
         판정은 적재와 같은 `_is_expired` — 마감일 글자를 못 읽는 공고는 건드리지 않는다.
         """
         rows = self.conn.execute(
-            "SELECT job_id, deadline FROM jobs WHERE status = ? AND deadline IS NOT NULL AND deadline <> ''",
+            "SELECT job_id, deadline FROM jobs WHERE status = %s AND deadline IS NOT NULL AND deadline <> ''",
             (STATUS_OPEN,),
         ).fetchall()
         expired = []
@@ -1096,13 +1192,13 @@ class SqliteJobStore:
             if _is_expired(probe, at):
                 expired.append(row["job_id"])
         with self.conn:
-            self.conn.executemany("UPDATE jobs SET status = 'EXPIRED' WHERE job_id = ?", [(j,) for j in expired])
+            self.conn.executemany("UPDATE jobs SET status = 'EXPIRED' WHERE job_id = %s", [(j,) for j in expired])
         return expired
 
     def removal_candidates(self, source: str, observed: set[str], missing_run_limit: int = DEFAULT_MISSING_RUN_LIMIT) -> list[str]:
         """이번 upsert에서 REMOVED로 넘어갈 진행 중 공고. 링크 확인 대상이다."""
         rows = self.conn.execute(
-            "SELECT source_job_id, missing_runs FROM jobs WHERE source = ? AND status = ?", (source, STATUS_OPEN)
+            "SELECT source_job_id, missing_runs FROM jobs WHERE source = %s AND status = %s", (source, STATUS_OPEN)
         )
         return sorted(
             row["source_job_id"]
@@ -1116,9 +1212,9 @@ class SqliteJobStore:
         ids = list(job_ids)
         if not ids:
             return {}
-        placeholders = ", ".join("?" for _ in ids)
+        placeholders = ", ".join("%s" for _ in ids)
         rows = self.conn.execute(
-            f"SELECT job_id, alive FROM link_checks WHERE checked_at >= ? AND job_id IN ({placeholders})",
+            f"SELECT job_id, alive FROM link_checks WHERE checked_at >= %s AND job_id IN ({placeholders})",
             (since.isoformat(), *ids),
         )
         return {row["job_id"]: bool(row["alive"]) for row in rows}
@@ -1132,17 +1228,18 @@ class SqliteJobStore:
         closed = [job_id for job_id, alive in results.items() if not alive]
         with self.conn:
             self.conn.executemany(
-                "INSERT OR REPLACE INTO link_checks (job_id, checked_at, alive) VALUES (?, ?, ?)",
+                "INSERT INTO link_checks (job_id, checked_at, alive) VALUES (%s, %s, %s) "
+                "ON CONFLICT (job_id) DO UPDATE SET checked_at = EXCLUDED.checked_at, alive = EXCLUDED.alive",
                 [(job_id, stamp, bool(alive)) for job_id, alive in results.items()],
             )
             if closed:
-                placeholders = ", ".join("?" for _ in closed)
+                placeholders = ", ".join("%s" for _ in closed)
                 rows = self.conn.execute(
-                    f"SELECT job_id FROM jobs WHERE status = ? AND job_id IN ({placeholders})", (STATUS_OPEN, *closed)
+                    f"SELECT job_id FROM jobs WHERE status = %s AND job_id IN ({placeholders})", (STATUS_OPEN, *closed)
                 ).fetchall()
                 moved = [row["job_id"] for row in rows]
                 self.conn.executemany(
-                    "UPDATE jobs SET status = ? WHERE job_id = ?", [(STATUS_CLOSED, job_id) for job_id in moved]
+                    "UPDATE jobs SET status = %s WHERE job_id = %s", [(STATUS_CLOSED, job_id) for job_id in moved]
                 )
                 return moved
         return []
@@ -1159,7 +1256,7 @@ class SqliteJobStore:
         - CLOSED · OPEN: 두지 않는다.
         """
         with self.conn:
-            row = self.conn.execute("SELECT status FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+            row = self.conn.execute("SELECT status FROM jobs WHERE job_id = %s", (job_id,)).fetchone()
             if row is None:
                 return False
             status = row["status"]
@@ -1175,13 +1272,13 @@ class SqliteJobStore:
             elif status != STATUS_REMOVED:
                 return False
             self.conn.execute(
-                "UPDATE jobs SET status = ?, missing_runs = 0, last_seen_at = ? WHERE job_id = ?",
+                "UPDATE jobs SET status = %s, missing_runs = 0, last_seen_at = %s WHERE job_id = %s",
                 (STATUS_OPEN, at.isoformat(), job_id),
             )
             if page_deadline is not None:
                 self.conn.execute(
-                    "UPDATE jobs SET deadline = ?, field_provenance = jsonb_set(field_provenance, '{deadline}', ?) "
-                    "WHERE job_id = ?",
+                    "UPDATE jobs SET deadline = %s, field_provenance = jsonb_set(field_provenance, '{deadline}', %s) "
+                    "WHERE job_id = %s",
                     (page_deadline[0], Jsonb({"method": "detail_page", "evidence": page_deadline[1]}), job_id),
                 )
         return True
@@ -1191,7 +1288,7 @@ class SqliteJobStore:
                    vectors: int | None = None, error: str | None = None) -> None:
         self.conn.execute(
             "INSERT INTO runs (started_at, finished_at, source, new, updated, unchanged, expired, removed, "
-            "observed, still_missing, vectors, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "observed, still_missing, vectors, error) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 started_at.isoformat(), finished_at.isoformat(), report.source,
                 len(report.new), len(report.updated), len(report.unchanged), len(report.expired),

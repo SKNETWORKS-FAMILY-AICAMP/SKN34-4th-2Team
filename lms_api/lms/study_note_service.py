@@ -287,6 +287,27 @@ def _own_note(cur, user_id: int, source_id: int, key: str) -> dict | None:
     return _one(cur)
 
 
+PREVIOUS_DAYS = 3
+
+
+def _previous_notes(source_id: int, scope_type: str, value: Any) -> list[dict]:
+    """같은 과목의 이전 수업 날짜 노트(최근 PREVIOUS_DAYS 일, 날짜마다 가장 새것) — AI 서버가 「이전 학습과의 연결」을
+    이것과만 잇는다. 없으면 이어 쓸 수업이 없다고 적는다(첫날에도 「이전에 배웠다」고 지어내던 것). 날짜 노트만."""
+    if scope_type != "date":
+        return []
+    with connection.cursor() as cur:
+        cur.execute(
+            """SELECT DISTINCT ON (scope_value #>> '{}') scope_value #>> '{}' AS date, report_markdown
+               FROM study_notes
+               WHERE source_id = %s AND scope_type = 'date' AND status IN ('ready', 'done')
+                 AND COALESCE(report_markdown, '') <> '' AND scope_value #>> '{}' < %s
+               ORDER BY scope_value #>> '{}' DESC, id DESC""",
+            [source_id, str(value)],
+        )
+        rows = _dicts(cur)
+    return [{"date": r["date"], "report": r["report_markdown"]} for r in rows[:PREVIOUS_DAYS]]
+
+
 def start_note(user: dict, source_key: str, scope_type: str, scope_value: Any) -> dict:
     """범위의 노트를 돌려준다. 있으면 그것, 같은 기수 학생이 같은 자료로 만든 것이 있으면 그 사본,
     정리 중이면 그 행, 아니면 「정리 중」 행을 만들고 뒤에서 만든다.
@@ -341,7 +362,8 @@ def start_note(user: dict, source_key: str, scope_type: str, scope_value: Any) -
         row = _put(cur, row_id, user["id"], source["id"], scope_type, value, key, status="generating",
                    message="정리 중입니다.")
         note_id = row["id"]
-        transaction.on_commit(lambda: _spawn(lambda: _finish(note_id, payload)))
+        generate = {**payload, "previous": _previous_notes(source["id"], scope_type, value)}
+        transaction.on_commit(lambda: _spawn(lambda: _finish(note_id, generate)))
     return serialize(row, public_source)
 
 
@@ -350,7 +372,8 @@ def publish_lesson_notes(source: dict, dates: list[str]) -> dict:
 
     복습 문제처럼 학생이 누르기 전에 준비해 둔다. 노트는 날짜마다 한 번만 만들고(같은 자료로 만든
     노트가 이미 있으면 그것을 쓴다) 학생마다 사본 행을 둔다. 목록 · 삭제가 학생 행 기준이기 때문이다.
-    이미 같은 자료의 노트가 있는 학생은 건너뛴다. 파일이 너무 많은 날은 만들지 않는다(학생이 골라서 만든다).
+    이미 같은 자료의 노트가 있는 학생은 건너뛴다. 파일이 너무 많은 날은 AI 서버가 묶음으로 나눠 만든다
+    (study_notes/pipeline.py). 그래도 넘치면(MAX_DATE_FILES) 만들지 않는다.
     """
     with connection.cursor() as cur:
         cur.execute(
@@ -375,7 +398,8 @@ def publish_lesson_notes(source: dict, dates: list[str]) -> dict:
             files = current["files"]
         else:
             try:
-                result = _call("/proxy/generate", payload, GENERATE_TIMEOUT)
+                result = _call("/proxy/generate", {**payload, "previous": _previous_notes(source["id"], "date", date)},
+                               GENERATE_TIMEOUT)
             except StudyNoteError:
                 skipped.append(date)
                 continue
@@ -472,7 +496,7 @@ def _day_note(source: dict, date: str) -> tuple[dict | None, dict | None]:
         shared = _shared_note(cur, source["id"], scope_key("date", date), current["files"])
     if shared is not None:
         return {"report": shared.get("report_markdown") or "", "files": _json(shared.get("files")) or current["files"]}, None
-    return None, payload
+    return None, {**payload, "previous": _previous_notes(source["id"], "date", date)}
 
 
 def _finish_subject(note_id: int, user_id: int, source: dict, dates: list[str] | None) -> None:

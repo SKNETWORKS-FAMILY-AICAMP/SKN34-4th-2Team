@@ -268,3 +268,23 @@ def proxy_chat(
     except Exception:
         pass
     return {"answer": answer}
+
+
+@router.post("/chat/stream")
+def proxy_chat_stream(
+    request: ProxyChatRequest,
+    internal_token: str | None = Header(default=None, alias="X-LMS-AI-Token"),
+) -> StreamingResponse:
+    if not valid_proxy_token(internal_token):
+        raise HTTPException(status_code=401, detail="Django proxy authentication required")
+    question = (request.question or request.message or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="message required")
+    session = _session_from_uid(request.uid.strip())
+    inputs = _chat_inputs(InitRequest(thread_id=request.thread_id), session)
+    inputs["question"] = question
+    return StreamingResponse(
+        _ndjson_chat(_ready_chatbot(), inputs, session),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )

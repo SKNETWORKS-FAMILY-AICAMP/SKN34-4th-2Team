@@ -77,7 +77,7 @@ def ingest(
     `observed_ids`를 주면 목록에서 본 공고는 상세가 없어도 살아 있는 것으로
     본다(증분 수집). 이번에 받은 상세의 ID는 자동으로 포함된다.
 
-    `extract=True`면 사람인 본문에서 필수·우대 기술을 뽑는다. CLI는 기본으로 켜고,
+    `extract=True`면 사람인 · 잡코리아 본문에서 필수·우대 기술을 뽑는다. CLI는 기본으로 켜고,
     테스트처럼 함수를 직접 부르는 곳은 명시해야 외부 API를 부르지 않는다.
 
     `allow_llm=False`면 LLM을 부르지 않고 본문 제목(자격요건/우대사항) 구간의
@@ -94,14 +94,15 @@ def ingest(
     for index, record in enumerate(records):
         source_job_id = extract_id(record) or f"unknown-{index}"
         try:
-            if extract and parser is saramin.normalize_saramin:
+            if extract and parser in (saramin.normalize_saramin, jobkorea.normalize_jobkorea):
                 # 본문 제목(자격요건/우대사항) 구간의 사전 매칭, LLM 키가 있으면 LLM 추출.
                 # 이미지뿐인 공고는 본문이 짧아 대부분 UNKNOWN으로 남는다.
+                # 잡코리아는 예전에 빠져 있어 필수 기술이 0%였다(IT 공고 5,017건, 2026-09-29) — 같은 기준으로 뽑는다.
                 from job_matching_bot.coach.skill_source import extract_requirements
 
                 listing = record.get("list_item") or {}
                 requirements = extract_requirements(
-                    str(listing.get("title") or ""),
+                    str(listing.get("title") or record.get("title") or ""),
                     str(record.get("description") or ""),
                     cache_path=ARTIFACTS_DIR / "llm_cache.json",
                     allow_llm=allow_llm,

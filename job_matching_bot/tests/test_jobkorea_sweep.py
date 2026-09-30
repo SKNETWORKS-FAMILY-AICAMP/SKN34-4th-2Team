@@ -111,5 +111,29 @@ class SplitOverWallTest(unittest.TestCase):
         self.assertFalse(swept["10028"])
 
 
+class CompanyTypeTest(unittest.TestCase):
+    """상세에 기업형태 칸이 없어 목록의 기업형태 거르기(`cotype`)로 공고별 기업형태를 모은다."""
+
+    def _run(self, site: FakeSite, duties=("10031",), **kwargs):
+        codes = {"1": "대기업", "11": "코스피상장"}
+        with patch.object(jobkorea, "fetch_page", site), patch.object(jobkorea, "polite_delay", lambda *a: None),                 patch.object(jobkorea, "PAGE_SIZE", 2):
+            return jobkorea.sweep_company_types(None, list(duties), min_delay=0, max_delay=0, codes=codes, **kwargs)
+
+    def test_each_posting_gets_every_type_it_was_listed_under(self):
+        site = FakeSite({
+            (("cotype", "1"),): ([["a", "b"], [], ["c"]], 5),  # 가운데 빈 쪽(구멍)을 지나 끝 쪽까지
+            (("cotype", "11"),): ([["b"]], 1),
+        })
+        types, complete = self._run(site)
+        self.assertEqual({"a": "대기업", "b": "대기업, 코스피상장", "c": "대기업"}, types)
+        self.assertTrue(complete)
+
+    def test_page_limit_means_not_complete(self):
+        site = FakeSite({(("cotype", "1"),): ([["a", "b"], ["c", "d"], ["e"]], 5), (("cotype", "11"),): ([[]], 0)})
+        types, complete = self._run(site, max_pages=2)
+        self.assertEqual({"a", "b", "c", "d"}, set(types))
+        self.assertFalse(complete, "끝까지 못 봤으면 목록에 없던 공고의 기업형태를 지우지 않게")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -14,7 +14,9 @@ export function compact(text: string): string {
 }
 
 /** 코드처럼 생긴 줄 — 대입 · 호출 · 괄호 · 파이썬 예약어. 「입력: 1 × 28 × 28」 같은 설명용 구조도는 아니다 */
-const CODE_LIKE = /[=(){}[\]]|^(import|from|def|class|return|for|if|elif|else|while|with|try|except|print|lambda|yield|async|await)\b/;
+// study_notes/grounding.py 의 CODE_LIKE 와 같다 — HTML 태그 줄 · CSS 선언 줄도 코드
+const CODE_LIKE =
+  /[=(){}[\]]|^(import|from|def|class|return|for|if|elif|else|while|with|try|except|print|lambda|yield|async|await)\b|^<\/?[A-Za-z!]|^[a-z-]+\s*:\s*[^;]+;$/;
 
 /**
  * 견줄 만한 줄 — 주석 · 흐름도 · 설명 글 · 너무 짧은 줄은 뺀다.
@@ -28,9 +30,11 @@ export function significantLines(code: string, sql = false): string[] {
   );
 }
 
-/** 수업 파일을 셀로 — 노트북 · .py 는 셀마다, .sql 은 SQL 셀 하나, 그 밖(.md 등)은 글 셀 하나 */
+/** 수업 파일을 셀로 — 노트북 · .py 는 셀마다, .sql 은 SQL 셀 하나, 웹 파일은 코드 블록 글 셀 하나, 그 밖(.md 등)은 글 셀 하나 */
 export function lessonCells(path: string, raw: string): ImportedCell[] {
   if (/\.sql$/i.test(path)) return [{ type: 'sql', source: raw }];
+  const web = /\.(html|css|js)$/i.exec(path);
+  if (web) return [{ type: 'markdown', source: '```' + web[1].toLowerCase() + '\n' + raw + '\n```' }];
   if (!/\.(ipynb|py)$/i.test(path)) return [{ type: 'markdown', source: raw }];
   try {
     return parseNotebookFile(path, raw).cells;
@@ -75,6 +79,11 @@ export function findCodeInFiles(code: string, files: LessonFile[], sql = false):
 }
 
 /** 노트 코드 블록이 SQL 인지 — ```sql 로 적었거나, 언어 표시 없이 SQL 문장으로 시작한다 */
+/** 웹 수업 코드 — 연습장(파이썬 · SQL)에서 돌릴 수 없어 「연습장에서 열기」를 달지 않는다 */
+export function isWebBlock(lang: string): boolean {
+  return /^(html|css|js|javascript)$/i.test(lang.trim());
+}
+
 export function isSqlBlock(code: string, lang: string): boolean {
   if (/^(sql|mysql|sqlite|postgres(ql)?)$/i.test(lang.trim())) return true;
   if (lang.trim() !== '') return false;

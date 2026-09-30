@@ -16,7 +16,8 @@ class RecommendStoreTest(unittest.TestCase):
         job = object()
         store = MagicMock()
         store.__enter__.return_value = store
-        store.get.return_value = SimpleNamespace(status="OPEN", job=job)
+        # 추천 필터는 검색 결과를 한 번에 읽는다(get_many — 한 건씩이면 RDS 왕복이 25번)
+        store.get_many.return_value = {"JOB-1": SimpleNamespace(status="OPEN", job=job)}
 
         with tempfile.TemporaryDirectory() as directory:
             missing_path = Path(directory) / "job_store.sqlite"

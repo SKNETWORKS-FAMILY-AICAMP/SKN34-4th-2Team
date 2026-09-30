@@ -24,7 +24,10 @@ from pathlib import Path
 # KST는 DST가 없어 고정 오프셋으로 충분하다. (Windows는 tzdata가 없어 ZoneInfo가 실패한다)
 SEOUL = timezone(timedelta(hours=9), name="Asia/Seoul")
 # .sql — database 과목 수업 파일(2026-09-28 추가). 노트 · SQL 복습 문제(sql_query)에 쓴다
-ALLOWED_SUFFIXES = (".ipynb", ".py", ".md", ".sql")
+# .html · .css · .js — 웹 과목(web_client · web_server). 지금은 노트만 — 복습 문제는 파이썬으로 채점해서 출제에서 뺀다
+WEB_SUFFIXES = (".html", ".css", ".js")
+ALLOWED_SUFFIXES = (".ipynb", ".py", ".md", ".sql", *WEB_SUFFIXES)
+LEARNING_FILES_TEXT = ".ipynb · .py · .md · .sql · .html · .css · .js"
 # 날짜 목록은 기간으로 자르지 않고 수업이 있던 날을 최근부터 이만큼 — 끝난 과목(예: 7월 DL)도 복습하게.
 # 예전엔 최근 30일만 보여 줘서, 지난 과목은 날짜가 하나도 안 나왔다.
 MAX_LESSON_DATES = 120
@@ -38,6 +41,14 @@ _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 _sync_cache: dict[str, tuple[float, str]] = {}
 SYNC_TTL_SEC = 120
+
+
+# 브랜치가 없다 — 대개 커밋이 하나도 없는 저장소(수업 전 과목). 자동 출제는 이걸 실패로 적지 않는다(api.proxy_practice)
+EMPTY_REPO_MESSAGE = "브랜치를 찾지 못했습니다. 아직 비어 있는 저장소일 수 있어요 — 수업 파일이 올라오면 보입니다."
+
+
+def is_empty_repo(exc: Exception) -> bool:
+    return isinstance(exc, GitToolError) and str(exc) == EMPTY_REPO_MESSAGE
 
 
 class GitToolError(Exception):
@@ -83,6 +94,10 @@ def sanitize_path(path: str) -> str:
 
 def is_learning_file(path: str) -> bool:
     return path.lower().endswith(ALLOWED_SUFFIXES)
+
+
+def is_web_file(path: str) -> bool:
+    return path.lower().endswith(WEB_SUFFIXES)
 
 
 def path_allowed(path: str, prefixes: list[str]) -> bool:
@@ -175,7 +190,7 @@ def _friendly_git_error(stderr: str) -> str:
     # 「Remote branch main not found」 에도 not found 가 들어 있다 — 브랜치를 먼저 본다.
     # 커밋이 하나도 없는 저장소(수업 전 과목)도 이렇게 나온다
     if "couldn't find remote ref" in lower or "remote branch" in lower:
-        return "브랜치를 찾지 못했습니다. 아직 비어 있는 저장소일 수 있어요 — 수업 파일이 올라오면 보입니다."
+        return EMPTY_REPO_MESSAGE
     if "repository not found" in lower or "not found" in lower:
         return "GitHub 저장소를 찾지 못했습니다. 주소를 확인하세요."
     if "could not resolve host" in lower or "unable to access" in lower:

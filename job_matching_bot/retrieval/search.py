@@ -32,8 +32,16 @@ def build_filter(
     regions: list[str],
     employment_types: list[str],
     career_years: float,
+    *,
+    education_level: str | None = None,
+    match_requirements: bool = False,
 ) -> dict[str, Any]:
-    """벡터 검색과 함께 걸 조건. 값이 없으면 그 조건은 걸지 않는다."""
+    """벡터 검색과 함께 걸 조건. 값이 없으면 그 조건은 걸지 않는다.
+
+    `match_requirements` 면 하드 필터가 **떨어뜨릴** 경력 · 학력 조건도 미리 건다(추천만).
+    검색 25건 중 60%가 하드 필터에서 빠져(이력서 10개, 2026-09-29) 신입은 4~8건만 재정렬에
+    갔다. 하드 필터는 그대로 둔다 — 인덱스 메타는 밤 배치에만 맞춰져 낮에 바뀐 값은 모른다.
+    """
     clauses: list[dict[str, Any]] = [{"status": {"$eq": "OPEN"}}]
 
     if regions:
@@ -48,6 +56,25 @@ def build_filter(
     # -1은 적재할 때 "미기재"를 담은 값이다.
     if career_years < 1:
         clauses.append({"min_career_years": {"$lte": 1}})
+
+    if match_requirements:
+        from job_matching_bot.matching.hard_filter import (
+            CAREER_TOLERANCE_YEARS, EDUCATION_RANK, ENTRY_ONLY_MAX_YEARS,
+        )
+
+        # 경력 공고는 연차가 닿는 것만(6개월 여유). 신입이면 연차 미기재(-1) 경력 공고도 뺀다 — 하드 필터와 같다
+        floor = 0 if career_years < 1 else -1
+        clauses.append({"$or": [
+            {"career_type": {"$ne": "EXPERIENCED"}},
+            {"min_career_years": {"$gte": floor, "$lte": career_years + CAREER_TOLERANCE_YEARS}},
+        ]})
+        if career_years >= ENTRY_ONLY_MAX_YEARS:
+            clauses.append({"career_type": {"$ne": "ENTRY"}})
+        if education_level in EDUCATION_RANK:
+            # 이력서보다 높은 학력을 요구하는 공고만 뺀다. 미기재 · 모르는 값은 남긴다(하드 필터도 확인 필요로 둔다)
+            above = [level for level, rank in EDUCATION_RANK.items() if rank > EDUCATION_RANK[education_level]]
+            if above:
+                clauses.append({"education": {"$nin": above}})
 
     return {"$and": clauses} if len(clauses) > 1 else clauses[0]
 

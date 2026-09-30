@@ -67,6 +67,26 @@ class SqliteVersusRulesTest(unittest.TestCase):
         self.assertEqual(a, b)
         self.assertEqual(1, self.store.get(self.jobs[0].job_id).revisions)
 
+    def test_get_many_reads_several_at_once(self):
+        """추천 필터가 쓴다 — 없는 id 는 빠지고, 같은 id 가 두 번 와도 한 번만."""
+        self.store.upsert(self.jobs, source="MOCK")
+        ids = [self.jobs[1].job_id, "MOCK-없는공고", self.jobs[0].job_id, self.jobs[1].job_id]
+        found = self.store.get_many(ids)
+        self.assertEqual({self.jobs[0].job_id, self.jobs[1].job_id}, set(found))
+        self.assertEqual(self.store.get(self.jobs[0].job_id), found[self.jobs[0].job_id])
+        self.assertEqual({}, self.store.get_many([]))
+
+    def test_set_company_types_fills_and_clears_by_source(self):
+        """잡코리아 기업형태 — 목록 거르기로 알아낸 값을 적고, 끝까지 훑은 밤에는 빠진 공고를 되돌린다."""
+        self.store.upsert(self.jobs, source="MOCK")
+        a, b = self.jobs[0], self.jobs[1]
+        self.assertEqual(2, self.store.set_company_types(a.source, {a.source_job_id: "대기업", b.source_job_id: "중견기업"}, complete=False))
+        self.assertEqual("대기업", self.store.get(a.job_id).job.company_type)
+        self.assertEqual(0, self.store.set_company_types(a.source, {a.source_job_id: "대기업"}, complete=False), "같으면 안 바꾼다")
+        self.assertEqual("중견기업", self.store.get(b.job_id).job.company_type, "일부만 훑었으면 지우지 않는다")
+        self.store.set_company_types(a.source, {a.source_job_id: "대기업"}, complete=True)
+        self.assertEqual("미기재", self.store.get(b.job_id).job.company_type)
+
     def test_missing_then_removed_after_limit(self):
         later = AS_OF + timedelta(days=1)
         a, b = self._both([

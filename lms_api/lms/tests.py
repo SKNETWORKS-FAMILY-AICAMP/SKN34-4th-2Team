@@ -8,7 +8,7 @@ from django.test import SimpleTestCase
 from unittest import TestCase
 from unittest.mock import Mock, patch
 
-from lms.api import ChatIn, _data, api, chat
+from lms.api import ChatIn, _data, _notice_image_key, api, chat, upload_notice_image
 from lms.bootstrap_service import _dicts
 from lms.commands import (
     _validate_record_submission_write, _validate_resume_write, op_add_todo,
@@ -119,6 +119,105 @@ class NoticeVectorCountTests(TestCase):
         sync_notice_vector("cohort_34", 17, None, previous_chunk_count=2)
         delete.assert_called_once_with("cohort_34", 17, 2)
         cursor.assert_not_called()
+
+    @patch("lms.services.notice_vectors.delete_notice_vectors")
+    @patch("lms.services.notice_vectors.upsert_notice_vectors", side_effect=RuntimeError("image extraction failed"))
+    def test_failed_image_extraction_keeps_previous_vectors(self, _upsert, delete):
+        with self.assertRaises(RuntimeError):
+            sync_notice_vector("cohort_34", 17, {"image_storage_key": "notices/a/b.png"}, previous_chunk_count=2)
+        delete.assert_not_called()
+
+    @patch("lms.services.connection.cursor")
+    @patch("lms.services.notice_vectors.delete_notice_vectors")
+    @patch("lms.services.notice_vectors.upsert_notice_vectors")
+    def test_only_scheduled_attendance_is_excluded(self, upsert, delete, cursor):
+        cursor.return_value.__enter__.return_value.fetchone.return_value = ("scheduled",)
+        count = sync_notice_vector(
+            "cohort_34", 17, {"title": "[출결] 오늘 예외 출결 제출", "content": "내용"},
+            previous_chunk_count=2,
+        )
+        self.assertEqual(count, 0)
+        upsert.assert_not_called()
+        delete.assert_called_once_with("cohort_34", 17, 2, start=0)
+
+        cursor.return_value.__enter__.return_value.fetchone.return_value = (None,)
+        upsert.return_value = 1
+        self.assertEqual(sync_notice_vector(
+            "cohort_34", 18, {"title": "[출결] 오늘 예외 출결 제출", "content": "내용"}
+        ), 1)
+        upsert.assert_called_once()
+
+
+class NoticeImageTests(SimpleTestCase):
+    def test_table_values_keep_their_column_labels(self):
+        from lms.notice_vectors import build_records
+
+        records = build_records("cohort_34", 39, {
+            "title": "정기 상담 공지",
+            "image_text": (
+                "| 일자 | 시간 | 송희 매니저 (상담실 A) | 희애 매니저 (상담실 B) |\n"
+                "|---|---|---|---|\n"
+                "| 9/30 (수) | 15:50~16:00 | 김진화 | 최인영 |"
+            ),
+        })
+        text = records[0]["page_content"]
+        self.assertIn("송희 매니저 (상담실 A): 김진화", text)
+        self.assertIn("희애 매니저 (상담실 B): 최인영", text)
+
+    def test_image_text_is_a_single_separate_record(self):
+        from lms.notice_vectors import CHUNK_OVERLAP, CHUNK_SIZE, build_records, chunk_text
+
+        body = "본문 안내\n" * 90
+        image_text = "09:50~10:00\n" * 160
+        records = build_records("cohort_34", 17, {
+            "title": "정기 상담 공지", "content": body, "image_text": image_text
+        })
+        self.assertEqual((CHUNK_SIZE, CHUNK_OVERLAP), (500, 40))
+        self.assertEqual(len(records), len(chunk_text(body)) + 1)
+        self.assertTrue(all(row["page_content"].startswith("정기 상담 공지\n\n") for row in records))
+        self.assertTrue(all("[첨부 이미지에서 추출한 텍스트]" not in row["page_content"] for row in records[:-1]))
+        self.assertTrue(records[-1]["page_content"].startswith("정기 상담 공지\n\n[첨부 이미지에서 추출한 텍스트]"))
+        self.assertGreater(len(records[-1]["page_content"]), len(image_text))
+        self.assertEqual(records[-1]["page_content"].count("09:50~10:00"), 160)
+
+    @patch("lms.storage.put_object")
+    @patch("lms.storage.get_object", side_effect=[None, b"\x89PNG\r\n\x1a\nimage"])
+    @patch("lms.notice_vectors.extract_image_text", return_value="신청 마감 10월 5일")
+    def test_existing_image_is_extracted_and_cached(self, extract, get, put):
+        from lms.notice_vectors import image_text_for_notice
+
+        text = image_text_for_notice("notices/manager-a/old.png")
+        self.assertEqual(text, "신청 마감 10월 5일")
+        self.assertEqual(get.call_count, 2)
+        extract.assert_called_once_with(b"\x89PNG\r\n\x1a\nimage", "image/png")
+        put.assert_called_once_with("notices/manager-a/old.png.txt", text.encode(), "text/plain; charset=utf-8")
+
+    def test_only_own_uploaded_key_or_https_url_is_accepted(self):
+        user = {"firebase_uid": "manager-a"}
+        own = f"notices/manager-a/{'a' * 32}.png"
+        self.assertEqual(_notice_image_key({"imageStorageKey": own}, user), own)
+        self.assertIs(_notice_image_key({"imageStorageKey": own.replace("manager-a", "manager-b")}, user), False)
+        self.assertEqual(_notice_image_key({"imageStorageKey": ""}, user, own), None)
+        self.assertEqual(_notice_image_key({"imageStorageKey": own}, {"firebase_uid": "manager-b"}, own), own)
+
+    @patch("lms.storage.read_url", return_value="/api/files?t=token")
+    @patch("lms.storage.put_object")
+    @patch("lms.notice_vectors.extract_image_text", return_value="신청 마감 10월 5일")
+    @patch("lms.api._require_user", return_value={"role": "admin", "firebase_uid": "manager-a"})
+    def test_png_upload_checks_file_bytes_and_returns_saved_key(self, _user, extract, put, _url):
+        file = Mock(content_type="image/png", size=12, name="notice.png")
+        file.read.return_value = b"not an image"
+        self.assertEqual(upload_notice_image(Mock(), file).status_code, 400)
+        put.assert_not_called()
+
+        data = b"\x89PNG\r\n\x1a\n" + b"image"
+        file.read.return_value = data
+        result = upload_notice_image(Mock(), file)
+        self.assertRegex(result["key"], r"^notices/manager-a/[0-9a-f]{32}\.png$")
+        extract.assert_called_once_with(data, "image/png")
+        self.assertEqual(put.call_count, 2)
+        put.assert_any_call(result["key"], data, "image/png")
+        put.assert_any_call(result["key"] + ".txt", "신청 마감 10월 5일".encode(), "text/plain; charset=utf-8")
 
 
 class JsonBodyContractTests(SimpleTestCase):

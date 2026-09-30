@@ -1,6 +1,7 @@
 [
   {"id":"policy_attendance","question":"오늘 결석하면 어떻게 처리돼?","route":"lms","namespaces":["policy"],"student_scopes":[]},
   {"id":"private_attendance","question":"내 출석률 알려줘","route":"lms","namespaces":[],"student_scopes":["student_private"]},
+  {"id":"personal_notice_schedule","question":"나 정기상담 언제 가야돼?","route":"lms","namespaces":["notice"],"student_scopes":["student_private"]},
   {"id":"notice_policy_multi","question":"공가 증빙은 어디에 내고 최근 변경 공지도 있어?","route":"lms","namespaces":["policy","notice"],"student_scopes":[]},
   {"id":"final_project","question":"34기 최종 프로젝트에서 RAG 쓴 팀 알려줘","route":"lms","namespaces":["project_reference"],"student_scopes":[]},
   {"id":"mixed_topics","question":"프로젝트 자료와 출결 기준 둘 다 알려줘","route":"lms","namespaces":["project_reference","policy"],"student_scopes":[]},

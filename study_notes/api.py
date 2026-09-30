@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from chatbot.api import _firebase_app
 from chatbot.proxy_auth import valid_proxy_token
 from study_notes import github, postgres_service, service
-from study_notes.git_tools import GitToolError
+from study_notes.git_tools import GitToolError, is_empty_repo
 from study_notes.service import Caller
 
 router = APIRouter(prefix="/api/v1/study-notes", tags=["study-notes"])
@@ -56,9 +56,16 @@ class ProxyTreeRequest(BaseModel):
     source: ProxySource
 
 
+class PreviousNote(BaseModel):
+    date: str = Field(min_length=1, max_length=10)
+    report: str = Field(default="", max_length=60_000)
+
+
 class ProxyGenerateRequest(ProxyTreeRequest):
     scopeType: str = Field(min_length=1, max_length=10)
     scopeValue: Any
+    # 같은 과목의 이전 날짜 노트 — 「이전 학습과의 연결」을 이것과만 잇는다(pipeline.pack_previous)
+    previous: list[PreviousNote] = Field(default_factory=list, max_length=10)
 
 
 class ProxyReposRequest(BaseModel):
@@ -186,7 +193,8 @@ def proxy_tree(request: ProxyTreeRequest) -> dict[str, Any]:
 def proxy_generate(request: ProxyGenerateRequest) -> dict[str, Any]:
     """몇 분 걸린다. Django 는 학생 요청을 먼저 돌려보내고 뒤에서 이걸 기다린다."""
     source = service.source_from_payload(request.source.model_dump())
-    return service.build_note_for_lms(request.cohortId, source, request.scopeType, request.scopeValue)
+    previous = [p.model_dump() for p in request.previous]
+    return service.build_note_for_lms(request.cohortId, source, request.scopeType, request.scopeValue, previous)
 
 
 @router.post("/proxy/resolve")
@@ -264,6 +272,10 @@ def proxy_practice(request: ProxyPracticeRequest) -> dict[str, Any]:
             dates=request.dates,
         )
     except GitToolError as exc:
+        if is_empty_repo(exc):
+            # 수업 전 과목 — 매일 18:30 마다 「실패」로 쌓이지 않게
+            return {"sets": [], "coverage": request.coverage, "error": "", "note": "아직 수업 파일이 올라오지 않은 저장소예요.",
+                    "webDays": []}
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 

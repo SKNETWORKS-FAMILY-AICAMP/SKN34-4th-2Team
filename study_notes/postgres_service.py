@@ -214,7 +214,7 @@ def generate_note(
 ) -> dict[str, Any]:
     from fastapi import HTTPException
     from study_notes import service
-    from study_notes.git_tools import GitToolError
+    from study_notes.git_tools import LEARNING_FILES_TEXT, GitToolError
 
     user_id, _role = _identity(user_pk, cohort_code)
     source_pk, source = _source(cohort_code, source_id)
@@ -235,7 +235,7 @@ def generate_note(
             _finish(note_pk, token, "too_broad", files=files, message=message)
             return {"noteId": note_id, "status": "too_broad", "message": message, "files": files}
         if not files:
-            raise StudyNotesError(404, "이 범위에서 분석 가능한 .ipynb/.py/.md/.sql 파일이 없습니다.")
+            raise StudyNotesError(404, f"이 범위에서 분석 가능한 파일({LEARNING_FILES_TEXT})이 없습니다.")
         materials = service._load_materials(cache, files)
         report, review = service.generate_study_note(
             scope_label=service.scope_label(kind, value), commits=commits, materials=materials,

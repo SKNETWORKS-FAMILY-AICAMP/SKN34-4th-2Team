@@ -50,7 +50,7 @@ class BuildNoteForLmsTests(unittest.TestCase):
         self.assertEqual(out["scopeValue"], ["01_cnn/a.ipynb", "02_rag/b.py"])
         self.assertEqual(out["scopeKey"], service.build_scope_key("files", ["01_cnn/a.ipynb", "02_rag/b.py"]))
         self.assertEqual(out["reportMarkdown"], "요약")
-        self.assertEqual(self.fake.call_args.args[2:], ("files", ["01_cnn/a.ipynb", "02_rag/b.py"]))
+        self.assertEqual(self.fake.call_args.args[2:], ("files", ["01_cnn/a.ipynb", "02_rag/b.py"], None))
 
     def test_scope_outside_allowed_folders_is_rejected_before_building(self) -> None:
         source = service.source_from_payload(SOURCE)

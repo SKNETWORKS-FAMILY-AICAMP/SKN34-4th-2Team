@@ -18,7 +18,8 @@ class ResumeProfile:
     preferred_regions: list[str]
     preferred_employment_types: list[str]
     education_level: str
-    career_years: int
+    # 소수로 둔다(2년 8개월 = 2.67). 정수로 자르면 「3년 이상」 공고에서 1년 모자란 것처럼 처리된다
+    career_years: float
     confirmed_missing_skills: list[str] = field(default_factory=list)
     # 이력서 학력사항의 전공과 자격사항 이름. 전공·자격증 요건 판정에 쓴다.
     majors: list[str] = field(default_factory=list)

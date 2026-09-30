@@ -1,4 +1,4 @@
-"""생성 → 검증 → (떨어진 것만) 한 번 고쳐서 재검증.
+"""생성 → 검증 → 문제만 보고 다시 풀어 보기(blind.py) → (떨어진 것만) 한 번 고쳐서 재검증 · 다시 풀어 보기.
 
 입력은 수업 자료, 출력은 검증된 문제와 통계다. 저장은 부르는 쪽이 한다.
 """
@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from study_notes.pipeline import Material
+from study_notes.practice.blind import Solver, blind_failures, solve_blind
 from study_notes.practice.generate import Usage, generate_drafts, repair_drafts
 from study_notes.practice.models import KINDS, PracticeProblem
 from study_notes.practice.runner import Runner
@@ -57,8 +58,19 @@ def _count_guess(result: BuildResult, verdict: Verdict) -> None:
     result.llm_output_guesses[key] += 1
 
 
+def _blind(verdicts: list[Verdict], runner: Runner, usage: Usage, solver: Solver) -> list[Verdict]:
+    """검증을 통과한 문제를 문제만 보고 다시 풀어 본다. 떨어지면 그 판정을 실패로 바꾼다(이유는 고치기에 넘긴다)."""
+    passed = [v for v in verdicts if v.passed]
+    failed = blind_failures([v.problem for v in passed], runner, usage, solver)
+    if not failed:
+        return verdicts
+    swap = {id(passed[i]): reason for i, reason in failed.items()}
+    return [Verdict(v.problem, False, swap[id(v)]) if id(v) in swap else v for v in verdicts]
+
+
 def build_practice_set(
     *, scope_label: str, materials: list[Material], runner: Runner, repair: bool = True, focus_note: str = "", kind_counts: str = "",
+    blind: bool = True, solver: Solver = solve_blind,
 ) -> BuildResult:
     usage = Usage()
     drafts = generate_drafts(scope_label=scope_label, materials=materials, usage=usage, focus_note=focus_note, kind_counts=kind_counts)
@@ -66,7 +78,9 @@ def build_practice_set(
     result.malformed.extend(drafts.rejected)
 
     failures: list[tuple[PracticeProblem, str]] = []
-    for verdict in verify_problems(drafts.problems, runner):
+    first = verify_problems(drafts.problems, runner)
+    first = _blind(first, runner, usage, solver) if blind else first
+    for verdict in first:
         stats = result.stats[verdict.problem.kind]
         stats.drafted += 1
         if verdict.passed:
@@ -81,6 +95,7 @@ def build_practice_set(
         repaired = repair_drafts(failures, usage=usage)
         result.malformed.extend(repaired.rejected)
         retry = verify_problems(repaired.problems, runner)
+        retry = _blind(retry, runner, usage, solver) if blind else retry
         for verdict in retry:
             if verdict.passed:
                 result.problems.append(verdict.problem)

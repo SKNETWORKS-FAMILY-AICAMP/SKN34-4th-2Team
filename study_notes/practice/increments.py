@@ -139,8 +139,16 @@ class DayPlan:
         return sum(f.quota for f in self.targets)
 
     def kind_counts(self) -> str:
-        """종류별 개수 — 'concept 2개, code_output 2개, …'. SQL 수업 파일이 있는 날은 SQL 조회 문제로"""
-        return kind_counts_text(kind_mix(self.total, sql=any(is_sql_file(f.path) for f in self.targets)))
+        """종류별 개수 — 'concept 2개, code_output 2개, …'. SQL 조회 문제는 SQL 수업 파일에 나눈 몫만큼.
+
+        예전엔 .sql 이 하나라도 있으면 코드 문제를 모두 SQL 로 냈다. 파이썬 파일 7개 + .sql 1개인 날(web_crawling 07-01)
+        LLM 이 「SQL 자료는 파일 하나라 SQL 10문제는 못 낸다」며 빈 결과를 돌려줬다(2026-09-29)."""
+        sql = sum(f.quota for f in self.targets if is_sql_file(f.path))
+        if sql == 0 or sql >= self.total:
+            return kind_counts_text(kind_mix(self.total, sql=sql > 0))
+        mix = kind_mix(self.total - sql)
+        mix["sql_query"] = sql
+        return kind_counts_text(mix)
 
     def materials(self) -> list[Material]:
         """LLM 에 넘길 자료 — 파일마다 「앞부분 요약 + 새 부분」"""

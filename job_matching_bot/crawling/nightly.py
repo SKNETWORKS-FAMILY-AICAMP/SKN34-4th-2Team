@@ -544,7 +544,30 @@ def finish_jobkorea(
     print("[잡코리아 적재] " + " ".join(command[2:]), flush=True)
     info["crawl_exit_code"] = code
     info["sync_exit_code"] = subprocess.run(command, cwd=str(REPO_ROOT)).returncode
+    # 기업형태는 적재 **뒤에** 채운다. 적재가 상세의 "미기재"로 덮어쓰기 때문이다
+    # 처음 붙인 단계라 실패해도 뒤(마감 · 묶기 · 인덱스)는 가게 한다
+    try:
+        info["company_types"] = apply_jobkorea_company_types(store_path, list_path)
+    except Exception as error:  # noqa: BLE001
+        print(f"[잡코리아 기업형태] 채우지 못했습니다: {type(error).__name__}: {error}", flush=True)
+        info["company_types"] = {"error": f"{type(error).__name__}: {error}"}
     return info
+
+
+def apply_jobkorea_company_types(store_path: Path, list_path: Path) -> dict[str, Any]:
+    """수집기가 목록의 기업형태 거르기로 모은 값(`company_types`)을 잡코리아 공고에 적는다."""
+    payload = json.loads(list_path.read_text(encoding="utf-8"))
+    types = payload.get("company_types") or {}
+    if not types:
+        return {"skipped": "기업형태 없음"}
+    complete = bool(payload.get("company_types_complete"))
+    store = open_store(store_path)
+    try:
+        changed = store.set_company_types(JOBKOREA_SOURCE, types, complete=complete)
+    finally:
+        store.close()
+    print(f"[잡코리아 기업형태] {len(types):,}건 중 바뀐 줄 {changed:,}" + ("" if complete else " (일부만 훑음)"), flush=True)
+    return {"found": len(types), "changed": changed, "complete": complete}
 
 
 def run_regroup(store_path: Path, work_dir: Path, as_of: datetime) -> dict[str, Any]:
@@ -560,6 +583,38 @@ def run_regroup(store_path: Path, work_dir: Path, as_of: datetime) -> dict[str, 
         return {"exit_code": code, **json.loads(report.read_text(encoding="utf-8"))}
     except (OSError, ValueError):
         return {"exit_code": code}
+
+
+# 한 밤에 요건을 뽑아 볼 최대 공고 수. 새로 들어오는 경력 공고(연차 빈 것)는 하루 몇백 건이라 넉넉하다
+FILL_REQUIREMENTS_LIMIT = 3000
+
+
+def run_fill_requirements(store_path: Path, as_of: datetime, work_dir: Path) -> dict[str, Any]:
+    """경력 공고인데 최소 연차가 빈 공고의 요건을 본문에서 뽑아 빈 칸만 채운다(fill_requirements).
+
+    이어서 본문에 「신입도 지원 가능」이 있는 경력 공고를 한 번 더 본다(--entry-check). 연차가 사이트에서 이미
+    찬 공고는 앞 단계 대상이 아니라서, 따로 안 보면 신입에게서 계속 빠진다.
+
+    인덱스 **전에** 부른다 — 채운 연차 · 경력 구분이 인덱스 메타데이터(검색 조건)에도 실려야 한다. 실패해도 인덱스는 간다.
+    """
+    summary: dict[str, Any] = {}
+    for name, extra in (("requirements", []), ("entry", ["--entry-check"])):
+        report = work_dir / f"{run_stamp(as_of)}_{name}.json"
+        command = [
+            sys.executable, "-m", "job_matching_bot.fill_requirements", "--store", str(store_path), *extra,
+            "--limit", str(FILL_REQUIREMENTS_LIMIT), "--workers", "8", "--show", "0", "--report", str(report),
+        ]
+        print("[요건 채우기] " + " ".join(command[2:]), flush=True)
+        code = subprocess.run(command, cwd=str(REPO_ROOT)).returncode
+        try:
+            result = {"exit_code": code, **json.loads(report.read_text(encoding="utf-8"))}
+        except (OSError, ValueError):
+            result = {"exit_code": code}
+        if name == "requirements":
+            summary.update(result)
+        else:
+            summary["entry"] = result
+    return summary
 
 
 def run_index(store_path: Path, as_of: datetime, work_dir: Path) -> int:
@@ -775,6 +830,8 @@ def main() -> int:
 
         # 5d. 같은 공고 묶기 → 대표만 인덱스. 두 출처가 다 들어온 뒤라야 짝을 찾는다.
         summary["regroup"] = run_regroup(args.store, NIGHTLY_DIR, now)
+        # 5e. 요건 채우기 — 인덱스 전에. 채운 연차가 검색 조건에도 실리게
+        summary["requirements"] = run_fill_requirements(args.store, now, NIGHTLY_DIR)
         summary["index_exit_code"] = run_index(args.store, now, NIGHTLY_DIR)
 
         # 6. PostgreSQL 직접 공유 초안. 담당자 검토 전에는 이 배치 변경을 배포하지 않는다.

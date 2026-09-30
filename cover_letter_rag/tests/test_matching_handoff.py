@@ -30,7 +30,7 @@ def store(tmp_path):
         db.execute(
             '''INSERT INTO jobs (job_id, status, description, company, title, deadline,
                    body_is_image, content_hash, source_url, first_seen_at, last_seen_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
             ('saramin:1', 'OPEN', 'Python API 개발 경험\n' + '공고 원문 전체 ' * 250,
              '테스트 회사', '백엔드', None, False, 'hash1', 'https://example.com/job', seen, seen))
     return path
@@ -56,7 +56,7 @@ def test_reads_full_text_and_rejects_unknown_job(store, tmp_path):
 
 def test_legacy_company_ui_noise_is_not_handed_to_review(store):
     with open_store(store) as db:
-        db.execute("UPDATE jobs SET company = ?", ("(주)엣지크로스 관심기업 등록",))
+        db.execute("UPDATE jobs SET company = %s", ("(주)엣지크로스 관심기업 등록",))
     selected = load_selected_job(store, 'saramin:1')
     assert selected['source']['company'] == '(주)엣지크로스'
     assert '회사: (주)엣지크로스\n' in selected['text']
@@ -68,7 +68,7 @@ def test_legacy_company_ui_noise_is_not_handed_to_review(store):
     ('deadline', '알 수 없음', ReviewInputError), ('description', '', ReviewInputError),
 ])
 def test_unusable_jobs_fail_closed(store, field, value, error):
-    with open_store(store) as db: db.execute(f'UPDATE jobs SET {field} = ?', (value,))
+    with open_store(store) as db: db.execute(f'UPDATE jobs SET {field} = %s', (value,))
     with pytest.raises(error): load_selected_job(store, 'saramin:1')
 
 
@@ -81,7 +81,7 @@ def test_legacy_image_flag_with_text_detail_is_reviewable(store):
 
 def test_image_only_detail_still_fails_closed(store):
     with open_store(store) as db:
-        db.execute('UPDATE jobs SET description = ?, body_is_image = true', ('상세요강 자격요건',))
+        db.execute('UPDATE jobs SET description = %s, body_is_image = true', ('상세요강 자격요건',))
     with pytest.raises(ReviewInputError):
         load_selected_job(store, 'saramin:1')
 

@@ -6,23 +6,26 @@ from lms.services import sync_notice_vector
 
 
 def run_reindex() -> dict:
-    notice_vectors.clear_notice_namespace()
     upserted = 0
     with connection.cursor() as cur:
         cur.execute(
             """SELECT n.id, n.title, n.content, n.author_id, n.author_name, n.is_favorite,
-                      n.priority, n.created_at, n.updated_at, c.code
+                      n.priority, n.created_at, n.updated_at, c.code, n.image_storage_key
                FROM notices n JOIN cohorts c ON c.id = n.cohort_id"""
         )
         rows = cur.fetchall()
         for row in rows:
-            (nid, title, content, author_id, author_name, fav, priority, created, updated, code) = row
+            notice_vectors.image_text_for_notice(row[-1])
+        notice_vectors.clear_notice_namespace()
+        for row in rows:
+            (nid, title, content, author_id, author_name, fav, priority, created, updated, code, image_key) = row
             count = sync_notice_vector(
                 code,
                 nid,
                 {
                     "title": title,
                     "content": content,
+                    "image_storage_key": image_key,
                     "author_id": author_id,
                     "author_name": author_name,
                     "is_favorite": fav,
@@ -32,7 +35,6 @@ def run_reindex() -> dict:
                 },
                 previous_chunk_count=0,
             )
-            cur.execute("UPDATE notices SET vector_chunk_count = %s WHERE id = %s", [count, nid])
             upserted += count
         smoke = {}
         cur.execute("SELECT c.code FROM cohorts c JOIN notices n ON n.cohort_id = c.id GROUP BY c.code LIMIT 1")

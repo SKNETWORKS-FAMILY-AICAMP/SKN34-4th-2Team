@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from study_notes.git_tools import notebook_to_text
+from study_notes.git_tools import is_web_file, notebook_to_text
 from study_notes.pipeline import MAX_CHARS_PER_FILE, Material
 from study_notes.practice.build import build_practice_set
 from study_notes.practice.generate import practice_model_name
@@ -42,6 +42,10 @@ def make_problems(materials: list[Material], *, scope_label: str, count: int, ru
     """{problems, model, usage, seconds}. 문제는 검증을 통과한 것만 — count 보다 적을 수 있다."""
     if not materials:
         raise ValueError("문제를 만들 자료가 비어 있어요.")
+    # 웹 수업 파일은 아직 채점할 수 없다(auto.py 와 같은 이유)
+    materials = [m for m in materials if not is_web_file(m["path"])]
+    if not materials:
+        raise ValueError("웹 수업(.html · .css · .js)으로는 아직 복습 문제를 만들 수 없어요.")
     started = time.monotonic()
     result = build_practice_set(
         scope_label=scope_label,
