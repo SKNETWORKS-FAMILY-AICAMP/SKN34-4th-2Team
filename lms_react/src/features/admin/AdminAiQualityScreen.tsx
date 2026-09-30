@@ -83,7 +83,7 @@ export function AdminAiQualityScreen() {
       ) : (
         <div className="panel llmops__card">
           <strong className="llmops__card-title">
-            {latestEval.promptVersion} · {latestEval.model ?? 'gpt-5.6-sol'}
+            {latestEval.promptVersion} · {latestEval.model ?? 'gpt-5.6-luna'}
           </strong>
           <span className="hint">
             source={latestEval.suite} · 사례 {latestEval.caseCount} · 통과{' '}
