@@ -17,7 +17,7 @@ import {
   RecordTypeLabels,
   SubmissionStatusLabels,
 } from '../../domain/constants';
-import { buildMissionGuidance, missionProgressOf } from '../../domain/missions';
+import { MissionRules, buildMissionGuidance, missionProgressOf } from '../../domain/missions';
 import type { RecordType, Submission } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import {
@@ -36,6 +36,13 @@ import {
 } from '../../ui/components';
 import { formatDateTime } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
+import { StudentQuestsTab } from '../quests/StudentQuestsTab';
+
+/** 단위기간을 서버가 모르는 미션 — 승인할 때 관리자가 금액을 확인한다 */
+const MANUAL_REWARD: Partial<Record<RecordType, number>> = {
+  blog: MissionRules.blogUnitReward,
+  study: MissionRules.studyTeamReward,
+};
 
 /**
  * 기록실 — features/records/presentation/records_screen.dart
@@ -153,6 +160,7 @@ export function RecordsBoard({ reviewer }: { reviewer: boolean }) {
       )}
 
       {!reviewer && <MissionGuidancePanel submissions={submissions} />}
+      {!reviewer && <StudentQuestsTab />}
 
       {filtered.length === 0 ? (
         <p className="rec-empty">
@@ -185,7 +193,7 @@ export function MissionGuidancePanel({ submissions }: { submissions: Submission[
 
       {open && (
         <div className="mission-panel__body">
-          <p className="hint">기록실에 제출하고 승인되면 규칙에 따라 자동 적립됩니다.</p>
+          <p className="hint">기록실에 제출하고 관리자가 승인하면 규칙에 따라 마일리지가 자동으로 지급됩니다.</p>
           {items.map((item) => (
             <div key={item.id} className="mission-tile">
               <strong className="mission-tile__title">{item.title}</strong>
@@ -266,7 +274,11 @@ function RecordCard({ submission, reviewer }: { submission: Submission; reviewer
             <button
               type="button"
               className="btn btn--filled btn--sm rec-card__approve"
-              onClick={() => reviewSubmission(submission.id, 'approved')}
+              onClick={() =>
+                MANUAL_REWARD[submission.type] === undefined
+                  ? reviewSubmission(submission.id, 'approved')
+                  : setDetailOpen(true)
+              }
             >
               승인
             </button>
@@ -294,9 +306,21 @@ function SubmissionDetailDialog({
   reviewer: boolean;
   onClose(): void;
 }) {
-  const review = (status: 'approved' | 'rejected') => {
-    reviewSubmission(submission.id, status);
+  const manualDefault = MANUAL_REWARD[submission.type];
+  const [amount, setAmount] = useState(String(manualDefault ?? ''));
+  const review = (status: 'approved' | 'rejected' | 'pending') => {
+    const granted = Number(amount);
+    reviewSubmission(
+      submission.id,
+      status,
+      undefined,
+      status === 'approved' && manualDefault !== undefined && Number.isFinite(granted) ? granted : undefined,
+    );
     onClose();
+  };
+  const revoke = () => {
+    if (submission.mileageAmount > 0 && !window.confirm(`승인을 취소하면 지급한 ${submission.mileageAmount.toLocaleString()}M 이 회수됩니다. 계속할까요?`)) return;
+    review('pending');
   };
 
   const rows: Array<[string, string | number | undefined]> = [
@@ -322,6 +346,11 @@ function SubmissionDetailDialog({
             <Button variant="outline" onClick={() => review('rejected')}>반려</Button>
             <Button onClick={() => review('approved')}>승인</Button>
           </>
+        ) : reviewer && submission.status === 'approved' ? (
+          <>
+            <Button variant="outline" onClick={revoke}>승인 취소</Button>
+            <Button onClick={onClose}>닫기</Button>
+          </>
         ) : (
           <Button onClick={onClose}>닫기</Button>
         )
@@ -345,6 +374,18 @@ function SubmissionDetailDialog({
             ),
           )}
         </dl>
+
+        {reviewer && submission.status === 'pending' && manualDefault !== undefined && (
+          <Field
+            label="지급할 마일리지"
+            hint={`기본 ${manualDefault.toLocaleString()}M · 승인하면 바로 지급됩니다(미션 상한을 넘으면 남은 만큼만).`}
+          >
+            <TextInput type="number" min={0} step={1000} value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </Field>
+        )}
+        {reviewer && submission.status === 'pending' && manualDefault === undefined && (
+          <p className="hint">승인하면 미션 단계에 맞는 마일리지가 자동으로 지급됩니다.</p>
+        )}
 
         {submission.link !== undefined && submission.link !== '' && (
           <section className="submission-detail__section">

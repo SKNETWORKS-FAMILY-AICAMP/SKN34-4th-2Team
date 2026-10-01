@@ -72,6 +72,7 @@ export const adminNav: NavSection[] = [
     items: [
       { icon: 'calendar_month', label: '기수 관리', path: RoutePaths.adminCohorts, targetId: AdminTargets.navCohorts },
       { icon: 'groups', label: '학생 관리', path: RoutePaths.adminStudents, targetId: AdminTargets.navStudents },
+      { icon: 'support_agent', label: '상담 현황', path: RoutePaths.adminCounsel },
       { icon: 'badge', label: '강사 관리', path: RoutePaths.adminInstructors, targetId: AdminTargets.navInstructors },
     ],
   },
@@ -105,6 +106,7 @@ export const adminNav: NavSection[] = [
       { icon: 'forum', label: '게시판', path: RoutePaths.adminBoard, targetId: AdminTargets.navBoard },
       { icon: 'notifications_active', label: '알림 팝업', path: RoutePaths.adminAlertPopups },
       { icon: 'card_giftcard', label: '마일리지', path: RoutePaths.adminMileage, targetId: AdminTargets.navMileage },
+      { icon: 'emoji_events', label: '마일리지 미션', path: RoutePaths.adminQuests },
     ],
   },
   {
