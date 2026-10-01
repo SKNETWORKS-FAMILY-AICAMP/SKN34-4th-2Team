@@ -78,6 +78,19 @@ function belongs(set: PracticeSet, source: StudySource): boolean {
   return name === repoName(source.repoUrl) || name === source.title.toLowerCase();
 }
 
+/**
+ * 과목이 끝났는지 — 과목 전체 요약은 끝난 과목만 만든다(서버 study_note_service.subject_finished 와 같은 규칙).
+ * 다른 과목의 첫 수업일이 이 과목 마지막 수업일보다 뒤면(다음 과목이 시작됨), 또는 기수 수료일이 지났으면 끝난 것.
+ * 다른 과목에 늦은 수업이 「있기만」 한 것으로 보면 번갈아 하는 두 과목이 서로 끝난 걸로 보여서 첫 수업일로 견준다.
+ */
+export function subjectFinished(subject: Subject, subjects: Subject[], cohortEnd: string | undefined, today: string): boolean {
+  const last = subject.days[0]?.date;
+  if (!last) return false;
+  if (cohortEnd && cohortEnd < today) return true;
+  // days 는 최근 수업부터 — 맨 뒤가 첫 수업
+  return subjects.some((s) => s !== subject && s.days.length > 0 && s.days[s.days.length - 1].date > last);
+}
+
 export function reviewBoard(sources: StudySource[], sets: PracticeSet[], notes: StudyNote[]): ReviewBoard {
   const ready = notes.filter(isReadyNote);
   const subjects: Subject[] = sources.map((source) => ({

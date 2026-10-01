@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { PracticeSet, StudyNote, StudySource } from '../../../domain/types';
-import { lessonDays, looseNotes, noteDate, noteLabel, repoName, reviewBoard } from '../lessonDays';
+import { lessonDays, looseNotes, noteDate, noteLabel, repoName, reviewBoard, subjectFinished } from '../lessonDays';
 
 const set = (lessonDate: string): PracticeSet => ({
   id: `ps-${lessonDate}`, cohortId: 'c', sourceTitle: 'r', lessonDate, dayLabel: '', title: lessonDate, files: [], model: '', problems: [],
@@ -111,3 +111,31 @@ describe('공부방 과목별 목록', () => {
   });
 });
 
+
+describe('과목이 끝났는지 — 과목 전체 요약은 끝난 과목만', () => {
+  const subject = (key: string, dates: string[]) => ({
+    key, title: key, looseNotes: [], days: [...dates].sort().reverse().map((date) => ({ date })),
+  });
+
+  it('다음 과목이 이 과목 마지막 수업 뒤에 시작했으면 끝난 것', () => {
+    const client = subject('web_client', ['2026-09-23', '2026-09-29']);
+    const server = subject('web_server', ['2026-09-30']);
+    const all = [client, server];
+    expect(subjectFinished(client, all, '2026-12-07', '2026-10-01')).toBe(true);
+    // 진행 중인 마지막 과목은 아직
+    expect(subjectFinished(server, all, '2026-12-07', '2026-10-01')).toBe(false);
+  });
+
+  it('번갈아 하는 두 과목은 서로 끝난 걸로 보지 않는다', () => {
+    const a = subject('a', ['2026-09-01', '2026-09-03']);
+    const b = subject('b', ['2026-09-02', '2026-09-04']);
+    expect(subjectFinished(a, [a, b], undefined, '2026-09-05')).toBe(false);
+    expect(subjectFinished(b, [a, b], undefined, '2026-09-05')).toBe(false);
+  });
+
+  it('수료일이 지나면 마지막 과목도 끝난 것, 수업이 없는 과목은 아니다', () => {
+    const last = subject('last', ['2026-12-01']);
+    expect(subjectFinished(last, [last], '2026-12-07', '2026-12-08')).toBe(true);
+    expect(subjectFinished(subject('empty', []), [last], '2026-12-07', '2026-12-08')).toBe(false);
+  });
+});

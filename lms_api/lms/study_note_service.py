@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import urllib.error
 import urllib.request
@@ -444,8 +445,47 @@ def _lesson_dates(source: dict) -> list[str] | None:
     return sorted(tree.get("dates") or [])[-SUBJECT_MAX_DAYS:]
 
 
+SUBJECT_NOT_FINISHED = "과목이 끝나면 전체 요약을 만들 수 있어요. 다음 과목 수업이 시작되면 열려요."
+
+
+def _repo_title(repo_url: str) -> str:
+    """세트의 과목 이름(practice_sets.source_title) — 저장소 이름 소문자(practice_auto._repo_name 과 같은 값).
+    study_source_service._repo_key 를 쓰면 서로 불러와 순환이 된다."""
+    return re.sub(r"\.git$", "", repo_url.strip().rstrip("/")).lower().rsplit("/", 1)[-1]
+
+
+def subject_finished(cur, source: dict, dates: list[str] | None = None) -> bool:
+    """과목이 끝났는지 — 과목 전체 요약은 끝난 과목만 만든다(화면 lessonDays.subjectFinished 와 같은 규칙).
+
+    같은 기수의 다른 과목이 이 과목 마지막 수업 **뒤에 처음 시작했으면**(다음 과목이 시작됨), 또는 기수 수료일이
+    지났으면 끝난 것. 다른 과목에 늦은 수업이 「있기만」 한 것으로 보면 번갈아 하는 두 과목이 서로 끝난 걸로 보여서
+    첫 수업일로 견준다. 수업 날짜는 복습 세트(자동 출제가 날마다 만든다)와 저장소 날짜(dates)를 함께 본다.
+    """
+    title = _repo_title(source.get("repo_url") or "")
+    cur.execute(
+        "SELECT max(lesson_date)::text FROM practice_sets WHERE cohort_id = %s AND origin = 'lesson' AND lower(source_title) = %s",
+        [source["cohort_id"], title],
+    )
+    last = max([d for d in [cur.fetchone()[0], *(dates or [])] if d] or [""])
+    if not last:
+        return False
+    cur.execute("SELECT end_date FROM cohorts WHERE id = %s", [source["cohort_id"]])
+    row = cur.fetchone()
+    if row and row[0] and row[0] < timezone.localdate():
+        return True
+    cur.execute(
+        """SELECT 1 FROM practice_sets WHERE cohort_id = %s AND origin = 'lesson' AND lower(source_title) <> %s
+           GROUP BY lower(source_title) HAVING min(lesson_date) > %s LIMIT 1""",
+        [source["cohort_id"], title, last],
+    )
+    return cur.fetchone() is not None
+
+
 def start_subject_note(user: dict, source_key: str) -> dict:
     """과목 전체 요약. 있으면 그것, 같은 기수가 같은 수업 날짜로 만든 것이 있으면 사본, 아니면 뒤에서 만든다.
+
+    끝난 과목만(subject_finished) — 진행 중인 과목은 409. 반쯤 배운 상태의 「전체」 요약은 헷갈리게 하고,
+    수업이 늘 때마다 다시 만들어 비용만 든다.
 
     수업 날짜가 늘었으면(새 수업) 다시 만든다. 날짜 안의 파일이 고쳐진 것까지는 보지 않는다 —
     그걸 보려면 날짜마다 저장소를 확인해야 해서 누를 때마다 수십 초가 걸린다.
@@ -454,6 +494,11 @@ def start_subject_note(user: dict, source_key: str) -> dict:
         source = _load_source(cur, user, source_key)
     public_source = _public_id(source)
     dates = _lesson_dates(source)
+    # 수업 날짜가 아예 없으면 아래에서 그렇다고 알린다(「아직 수업 날짜가 없어요」)
+    if dates != []:
+        with connection.cursor() as cur:
+            if not subject_finished(cur, source, dates):
+                raise StudyNoteError(409, SUBJECT_NOT_FINISHED)
 
     with transaction.atomic(), connection.cursor() as cur:
         row = _own_note(cur, user["id"], source["id"], SUBJECT_KEY)
