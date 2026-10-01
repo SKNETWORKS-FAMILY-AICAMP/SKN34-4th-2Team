@@ -1,19 +1,21 @@
 import { Link } from 'react-router-dom';
 
 import { RoutePaths, studyRoomNoteSourcePath } from '../../app/routePaths';
-import { useMyPracticeAttempts, usePracticeSets, useStudyNotes, useStudySources } from '../../data/repository';
+import { useCohorts, useMyPracticeAttempts, usePracticeSets, useStudyNotes, useStudySources } from '../../data/repository';
+import { dateKeyOf } from '../../data/seed';
+import { todayKey } from '../../data/store';
 import type { PracticeAttempt, PracticeSet } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { PracticeLink } from '../practice/PracticeDock';
-import { isLessonSet, RETRY_SET_ID, retryDates, retryItems, retryTopics } from '../practice/review';
+import { isLessonSet, RETRY_ALL_ID, retryDates, retryItems, retryTopics } from '../practice/review';
 import { useIsHidden } from '../practice/useIsHidden';
-import { reviewBoard, type Subject, type SubjectDay } from './lessonDays';
+import { reviewBoard, subjectFinished, type Subject, type SubjectDay } from './lessonDays';
 import { noteLabel } from './noteScope';
 
 const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
 
 /** '2026-09-15' → '09/15 (화)' */
-function dayText(date: string): string {
+export function dayText(date: string): string {
   const d = new Date(`${date}T00:00:00`);
   return `${date.slice(5).replace('-', '/')} (${WEEKDAY[d.getDay()]})`;
 }
@@ -62,6 +64,9 @@ export function LessonDaysSection({ cohortId, uid }: { cohortId: string; uid: st
   const board = reviewBoard(sources, sets.filter(isLessonSet), notes);
   const mine = sets.filter((s) => !isLessonSet(s)).reverse();
   const progressOf = (set: PracticeSet) => setProgress(set, attempts, isHidden);
+  const cohortEnd = useCohorts().find((c) => c.cohortId === cohortId)?.endDate;
+  const finished = (subject: Subject) =>
+    subjectFinished(subject, board.subjects, cohortEnd ? dateKeyOf(cohortEnd) : undefined, todayKey());
 
   return (
     <section className="review-board">
@@ -78,7 +83,8 @@ export function LessonDaysSection({ cohortId, uid }: { cohortId: string; uid: st
       )}
 
       {retries.length > 0 && (
-        <PracticeLink className="review-retry" setId={RETRY_SET_ID}>
+        // 여기 개수는 오늘 틀린 것까지 — 여는 세트도 전체(retry:all)
+        <PracticeLink className="review-retry" setId={RETRY_ALL_ID}>
           <Icon name="replay" size={18} />
           <strong>다시 풀 문제 {retries.length}개</strong>
           <span className="review-retry__meta">
@@ -101,6 +107,7 @@ export function LessonDaysSection({ cohortId, uid }: { cohortId: string; uid: st
             key={subject.key}
             subject={subject}
             open={subject.key === board.latest?.subject.key}
+            finished={finished(subject)}
             progressOf={progressOf}
           />
         ))}
@@ -196,10 +203,13 @@ function ProgressBar({ progress }: { progress: Progress }) {
 function SubjectRow({
   subject,
   open,
+  finished,
   progressOf,
 }: {
   subject: Subject;
   open: boolean;
+  /** 과목이 끝났는지 — 과목 전체 요약은 끝난 과목만(lessonDays.subjectFinished) */
+  finished: boolean;
   progressOf: (set: PracticeSet) => Progress;
 }) {
   const withSets = subject.days.filter((d) => d.set);
@@ -279,12 +289,15 @@ function SubjectRow({
             </Link>
           ))}
           <span className="spacer" />
-          {subject.source && (
-            <Link className="btn btn--text btn--sm" to={`${studyRoomNoteSourcePath(subject.source.id)}?summary=1`}>
-              <Icon name="description" size={16} />
-              과목 전체 요약
-            </Link>
-          )}
+          {subject.source &&
+            (finished ? (
+              <Link className="btn btn--text btn--sm" to={`${studyRoomNoteSourcePath(subject.source.id)}?summary=1`}>
+                <Icon name="description" size={16} />
+                과목 전체 요약
+              </Link>
+            ) : (
+              subject.days.length > 0 && <span className="hint">과목이 끝나면 전체 요약이 열려요</span>
+            ))}
         </div>
       )}
     </details>

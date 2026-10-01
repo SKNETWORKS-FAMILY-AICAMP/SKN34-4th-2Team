@@ -173,6 +173,18 @@
   margin: 0 0 6px;
 }
 
+/* 직무별 공고의 직무 이름 — 그 아래 자격사항 · 우대사항(h3)을 묶는 머리 */
+.posting__body .posting__role {
+  margin: 20px 0 8px;
+  padding: 7px 12px;
+  border-left: 3px solid var(--primary);
+  border-radius: 6px;
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .posting__body ul {
   margin: 0 0 6px;
   padding-left: 20px;
@@ -280,4 +292,119 @@
   .posting-window__body .posting {
     padding: 20px 16px 28px;
   }
+}
+
+/* 사람인 간편 양식 공고의 표(PostingForm) — 칸 이름 · 값. 직종 분류는 대분류마다 한 줄 */
+.posting__form {
+  display: grid;
+  gap: 0;
+  margin: 0 0 10px;
+}
+
+.posting__form-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.posting__form-row:last-child {
+  border-bottom: 0;
+}
+
+.posting__form dt {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.posting__form dd {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.posting__cats {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.posting__cat-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.posting__cat-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.posting__cat {
+  padding: 1px 8px;
+  border-radius: 6px;
+  background: var(--surface-variant);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+@media (max-width: 560px) {
+  .posting__form-row,
+  .posting__cats {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+}
+
+/* 이미지로 된 부분(ImageText) — 원본 이미지 링크 + 이미지에서 읽은 글 */
+.posting__image {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 10px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--surface-variant);
+}
+
+.posting__image-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.posting__image-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: auto;
+  font-weight: 700;
+}
+
+.posting__image summary {
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.posting__image summary span {
+  margin-left: 4px;
+  color: var(--text-hint);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.posting__image p {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
+.posting__image .posting__image-note {
+  margin: 8px 0 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
 }

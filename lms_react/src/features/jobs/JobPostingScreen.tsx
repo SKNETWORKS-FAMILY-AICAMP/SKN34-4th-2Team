@@ -4,7 +4,7 @@ import { useParams } from 'react-router-dom';
 import { http } from '../../data/http';
 import { Icon } from '../../ui/Icon';
 import { closedReason } from './postingStatus';
-import { formatPostingText, type PostingBlock } from './postingText';
+import { formatPostingText, isBrokenBody, type PostingBlock, type PostingFormRow, type PostingTextBlock } from './postingText';
 import './jobPosting.css';
 
 /** 공고 원문 화면 주소. 추천 카드가 새 탭으로 연다 */
@@ -199,6 +199,10 @@ export function JobPostingView({ jobId, asPage = false }: { jobId: string; asPag
         <p className="posting__body posting__body--empty">
           상세 내용이 이미지로만 올라온 공고라 원문 글을 모으지 못했어요. 원문 링크에서 확인해 주세요.
         </p>
+      ) : isBrokenBody(posting.description) ? (
+        <p className="posting__body posting__body--empty">
+          수집할 때 공고 대신 사이트 안내 페이지를 받아 와서 원문 글이 없어요. 원문 링크에서 확인해 주세요.
+        </p>
       ) : (
         <PostingBody text={posting.description} />
       )}
@@ -210,10 +214,85 @@ export function JobPostingView({ jobId, asPage = false }: { jobId: string; asPag
   );
 }
 
+/** 사람인 간편 양식 공고의 표 — 칸 이름 · 값. 직종 분류는 대분류마다 한 줄에 소분류를 태그로 늘어놓는다 */
+function PostingForm({ rows }: { rows: PostingFormRow[] }) {
+  return (
+    <dl className="posting__form">
+      {rows.map((row, i) => (
+        <div key={i} className="posting__form-row">
+          <dt>{row.label}</dt>
+          {'groups' in row ? (
+            <dd>
+              {row.groups.map((group) => (
+                <div key={group.name} className="posting__cats">
+                  <span className="posting__cat-name">{group.name}</span>
+                  <span className="posting__cat-items">
+                    {group.items.map((item) => (
+                      <span key={item} className="posting__cat">
+                        {item}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              ))}
+            </dd>
+          ) : (
+            <dd>{row.value}</dd>
+          )}
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * 이미지로 된 부분 — 사람인이 공고 이미지에서 글자만 뽑아 둔 것. 포스터 배치가 사라져 줄 순서가 흐트러지므로
+ * 원래 이미지는 링크로 연다. 이미지를 이 화면에 띄우지는 않는다(사람인 약관의 무단 복제 · 재제공 금지 — 링크는 원문 링크와 같다).
+ * 본문의 곁가지일 때는 글을 접어 두고, 본문 대부분이 이미지면 펼쳐 둔다(postingText.ts 가 영어 번역 줄 · 반복 줄을 뺀다)
+ */
+function ImageText({ urls, lines, open }: { urls: string[]; lines: string[]; open: boolean }) {
+  if (lines.length === 0 && urls.length === 0) return null;
+  return (
+    <section className="posting__image">
+      <div className="posting__image-head">
+        <span className="posting__image-title">
+          <Icon name="image" size={16} />
+          이미지로 된 부분
+        </span>
+        {urls.map((url, i) => (
+          <a key={url} className="btn btn--outline btn--sm" href={url} target="_blank" rel="noreferrer">
+            <Icon name="open_in_new" size={14} />
+            {urls.length === 1 ? '원본 이미지 보기' : `원본 이미지 ${i + 1}`}
+          </a>
+        ))}
+      </div>
+      {lines.length > 0 && (
+        <details open={open}>
+          <summary>
+            이미지에서 읽은 글 <span>{lines.length}줄</span>
+          </summary>
+          <p className="posting__image-note">
+            이미지에서 글자만 뽑아서 줄 순서와 배치가 흐트러져 있을 수 있어요. 정확한 내용은 원본 이미지로 확인해 주세요.
+          </p>
+          {lines.map((line, i) => (
+            <p key={i}>{line}</p>
+          ))}
+        </details>
+      )}
+    </section>
+  );
+}
+
 /** 원문을 소제목 · 목록 · 문단으로 나눠 그린다. 이어지는 목록 항목은 한 목록으로 묶는다 */
 function PostingBody({ text }: { text: string }) {
-  const groups: (PostingBlock | PostingBlock[])[] = [];
-  for (const block of formatPostingText(text)) {
+  const blocks = formatPostingText(text);
+  // 본문 대부분이 이미지인 공고(글은 제목 한 줄뿐)는 이미지 글을 펼쳐 둔다. 접으면 읽을 게 없다
+  const size = (lines: string[]) => lines.join('').length;
+  const imageSize = size(blocks.flatMap((b) => (b.type === 'image' ? b.lines : [])));
+  const textSize = size(blocks.flatMap((b) => ('text' in b ? [b.text] : [])));
+  const imageOpen = imageSize > textSize;
+  const groups: (PostingBlock | PostingTextBlock[])[] = [];
+  for (const block of blocks) {
     const last = groups[groups.length - 1];
     if (block.type === 'item' && Array.isArray(last)) last.push(block);
     else groups.push(block.type === 'item' ? [block] : block);
@@ -227,8 +306,16 @@ function PostingBody({ text }: { text: string }) {
               <li key={j}>{item.text}</li>
             ))}
           </ul>
+        ) : group.type === 'form' ? (
+          <PostingForm key={i} rows={group.rows} />
+        ) : group.type === 'image' ? (
+          <ImageText key={i} urls={group.urls} lines={group.lines} open={imageOpen} />
         ) : group.type === 'heading' ? (
           <h2 key={i}>{group.text}</h2>
+        ) : group.type === 'role' ? (
+          <h3 key={i} className="posting__role">
+            {group.text}
+          </h3>
         ) : group.type === 'sub' ? (
           <h3 key={i}>{group.text}</h3>
         ) : (

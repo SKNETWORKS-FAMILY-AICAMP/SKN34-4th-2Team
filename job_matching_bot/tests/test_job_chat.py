@@ -279,6 +279,73 @@ class ShowMoreTest(ChatTestCase):
         self.assertEqual(["J3", "J4"], [j.job_id for j in response.jobs])
         self.assertIn("더 찾았어요", response.reply)
 
+    def test_the_answer_carries_what_to_continue_with(self):
+        """서버는 대화를 저장하지 않는다. 이어 볼 거리(뜻 문장 · 남았나)를 답에 실어 앱이 되돌려 보내게 한다."""
+        response = self.ask(turn(roles=["백엔드"], requirement_query="[주요업무] 서버 개발"), top_k=3)
+        self.assertEqual("[주요업무] 서버 개발", response.requirement_query)
+        self.assertTrue(response.has_more, "8건 중 3건만 보였다")
+        last = self.more([f"J{i}" for i in range(1, 6)])
+        self.assertFalse(last.has_more, "마지막 3건이다")
+
+    def test_more_reuses_the_previous_meaning_sentence(self):
+        """「돈 다루는 일」 다음 "더 보여줘" — 그 말만으로는 뜻 문장을 되살리지 못해 "못 찾았다"로 끝났다."""
+        self.by_meaning = ["J1", "J2", "J3", "J4"]
+        response = self.service(turn(show_more=True, requirement_query="")).chat(schemas.JobChatRequest(
+            message="더 보여줘", top_k=2, seen_job_ids=["J1", "J2"], requirement_query="[주요업무] 전표 처리",
+        ))
+        self.assertEqual(["J3", "J4"], [j.job_id for j in response.jobs])
+        self.assertEqual("[주요업무] 전표 처리", self.found["query"])
+        self.assertEqual("[주요업무] 전표 처리", response.requirement_query, "다음 「더 보여줘」에도 넘긴다")
+
+    def test_a_new_search_does_not_reuse_the_old_sentence(self):
+        """새로 찾는 말이면 직전 문장은 버린다. 이어 보기일 때만 쓴다."""
+        self.by_meaning = ["J1"]
+        self.service(turn(requirement_query="[주요업무] 서버 운영")).chat(schemas.JobChatRequest(
+            message="서버 운영하는 일", seen_job_ids=["J5"], requirement_query="[주요업무] 전표 처리",
+        ))
+        self.assertEqual("[주요업무] 서버 운영", self.found["query"])
+
+
+class ChatMoreTest(ChatTestCase):
+    """코치 답 아래 「더 보기」. 같은 조건으로 다음 공고를 주고 LLM은 부르지 않는다."""
+
+    def more(self, seen, **fields):
+        request = schemas.JobChatMoreRequest(seen_job_ids=seen, top_k=3, **fields)
+        return self.service(turn()).chat_more(request)
+
+    def test_pages_through_the_same_conditions_without_the_model(self):
+        filters = schemas.ChatFilters(roles=["백엔드"])
+        first = self.more([], filters=filters)
+        page1 = [j.job_id for j in first.jobs]
+        second = self.more(page1, filters=filters)
+        page2 = [j.job_id for j in second.jobs]
+        third = self.more(page1 + page2, filters=filters)
+        self.assertEqual(0, self.calls, "말을 해석하지 않는다")
+        self.assertEqual(3, len(page2))
+        self.assertFalse(set(page1) & set(page2))
+        self.assertTrue(second.has_more)
+        self.assertEqual(2, len(third.jobs))
+        self.assertFalse(third.has_more)
+        self.assertEqual("", third.reply, "답 문장 없이 카드만 잇는다")
+
+    def test_meaning_answers_page_with_the_sentence_they_were_found_by(self):
+        self.by_meaning = ["J1", "J2", "J3", "J4", "J5"]
+        response = self.more(["J1", "J2", "J3"], filters=schemas.ChatFilters(), requirement_query="[주요업무] 전표 처리")
+        self.assertEqual(["J4", "J5"], [j.job_id for j in response.jobs])
+        self.assertEqual("[주요업무] 전표 처리", self.found["query"])
+        self.assertFalse(response.has_more)
+
+    def test_preferred_roles_keep_the_same_order(self):
+        """앞에 세운 직무는 직전 답이 준 그대로. 이력서를 다시 읽지 않는다."""
+        response = self.more([], filters=schemas.ChatFilters(regions=["서울"]), prefer_roles=["백엔드"])
+        self.assertEqual(["백엔드"], response.prefer_roles)
+        self.assertTrue(response.jobs)
+
+    def test_nothing_to_continue_returns_nothing(self):
+        response = self.more([], filters=schemas.ChatFilters())
+        self.assertEqual([], response.jobs)
+        self.assertFalse(response.has_more)
+
 
 class BlockedBeforeTheModelTest(ChatTestCase):
     """목록에 적어 둔 말은 모델을 부르기 전에 막는다.

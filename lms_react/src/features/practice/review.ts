@@ -132,19 +132,52 @@ export function dueRetries(items: RetryItem[], today: string): RetryItem[] {
   return items.filter((i) => i.lastTried < today);
 }
 
-/** 다시 풀 문제를 연습장이 열 수 있는 세트 하나로 묶는다. origins[i] 가 원래 세트·문제 번호다. */
+/**
+ * 다시 풀 문제 세트 id — 무엇을 모으는지가 id 에 있다(연습장 주소 ?set= · 창 탭 하나).
+ * - 'retry'            하루 지난 것만(대시보드 「지난번에 틀린 문제」 — 방금 틀린 걸 바로 풀면 기억으로 맞힌다)
+ * - 'retry:all'        지금 못 푼 것 모두(공부방 · 오답노트 「전체 다시 풀기」)
+ * - 'retry:2026-09-29' 그 수업 날짜의 못 푼 것(오답노트 「이날 다시 풀기」)
+ */
 export const RETRY_SET_ID = 'retry';
+export const RETRY_ALL_ID = 'retry:all';
 
-export function retrySet(items: RetryItem[], today: string): { set: PracticeSet; origins: { setId: string; index: number }[] } | null {
+export function retryDateId(date: string): string {
+  return `retry:${date}`;
+}
+
+export function isRetryId(id: string | null | undefined): boolean {
+  return id === RETRY_SET_ID || Boolean(id?.startsWith('retry:'));
+}
+
+/** 그 id 가 모으는 문제 */
+export function retryScope(id: string, items: RetryItem[], today: string): RetryItem[] {
+  if (id === RETRY_ALL_ID) return items;
+  if (id.startsWith('retry:')) return items.filter((i) => i.set.lessonDate === id.slice('retry:'.length));
+  return dueRetries(items, today);
+}
+
+/** 창 탭 · 제목에 쓸 이름 */
+export function retryLabel(id: string): string {
+  if (id === RETRY_ALL_ID) return '오답 전체';
+  if (id.startsWith('retry:')) return `${shortDate(id.slice('retry:'.length))} 오답`;
+  return '다시 풀 문제';
+}
+
+/** 다시 풀 문제를 연습장이 열 수 있는 세트 하나로 묶는다. origins[i] 가 원래 세트·문제 번호다. */
+export function retrySet(
+  items: RetryItem[],
+  today: string,
+  id: string = RETRY_SET_ID,
+): { set: PracticeSet; origins: { setId: string; index: number }[] } | null {
   if (items.length === 0) return null;
   const first = items[0].set;
   return {
     set: {
-      id: RETRY_SET_ID,
+      id,
       cohortId: first.cohortId,
       sourceTitle: first.sourceTitle,
       lessonDate: today,
-      dayLabel: '다시 풀 문제',
+      dayLabel: retryLabel(id),
       title: `틀렸던 문제 ${items.length}개`,
       files: [...new Set(items.flatMap((i) => i.set.problems[i.index].sourceFiles))],
       model: first.model,
@@ -152,6 +185,49 @@ export function retrySet(items: RetryItem[], today: string): { set: PracticeSet;
     },
     origins: items.map((i) => ({ setId: i.set.id, index: i.index })),
   };
+}
+
+// ── 오답노트 ─────────────────────────────────────────────
+
+export interface WrongNoteDay {
+  /** 수업 날짜 'YYYY-MM-DD' */
+  date: string;
+  /** 그날 세트들(수업 세트 · 내가 만든 세트) */
+  sets: PracticeSet[];
+  /** 아직 못 푼 문제 — 다시 풀 문제와 같은 순서 */
+  wrong: RetryItem[];
+  /** 틀렸다가 다시 풀어 통과한 문제 */
+  solved: { set: PracticeSet; index: number; tries: number }[];
+}
+
+/**
+ * 오답노트 — 틀린 적 있는 문제를 수업 날짜별로. 최근 수업부터.
+ * 못 푼 것은 다시 풀 문제(retryItems)와 같다. 해결한 것은 통과했지만 한 번 넘게 낸 문제(한 번은 틀렸다).
+ */
+export function wrongNoteDays(
+  sets: PracticeSet[],
+  attempts: PracticeAttempt[],
+  hidden: (setId: string, index: number) => boolean,
+): WrongNoteDay[] {
+  const byId = new Map(sets.map((s) => [s.id, s]));
+  const days = new Map<string, WrongNoteDay>();
+  const dayOf = (set: PracticeSet) => {
+    const day = days.get(set.lessonDate) ?? { date: set.lessonDate, sets: [], wrong: [], solved: [] };
+    if (!day.sets.includes(set)) day.sets.push(set);
+    days.set(set.lessonDate, day);
+    return day;
+  };
+  for (const item of retryItems(sets, attempts)) {
+    if (!hidden(item.set.id, item.index)) dayOf(item.set).wrong.push(item);
+  }
+  for (const a of attempts) {
+    const set = byId.get(a.setId);
+    if (set && a.passed && a.tries > 1 && set.problems[a.index] && !hidden(a.setId, a.index)) {
+      dayOf(set).solved.push({ set, index: a.index, tries: a.tries });
+    }
+  }
+  for (const day of days.values()) day.solved.sort((x, y) => x.index - y.index);
+  return [...days.values()].sort((x, y) => y.date.localeCompare(x.date));
 }
 
 function dateKey(d: Date): string {

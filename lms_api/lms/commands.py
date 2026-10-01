@@ -426,10 +426,14 @@ def _validate_resume_write(cur, user, data: dict, row: dict | None) -> None:
         raise ValueError("base resume cannot have a parent")
     if base_id:
         parent = resolve_row(cur, "resumes", base_id)
-        if not parent or not parent["is_base_resume"] or parent["user_id"] != owner_id:
-            raise ValueError("base resume must belong to the same user")
+        if not parent or parent["user_id"] != owner_id:
+            raise ValueError("바탕 이력서를 찾을 수 없거나 내 이력서가 아니에요.")
+        # 바탕은 원본(맞춤 이력서 · 첨삭 작업본이 아닌 것)이면 된다. 대표 기본 이력서(is_base_resume)일 필요는 없다 —
+        # 기본 이력서를 여럿 두는데, 대표만 받으면 대표를 바꾼 뒤 옛 대표에서 만든 맞춤 이력서가 저장되지 않았다(2026-09-30).
+        if parent.get("base_resume_id") or parent.get("source_tailored_resume_id"):
+            raise ValueError("맞춤 이력서를 바탕으로 또 맞춤 이력서를 만들 수 없어요.")
         if row and parent["id"] == row["id"]:
-            raise ValueError("resume cannot reference itself")
+            raise ValueError("이력서가 자기 자신을 바탕으로 할 수 없어요.")
         data["base_resume_id"] = parent["id"]
 
     job_id = data.get("linked_job_id")

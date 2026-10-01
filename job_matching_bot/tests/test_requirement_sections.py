@@ -97,6 +97,24 @@ class RuleExtractionTest(unittest.TestCase):
         self.assertEqual("REQUIRED", python["requirement_type"])
         self.assertIn("Python", python["evidence"])
 
+    def test_jobkorea_skill_block_is_required(self):
+        """잡코리아 양식은 「자격요건」 칸에 학력 · 경력만 두고 기술은 「스킬」 칸에 둔다."""
+        body = (
+            "포지션 및 자격요건\n의료정보시스템 구축 및 유지보수 인력 채용\n( 1명 )\n담당업무\n"
+            "ㆍ의료정보 시스템 개발 및 유지 보수\n스킬\nㆍ.Net, C#, MS-SQL, Oracle\n"
+            "자격요건\nㆍ학력 : 초대졸이상\nㆍ경력 : 경력\n우대사항\nㆍ인근거주자\n"
+        )
+        result = extract_requirements("경력 개발자 수시 채용", body, allow_llm=False)
+        self.assertIn("C#", result["required_skills"])
+        self.assertIn("SQL", result["required_skills"])
+        self.assertEqual("required", heading_kind("이런 기술이 필요해요"))
+
+    def test_heading_name_with_colon_content_keeps_the_content(self):
+        """「ㆍ필요스킬 : C#, Oracle」은 제목이 아니라 자격요건 구간의 한 줄이다."""
+        sections = split_sections("[자격요건]\nㆍ경력 : 개발 경력 5년이상~\nㆍ필요스킬 : C#, Oracle\n[우대사항]\nㆍMES 경험")
+        self.assertIn("ㆍ필요스킬 : C#, Oracle", sections.required)
+        self.assertIsNone(heading_kind("ㆍ필요스킬 : C#, Oracle"))
+
     def test_without_headings_falls_back_to_unknown(self):
         result = extract_requirements("개발자", "Python과 Java를 다루는 분을 찾습니다.", allow_llm=False)
         self.assertEqual("keyword_extractor", result["method"])

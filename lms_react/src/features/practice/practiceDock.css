@@ -139,6 +139,22 @@
   font-size: 20px;
 }
 
+/* 창 안에서는 머리가 창 몸통 맨 위에 붙는다(화면용은 상단 막대 밑 70px). 좁은 창에서도 붙는다.
+   sticky 는 창 몸통의 안쪽 여백(.pd-pane 위 16px) 밑에 붙어서, 그만큼 올려야 틈으로 셀이 비치지 않는다 */
+.pd-pane .py-top {
+  position: sticky;
+  top: -16px;
+  z-index: 15;
+  padding-bottom: 12px;
+  margin-bottom: -12px;
+  background: var(--background);
+}
+
+/* 머리가 16px 올라가 붙으니 셀은 머리 높이 - 16 + 12 아래에 */
+.pd-pane .py-playground [data-cell-id] {
+  scroll-margin-top: calc(var(--py-top-h, 0px) - 4px);
+}
+
 .pd-pane[hidden] {
   display: none;
 }

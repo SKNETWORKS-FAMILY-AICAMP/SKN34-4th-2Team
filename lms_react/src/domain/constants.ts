@@ -240,3 +240,33 @@ export function computeSections(c: ResumeContent): Record<string, boolean> {
     selfIntroduction: SelfIntroKeys.some((k) => has(intro[k].body)),
   };
 }
+
+/**
+ * 마이페이지 취업 희망 조건의 후보 태그. 후보에 없으면 직접 입력해 추가한다.
+ * - 지역: 매처가 공고 지역에서 뽑는 시·도(job_matching_bot/retrieval/documents.py PROVINCES)와 같은 표기.
+ *   「전국」을 고르면 지역으로 거르지 않는다(matching/hard_filter.py).
+ * - 고용형태: 수집기가 공고에 남기는 값(ingestion/saramin.py parse_employment)과 정확히 같아야 통과한다.
+ */
+export const JobPreferencePresets = {
+  targetRoles: [
+    '백엔드 개발자',
+    '프론트엔드 개발자',
+    '풀스택 개발자',
+    '모바일 앱 개발자',
+    'AI 엔지니어',
+    '데이터 엔지니어',
+    '데이터 분석가',
+    '데이터 사이언티스트',
+    'DevOps 엔지니어',
+    '클라우드 엔지니어',
+    '보안 엔지니어',
+    'QA 엔지니어',
+    '임베디드 개발자',
+    '게임 개발자',
+  ],
+  regions: [
+    '전국', '서울', '경기', '인천', '부산', '대구', '대전', '광주', '울산', '세종',
+    '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주',
+  ],
+  employmentTypes: ['정규직', '계약직', '인턴', '파트타임', '프리랜서'],
+} as const;

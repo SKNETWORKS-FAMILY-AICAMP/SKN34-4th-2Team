@@ -38,7 +38,7 @@ import {
   Tabs,
 } from '../../ui/components';
 import { formatDate } from '../../utils/format';
-import { retryItems } from '../practice/review';
+import { retryItems, shortDate, wrongNoteDays } from '../practice/review';
 import { MakeProblems } from '../practice/MakeProblems';
 import { useIsHidden } from '../practice/useIsHidden';
 import { usePageCrumbs } from '../../app/crumbs';
@@ -99,6 +99,18 @@ export function StudyRoomScreen() {
         </Link>
       </section>
 
+      {/* 오답노트 — 틀린 복습 문제를 수업 날짜별로 */}
+      <section className="study-entry">
+        <div>
+          <strong className="study-entry__title">오답노트</strong>
+          <p className="study-entry__desc">틀린 복습 문제를 수업 날짜별로 모아 두고 다시 풀어 봅니다.</p>
+          <WrongNotesSummary cohortId={user.cohortId} uid={user.uid} />
+        </div>
+        <Link className="btn btn--outline btn--md" to={RoutePaths.studyRoomWrongNotes}>
+          오답노트 열기
+        </Link>
+      </section>
+
       {/* 연습장 — 문제 없이 코드를 바로 돌려 보는 곳 */}
       <section className="study-entry study-entry--quiet">
         <div>
@@ -155,6 +167,23 @@ function StudyRoomSummary({ cohortId, uid }: { cohortId: string; uid: string }) 
           최근 수업 {latest.lessonDate.slice(5).replace('-', '/')} · 복습 {progress.passed} / {progress.total}
         </span>
       )}
+    </div>
+  );
+}
+
+/** 학습실 오답노트 카드의 요약 — 못 푼 문제 수와 최근 날짜들 */
+function WrongNotesSummary({ cohortId, uid }: { cohortId: string; uid: string }) {
+  const sets = usePracticeSets(cohortId);
+  const attempts = useMyPracticeAttempts(uid);
+  const isHidden = useIsHidden();
+  const days = wrongNoteDays(sets, attempts, isHidden).filter((d) => d.wrong.length > 0);
+  if (days.length === 0) return null;
+  const count = days.reduce((n, d) => n + d.wrong.length, 0);
+  const dates = days.slice(0, 3).map((d) => shortDate(d.date)).join(', ') + (days.length > 3 ? ` 외 ${days.length - 3}일` : '');
+  return (
+    <div className="study-entry__summary">
+      <span className="study-entry__pill study-entry__pill--warn">못 푼 문제 {count}개</span>
+      <span className="study-entry__pill">{dates}</span>
     </div>
   );
 }

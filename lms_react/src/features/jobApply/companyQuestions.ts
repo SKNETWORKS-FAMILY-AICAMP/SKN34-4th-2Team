@@ -19,36 +19,46 @@ export const COMMON_QUESTIONS: { key: string; question: string; limit: number }[
   { key: 'personality', question: '성격의 장단점', limit: 500 },
 ];
 
-// 문항 머리: "1.", "1)", "Q1.", "①", "문항 1." 따위
-const NUMBERED = /^\s*(?:문항\s*)?(?:Q\s*)?(?:\d{1,2}|[①-⑩])\s*[.)．:]?\s+(?=\S)/i;
+// 문항 머리: "1.", "1)", "Q1.", "①", "문항 1." 따위. 점 · 괄호 뒤는 붙어 있어도 된다("1.해당 직무…") — 숫자가 이어지면("1.5년") 아니다
+const NUMBERED = /^\s*(?:문항\s*)?(?:Q\s*)?(?:\d{1,2}|[①-⑩])\s*(?:[.)．:]\s*(?=[^\d\s])|\s+(?=\S))/i;
 const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩';
 // "(공백 포함 600자 이내)", "600자 내외", "최대 1,000자" — 숫자만 꺼낸다
 const LIMIT = /(\d{1,2},?\d{3}|\d{2,4})\s*자/;
 // 줄 끝의 글자 수 표기 — 괄호째("(공백 포함 600자 이내)")거나 괄호 없이("공백 포함 800자 이내")
 const LIMIT_NOTE =
   /\s*(?:[([][^()[\]]*?\d{2,4}\s*자[^()[\]]*[)\]]|(?:[-–/,]\s*)?(?:공백\s*(?:포함|제외)\s*)?(?:최대\s*)?(?:\d{1,2},?\d{3}|\d{2,4})\s*자\s*(?:이내|내외|이하|미만)?)\s*$/;
+// 채용 사이트 입력칸의 글자 수 표시가 같이 복사된 것 — "필수0/800", "(0/1,000)", "0 / 500자". 뒤 숫자가 글자 수다.
+// 입력칸마다 붙어 있어서, 이게 붙은 줄은 번호 · 말투와 상관없이 문항이다.
+const COUNTER = /\s*(?:필수|선택)?\s*[([]?\s*\d{1,4}\s*\/\s*(\d{1,2},?\d{3}|\d{2,4})\s*(?:자|bytes?)?\s*[)\]]?\s*$/i;
+// 입력칸의 필수 표시 — "…작성해 주세요. 필수", "…(선택)", "…*". 글자 수 표시가 다음 줄로 떨어져 나오면 줄 끝에 이것만 남는다
+const REQUIRED_MARK = /\s*(?:[([]\s*(?:필수|선택)\s*[)\]]|(?:필수|선택)|\*+)\s*$/;
 // 문항이 아닌 줄 — 머리글("[자기소개서]"), 작성 안내("(* Guide : …)", "※ …")
 const NOT_QUESTION = /^\s*(?:\[[^\]]*\]\s*$|[(*※·•-])/;
 const ASKS = /(?:\?|시오\.?|주세요\.?|바랍니다\.?|하세요\.?|기술|서술|작성)\s*$/;
 
 function limitOf(text: string): number | null {
-  const found = LIMIT.exec(text);
+  const found = COUNTER.exec(text) ?? LIMIT.exec(text);
   if (found === null) return null;
   const value = Number(found[1].replace(',', ''));
   return value >= 50 && value <= 5000 ? value : null;
+}
+
+/** 줄 끝의 글자 수 표기(입력칸 표시 · 「600자 이내」)를 뗀다 */
+function stripNote(text: string): string {
+  return text.replace(COUNTER, '').replace(REQUIRED_MARK, '').replace(LIMIT_NOTE, '').replace(REQUIRED_MARK, '').trim();
 }
 
 function cleanQuestion(text: string): string {
   let q = text.replace(NUMBERED, '').trim();
   const circled = CIRCLED.indexOf(q[0] ?? '');
   if (circled >= 0) q = q.slice(1).trim();
-  return q.replace(LIMIT_NOTE, '').trim();
+  return stripNote(q);
 }
 
 /**
  * 붙여 넣은 글 → 문항 목록.
  * - 번호가 붙은 줄이 있으면 그 줄들이 문항이다. 번호 없는 이어진 줄은 앞 문항에 붙인다(긴 문항이 두 줄로 접힌 경우)
- * - 번호가 없으면 묻는 말로 끝나는 줄(“…작성해 주세요.”, “…?”)을 문항으로 본다
+ * - 번호가 없으면 묻는 말로 끝나는 줄(“…작성해 주세요.”, “…?”)이나 입력칸 글자 수(“0/800”)가 붙은 줄을 문항으로 본다
  * - 글자 수는 문항 줄이나 바로 다음 줄에서 읽는다
  */
 export function splitQuestions(text: string, newId: () => string): CompanyQuestion[] {
@@ -58,12 +68,13 @@ export function splitQuestions(text: string, newId: () => string): CompanyQuesti
   for (const line of lines) {
     const isHead = NUMBERED.test(line) || CIRCLED.includes(line[0] ?? '');
     const last = out[out.length - 1];
-    if (numbered ? isHead : !NOT_QUESTION.test(line) && ASKS.test(line.replace(LIMIT_NOTE, ''))) {
+    const asks = ASKS.test(stripNote(line)) || (COUNTER.test(line) && stripNote(line).length >= 4);
+    if (numbered ? isHead : !NOT_QUESTION.test(line) && asks) {
       out.push({ question: cleanQuestion(line), limit: limitOf(line) });
       continue;
     }
     if (last === undefined) continue;
-    const rest = line.replace(LIMIT_NOTE, '').trim();
+    const rest = stripNote(line);
     // 번호 문항이 두 줄로 접힌 경우만 잇는다(끝에 글자 수가 붙어 있어도). 안내 문구는 버린다
     if (numbered && !NOT_QUESTION.test(line) && rest.length >= 2 && last.question.length < 200) {
       last.question = `${last.question} ${rest}`.trim();

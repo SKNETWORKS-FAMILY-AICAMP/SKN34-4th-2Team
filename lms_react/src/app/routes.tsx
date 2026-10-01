@@ -16,6 +16,7 @@ import {
   StudyNotesScreen,
   StudyRoomScreen,
 } from '../features/study/StudyRoomScreen';
+import { WrongNotesScreen } from '../features/study/WrongNotesScreen';
 import {
   MileageCartScreen,
   MileageScreen,
@@ -153,6 +154,7 @@ export const studentRoutes: AppRoute[] = [
   { path: RoutePaths.attendanceRequest, element: <AttendanceRequestScreen />, roles: student },
   { path: RoutePaths.studyRoom, element: <StudyRoomScreen />, roles: student },
   { path: RoutePaths.studyRoomNotes, element: <StudyNotesScreen />, roles: student },
+  { path: RoutePaths.studyRoomWrongNotes, element: <WrongNotesScreen />, roles: student },
   { path: RoutePaths.studyRoomPlayground, element: <PythonPlaygroundScreen />, roles: student },
   { path: '/study-room/notes/:sourceId', element: <StudyNoteSourceScreen />, roles: student },
   { path: RoutePaths.mileage, element: <MileageScreen />, roles: student },

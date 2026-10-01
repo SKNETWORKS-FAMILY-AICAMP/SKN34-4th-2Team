@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { nextId } from '../../data/store';
 import { Icon } from '../../ui/Icon';
 import { Button, TextArea } from '../../ui/components';
-import type { Posting } from '../jobs/JobPostingScreen';
 import { CaptureUpload } from './CaptureUpload';
 import { COMMON_QUESTIONS, splitQuestions, type CompanyQuestion } from './companyQuestions';
 
@@ -11,14 +10,11 @@ import { COMMON_QUESTIONS, splitQuestions, type CompanyQuestion } from './compan
  * 회사 자기소개서 문항 정하기 — 붙여넣기 · 캡처 올리기 · 자주 나오는 문항 · 기본 여섯 문항.
  *
  * 문항은 대개 회사 채용 사이트에 있고 우리가 수집한 공고 글에는 거의 없다(companyQuestions.ts).
- * 채용 사이트 주소도 모으지 않으므로 「지원 방법 보기」는 사람인 · 잡코리아 공고 페이지를 연다.
- * 거기의 「홈페이지 지원」 버튼으로 회사 사이트에 간다.
+ * 회사 사이트로 가는 버튼은 위의 공고 요약에 하나만 둔다(ApplySiteButton.tsx). 여기서는 그 버튼을 가리킨다.
  */
 export type QuestionChoice = CompanyQuestion[] | 'default';
 
 type Tab = 'paste' | 'upload' | 'common' | 'default';
-
-const SOURCE_LABEL: Record<string, string> = { SARAMIN_POC: '사람인', JOBKOREA_POC: '잡코리아' };
 
 const TABS: { id: Tab; icon: string; label: string }[] = [
   { id: 'paste', icon: 'content_paste', label: '붙여넣기' },
@@ -28,12 +24,10 @@ const TABS: { id: Tab; icon: string; label: string }[] = [
 ];
 
 export function QuestionsStep({
-  posting,
   value,
   locked,
   onChange,
 }: {
-  posting: Posting;
   value: QuestionChoice | null;
   /** 공고용 이력서를 만든 뒤에는 여기서 바꾸지 않는다 */
   locked: boolean;
@@ -46,8 +40,6 @@ export function QuestionsStep({
   const [dropped, setDropped] = useState(0);
   const [picked, setPicked] = useState<Record<string, number | null>>({ motivation: 600, competency: 800 });
 
-  const link = posting.links?.find((l) => l.source_url.startsWith('http')) ?? posting;
-  const site = SOURCE_LABEL[link.source] ?? '공고 사이트';
 
   if (value !== null) {
     return (
@@ -87,14 +79,9 @@ export function QuestionsStep({
       <div className="apply-note">
         <Icon name="info" size={18} />
         <span>
-          자기소개서 문항은 대개 회사 채용 사이트에 있어요. {site} 공고의 「홈페이지 지원」이나 지원 안내에서 확인해 주세요.
+          자기소개서 문항은 대개 회사 채용 사이트에 있어요. 위의 「회사 채용 사이트 열기」로 지원서 화면을 열고, 문항을 복사해
+          붙여 넣거나 캡처를 올려 주세요.
         </span>
-        {link.source_url.startsWith('http') && (
-          <a className="btn btn--outline btn--sm" href={link.source_url} target="_blank" rel="noreferrer">
-            <Icon name="open_in_new" size={16} />
-            {site}에서 지원 방법 보기
-          </a>
-        )}
       </div>
 
       <div className="apply-tabs" role="tablist" aria-label="문항 입력 방법">

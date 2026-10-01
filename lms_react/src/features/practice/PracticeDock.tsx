@@ -20,7 +20,7 @@ import { useYieldToOtherWindows } from '../../ui/floatingWindows';
 import { Icon } from '../../ui/Icon';
 import './practiceDock.css';
 import type { ImportedCell } from './notebookFile';
-import { RETRY_SET_ID } from './review';
+import { isRetryId, retryLabel } from './review';
 
 /**
  * 복습 문제 · 연습장 창 — 이력서 첨삭 창(ReviewDock)과 같은 방식으로 화면 위 층에 뜬다.
@@ -307,12 +307,12 @@ function PracticeTabButton({
   );
 }
 
-/** 탭 이름 — 「09/21 복습」, 「다시 풀 문제」, 「연습장」 */
+/** 탭 이름 — 「09/21 복습」, 「다시 풀 문제」 · 「09/29 오답」, 「연습장」 */
 function TabLabel({ tab, short = false }: { tab: PracticeTab; short?: boolean }) {
-  const set = usePracticeSet(tab.setId === RETRY_SET_ID ? null : tab.setId);
+  const set = usePracticeSet(isRetryId(tab.setId) ? null : tab.setId);
   if (tab.note) return <>{tab.note.title} 코드</>;
   if (tab.setId === null) return <>연습장</>;
-  if (tab.setId === RETRY_SET_ID) return <>다시 풀 문제</>;
+  if (isRetryId(tab.setId)) return <>{retryLabel(tab.setId!)}</>;
   if (!set) return <>복습 문제</>;
   const day = set.lessonDate ? `${set.lessonDate.slice(5).replace('-', '/')} ` : '';
   return <>{short ? `${day}복습` : `${day}복습 · ${set.title}`}</>;

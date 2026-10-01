@@ -16,7 +16,7 @@ import json
 import logging
 import re
 import threading
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import connection, transaction
@@ -166,6 +166,28 @@ def _publish_notes(source: dict, dates: list[str]) -> list[str]:
     except Exception:  # noqa: BLE001
         logger.exception("lesson notes failed: %s", source.get("repo_url"))
         return []
+
+
+# Celery beat 일정(settings.CELERY_BEAT_SCHEDULE 의 practice-auto-daily)과 같은 시각
+DAILY_AT = (18, 30)
+
+
+def daily_due(now: datetime | None = None) -> bool:
+    """오늘 18:30 이 지났고 오늘 일정 출제(trigger=schedule)가 아직 없으면 True.
+
+    Celery 가 없을 때 대체 스레드(inline_publish)가 1분마다 묻는다. 서버가 18:30 에 꺼져 있었으면 그날 늦게라도
+    뜨는 순간 돈다. Celery 와 함께 떠 있거나 프로세스가 여럿이어도 저장소마다 _claim_run 이 한 번만 돌게 막는다.
+    「지금 만들기」(manual)는 세지 않는다 — 그날 다른 저장소의 출제는 따로 돌아야 한다.
+    """
+    now = timezone.localtime(now)
+    if (now.hour, now.minute) < DAILY_AT:
+        return False
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    with connection.cursor() as cur:
+        if not _practice_ready(cur):
+            return False
+        cur.execute("SELECT 1 FROM study_practice_runs WHERE trigger = 'schedule' AND started_at >= %s LIMIT 1", [start])
+        return cur.fetchone() is None
 
 
 def run_daily(today: str | None = None) -> dict:

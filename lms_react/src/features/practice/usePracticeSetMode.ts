@@ -13,7 +13,7 @@ import { todayKey } from '../../data/store';
 import type { PracticeAttempt, PracticeReport, PracticeReportReason, PracticeSet } from '../../domain/types';
 import { useCurrentUser } from '../auth/session';
 import { isHidden } from './reports';
-import { RETRY_SET_ID, retryItems, retrySet, shortDate } from './review';
+import { isRetryId, retryItems, retryScope, retrySet, shortDate } from './review';
 
 export interface PracticeSetMode {
   /** 연 세트. 자유 연습장이면 undefined */
@@ -31,6 +31,8 @@ export interface PracticeSetMode {
   report(index: number, reason: PracticeReportReason, note: string): void;
   /** 문제 i 의 원래 자리 — 다시 풀 문제는 여러 세트에서 모였다 */
   originOf(index: number): { setId: string; index: number } | null;
+  /** 튜터 대화 — 다시 풀 문제는 'retry:오늘'(복습 때 대화와 따로, 날마다 새로). 복습 세트는 undefined */
+  tutorThread: string | undefined;
   /** 문제 머리에 붙일 원래 수업 — 다시 풀 문제에서만 */
   noteOf(index: number): string | undefined;
   record(index: number, passed: boolean): void;
@@ -45,14 +47,21 @@ export interface PracticeSetMode {
  */
 export function usePracticeSetMode(setId: string | null): PracticeSetMode {
   const user = useCurrentUser();
-  const storedSet = usePracticeSet(setId === RETRY_SET_ID ? null : setId);
+  const retryId = isRetryId(setId) ? setId! : null;
+  const storedSet = usePracticeSet(retryId ? null : setId);
   const allSets = usePracticeSets(user.cohortId);
   const myAttempts = useMyPracticeAttempts(user.uid);
   const reports = usePracticeReports();
   const reviews = usePracticeReviews();
+  // 무엇을 모을지는 id 가 정한다(retryScope) — 대시보드는 하루 지난 것, 공부방 · 오답노트는 전체 또는 그 날짜.
+  // 링크에 적힌 개수와 연 세트가 같아야 한다
   const [retry] = useState(() =>
-    setId === RETRY_SET_ID
-      ? retrySet(retryItems(allSets, myAttempts).filter((i) => !isHidden(reports, reviews, i.set.id, i.index)), todayKey())
+    retryId
+      ? retrySet(
+          retryScope(retryId, retryItems(allSets, myAttempts).filter((i) => !isHidden(reports, reviews, i.set.id, i.index)), todayKey()),
+          todayKey(),
+          retryId,
+        )
       : null,
   );
   const set = retry?.set ?? storedSet;
@@ -72,6 +81,7 @@ export function usePracticeSetMode(setId: string | null): PracticeSetMode {
   return {
     set,
     isRetry: retry !== null,
+    tutorThread: retry ? `retry:${retry.set.lessonDate}` : undefined,
     passedCount: visible.filter((i) => attemptOf(i)?.passed).length,
     visibleCount: visible.length,
     attemptOf,
@@ -85,7 +95,7 @@ export function usePracticeSetMode(setId: string | null): PracticeSetMode {
       const o = originOf(i);
       if (o) reportPracticeProblem(user.uid, o.setId, o.index, reason, note);
     },
-    noteOf: (i) => (retry ? originNote(allSets, retry.origins[i]?.setId) : undefined),
+    noteOf: (i) => (retry ? originNote(allSets, retry.origins[i]) : undefined),
     record: (i, passed) => {
       const o = originOf(i);
       if (o) recordPracticeAttempt(user.uid, o.setId, o.index, passed);
@@ -93,8 +103,8 @@ export function usePracticeSetMode(setId: string | null): PracticeSetMode {
   };
 }
 
-/** 다시 풀 문제 셀 머리에 붙일 원래 수업 — '9/14 · BLIP · Stable Diffusion · VQA' */
-function originNote(sets: PracticeSet[], setId: string | undefined): string | undefined {
-  const s = sets.find((x) => x.id === setId);
-  return s ? `${shortDate(s.lessonDate)} · ${s.title}` : undefined;
+/** 다시 풀 문제 셀 머리에 붙일 원래 자리 — '9/14 문제 4 · BLIP · Stable Diffusion · VQA'(오답노트 목록의 번호와 같다) */
+function originNote(sets: PracticeSet[], origin: { setId: string; index: number } | undefined): string | undefined {
+  const s = sets.find((x) => x.id === origin?.setId);
+  return s && origin ? `${shortDate(s.lessonDate)} 문제 ${origin.index + 1} · ${s.title}` : undefined;
 }

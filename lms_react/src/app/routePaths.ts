@@ -12,6 +12,7 @@ export const RoutePaths = {
   studyRoom: '/study-room',
   studyRoomNotes: '/study-room/notes',
   studyRoomPlayground: '/study-room/playground',
+  studyRoomWrongNotes: '/study-room/wrong-notes',
   board: '/board',
   records: '/records',
   recordsCreate: '/records/create',
