@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 # 제목 줄 앞뒤에 붙는 장식(이모지·기호·번호)을 지운 뒤 비교한다.
 _DECOR = re.compile(r"[\[\]■□●○◆◇▶►▷※•·ㆍ:：\-–—_=~*#<>()【】「」『』|/\\\xa0]|[0-9]+[.)]|[\U0001F300-\U0001FAFF☀-➿️]")
 _MAX_HEADING_CHARS = 14
+_COLON_CONTENT = re.compile(r"[:：]\s*[^\s\])】」]")
 
 SECTION_HEADINGS: dict[str, tuple[str, ...]] = {
     "required": (
@@ -32,6 +33,10 @@ SECTION_HEADINGS: dict[str, tuple[str, ...]] = {
         # 665건 있었고, 그중 IT 151건이 요건 0자로 잡혀 인덱스에 못 올랐다.
         "이런 분을 찾습니다", "이런 분을 찾아요", "이런 분과 함께", "어떤 사람을 찾나요",
         "어떤 사람을 찾나요?", "함께할 분", "이런 분이 필요해요",
+        # 잡코리아 양식의 기술 칸. 양식의 「자격요건」 칸은 학력 · 경력만 담아서, 기업이 고른 기술은
+        # 여기에만 있다(텍스트 공고 2만 건 중 「스킬」 4,630 · 「이런 기술이 필요해요」 1,016, 2026-10-01).
+        # 제목으로 안 잡혀 바로 위 담당업무 구간에 섞였고 필수 기술이 비었다.
+        "스킬", "필요스킬", "필요 스킬", "이런 기술이 필요해요",
     ),
     "preferred": (
         "우대사항", "우대 사항", "우대조건", "우대 조건", "우대요건", "우대 요건", "우대",
@@ -87,6 +92,10 @@ def heading_kind(line: str) -> str | None:
     for name in STOP_HEADINGS:
         if compact == name.replace(" ", ""):
             return "stop"
+    # 「ㆍ필요스킬 : C#, Oracle」처럼 콜론 뒤에 내용이 있으면 제목이 아니라 그 구간의 한 줄이다.
+    # 아래 앞머리 맞춤에 걸리면 줄째 제목으로 먹혀 내용이 사라진다.
+    if _COLON_CONTENT.search(line):
+        return None
     # "자격요건 (공통)"처럼 괄호 설명이 붙은 변형
     for kind, names in SECTION_HEADINGS.items():
         for name in names:

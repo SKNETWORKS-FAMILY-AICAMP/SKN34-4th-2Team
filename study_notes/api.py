@@ -104,6 +104,8 @@ class ProxyCustomPracticeRequest(BaseModel):
 class ProxyTutorRequest(BaseModel):
     """튜터 한 번 — Django 가 문제(모범답안 · 숨긴 테스트 포함) · 힌트 단계 · 지난 대화를 붙여 보낸다"""
     mode: str = Field(pattern="^(problem|cell)$")
+    # more = 「다음 힌트」 단추로 단계를 새로 열었다(튜터가 앞 대화보다 한 걸음 더 나간다), ask = 그 단계 안에서 대화
+    action: str = Field(default="ask", pattern="^(ask|more|answer)$")
     question: str = Field(max_length=2000)
     code: str = Field(default="", max_length=20000)
     run: str = Field(default="", max_length=4000)

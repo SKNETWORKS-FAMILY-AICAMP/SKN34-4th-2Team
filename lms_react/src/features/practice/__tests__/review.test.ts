@@ -6,13 +6,18 @@ import {
   dueRetries,
   estimateMinutes,
   lessonFileLabel,
+  isRetryId,
   pickTodayReview,
+  RETRY_ALL_ID,
   RETRY_SET_ID,
+  retryDateId,
   retryDates,
   retryItems,
+  retryScope,
   retrySet,
   retryTopics,
   shortDate,
+  wrongNoteDays,
 } from '../review';
 
 function problem(kind: PracticeProblem['kind']): PracticeProblem {
@@ -108,6 +113,29 @@ describe('다시 풀 문제', () => {
     expect(r?.set.problems).toHaveLength(3);
     expect(r?.origins).toEqual([{ setId: 's15', index: 1 }, { setId: 's15', index: 4 }, { setId: 's14', index: 2 }]);
     expect(retrySet([], '2026-09-22')).toBeNull();
+  });
+
+  it('id 가 모을 범위를 정한다 — 하루 지난 것 · 전체 · 그 수업 날짜', () => {
+    const items = retryItems(SETS, attempts);
+    const ids = (id: string) => retryScope(id, items, '2026-09-22').map((i) => `${i.set.id}#${i.index}`);
+    expect(ids(RETRY_SET_ID)).toEqual(['s15#1', 's14#2']); // 오늘(9/22) 틀린 s15#4 는 내일부터
+    expect(ids(RETRY_ALL_ID)).toEqual(['s15#1', 's15#4', 's14#2']);
+    expect(ids(retryDateId('2026-09-15'))).toEqual(['s15#1', 's15#4']);
+    expect(isRetryId(retryDateId('2026-09-15')) && isRetryId(RETRY_ALL_ID) && isRetryId(RETRY_SET_ID)).toBe(true);
+    expect(isRetryId('s15')).toBe(false);
+    const r = retrySet(retryScope(retryDateId('2026-09-15'), items, '2026-09-22'), '2026-09-22', retryDateId('2026-09-15'));
+    expect(r?.set).toMatchObject({ id: 'retry:2026-09-15', dayLabel: '9/15 오답' });
+  });
+
+  it('오답노트 — 수업 날짜별로 못 푼 것 · 다시 풀어 맞힌 것', () => {
+    const days = wrongNoteDays(SETS, [...attempts, at('s15', 2, true, '2026-09-20', 3)], () => false);
+    expect(days.map((d) => d.date)).toEqual(['2026-09-15', '2026-09-14']);
+    expect(days[0].wrong.map((i) => i.index)).toEqual([1, 4]);
+    expect(days[0].solved).toEqual([{ set: S0915, index: 2, tries: 3 }]);
+    // 한 번에 맞힌 것(s14#0, tries 1)은 오답이 아니다
+    expect(days[1]).toMatchObject({ wrong: [{ index: 2 }], solved: [] });
+    // 숨긴 문제는 뺀다
+    expect(wrongNoteDays(SETS, attempts, (id) => id === 's14').map((d) => d.date)).toEqual(['2026-09-15']);
   });
 
   it('주제와 날짜를 짧게 보여 준다', () => {

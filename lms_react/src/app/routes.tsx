@@ -16,6 +16,7 @@ import {
   StudyNotesScreen,
   StudyRoomScreen,
 } from '../features/study/StudyRoomScreen';
+import { WrongNotesScreen } from '../features/study/WrongNotesScreen';
 import {
   MileageCartScreen,
   MileageScreen,
@@ -69,6 +70,10 @@ const AdminInstructorsScreen = lazyNamed(loadAdminPeopleScreens, 'AdminInstructo
 const AdminStudentDetailScreen = lazyNamed(loadAdminPeopleScreens, 'AdminStudentDetailScreen');
 const AdminStudentFormScreen = lazyNamed(loadAdminPeopleScreens, 'AdminStudentFormScreen');
 const AdminStudentsScreen = lazyNamed(loadAdminPeopleScreens, 'AdminStudentsScreen');
+const loadAdminCounselScreens = tracked(() => import('../features/admin/AdminCounselScreens'));
+const AdminCounselScreen = lazyNamed(loadAdminCounselScreens, 'AdminCounselScreen');
+const loadAdminQuestScreen = tracked(() => import('../features/quests/AdminQuestScreen'));
+const AdminQuestScreen = lazyNamed(loadAdminQuestScreen, 'AdminQuestScreen');
 const loadAdminAttendanceScreens = tracked(() => import('../features/admin/AdminAttendanceScreens'));
 const AdminAttendanceScreen = lazyNamed(loadAdminAttendanceScreens, 'AdminAttendanceScreen');
 const AdminSeatPresenceScreen = lazyNamed(loadAdminAttendanceScreens, 'AdminSeatPresenceScreen');
@@ -149,6 +154,7 @@ export const studentRoutes: AppRoute[] = [
   { path: RoutePaths.attendanceRequest, element: <AttendanceRequestScreen />, roles: student },
   { path: RoutePaths.studyRoom, element: <StudyRoomScreen />, roles: student },
   { path: RoutePaths.studyRoomNotes, element: <StudyNotesScreen />, roles: student },
+  { path: RoutePaths.studyRoomWrongNotes, element: <WrongNotesScreen />, roles: student },
   { path: RoutePaths.studyRoomPlayground, element: <PythonPlaygroundScreen />, roles: student },
   { path: '/study-room/notes/:sourceId', element: <StudyNoteSourceScreen />, roles: student },
   { path: RoutePaths.mileage, element: <MileageScreen />, roles: student },
@@ -220,6 +226,8 @@ export const adminRoutes: AppRoute[] = [
   { path: RoutePaths.adminStudentsCreate, element: <AdminStudentFormScreen />, roles: admin },
   { path: '/admin/students/:studentUid', element: <AdminStudentDetailScreen />, roles: admin },
   { path: '/admin/students/:studentUid/edit', element: <AdminStudentFormScreen />, roles: admin },
+  { path: RoutePaths.adminCounsel, element: <AdminCounselScreen />, roles: admin },
+  { path: RoutePaths.adminQuests, element: <AdminQuestScreen />, roles: admin },
 
   { path: RoutePaths.adminInstructors, element: <AdminInstructorsScreen />, roles: admin },
   { path: RoutePaths.adminInstructorsCreate, element: <AdminInstructorCreateScreen />, roles: admin },

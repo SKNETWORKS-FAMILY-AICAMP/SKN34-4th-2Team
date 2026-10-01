@@ -36,6 +36,7 @@ from typing import Any
 from job_matching_bot.config import ARTIFACTS_DIR
 from job_matching_bot.env import ensure_loaded
 from job_matching_bot.ingest import DEFAULT_RAW_ROOT, DEFAULT_STORE, SOURCES, ingest
+from job_matching_bot.ingestion.detail_quality import is_block_page
 from job_matching_bot.ingestion.record_files import latest_by_id, read_records, record_ids
 from job_matching_bot.schemas.job_record import CollectionReport
 
@@ -49,7 +50,7 @@ REQUIRED_FIELDS = ("source_job_id",)
 def validate(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """읽을 수 있는 레코드만 남긴다. 버린 이유를 센다."""
     kept: list[dict[str, Any]] = []
-    stats = {"입력": len(records), "필수 필드 없음": 0, "본문·조건 모두 없음": 0}
+    stats = {"입력": len(records), "필수 필드 없음": 0, "본문·조건 모두 없음": 0, "차단 안내 페이지": 0}
     for record in records:
         listing = record.get("list_item") or {}
         if not any(record.get(f) or listing.get(f) for f in REQUIRED_FIELDS):
@@ -58,6 +59,11 @@ def validate(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[
         # 본문도 조건표도 없으면 정규화해도 쓸 값이 없다.
         if not (record.get("description") or record.get("conditions") or record.get("sections")):
             stats["본문·조건 모두 없음"] += 1
+            continue
+        # 공고 대신 받은 차단 안내 페이지. 버리면 같은 공고의 앞선 정상 줄이 쓰이고, 그것도 없으면
+        # 저장소의 값을 덮지 않는다. 수집기는 이런 공고를 받은 것으로 치지 않아 다음에 다시 받는다.
+        if is_block_page(record.get("description") or ""):
+            stats["차단 안내 페이지"] += 1
             continue
         kept.append(record)
     stats["통과"] = len(kept)

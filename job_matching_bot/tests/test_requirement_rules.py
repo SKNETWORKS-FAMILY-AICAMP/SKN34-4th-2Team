@@ -49,9 +49,11 @@ class HighNeedsEverythingTest(unittest.TestCase):
         self.assertEqual("높음", RecommendService.require_all_met(fit(), {"unknown": ["근무지역 미기재"]}).fit,
                          "공고 쪽 정보가 없는 것은 지원자 탓이 아니다")
 
-    def test_unconfirmed_requirement_caps_at_medium(self):
-        capped = RecommendService.require_all_met(fit(concerns=["Kubernetes 운영 경험이 확인되지 않습니다"]), {"unknown": []})
-        self.assertEqual("보통", capped.fit)
+    def test_llm_concerns_alone_do_not_cap(self):
+        """사소한 요건 하나(「CDN · DNS 이해」)로 내리면 사람 채점과 어긋났다. 하드 요건만 본다."""
+        kept = RecommendService.require_all_met(fit(concerns=["CDN·네트워크·DNS 이해는 확인되지 않는다"]), {"unknown": []})
+        self.assertEqual("높음", kept.fit)
+        self.assertEqual(["CDN·네트워크·DNS 이해는 확인되지 않는다"], kept.concerns, "카드에는 그대로 보여 준다")
 
     def test_major_or_years_short_caps_at_medium_and_says_why(self):
         for unmet in ("전공 요건 미확인: 공고 전자·전기 / 이력서 컴퓨터공학", "경력 6개월 모자람 (최소 3년)"):

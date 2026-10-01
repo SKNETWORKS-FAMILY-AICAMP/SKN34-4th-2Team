@@ -9,8 +9,8 @@ const threads = new Map<string, TutorTurn[]>();
 // 서버(study_notes/practice/tutor.py)와 같다. JS 의 \W 는 한글도 잡으니 기호는 \p{P}\p{S} 로
 const TRIVIAL = /^[\s\p{P}\p{S}_ㅋㅎㅠㅜㅡㄷ]*$|^(안녕|안녕하세요|하이|hi|hello|ㅎㅇ|ㅇㅇ|ok|네|응|테스트|test)[\s\p{P}\p{S}]*$/iu;
 
-function keyOf(mode: TutorMode, setId?: string, index?: number) {
-  return mode === 'problem' ? `set:${setId}:${index ?? 0}` : 'cell';
+function keyOf(mode: TutorMode, setId?: string, index?: number, thread?: string) {
+  return mode === 'problem' ? `${thread ? `${thread}:` : ''}set:${setId}:${index ?? 0}` : 'cell';
 }
 
 function levelOf(turns: TutorTurn[]) {
@@ -60,7 +60,7 @@ function answer(body: TutorQuestion, level: number | null): Omit<TutorReply, 'hi
 }
 
 export async function demoTutorAsk(body: TutorQuestion): Promise<TutorReply> {
-  const key = keyOf(body.mode, body.setId, body.index);
+  const key = keyOf(body.mode, body.setId, body.index, body.thread);
   const turns = threads.get(key) ?? [];
   const current = levelOf(turns);
   const level = body.mode === 'problem' ? (body.action === 'more' ? Math.min(3, current + 1) : Math.max(1, current)) : null;
@@ -91,12 +91,12 @@ export async function demoTutorAsk(body: TutorQuestion): Promise<TutorReply> {
   return { ...a, hintLevel: level };
 }
 
-export async function demoTutorThread(mode: TutorMode, setId?: string, index?: number) {
-  const turns = threads.get(keyOf(mode, setId, index)) ?? [];
+export async function demoTutorThread(mode: TutorMode, setId?: string, index?: number, thread?: string) {
+  const turns = threads.get(keyOf(mode, setId, index, thread)) ?? [];
   return { turns, hintLevel: levelOf(turns) };
 }
 
-export async function demoTutorReset(mode: TutorMode, setId?: string, index?: number) {
-  threads.delete(keyOf(mode, setId, index));
+export async function demoTutorReset(mode: TutorMode, setId?: string, index?: number, thread?: string) {
+  threads.delete(keyOf(mode, setId, index, thread));
   return { turns: [] as TutorTurn[], hintLevel: 0 };
 }

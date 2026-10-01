@@ -1,14 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { usePageCrumbs } from '../../app/crumbs';
 import { RoutePaths } from '../../app/routePaths';
+import { useFullPracticeSets, useMyPracticeAttempts, usePracticeSets } from '../../data/repository';
+import { useCurrentUser } from '../auth/session';
 import { Icon } from '../../ui/Icon';
 import { NotebookCellView } from './NotebookCellView';
 import { NotebookToolbar } from './NotebookToolbar';
 import { PYODIDE_VERSION } from './pythonProtocol';
 import { usePythonRunner, type RunnerStatus } from './pythonRunner';
-import { RETRY_SET_ID } from './review';
+import { isRetryId, RETRY_SET_ID, retryItems } from './review';
 import { TutorProvider, useTutor } from './TutorContext';
 import { TutorPanel } from './TutorPanel';
 import { useNotebook, type Notebook } from './useNotebook';
@@ -46,9 +48,42 @@ export function PythonPlaygroundScreen() {
   const focus = Number(params.get('focus') ?? 0);
   return (
     <TutorProvider key={setId ?? 'free'}>
-      <Playground setId={setId} focusProblem={focus} />
+      <PracticeSetGate setId={setId}>
+        <Playground setId={setId} focusProblem={focus} />
+      </PracticeSetGate>
     </TutorProvider>
   );
+}
+
+/**
+ * 문제 본문이 다 온 뒤에 연습장을 연다. bootstrap 은 목록만 보내서, 본문 없이 열면
+ * 빈 시작 코드로 셀이 만들어져 저장된다. 다시 풀 문제는 틀린 문제가 있는 세트를 모두 받는다.
+ */
+function PracticeSetGate({ setId, children }: { setId: string | null; children: ReactNode }) {
+  const user = useCurrentUser();
+  const sets = usePracticeSets(user.cohortId);
+  const attempts = useMyPracticeAttempts(user.uid);
+  // 다시 풀 문제(retry · 오답노트의 retry:all · retry:날짜)는 틀린 문제가 있는 세트를 모두 받는다
+  const ids = isRetryId(setId) ? retryItems(sets, attempts).map((i) => i.set.id) : setId ? [setId] : [];
+  const { ready, failed } = useFullPracticeSets(ids);
+
+  if (failed) {
+    return (
+      <div className="screen__inner">
+        <p className="muted">문제를 불러오지 못했습니다. 잠시 후 다시 열어 주세요.</p>
+      </div>
+    );
+  }
+  if (!ready) {
+    return (
+      <div className="screen__inner">
+        <p className="muted" role="status">
+          <span className="spinner" aria-hidden /> 문제를 불러오고 있어요…
+        </p>
+      </div>
+    );
+  }
+  return <>{children}</>;
 }
 
 /**
@@ -68,7 +103,9 @@ export function EmbeddedPlayground({
 }) {
   return (
     <TutorProvider>
-      <Playground setId={setId} focusProblem={focusProblem} note={note} embedded active={active} />
+      <PracticeSetGate setId={setId}>
+        <Playground setId={setId} focusProblem={focusProblem} note={note} embedded active={active} />
+      </PracticeSetGate>
     </TutorProvider>
   );
 }
@@ -107,6 +144,10 @@ function Playground({
   const tutor = useTutor();
   const tutorOpen = Boolean(tutor?.target);
 
+  const [playground, setPlayground] = useState<HTMLDivElement | null>(null);
+  const topRef = useRef<HTMLDivElement>(null);
+  const stuck = useStickyTop(playground, topRef);
+
   // 들어오면 튜터를 열어 둔다 — 지금 고른 셀(없으면 앞 셀부터). 한 번만 연다: 사용자가 닫으면 그대로 둔다.
   // 복습 세트는 문제 셀이 늦게 오므로 셀이 튜터에 올라올 때까지 기다린다.
   // 좁은 화면에서는 튜터가 노트북을 덮는 서랍이라 열지 않는다(styles.css 의 1100px 기준과 같다).
@@ -139,26 +180,31 @@ function Playground({
   return (
     <div className={`py-layout${tutorOpen ? ' py-layout--tutor' : ''}`}>
       {!embedded && <PlaygroundCrumbs mode={mode} />}
-      <div className="screen__inner py-playground">
-        <header className="study-head">
-          {note ? <NoteCodeTitle title={note.title} /> : <PlaygroundTitle mode={mode} />}
-          <span className={`py-status py-status--${status}`} title={`Pyodide ${PYODIDE_VERSION}`}>
-            <span className="py-status__lamp" />
-            <span>
-              <strong>Python</strong> · {STATUS_TEXT[status]}
+      <div className="screen__inner py-playground" ref={setPlayground}>
+        {/* 제목 · 진행 막대 · 도구 줄은 스크롤해도 위에 붙어 있다. 붙어 있는 동안은 설명 줄을 접는다 */}
+        <div className={`py-top${stuck ? ' py-top--stuck' : ''}`} ref={topRef}>
+          <header className="study-head">
+            {note ? <NoteCodeTitle title={note.title} /> : <PlaygroundTitle mode={mode} />}
+            <span className={`py-status py-status--${status}`} title={`Pyodide ${PYODIDE_VERSION}`}>
+              <span className="py-status__lamp" />
+              <span>
+                <strong>Python</strong> · {STATUS_TEXT[status]}
+              </span>
             </span>
-          </span>
-        </header>
+          </header>
 
-        <NotebookToolbar nb={nb} set={mode.set} />
+          <NotebookToolbar nb={nb} set={mode.set} />
+        </div>
 
         {setId && !mode.set && (
           <div className="py-kernel-note" role="status">
             <Icon name="info" size={18} />
             <span>
               {setId === RETRY_SET_ID
-                ? '다시 풀 문제가 없어요. 틀린 복습 문제가 생기면 여기에 모여요.'
-                : '찾는 복습 세트가 없어요. 공부방의 수업 카드에서 다시 골라 주세요.'}
+                ? '다시 풀 문제가 없어요. 틀린 복습 문제는 다음 날부터 여기에 모여요 — 바로 다시 풀면 기억으로 맞히기 쉬워서 하루 둬요.'
+                : isRetryId(setId)
+                  ? '여기 모을 틀린 문제가 없어요. 다 풀었거나 숨겨진 문제예요.'
+                  : '찾는 복습 세트가 없어요. 공부방의 수업 카드에서 다시 골라 주세요.'}
             </span>
           </div>
         )}
@@ -246,6 +292,41 @@ function useNoteCode(nb: Notebook, note: NoteCodeRequest | undefined) {
 }
 
 /** 노트 코드 탭의 제목 */
+/**
+ * 위에 붙는 머리(제목 · 도구 줄) — 붙어 있는지 돌려주고, 높이를 --py-top-h 로 셀에 알린다(셀로 스크롤할 때 머리 밑에 서게).
+ * 붙는 자리는 CSS 가 정한다: 화면은 상단 막대 밑, 창(.pd-pane)은 창 몸통 맨 위, 좁은 화면은 붙지 않는다.
+ */
+function useStickyTop(root: HTMLElement | null, topRef: RefObject<HTMLDivElement | null>): boolean {
+  const [stuck, setStuck] = useState(false);
+
+  useEffect(() => {
+    const top = topRef.current;
+    if (root === null || top === null || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      root.style.setProperty('--py-top-h', `${Math.round(top.getBoundingClientRect().height)}px`);
+    });
+    observer.observe(top);
+    return () => observer.disconnect();
+  }, [root, topRef]);
+
+  useEffect(() => {
+    const top = topRef.current;
+    if (root === null || top === null) return;
+    // 머리는 연습장의 첫 줄이다 — 연습장이 위로 지나가는데 머리가 남아 있으면 붙은 것
+    const check = () => setStuck(top.getBoundingClientRect().top - root.getBoundingClientRect().top > 0.5);
+    check();
+    // 창(.pd-pane) 안의 스크롤은 window 로 올라오지 않아서 capture 로 받는다
+    window.addEventListener('scroll', check, { capture: true, passive: true });
+    window.addEventListener('resize', check);
+    return () => {
+      window.removeEventListener('scroll', check, { capture: true });
+      window.removeEventListener('resize', check);
+    };
+  }, [root, topRef]);
+
+  return stuck;
+}
+
 function NoteCodeTitle({ title }: { title: string }) {
   return (
     <div>
@@ -276,7 +357,7 @@ function PlaygroundTitle({ mode }: { mode: PracticeSetMode }) {
     <div>
       <h1 className="study-head__title">
         {/* 주제(set.title)는 설명 줄로 — 제목에 붙이면 주제 세 개가 22px 로 두 줄씩 꺾였다 */}
-        {isRetry ? '다시 풀 문제' : set ? `${set.dayLabel} 복습` : '연습장'}
+        {isRetry ? (set?.dayLabel ?? '다시 풀 문제') : set ? `${set.dayLabel} 복습` : '연습장'}
       </h1>
       <p className="study-head__desc">
         {isRetry && set

@@ -16,6 +16,8 @@ export interface TutorTarget {
   /** 문제 셀 — 원래 세트 · 번호. 다시 풀 문제도 원래 자리로 묻는다(힌트 단계 · 대화가 이어지게) */
   setId?: string;
   index?: number;
+  /** 오답노트에서 연 문제 — 'retry:YYYY-MM-DD'. 복습 때 대화와 따로, 그날 새로 시작한다 */
+  thread?: string;
   /** 패널 머리 — 「문제 3 · 맥스 풀링」 「셀 2」 */
   label: string;
   read: () => TutorSnapshot;

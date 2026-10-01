@@ -218,6 +218,13 @@ class PublishLessonNotesTests(SharingTestCase):
 
 
 class SubjectSummaryTests(SharingTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        # 끝난 과목이라고 본다 — 진행 중인 과목을 막는 것은 test_subject_finished 가 본다
+        finished = mock.patch.object(notes, "subject_finished", return_value=True)
+        finished.start()
+        self.addCleanup(finished.stop)
+
     def open_subject(self, who: int) -> dict:
         with self.captureOnCommitCallbacks(execute=True):
             out = notes.start_note(self.users[who], str(self.source_id), "subject", "all")

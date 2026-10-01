@@ -1,4 +1,4 @@
-import { useCallback, useRef, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import type {
   AlertPopup,
@@ -10,7 +10,10 @@ import type {
   AttendanceIssue,
   AttendanceRequestStatus,
   Cohort,
+  CounselNote,
   FormAnswer,
+  Quest,
+  QuestSubmission,
   FormTask,
   MileageProduct,
   MileageTransaction,
@@ -660,15 +663,22 @@ export function reviewSubmission(
   id: string,
   status: SubmissionStatus,
   reviewComment?: string,
+  mileageAmount?: number,
 ): void {
+  // 지급액은 서버가 규칙대로 정한다 — 승인 뒤 bootstrap 을 다시 받으면 채워진다
   mutate((db) => ({
     submissions: db.submissions.map((s) =>
       s.id === id
-        ? { ...s, status, reviewComment, mileageGranted: status === 'approved' ? true : s.mileageGranted }
+        ? {
+            ...s,
+            status,
+            reviewComment,
+            ...(status !== 'approved' ? { mileageGranted: false, mileageAmount: 0 } : {}),
+          }
         : s,
     ),
   }));
-  if (!isTestMode()) void runCommand('reviewRecord', { id, status, reviewComment });
+  if (!isTestMode()) void runCommand('reviewRecord', { id, status, reviewComment, mileageAmount });
 }
 
 // ── 출결 ──────────────────────────────────────────────
@@ -889,26 +899,37 @@ export type AssistantAction =
       endDate?: string | null;
       allStudents: boolean;
       targets: { uid: string; name: string }[];
+      /** 서버가 서명한 제안 — 실행할 때 그대로 돌려준다. 대상은 빼기만 할 수 있다 */
+      signature: string;
+      /** 기수 전체 · 대량 발송을 관리자가 확인했는지 */
+      confirmBulk?: boolean;
     }
-  | { id: string; type: 'create_notice'; title: string; content: string; important: boolean };
+  | { id: string; type: 'create_notice'; title: string; content: string; important: boolean; signature: string };
 
 export interface AssistantTurn {
   role: 'user' | 'assistant';
   content: string;
 }
 
+/** 어시스턴트 확인 카드의 제목 · 내용 최대 글자 수 — 서버(admin_assistant.py)와 같다 */
+export const ASSISTANT_MAX_TITLE_CHARS = 100;
+export const ASSISTANT_MAX_CONTENT_CHARS = 2000;
+/** 이 인원 이상이거나 기수 전체면 실행 전에 확인 체크를 받는다 — 서버와 같다 */
+export const ASSISTANT_BULK_TARGETS = 30;
+
 /**
  * 대화를 보내고 답과 확인 카드(제안)를 받는다. 제안은 executeAssistantAction 을 불러야 반영된다.
- * context 는 이번에 조회한 학생 목록 — 다음 질문 때 그 답 뒤에 붙여 보내야 '아까 그 학생들'이 통한다.
+ * context 는 서버가 서명한 조회 결과 토큰 — 다음 질문 때 그대로 돌려줘야 '아까 그 학생들'이 통한다.
  */
 export async function askAdminAssistant(
   messages: AssistantTurn[],
+  context = '',
 ): Promise<{ reply: string; actions: AssistantAction[]; context: string }> {
   if (isTestMode()) return { reply: '테스트 모드에서는 AI 어시스턴트를 쓸 수 없습니다.', actions: [], context: '' };
   try {
     const { data } = await http.post<{ reply?: string; actions?: AssistantAction[]; context?: string }>(
       '/admin/assistant',
-      { messages, cohortId: apiCohortId() },
+      { messages, context, cohortId: apiCohortId() },
     );
     return { reply: data.reply ?? '', actions: data.actions ?? [], context: data.context ?? '' };
   } catch (error) {
@@ -1732,6 +1753,121 @@ export function useWeeklyYoutube(cohortId: string) {
   });
 }
 
+// ── 정기 상담 (관리자 전용 · bootstrap 밖) ───────────────────────
+
+export type CounselNoteDraft = Pick<
+  CounselNote,
+  'round' | 'counseledOn' | 'category' | 'content' | 'followUp' | 'followUpDone' | 'nextOn'
+>;
+
+const counselKey = ['counsel-notes'] as const;
+
+/** 한 학생의 상담 기록 전체(내용 포함) */
+export function useStudentCounselNotes(uid: string | undefined) {
+  return useQuery({
+    queryKey: [...counselKey, 'student', uid],
+    queryFn: async () =>
+      (await http.get<{ notes: CounselNote[] }>('/counsel-notes', { params: { student: uid } })).data.notes,
+    enabled: !isTestMode() && !!uid,
+  });
+}
+
+/** 기수 전체 상담 요약(내용 제외) — 상담 현황 화면 */
+export function useCohortCounselNotes(cohortId: string) {
+  return useQuery({
+    queryKey: [...counselKey, 'cohort', cohortId],
+    queryFn: async () =>
+      (await http.get<{ notes: CounselNote[] }>('/counsel-notes', { params: { cohort: cohortId } })).data.notes,
+    enabled: !isTestMode() && cohortId !== '',
+  });
+}
+
+async function refreshCounsel(): Promise<void> {
+  await queryClient.invalidateQueries({ queryKey: counselKey });
+}
+
+export async function createCounselNote(uid: string, draft: CounselNoteDraft): Promise<void> {
+  await http.post('/counsel-notes', { uid, ...draft });
+  await refreshCounsel();
+}
+
+export async function updateCounselNote(id: string, change: Partial<CounselNoteDraft>): Promise<void> {
+  await http.patch(`/counsel-notes/${id}`, change);
+  await refreshCounsel();
+}
+
+export async function deleteCounselNote(id: string): Promise<void> {
+  await http.delete(`/counsel-notes/${id}`);
+  await refreshCounsel();
+}
+
+// ── 마일리지 퀘스트 (bootstrap 밖) ───────────────────────────
+
+export type QuestDraft = Pick<
+  Quest,
+  'title' | 'description' | 'reward' | 'evidenceType' | 'approval' | 'maxCompletions' | 'startOn' | 'endOn' | 'published' | 'closed'
+>;
+
+const questKey = ['quests'] as const;
+
+/** 관리자: 기수 퀘스트 + 제출 수. 학생: 공개 퀘스트 + 내 제출 */
+export function useQuests(cohortId: string) {
+  return useQuery({
+    queryKey: [...questKey, 'list', cohortId],
+    queryFn: async () =>
+      (await http.get<{ quests: Quest[]; submissions?: QuestSubmission[] }>('/quests', { params: { cohort: cohortId } }))
+        .data,
+    enabled: !isTestMode() && cohortId !== '',
+  });
+}
+
+export function useQuestSubmissions(cohortId: string, status: string) {
+  return useQuery({
+    queryKey: [...questKey, 'submissions', cohortId, status],
+    queryFn: async () =>
+      (
+        await http.get<{ submissions: QuestSubmission[] }>('/quest-submissions', {
+          params: { cohort: cohortId, status },
+        })
+      ).data.submissions,
+    enabled: !isTestMode() && cohortId !== '',
+  });
+}
+
+/** 지급 · 회수가 일어나면 잔액 · 마일리지 내역(bootstrap)도 다시 받는다 */
+async function refreshQuests(mileageChanged: boolean): Promise<void> {
+  await queryClient.invalidateQueries({ queryKey: questKey });
+  if (mileageChanged) await invalidateBootstrap();
+}
+
+export async function createQuest(cohortId: string, draft: QuestDraft): Promise<void> {
+  await http.post('/quests', { cohortId, ...draft });
+  await refreshQuests(false);
+}
+
+export async function updateQuest(id: string, change: Partial<QuestDraft>): Promise<void> {
+  await http.patch(`/quests/${id}`, change);
+  await refreshQuests(false);
+}
+
+export async function submitQuest(
+  id: string,
+  evidence: { text?: string; link?: string; fileKeys?: string[] },
+): Promise<QuestSubmission> {
+  const { data } = await http.post<{ submission: QuestSubmission }>(`/quests/${id}/submit`, evidence);
+  await refreshQuests(data.submission.grantedAmount > 0);
+  return data.submission;
+}
+
+export async function reviewQuestSubmission(
+  id: string,
+  decision: 'approve' | 'reject' | 'revoke',
+  comment = '',
+): Promise<void> {
+  await http.post(`/quest-submissions/${id}/review`, { decision, comment });
+  await refreshQuests(decision !== 'reject');
+}
+
 /** 관리자 — 공공데이터포털에서 시험 일정을 지금 다시 받는다 */
 export async function syncQualExams(): Promise<Record<string, number>> {
   if (isTestMode()) return {};
@@ -1913,6 +2049,8 @@ export interface TutorQuestion {
   /** 문제 셀 — 원래 세트 · 번호(다시 풀 문제도 원래 자리) */
   setId?: string;
   index?: number;
+  /** 오답노트 대화 — 'retry:YYYY-MM-DD' */
+  thread?: string;
   code: string;
   run: string;
   grade: string;
@@ -1925,21 +2063,26 @@ export async function askTutor(body: TutorQuestion): Promise<TutorReply> {
 }
 
 /** 튜터 창을 다시 열 때 — 지난 대화와 지금 힌트 단계 */
-export async function fetchTutorThread(mode: TutorMode, setId?: string, index?: number): Promise<{ turns: TutorTurn[]; hintLevel: number }> {
-  if (isTestMode()) return demoTutorThread(mode, setId, index);
+export async function fetchTutorThread(
+  mode: TutorMode,
+  setId?: string,
+  index?: number,
+  thread?: string,
+): Promise<{ turns: TutorTurn[]; hintLevel: number }> {
+  if (isTestMode()) return demoTutorThread(mode, setId, index, thread);
   const { data } = await http.get<{ turns: TutorTurn[]; hintLevel: number }>('/practice-tutor', {
-    params: mode === 'problem' ? { mode, setId, index } : { mode },
+    params: mode === 'problem' ? { mode, setId, index, thread } : { mode },
   });
   return data;
 }
 
 /** 튜터 「새 대화」 — 이 문제(또는 일반 셀)의 내 대화를 지운다. 힌트 단계도 처음부터 */
-export async function resetTutorThread(mode: TutorMode, setId?: string, index?: number): Promise<void> {
+export async function resetTutorThread(mode: TutorMode, setId?: string, index?: number, thread?: string): Promise<void> {
   if (isTestMode()) {
-    await demoTutorReset(mode, setId, index);
+    await demoTutorReset(mode, setId, index, thread);
     return;
   }
-  await http.delete('/practice-tutor', { params: mode === 'problem' ? { mode, setId, index } : { mode } });
+  await http.delete('/practice-tutor', { params: mode === 'problem' ? { mode, setId, index, thread } : { mode } });
 }
 
 /** 새 복습 세트가 생겼을 때 — 강사 화면의 신고 · 세트 목록이 새 세트를 보게 */
@@ -2341,6 +2484,44 @@ export function usePracticeSets(cohortId: string): PracticeSet[] {
 
 export function usePracticeSet(id: string | null | undefined): PracticeSet | undefined {
   return useDb((db) => (id ? db.practiceSets.find((s) => s.id === id) : undefined));
+}
+
+const fullSetFlights = new Map<string, Promise<void>>();
+
+/** bootstrap 은 문제 본문을 뺀 세트(partial)를 보낸다 — 본문을 받아 캐시의 세트를 바꾼다. 같은 세트는 한 번만 요청한다 */
+export function loadFullPracticeSets(ids: string[]): Promise<void> {
+  if (isTestMode()) return Promise.resolve();
+  const sets = getBootstrapDb().practiceSets;
+  const unique = [...new Set(ids)];
+  const wanted = unique.filter((id) => sets.find((s) => s.id === id)?.partial && !fullSetFlights.has(id));
+  if (wanted.length > 0) {
+    const request = http
+      .get<{ practiceSets?: PracticeSet[] }>('/practice-sets', { params: { ids: wanted.join(',') } })
+      .then(({ data }) => {
+        const full = new Map((data.practiceSets ?? []).map((s) => [s.id, s]));
+        queryClient.setQueryData<Database>(queryKeys.bootstrap, (prev) =>
+          prev ? { ...prev, practiceSets: prev.practiceSets.map((s) => full.get(s.id) ?? s) } : prev,
+        );
+      })
+      .finally(() => wanted.forEach((id) => fullSetFlights.delete(id)));
+    wanted.forEach((id) => fullSetFlights.set(id, request));
+  }
+  return Promise.all(unique.map((id) => fullSetFlights.get(id)).filter(Boolean)).then(() => undefined);
+}
+
+/** 세트 본문이 다 왔는지 — 연습장처럼 문제 본문이 필요한 화면이 연다. 없는 세트는 기다리지 않는다 */
+export function useFullPracticeSets(ids: string[]): { ready: boolean; failed: boolean } {
+  const key = [...new Set(ids)].sort().join(',');
+  const ready = useDb((db) => key.split(',').every((id) => !id || !db.practiceSets.find((s) => s.id === id)?.partial));
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!key) return;
+    setFailed(false);
+    loadFullPracticeSets(key.split(',')).catch(() => setFailed(true));
+  }, [key]);
+
+  return { ready, failed: failed && !ready };
 }
 
 export function useMyPracticeAttempts(uid: string): PracticeAttempt[] {

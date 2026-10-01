@@ -139,7 +139,12 @@ export function ProjectTeamsPanel({
                   {...dnd.source(s.uid)}
                 >
                   <span className="teams-avatar">{s.displayName.slice(0, 1)}</span>
-                  <span className="teams-pool__name">{s.displayName}</span>
+                  <span className="teams-pool__name">
+                    {s.displayName}
+                    <span className="teams-major" title={s.educationMajor}>
+                      {s.educationMajor ?? '전공 미입력'}
+                    </span>
+                  </span>
                   <button
                     type="button"
                     className="icon-btn"
@@ -212,9 +217,10 @@ export function ProjectTeamsPanel({
                     ) : (
                       <div className="team-card__members">
                         {members.map((m) => (
-                          <span key={m.uid} className="team-chip">
+                          <span key={m.uid} className="team-chip" title={m.educationMajor ?? '전공 미입력'}>
                             <span className="teams-avatar">{m.displayName.slice(0, 1)}</span>
                             {m.displayName}
+                            <span className="teams-major">{m.educationMajor ?? '전공 미입력'}</span>
                             <button
                               type="button"
                               aria-label={`${m.displayName} 빼기`}

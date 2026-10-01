@@ -44,29 +44,67 @@ def _dt(value):
 # ── 기록실 ────────────────────────────────────────────
 
 
+def _as_dict(value) -> dict:
+    """Django 의 psycopg 설정은 날 SQL 의 jsonb 를 글자로 돌려준다."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return {}
+    return value if isinstance(value, dict) else {}
+
+
 def op_review_record(cur, user, p):
-    """승인 · 반려. 승인하면 적립 표시를 남긴다(마일리지 적립은 관리자가 따로 지급한다)."""
-    _require_staff(user)
-    row = resolve_row(cur, "record_submissions", p["id"])
-    if not row:
+    """승인 · 반려 — 관리자만(강사는 마일리지와 무관하다).
+
+    승인하면 마일리지 미션 규칙대로 그 자리에서 지급하고, 승인을 되돌리면 지급한 만큼 회수한다.
+    지급액은 details.mileage_amount 에 남는다. 이 기능 전에 승인된 기록은 0 이라 되돌려도 회수하지 않는다.
+    """
+    from lms.mission_rewards import MISSION_LABELS, mission_reward
+
+    if user.get("role") != "admin":
+        raise PermissionError("admin only")
+    found = resolve_row(cur, "record_submissions", p["id"])
+    if not found:
         raise KeyError("record")
-    if not can_access_cohort(user, row["cohort_id"]):
+    if not can_access_cohort(user, found["cohort_id"]):
         raise PermissionError("cohort")
     status = p.get("status") or "pending"
+    if status not in ("pending", "approved", "rejected"):
+        raise ValueError("status")
+    # 같은 학생의 기록을 동시에 승인해도 단계 · 상한 계산이 어긋나지 않게 학생 단위로 잠근다
+    cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"mission:user:{found['user_id']}"])
+    cur.execute("SELECT * FROM record_submissions WHERE id = %s FOR UPDATE", [found["id"]])
+    row = _one(cur)
+    details = _as_dict(row.get("details"))
+    granted = int(details.get("mileage_amount") or 0)
+    label = MISSION_LABELS.get(row["type"], row["type"])
+    title = row.get("title") or ""
+
+    def write_tx(amount: int, kind: str, reason: str) -> None:
+        cur.execute(
+            """INSERT INTO mileage_transactions (cohort_id, user_id, amount, type, reason, related_id, adjusted_by, created_at)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, now())""",
+            [row["cohort_id"], row["user_id"], amount, kind, reason, f"record:{row['id']}", user["id"]],
+        )
+        cur.execute("UPDATE users SET mileage_balance = mileage_balance + %s WHERE id = %s", [amount, row["user_id"]])
+
+    if status == "approved" and row["status"] != "approved":
+        amount = mission_reward(cur, row, details, p.get("mileageAmount"))
+        if amount > 0:
+            write_tx(amount, "mission", f"마일리지 미션 · {label}: {title}".strip(": "))
+        details = {**details, "mileage_amount": amount}
+    elif status != "approved" and row["status"] == "approved" and granted > 0:
+        write_tx(-granted, "mission_revoke", f"마일리지 미션 승인 취소 · {label}: {title}".strip(": "))
+        details = {**details, "mileage_amount": 0}
+
     cur.execute(
         """UPDATE record_submissions
-           SET status = %s, review_comment = %s, reviewed_by = %s, reviewed_at = now(),
-               mileage_granted = %s
+           SET status = %s, review_comment = %s, reviewed_by = %s, reviewed_at = now(), details = %s
            WHERE id = %s""",
-        [
-            status,
-            p.get("reviewComment") or None,
-            user["id"],
-            bool(row.get("mileage_granted")) or status == "approved",
-            row["id"],
-        ],
+        [status, p.get("reviewComment") or None, user["id"], json.dumps(details), row["id"]],
     )
-    return {"id": str(p["id"])}
+    return {"id": str(p["id"]), "mileageAmount": int(details.get("mileage_amount") or 0)}
 
 
 # ── 성취도 평가 ────────────────────────────────────────

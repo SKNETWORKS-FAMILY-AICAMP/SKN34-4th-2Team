@@ -587,6 +587,9 @@ def run_regroup(store_path: Path, work_dir: Path, as_of: datetime) -> dict[str, 
 
 # 한 밤에 요건을 뽑아 볼 최대 공고 수. 새로 들어오는 경력 공고(연차 빈 것)는 하루 몇백 건이라 넉넉하다
 FILL_REQUIREMENTS_LIMIT = 3000
+# 동시에 보낼 요청 수. 8개면 gpt-6-luna 분당 토큰 한도(20만)에 걸려 2026-09-29 밤 3,000건 중 280건이 429로
+# 실패했다. 4개로 돌린 10-01 재실행은 1,580건 중 2건. 건당 0.85초 → 1.09초(3,000건이면 약 12분 더)
+FILL_REQUIREMENTS_WORKERS = 4
 
 
 def run_fill_requirements(store_path: Path, as_of: datetime, work_dir: Path) -> dict[str, Any]:
@@ -602,7 +605,7 @@ def run_fill_requirements(store_path: Path, as_of: datetime, work_dir: Path) -> 
         report = work_dir / f"{run_stamp(as_of)}_{name}.json"
         command = [
             sys.executable, "-m", "job_matching_bot.fill_requirements", "--store", str(store_path), *extra,
-            "--limit", str(FILL_REQUIREMENTS_LIMIT), "--workers", "8", "--show", "0", "--report", str(report),
+            "--limit", str(FILL_REQUIREMENTS_LIMIT), "--workers", str(FILL_REQUIREMENTS_WORKERS), "--show", "0", "--report", str(report),
         ]
         print("[요건 채우기] " + " ".join(command[2:]), flush=True)
         code = subprocess.run(command, cwd=str(REPO_ROOT)).returncode

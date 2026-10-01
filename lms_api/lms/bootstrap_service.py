@@ -76,9 +76,9 @@ def _query_group(specs: list[tuple[str, tuple[str, list] | Callable]], cur=None)
 def _parallel_queries(cur, specs: dict[str, tuple[str, list] | Callable]) -> dict[str, Any]:
     """Overlap independent RDS round trips with two short-lived read connections."""
     groups: list[list[tuple[str, tuple[str, list] | Callable]]] = [[], [], []]
-    # Practice runs several dependent statements within one task. Account for
-    # that work before distributing the single-query tasks across groups.
-    weights = {"practice": 6, "resumes": 2, "notes": 2, "submissions": 2}
+    # 그룹 안의 단일 쿼리들은 파이프라인으로 왕복 한 번에 간다. practice 는 자기 왕복이 따로 들어
+    # 같은 그룹 쿼리를 앞뒤로 끊으므로 혼자 둔다.
+    weights = {"practice": 100, "resumes": 2, "notes": 2, "submissions": 2}
     loads = [0, 3, 3]  # Worker groups also open an RDS connection.
     for name, spec in sorted(specs.items(), key=lambda item: weights.get(item[0], 1), reverse=True):
         index = min(range(len(groups)), key=lambda group: loads[group])
@@ -94,59 +94,52 @@ def _parallel_queries(cur, specs: dict[str, tuple[str, list] | Callable]) -> dic
 
 def build_bootstrap(user: dict) -> dict:
     is_student = user["role"] == "student"
+    if user["role"] == "admin":
+        visible, visible_args = "TRUE", []
+    elif user["role"] == "instructor":
+        visible, visible_args = "u.cohort_id = %s OR u.id = %s", [user["cohort_id"], user["id"]]
+    else:
+        visible = "u.id = %s OR (u.cohort_id = %s AND u.role IN ('student','instructor'))"
+        visible_args = [user["id"], user["cohort_id"]]
     with connection.cursor() as cur:
-        cur.execute("SELECT id, firebase_uid FROM users")
-        uid_by_pk = {r[0]: r[1] for r in cur.fetchall()}
-        cur.execute("SELECT id, code FROM cohorts")
-        code_by_pk = {r[0]: r[1] for r in cur.fetchall()}
-        if user["role"] == "admin":
-            cur.execute(
-                """SELECT u.*, c.code AS cohort_code, c.name AS cohort_name
-                   FROM users u LEFT JOIN cohorts c ON c.id = u.cohort_id"""
-            )
-        elif user["role"] == "instructor":
-            cur.execute(
-                """SELECT u.*, c.code AS cohort_code, c.name AS cohort_name
-                   FROM users u LEFT JOIN cohorts c ON c.id = u.cohort_id
-                   WHERE u.cohort_id = %s OR u.id = %s""",
-                [user["cohort_id"], user["id"]],
-            )
-        else:
-            cur.execute(
-                """SELECT u.*, c.code AS cohort_code, c.name AS cohort_name
-                   FROM users u LEFT JOIN cohorts c ON c.id = u.cohort_id
-                   WHERE u.id = %s OR (u.cohort_id = %s AND u.role IN ('student','instructor'))""",
-                [user["id"], user["cohort_id"]],
-            )
-        users = _dicts(cur)
-        user_ids = [row["id"] for row in users] or [-1]
-        cur.execute(
-            """SELECT us.user_id, s.canonical_name
-               FROM user_skills us JOIN skills s ON s.id = us.skill_id
-               WHERE us.user_id = ANY(%s) ORDER BY s.canonical_name""",
-            [user_ids],
-        )
+        # 서로 기다릴 필요가 없는 첫 조회들 — 원격 DB 왕복 한 번에 보낸다
+        first = _query_group([
+            ("uids", ("SELECT id, firebase_uid FROM users", [])),
+            ("codes", ("SELECT id, code FROM cohorts", [])),
+            ("users", (
+                f"""SELECT u.*, c.code AS cohort_code, c.name AS cohort_name
+                    FROM users u LEFT JOIN cohorts c ON c.id = u.cohort_id WHERE {visible}""",
+                visible_args,
+            )),
+            ("skills", (
+                f"""SELECT us.user_id, s.canonical_name
+                    FROM user_skills us JOIN skills s ON s.id = us.skill_id
+                    JOIN users u ON u.id = us.user_id
+                    WHERE {visible} ORDER BY s.canonical_name""",
+                visible_args,
+            )),
+            ("preferences", (
+                f"""SELECT p.user_id, p.preferences FROM user_job_preferences p
+                    JOIN users u ON u.id = p.user_id WHERE {visible}""",
+                visible_args,
+            )),
+            ("cohorts", (
+                ("SELECT * FROM cohorts", []) if user["role"] == "admin"
+                else ("SELECT * FROM cohorts WHERE id = %s", [user["cohort_id"]])
+            )),
+        ], cur)
+        uid_by_pk = {r["id"]: r["firebase_uid"] for r in first["uids"]}
+        code_by_pk = {r["id"]: r["code"] for r in first["codes"]}
+        users = first["users"]
         skills_by_user = {}
-        for user_id, skill_name in cur.fetchall():
-            skills_by_user.setdefault(user_id, []).append(skill_name)
-        cur.execute(
-            "SELECT user_id, preferences FROM user_job_preferences WHERE user_id = ANY(%s)",
-            [user_ids],
-        )
-        preferences_by_user = dict(cur.fetchall())
+        for row in first["skills"]:
+            skills_by_user.setdefault(row["user_id"], []).append(row["canonical_name"])
+        preferences_by_user = {r["user_id"]: r["preferences"] for r in first["preferences"]}
         for row in users:
             row["skills"] = skills_by_user.get(row["id"], [])
             row["job_preferences"] = preferences_by_user.get(row["id"], {})
-        if user["role"] == "admin":
-            cur.execute("SELECT * FROM cohorts")
-        else:
-            cur.execute("SELECT * FROM cohorts WHERE id = %s", [user["cohort_id"]])
-        cohorts = _dicts(cur)
+        cohorts = first["cohorts"]
         cohort_ids = [c["id"] for c in cohorts] or [-1]
-
-        def q(sql, args=None):
-            cur.execute(sql, args or [])
-            return _dicts(cur)
 
         # These lookups only depend on the authenticated user and visible cohorts.
         # Execute at most three groups concurrently; each worker owns its cursor.
@@ -205,6 +198,11 @@ def build_bootstrap(user: dict) -> dict:
                 "SELECT * FROM purchase_requests WHERE cohort_id = ANY(%s) AND (%s = false OR user_id = %s)",
                 private_filter,
             ),
+            "purchase_items": (
+                """SELECT i.* FROM purchase_request_items i JOIN purchase_requests p ON p.id = i.request_id
+                   WHERE p.cohort_id = ANY(%s) AND (%s = false OR p.user_id = %s)""",
+                private_filter,
+            ),
             "forms": (
                 """SELECT DISTINCT ON (st.id) st.*, stc.cohort_id, st.external_url AS form_url,
                           st.guide_url AS notion_guide_url
@@ -224,6 +222,11 @@ def build_bootstrap(user: dict) -> dict:
                 [user["id"]],
             ),
             "sheets": ("SELECT * FROM curriculum_sheets WHERE cohort_id = ANY(%s)", cohort_filter),
+            "curriculum_rows": (
+                """SELECT r.* FROM curriculum_rows r JOIN curriculum_sheets s ON s.id = r.sheet_id
+                   WHERE s.cohort_id = ANY(%s) ORDER BY r."order" """,
+                cohort_filter,
+            ),
             "mileage_settings": ("SELECT * FROM mileage_settings WHERE cohort_id = ANY(%s)", cohort_filter),
             "cache": ("SELECT * FROM system_cache WHERE key LIKE 'qualExam%%'", []),
             "rooms": (
@@ -231,6 +234,11 @@ def build_bootstrap(user: dict) -> dict:
                 [cohort_ids, is_student],
             ),
             "teams": ("SELECT * FROM project_teams WHERE cohort_id = ANY(%s)", cohort_filter),
+            "members": (
+                """SELECT m.* FROM project_team_members m JOIN project_teams t ON t.id = m.team_id
+                   WHERE t.cohort_id = ANY(%s)""",
+                cohort_filter,
+            ),
             "pdfs": ("SELECT * FROM curriculum_pdfs WHERE cohort_id = ANY(%s)", cohort_filter),
             "intakes": (
                 """SELECT si.* FROM student_intakes si JOIN users u ON u.id = si.user_id
@@ -255,10 +263,17 @@ def build_bootstrap(user: dict) -> dict:
                 private_filter,
             ),
             "practice": lambda practice_cur: practice_snapshot(
-                practice_cur, user, [code_by_pk[pk] for pk in cohort_ids if pk in code_by_pk],
+                practice_cur, user, [code_by_pk[pk] for pk in cohort_ids if pk in code_by_pk], light=True,
             ),
             "assess_subs": (
                 """SELECT s.* FROM assessment_submissions s
+                   JOIN assessments a ON a.id = s.assessment_id
+                   WHERE a.cohort_id = ANY(%s) AND (%s = false OR s.user_id = %s)""",
+                private_filter,
+            ),
+            "assess_answers": (
+                """SELECT ans.* FROM assessment_answers ans
+                   JOIN assessment_submissions s ON s.id = ans.submission_id
                    JOIN assessments a ON a.id = s.assessment_id
                    WHERE a.cohort_id = ANY(%s) AND (%s = false OR s.user_id = %s)""",
                 private_filter,
@@ -271,7 +286,13 @@ def build_bootstrap(user: dict) -> dict:
                    ORDER BY sn.created_at DESC NULLS LAST""",
                 cohort_filter,
             )
-            specs["logs"] = ("SELECT * FROM ai_generation_logs WHERE cohort_id = ANY(%s)", cohort_filter)
+            specs["logs"] = (
+                # AI 품질 화면은 건수 · 성공률 · 지연만 본다. details(대화 · 도구 기록)는 크고 쓰지 않는다
+                """SELECT id, legacy_id, type, cohort_id, created_by, prompt_version, model, status,
+                          latency_ms, created_at
+                   FROM ai_generation_logs WHERE cohort_id = ANY(%s)""",
+                cohort_filter,
+            )
         if not is_student:
             specs["seat_presences"] = ("SELECT * FROM seat_presences WHERE cohort_id = ANY(%s)", cohort_filter)
             specs["presence_checks"] = (
@@ -362,10 +383,7 @@ def build_bootstrap(user: dict) -> dict:
         products = fetched["products"]
         txs = fetched["txs"]
         purchases = fetched["purchases"]
-        purchase_items = q(
-            "SELECT * FROM purchase_request_items WHERE request_id = ANY(%s)",
-            [[row["id"] for row in purchases] or [-1]],
-        )
+        purchase_items = fetched["purchase_items"]
         forms = fetched["forms"]
         inflearn = fetched["inflearn"]
         youtube = fetched["youtube"]
@@ -374,19 +392,13 @@ def build_bootstrap(user: dict) -> dict:
         for note in notes:
             note["source_id"] = note.pop("source_key")
         sheets = fetched["sheets"]
-        curriculum_rows = q(
-            'SELECT * FROM curriculum_rows WHERE sheet_id = ANY(%s) ORDER BY "order"',
-            [[row["id"] for row in sheets] or [-1]],
-        )
+        curriculum_rows = fetched["curriculum_rows"]
         mileage_settings = fetched["mileage_settings"]
         cache = fetched["cache"]
         rooms = fetched["rooms"]
         seating_view = seating_payload(rooms, code_by_pk)
         teams = fetched["teams"]
-        members = q(
-            "SELECT * FROM project_team_members WHERE team_id = ANY(%s)",
-            [[row["id"] for row in teams] or [-1]],
-        )
+        members = fetched["members"]
         pdfs = fetched["pdfs"]
         intakes = fetched["intakes"]
         cart = fetched["cart"]
@@ -399,10 +411,7 @@ def build_bootstrap(user: dict) -> dict:
         form_responses = fetched["form_responses"]
         practice = fetched["practice"]
         assess_subs = fetched["assess_subs"]
-        assess_answers = q(
-            "SELECT * FROM assessment_answers WHERE submission_id = ANY(%s)",
-            [[row["id"] for row in assess_subs] or [-1]],
-        )
+        assess_answers = fetched["assess_answers"]
         logs = fetched.get("logs", [])
         published = None
         seating = None

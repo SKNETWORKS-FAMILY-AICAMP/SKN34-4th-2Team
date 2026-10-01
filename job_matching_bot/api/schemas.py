@@ -355,6 +355,14 @@ class JobChatRequest(StrictModel):
         max_length=3000,
         description="같은 조건으로 이미 보여 준 공고 id 전부. '이거 말고'를 거듭할 때 뺀다",
     )
+    # 직전 검색 답의 `requirement_query`. 뜻으로 찾은 답("돈 다루는 일")은 조건에 남는 것이
+    # 없어, "더 보여줘"만 보고는 무엇을 찾던 중이었는지 되살리지 못했다. `show_more`일 때 쓴다.
+    requirement_query: str = Field(
+        default="", max_length=1000, description="직전 검색 답이 뜻으로 찾을 때 쓴 문장. 받은 그대로 되돌려 보낸다"
+    )
+    prefer_roles: list[str] = Field(
+        default_factory=list, max_length=20, description="직전 검색 답이 앞에 세운 직무. 받은 그대로 되돌려 보낸다"
+    )
     # 공고를 놓고 물을 때 "나한테 맞아?"는 이력서를 봐야 답할 수 있다. 없으면 서버는
     # 공고만 읽고 답하므로, 앱은 이력서 화면에서 물을 때 평문을 함께 보낸다.
     resume_text: str | None = Field(default=None, max_length=50_000)
@@ -392,12 +400,31 @@ class JobChatResponse(StrictModel):
     suggestions: list[str] = Field(
         default_factory=list, description="다음에 더 좁힐 거리. 그대로 눌러 보낼 수 있는 말"
     )
+    # 검색 답을 이어 볼 거리. 앱이 받아 두었다가 「더 보기」(`/api/v1/jobs/chat/more`)와
+    # 다음 말("더 보여줘")에 그대로 되돌려 보낸다. 서버는 대화를 저장하지 않는다.
+    requirement_query: str = Field(default="", description="뜻으로 찾을 때 쓴 문장")
+    prefer_roles: list[str] = Field(default_factory=list, description="앞에 세운 직무. 「더 보기」도 같은 순서로")
+    has_more: bool = Field(default=False, description="같은 조건으로 더 보여 줄 공고가 있나")
     prompt_version: str = ""
     model: str = ""
     reasoning_effort: str = ""
     # 지난 단계별 시간(ms). 갈래마다 지나는 단계가 달라 열쇠가 다르다.
     # route·store·search·meaning·stats·liveness·answer 중 지난 것과 total.
     timings_ms: dict[str, int] = Field(default_factory=dict)
+
+
+class JobChatMoreRequest(StrictModel):
+    """코치 답 아래 「더 보기」. 같은 조건으로 다음 공고를 준다. LLM을 부르지 않는다.
+
+    "더 보여줘"를 말로 보내면 말을 해석하고 답을 다시 써 몇 초가 걸리고, 가끔 새 검색으로
+    알아들었다. 조건 · 뜻 문장 · 앞에 세운 직무는 직전 답이 준 그대로 받는다.
+    """
+
+    filters: ChatFilters
+    requirement_query: str = Field(default="", max_length=1000)
+    prefer_roles: list[str] = Field(default_factory=list, max_length=20)
+    seen_job_ids: list[str] = Field(default_factory=list, max_length=3000)
+    top_k: int = Field(default=5, ge=1, le=20)
 
 
 class JobSearchRequest(StrictModel):

@@ -2588,8 +2588,21 @@ html {
 
 .teams-pool__name {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
   font-size: 13px;
   font-weight: 600;
+}
+
+.teams-major {
+  max-width: 14em;
+  overflow: hidden;
+  color: var(--text-hint);
+  font-size: 11px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .teams-pool__item .icon-btn {
@@ -3289,6 +3302,187 @@ html {
   font-size: 12px;
 }
 
+.quest__pad {
+  padding: 16px;
+}
+
+.quest-student {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+.quest-student__summary {
+  margin: 0;
+  font-size: 14px;
+}
+
+.quest-student__flash {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--success, #16a34a) 12%, transparent);
+  font-size: 14px;
+}
+
+.quest-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quest-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 14px;
+}
+
+.quest-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.quest-card__reward {
+  color: var(--primary);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.quest-card__desc {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.quest-card__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.quest-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+}
+
+.quest-files {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.quest-review {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.quest-review__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quest-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 320px;
+  font-size: 13px;
+}
+
+.quest-evidence__text {
+  margin: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  white-space: pre-wrap;
+}
+
+.quest-evidence a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.counsel__major {
+  margin: 0 0 12px;
+}
+
+.counsel__progress {
+  align-self: center;
+  font-size: 14px;
+}
+
+.counsel__pad {
+  padding: 16px;
+}
+
+.counsel__ellipsis {
+  display: inline-block;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.counsel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.counsel-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+}
+
+.counsel-item__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.counsel-item__content {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.counsel-item__done {
+  color: var(--text-hint);
+  text-decoration: line-through;
+}
+
+.people-row__major {
+  overflow: hidden;
+  color: var(--text-hint);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .people-row__chip {
   padding: 4px 10px;
   border-radius: 999px;
@@ -3690,6 +3884,10 @@ html {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.mypref__add {
+  margin-top: 8px;
 }
 
 /* ── 자격 시험 일정 ───────────────────────────────────── */
@@ -4328,6 +4526,46 @@ html {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+/* 제목 · 진행 막대 · 도구 줄 — 넓은 화면에서는 스크롤해도 상단 막대(70) 밑에 붙는다.
+   붙어 있는 동안(useStickyTop 의 --stuck)은 설명 줄을 접어 셀 자리를 덜 가린다.
+   좁은 화면은 상단 막대가 숨었다 나왔다 해서 함께 스크롤한다 */
+.py-top {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+@media (min-width: 901px) {
+  .py-top {
+    position: sticky;
+    top: 70px;
+    z-index: 15;
+    /* 뒤로 지나가는 셀을 가린다. 아래 여백은 바탕만 늘리고 셀과의 간격은 그대로 */
+    padding-bottom: 12px;
+    margin-bottom: -12px;
+    background: var(--background);
+  }
+
+  /* 셀로 스크롤해 가면(문제로 바로 가기 · 다음 문제) 붙어 있는 머리 밑에 선다 */
+  .py-playground [data-cell-id] {
+    scroll-margin-top: calc(70px + var(--py-top-h, 0px) + 12px);
+  }
+}
+
+.py-top--stuck {
+  gap: 10px;
+  padding-top: 8px;
+  box-shadow: 0 1px 0 var(--border), 0 10px 16px -12px var(--shadow);
+}
+
+.py-top--stuck .study-head__desc {
+  display: none;
+}
+
+.py-top--stuck .study-head__title {
+  font-size: 18px;
 }
 
 .py-toolbar__run {
@@ -8012,6 +8250,29 @@ a.coach-ask__card-title:hover {
   background: color-mix(in srgb, var(--primary) 14%, var(--surface));
 }
 
+/* 검색 답 아래 「공고 더 보기」 — 같은 조건으로 다음 공고를 카드 밑에 잇는다 */
+.coach-ask__load-more {
+  align-self: stretch;
+  padding: 7px 8px;
+  border: 1px dashed color-mix(in srgb, var(--primary) 40%, var(--border));
+  border-radius: 8px;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.coach-ask__load-more:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+}
+
+.coach-ask__load-more:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .coach-ask__card-ask {
   padding: 2px 4px;
   border: 0;
@@ -9458,18 +9719,30 @@ a.coach-ask__card-title:hover {
   padding: 10px 16px;
 }
 
-/* 웹 실습 — 왼쪽 HTML · CSS 편집기, 오른쪽 미리보기. 좁으면 위아래로 */
+/* 웹 실습 — 셀이 넓으면 왼쪽 편집기(넓게) · 오른쪽 미리보기, 좁으면(튜터가 열린 보통 화면) 편집기를 셀 폭 그대로 쓰고
+   미리보기를 아래에. 예전엔 늘 반반이라 튜터가 열리면 편집기가 380px 안팎으로 좁았다 */
 .pb-web {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  container-type: inline-size;
   padding: 0 16px;
+}
+
+.pb-web__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+/* 나란히 두어도 편집기가 650px 넘게 남을 때만 — 900 에선 543px 로 HTML 한 줄이 잘렸다 */
+@container (min-width: 1100px) {
+  .pb-web__grid {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
 }
 
 .pb-web__preview {
   display: flex;
   flex-direction: column;
-  min-height: 240px;
+  min-height: 280px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -9486,15 +9759,9 @@ a.coach-ask__card-title:hover {
 .pb-web__preview iframe {
   flex: 1;
   width: 100%;
-  min-height: 210px;
+  min-height: 250px;
   border: 0;
   background: #ffffff;
-}
-
-@media (max-width: 900px) {
-  .pb-web {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .pb__choices .pb__actions {
@@ -10646,6 +10913,163 @@ a.coach-ask__card-title:hover {
   align-items: center;
   gap: 6px;
   padding: 4px 16px 12px 42px;
+}
+
+/* 오답노트(학습실 › 오답노트) — 공부방 과목 목록과 같은 틀. 날짜 한 칸 = 머리 + 문제 줄 */
+.wrong-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.wrong-summary__solved {
+  background: color-mix(in srgb, var(--success) 14%, var(--surface));
+  color: var(--success);
+}
+
+.wrong-summary__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.wrong-days {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wrong-day {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.wrong-day__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 12px 16px;
+  background: color-mix(in srgb, var(--warning) 6%, var(--surface));
+  border-bottom: 1px solid var(--divider);
+}
+
+.wrong-day__date {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--warning);
+  font-variant-numeric: tabular-nums;
+}
+
+.wrong-day__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wrong-day__count {
+  display: inline-flex;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.wrong-day__wrong {
+  font-weight: 600;
+  color: var(--warning);
+}
+
+.wrong-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.wrong-item {
+  display: grid;
+  grid-template-columns: 18px 58px 110px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.wrong-item:hover {
+  background: var(--surface-variant);
+}
+
+.wrong-item:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.wrong-item__mark {
+  color: var(--warning);
+}
+
+.wrong-item--solved .wrong-item__mark {
+  color: var(--success);
+}
+
+.wrong-item--solved .wrong-item__topic {
+  color: var(--text-secondary);
+}
+
+.wrong-item__no {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.wrong-item__kind {
+  justify-self: start;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--surface-variant);
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.wrong-item__topic {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wrong-item__meta {
+  font-size: 12.5px;
+  color: var(--text-hint);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 720px) {
+  .wrong-item {
+    grid-template-columns: 18px auto minmax(0, 1fr);
+    grid-template-areas:
+      'mark no kind'
+      'mark topic topic'
+      'mark meta meta';
+    gap: 2px 8px;
+  }
+
+  .wrong-item__mark { grid-area: mark; align-self: start; margin-top: 2px; }
+  .wrong-item__no { grid-area: no; }
+  .wrong-item__kind { grid-area: kind; }
+  .wrong-item__topic { grid-area: topic; white-space: normal; }
+  .wrong-item__meta { grid-area: meta; }
 }
 
 @media (max-width: 720px) {

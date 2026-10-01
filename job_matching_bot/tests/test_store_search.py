@@ -69,7 +69,7 @@ class StoreSearchTest(unittest.TestCase):
                 region="서울 금천구",
                 career_type="ENTRY",
                 min_career_years=None,
-                employment_type="계약직",
+                employment_type="인턴",
                 deadline="2026-09-08",
                 status="OPEN",
             ),
@@ -234,6 +234,20 @@ class StoreSearchTest(unittest.TestCase):
         self.assertIn("H3", ids)
         self.assertEqual(len(ids), result.total)
 
+    def test_training_programs_are_not_listed(self):
+        """교육 과정 모집(「6기」 · 부트캠프)은 채용이 아니다. 채용이 적힌 기수 공고는 남긴다."""
+        self._add(
+            self._job("T1", title="[IBM] Cloud Native Dev base AI agent 6기", company="가"),
+            self._job("T2", title="백엔드 부트캠프 교육생 모집", company="나"),
+            self._job("T3", title="채용연계형 백엔드 아카데미 모집", company="다"),
+            self._job("T4", title="백엔드 개발 1기 신입사원 공개채용", company="라"),
+        )
+        found = {job.job_id for job in self.find(roles=["백엔드"]).jobs}
+        self.assertNotIn("T1", found)
+        self.assertNotIn("T2", found)
+        self.assertIn("T3", found)
+        self.assertIn("T4", found)
+
     def test_excluded_company_type_is_left_out(self):
         """'스타트업은 빼고'는 기업 정보 칸에 스타트업이 있는 공고를 뺀다."""
         self._add(
@@ -283,7 +297,36 @@ class StoreSearchTest(unittest.TestCase):
         self.assertEqual(["B"], [job.job_id for job in result.jobs])
 
     def test_employment_type_narrows(self):
-        self.assertEqual(["C"], [job.job_id for job in self.find(employment_types=["계약직"]).jobs])
+        self.assertEqual(["C"], [job.job_id for job in self.find(employment_types=["인턴"]).jobs])
+
+    def _add_non_regular(self):
+        self._add(
+            self._job("K1", title="전산개발 사원", company="가", employment_type="계약직"),
+            self._job("K2", title="[KD운송그룹] 전산개발 계약직 사원 모집", company="나", employment_type="정규직"),
+            self._job("K3", title="[SK하이닉스 파견] AI 개발자", company="다", employment_type="정규직"),
+            self._job("K4", title="웹 개발 보조", company="라", employment_type="파트타임"),
+            self._job("K5", title="웹 개발자 아르바이트 모집", company="마", employment_type="미기재"),
+            self._job("K6", title="SW검증 개발 (정규직/계약직)", company="바", employment_type="정규직"),
+            self._job("K7", title="[잡코리아/알바몬] 웹 개발 신입", company="사", employment_type="정규직"),
+        )
+
+    def test_contract_dispatch_and_part_time_are_hidden_unless_asked(self):
+        """「대기업 신입」에 「전산개발 계약직 사원 모집」이 나갔다. 계약직 · 파견 · 알바는 묻지 않으면 뺀다.
+
+        파견은 고용형태 칸에 없어 제목으로, 「정규직/계약직」은 정규직으로도 뽑아 두고, 알바몬은 알바가 아니다.
+        """
+        self._add_non_regular()
+        found = {job.job_id for job in self.find(roles=["개발"]).jobs}
+        self.assertEqual({"K6", "K7"}, found & {f"K{i}" for i in range(1, 8)})
+
+    def test_asking_for_one_kind_brings_only_that_kind_back(self):
+        self._add_non_regular()
+        ks = {f"K{i}" for i in range(1, 8)}
+        self.assertEqual({"K1", "K2"}, {j.job_id for j in self.find(roles=["개발"], employment_types=["계약직"]).jobs} & ks)
+        self.assertEqual({"K3"}, {j.job_id for j in self.find(roles=["개발"], employment_types=["파견"]).jobs} & ks)
+        self.assertEqual({"K4", "K5"}, {j.job_id for j in self.find(roles=["개발"], employment_types=["알바"]).jobs} & ks)
+        # 키워드로 말해도 그 갈래는 빼지 않는다
+        self.assertEqual({"K3"}, {j.job_id for j in self.find(roles=["개발"], keywords=["파견"]).jobs} & ks)
 
     def test_deadline_soon_keeps_only_dated_and_near(self):
         """마감 임박은 날짜가 없는 상시 공고를 빼야 한다. 급한 것만 보려는 요청이다."""
@@ -447,7 +490,7 @@ class ListingOnlySearchTest(unittest.TestCase):
                  "condition_text": "서울 마포구 신입 · 정규직 고졸↑"},
                 {"source_job_id": "3", "company": "부산회사", "title": "영업관리",
                  "job_sectors": ["영업관리"], "source_url": "https://x/3",
-                 "condition_text": "부산 해운대구 경력 3년↑ · 계약직 학력무관"},
+                 "condition_text": "부산 해운대구 경력 3년↑ · 정규직 학력무관"},
             ], NOW, source="SARAMIN_POC")
 
     def tearDown(self):

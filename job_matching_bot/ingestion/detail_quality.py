@@ -14,6 +14,11 @@ REQUIREMENT_MARKERS = (
 )
 REQUIREMENT_MIN_CHARS = 300
 
+# 공고 대신 받은 차단 안내 페이지의 문구. 2026-09-30 01시 잡코리아에서 370건이 이 페이지를 공고
+# 본문으로 저장했다(UTF-8 을 Latin-1 로 읽어 한글은 깨졌고 메일 주소만 온전했다).
+# 수집기의 차단 표식(「접근이 제한」 등)은 보안 직무 공고 글에도 나올 수 있어 저장된 본문에는 쓰지 않는다.
+BLOCK_PAGE_MARKERS = ("helpdesk@albamon.com", "접속이 일시적으로 제한")
+
 
 def has_requirement_text(body_text: str) -> bool:
     """요구역량을 본문 텍스트로 검증할 수 있는지 판정한다."""
@@ -23,6 +28,12 @@ def has_requirement_text(body_text: str) -> bool:
     return len(text) >= REQUIREMENT_MIN_CHARS and any(
         marker in text for marker in REQUIREMENT_MARKERS
     )
+
+
+def is_block_page(body_text: str) -> bool:
+    """본문 자리에 저장된 것이 공고가 아니라 차단 안내 페이지인가."""
+    text = str(body_text or "")
+    return any(marker in text for marker in BLOCK_PAGE_MARKERS)
 
 
 def is_image_only_detail(body_text: str, stored_image_flag: object) -> bool:

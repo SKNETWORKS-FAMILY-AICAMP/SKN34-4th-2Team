@@ -131,6 +131,73 @@ describe('코치에게 묻기', () => {
     );
   });
 
+  it('검색 답 아래 「공고 더 보기」는 같은 조건으로 다음 공고를 그 답의 카드 밑에 잇는다', async () => {
+    const more = { requirement_query: '[주요업무] 전표 처리', prefer_roles: ['백엔드'] };
+    post.mockResolvedValueOnce({
+      data: { mode: '검색', reply: '찾았어요', filters: { regions: ['서울'] }, jobs: [job('J1', 'A'), job('J2', 'B')], suggestions: [], has_more: true, ...more },
+    });
+    await click('서울 백엔드 신입');
+    expect(host.querySelectorAll('.coach-ask__card')).toHaveLength(2);
+
+    post.mockResolvedValueOnce({ data: { reply: '', filters: { regions: ['서울'] }, jobs: [job('J3', 'C')], has_more: false, ...more } });
+    const scrolledTo: Element[] = [];
+    Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
+      scrolledTo.push(this);
+    };
+    await click('공고 더 보기');
+    // 말이 늘지 않아도 새로 붙은 첫 카드로 내려간다
+    expect(scrolledTo.map((el) => (el as HTMLElement).dataset.jobId)).toEqual(['J3']);
+
+    // 직전 답이 준 조건 · 뜻 문장 · 앞에 세운 직무를 그대로, 본 공고는 빼 달라고
+    expect(post).toHaveBeenLastCalledWith('/jobs/chat/more', {
+      filters: { regions: ['서울'] },
+      requirementQuery: '[주요업무] 전표 처리',
+      preferRoles: ['백엔드'],
+      seenJobIds: ['J1', 'J2'],
+    });
+    expect(host.querySelectorAll('.coach-ask__card')).toHaveLength(3);
+    expect(button('공고 더 보기')).toBeUndefined(); // 남은 것이 없다
+
+    // 다음 말("더 보여줘")에도 이어 볼 거리와 늘어난 목록이 실려 간다
+    post.mockResolvedValueOnce({ data: { mode: '안내', reply: '네', filters: { regions: ['서울'] }, jobs: [], suggestions: [] } });
+    await act(async () => {
+      const input = host.querySelector('input')!;
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setValue.call(input, '더 보여줘');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click('보내기');
+    expect(post).toHaveBeenLastCalledWith(
+      '/jobs/chat',
+      expect.objectContaining({
+        requirementQuery: '[주요업무] 전표 처리',
+        preferRoles: ['백엔드'],
+        seenJobIds: ['J1', 'J2', 'J3'],
+        lastJobIds: ['J1', 'J2', 'J3'],
+      }),
+    );
+  });
+
+  it('「공고 더 보기」를 불러오지 못하면 알리고 단추를 남긴다', async () => {
+    post.mockResolvedValueOnce({
+      data: { mode: '검색', reply: '찾았어요', filters: { regions: ['서울'] }, jobs: [job('J1', 'A')], suggestions: [], has_more: true },
+    });
+    await click('서울 백엔드 신입');
+    post.mockRejectedValueOnce(new Error('down'));
+    await click('공고 더 보기');
+
+    expect(host.textContent).toContain('공고를 더 불러오지 못했어요');
+    expect(button('공고 더 보기')).toBeDefined();
+  });
+
+  it('남은 공고가 없다는 검색 답에는 「공고 더 보기」를 두지 않는다', async () => {
+    post.mockResolvedValueOnce({
+      data: { mode: '검색', reply: '찾았어요', filters: {}, jobs: [job('J1', 'A')], suggestions: [], has_more: false },
+    });
+    await click('서울 백엔드 신입');
+    expect(button('공고 더 보기')).toBeUndefined();
+  });
+
   it('「이 공고 물어보기」를 누르면 그 공고를 놓고 묻고, 띠의 ✕로 그만둔다', async () => {
     post.mockResolvedValueOnce({ data: { mode: '검색', reply: '찾았어요', filters: {}, jobs: [job('J1', '백엔드 엔지니어')], suggestions: [] } });
     await click('서울 백엔드 신입');

@@ -128,10 +128,34 @@ class StoreRunTest(unittest.TestCase):
         def broken(values):
             raise RuntimeError("LLM 실패")
 
-        summary = fill_requirements.run(self.path, limit=10, extractor=broken)
+        summary = fill_requirements.run(self.path, limit=10, extractor=broken, retry_pause=0)
         self.assertEqual(1, summary["failed"])
+        self.assertEqual(1, summary["retried"])
+        self.assertEqual({"RuntimeError": 1}, summary["fail_reasons"])
         with SqliteJobStore(self.path) as store:
             self.assertEqual(1, len(store.requirement_targets(10)), "표시를 안 남겨 다음에 다시 본다")
+
+    def test_rate_limited_extraction_is_retried_once(self):
+        """429 로 실패한 공고는 잠깐 쉬고 그 자리에서 한 번 더 본다."""
+        calls = []
+
+        def flaky(values):
+            calls.append(values["title"])
+            if len(calls) == 1:
+                raise RuntimeError("Error code: 429 - Rate limit reached for gpt-6-luna")
+            return ext()
+
+        summary = fill_requirements.run(self.path, limit=10, extractor=flaky, retry_pause=0)
+        self.assertEqual(2, len(calls))
+        self.assertEqual(1, summary["analyzed"])
+        self.assertNotIn("failed", summary)
+        with SqliteJobStore(self.path) as store:
+            self.assertEqual(4, store.get("MOCK-GAP").job.min_career_years)
+
+    def test_failure_reason_keeps_error_kind_and_code(self):
+        reason = fill_requirements._reason(
+            "OpenAIRateLimitError: Error code: 429 - {'error': {'message': 'Rate limit reached'}}")
+        self.assertEqual("OpenAIRateLimitError 429", reason)
 
 
 if __name__ == "__main__":

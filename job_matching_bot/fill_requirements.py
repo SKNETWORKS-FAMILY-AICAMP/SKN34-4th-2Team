@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from collections import Counter
@@ -24,11 +25,13 @@ from job_matching_bot.ingestion.job_store import open_store
 
 # 한 번에 분석하고 쓰는 묶음 크기
 CHUNK = 200
+# 실패한 공고를 다시 보기 전에 쉬는 시간. 분당 토큰 한도가 1분 단위로 풀린다
+RETRY_PAUSE_SECONDS = 60.0
 
 
 def run(store_path: Path, *, limit: int, workers: int = 8, dry_run: bool = False,
         job_ids: list[str] | None = None, extractor=None, show: int = 0, min_days_left: int | None = None,
-        entry_check: bool = False) -> dict[str, Any]:
+        entry_check: bool = False, retry_pause: float | None = RETRY_PAUSE_SECONDS) -> dict[str, Any]:
     started = time.monotonic()
     store = open_store(store_path)
     counts: Counter = Counter()
@@ -39,10 +42,13 @@ def run(store_path: Path, *, limit: int, workers: int = 8, dry_run: bool = False
         jobs = [r.job for r in targets]
         # 조금씩 분석하고 바로 쓴다 — 한꺼번에 뽑고 끝에 쓰면 중간에 끊길 때 그때까지 쓴 비용이 날아간다.
         # 쓴 공고는 표시가 남아 다시 돌리면 건너뛰므로 이어서 할 수 있다.
-        for start in range(0, len(jobs), CHUNK):
-            for job, fill, error in req.analyze(jobs[start:start + CHUNK], workers=workers, extractor=extractor):
+        failed: list = []
+
+        def handle(results) -> None:
+            nonlocal shown
+            for job, fill, error in results:
                 if fill is None:
-                    counts["failed"] += 1
+                    failed.append((job, error))
                     continue
                 counts["analyzed"] += 1
                 if fill.accepts_entry and "career_type" in fill.values:
@@ -57,13 +63,36 @@ def run(store_path: Path, *, limit: int, workers: int = 8, dry_run: bool = False
                     print(f"  {job.job_id} {job.company[:14]} | {job.title[:30]} → {fill.values}")
                 if not dry_run:
                     store.fill_requirements(job.job_id, fill.values, req.marker(fill))
+
+        for start in range(0, len(jobs), CHUNK):
+            handle(req.analyze(jobs[start:start + CHUNK], workers=workers, extractor=extractor))
             if len(jobs) > CHUNK:
                 print(f"[요건 채우기] {min(start + CHUNK, len(jobs)):,}/{len(jobs):,} · {dict(counts)} · "
-                      f"{time.monotonic() - started:.0f}초", flush=True)
+                      f"실패 {len(failed):,} · {time.monotonic() - started:.0f}초", flush=True)
+        # 실패는 거의 다 분당 토큰 한도(429)다. 한도가 풀리는 1분을 쉬고 한 번만 더 본다.
+        # 그래도 실패하면 표시를 안 남겨 다음 밤에 다시 본다.
+        if failed and retry_pause is not None:
+            counts["retried"] = len(failed)
+            print(f"[요건 채우기] 실패 {len(failed):,}건 — {retry_pause:.0f}초 쉬고 한 번 더", flush=True)
+            time.sleep(retry_pause)
+            retry, failed = [job for job, _ in failed], []
+            handle(req.analyze(retry, workers=workers, extractor=extractor))
     finally:
         store.close()
-    summary = {"targets": len(jobs), **counts, "dry_run": dry_run, "seconds": round(time.monotonic() - started, 1)}
+    if failed:
+        counts["failed"] = len(failed)
+    # 실패 이유를 종류별로 남긴다(429 · 시간 초과 …). 예전에는 버려서 로그로 원인을 알 수 없었다.
+    reasons = Counter(_reason(error) for _, error in failed)
+    summary = {"targets": len(jobs), **counts, **({"fail_reasons": dict(reasons)} if reasons else {}),
+               "dry_run": dry_run, "seconds": round(time.monotonic() - started, 1)}
     return summary
+
+
+def _reason(error: str) -> str:
+    """'OpenAIRateLimitError: Error code: 429 - {...}' → 'OpenAIRateLimitError 429'."""
+    kind = error.split(":", 1)[0].strip() or "알 수 없음"
+    code = re.search(r"Error code: (\d{3})", error)
+    return f"{kind} {code.group(1)}" if code else kind
 
 
 def main(argv: list[str] | None = None) -> int:

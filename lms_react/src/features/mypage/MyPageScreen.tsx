@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { homeFor } from '../../app/routePaths';
 import { updateUser } from '../../data/repository';
+import { JobPreferencePresets } from '../../domain/constants';
 import type { User } from '../../domain/types';
 import { tourFor } from '../../tour/tours';
 import { useTour } from '../../tour/useTour';
@@ -10,6 +11,7 @@ import { Icon } from '../../ui/Icon';
 import { PageHeader } from '../../ui/components';
 import { formatDateTime } from '../../utils/format';
 import { useCurrentUser, useSession } from '../auth/session';
+import { PreferenceTagEditor } from './PreferenceTagEditor';
 
 /**
  * 마이페이지 — features/my_page/presentation/my_page_screen.dart
@@ -272,21 +274,11 @@ function JobPreferencesCard({ user }: { user: User }) {
         <div key={label} className="mypref">
           <strong className="mypref__label">{label}</strong>
           {editing ? (
-            <input
-              className="input"
-              defaultValue={values.join(', ')}
-              placeholder="쉼표로 구분합니다"
-              onBlur={(e) =>
-                updateUser(user.uid, {
-                  jobPreferences: {
-                    ...p,
-                    [key]: e.target.value
-                      .split(',')
-                      .map((v) => v.trim())
-                      .filter((v) => v !== ''),
-                  },
-                })
-              }
+            <PreferenceTagEditor
+              values={values}
+              presets={JobPreferencePresets[key]}
+              placeholder={`${label.replace('희망 ', '')} 직접 입력 후 Enter`}
+              onChange={(next) => updateUser(user.uid, { jobPreferences: { ...p, [key]: next } })}
             />
           ) : values.length === 0 ? (
             <span className="mylink__empty">미입력</span>

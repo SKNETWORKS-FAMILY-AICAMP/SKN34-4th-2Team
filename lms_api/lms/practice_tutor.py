@@ -31,9 +31,30 @@ ACTIONS = ("ask", "more", "answer")
 # 잡담이 이어져 LLM 을 멈춘 동안에도 이런 질문은 받는다 — 막는 건 잡담이지 공부가 아니다
 ON_TOPIC = re.compile(
     r"오류|에러|코드|줄|함수|변수|리스트|딕셔너리|반복|조건|클래스|모듈|설명|힌트|정답|채점|테스트|문제|왜|어떻게|무슨 뜻|뭐가 틀|"
-    r"error|exception|def |return|import|print|python|[()\[\]=:.]",
+    # 웹 실습 · JS · SQL 문제도 연습장에 있다
+    r"태그|속성|선택자|요소|이벤트|스타일|배열|객체|쿼리|테이블|"
+    r"html|css|javascript|js|dom|sql|select|const|let|function|console|"
+    r"error|exception|def |return|import|print|python|[()\[\]=:.<>{}]",
     re.IGNORECASE,
 )
+# 답을 한 번 내면 정답 · 해설이 바로 보이는 문제 — 「모범답안 보기」 단추가 없다(ProblemCell 의 canReveal 은 모범답안이 있을 때만)
+ANSWER_ON_SUBMIT = {
+    "concept": "보기를 골라 「정답 확인」을 누르면 정답과 해설이 바로 나와요. 먼저 보기마다 맞는지 하나씩 따져 볼까요?",
+    "code_output": "답을 적어 「제출」하면 실제 출력과 해설이 나와요. 제출 뒤에는 「실행해서 확인」으로 직접 돌려 볼 수도 있어요.",
+}
+
+
+def locked_reply(problem: dict, level: int | None) -> str:
+    """「정답 알려 줘」 — 튜터는 정답을 주지 않고, 문제 셀에서 정답을 보는 길을 알려 준다"""
+    kind = stored_kind(problem)
+    if kind in ANSWER_ON_SUBMIT:
+        if answer_revealed(problem):
+            return "정답과 해설은 문제 아래에 이미 나와 있어요. 헷갈리는 부분을 물어보면 왜 그런지 해설해 줄게요."
+        return ANSWER_ON_SUBMIT[kind]
+    if problem["passed"] or problem["tries"] >= REVEAL_AFTER_TRIES:
+        return "모범답안은 문제 아래 「모범답안 보기」에서 볼 수 있어요. 보기 전에 한 번만 더 고쳐 채점해 보는 건 어때요?"
+    return (f"모범답안은 {REVEAL_AFTER_TRIES}번 채점해 본 뒤에 열려요(지금 {problem['tries']}번). "
+            f"힌트 {level}단계까지 봤으니 고쳐서 한 번 더 채점해 볼까요?")
 
 
 def _ready(cur) -> None:
@@ -74,8 +95,17 @@ def _problem_payload(p: dict) -> dict:
         "referenceSolution": p["reference_solution"],
         "hiddenTests": "" if sql else p["hidden_tests"],
         "setupSql": p["hidden_tests"] if sql else "",
+        # 언어를 가리는 표시(["js"] · ["web"] · ["web-js"]) — 튜터가 JS · 웹 문제를 파이썬으로 읽지 않게
+        "packages": _j(p["packages"]) or [],
         "tries": p["tries"], "passed": p["passed"],
+        # 화면에 정답 · 해설이 이미 보이면 튜터도 해설한다 — 통과했거나, 개념 · 출력 예상을 한 번 낸 뒤
+        "revealed": answer_revealed(p), "explanation": p.get("explanation") or "",
     }
+
+
+def answer_revealed(p: dict) -> bool:
+    """학생 화면에 정답과 해설이 이미 떠 있는지(ProblemCell — 개념 · 출력 예상은 내면 바로, 코드는 통과해야 해설)"""
+    return bool(p["passed"]) or (stored_kind(p) in ANSWER_ON_SUBMIT and p["tries"] >= 1)
 
 
 def _turns(cur, user_id: int, key: str, limit: int) -> list[dict]:
@@ -92,25 +122,37 @@ def _turns(cur, user_id: int, key: str, limit: int) -> list[dict]:
     ]
 
 
-def _thread_key(mode: str, set_key: str | None, index: int | None) -> str:
-    return f"set:{set_key}:{index}" if mode == "problem" else "cell"
+# 오답노트에서 연 문제의 대화 — 'retry:2026-09-30'. 복습 때 대화(set:…)와 따로 두고, 날마다 새로 시작한다.
+# 복습 때 받은 3단계 힌트가 떠 있으면 다시 풀어 보는 뜻이 없다. 복습 때 대화는 지우지 않는다(복습 탭에서는 그대로 보인다)
+RETRY_THREAD = re.compile(r"^retry:\d{4}-\d{2}-\d{2}$")
 
 
-def thread(user: dict, mode: str, set_key: str | None = None, index: int | None = None) -> dict:
+def _thread_key(mode: str, set_key: str | None, index: int | None, thread: str | None = None) -> str:
+    if mode != "problem":
+        return "cell"
+    key = f"set:{set_key}:{index}"
+    return f"{thread}:{key}" if thread and RETRY_THREAD.match(thread) else key
+
+
+def is_retry_thread(thread: str | None) -> bool:
+    return bool(thread and RETRY_THREAD.match(thread))
+
+
+def thread(user: dict, mode: str, set_key: str | None = None, index: int | None = None, thread: str | None = None) -> dict:
     """튜터 창을 다시 열 때 — 지난 대화와 지금 힌트 단계"""
     with connection.cursor() as cur:
         _ready(cur)
         if mode == "problem":
             _problem(cur, user, str(set_key), int(index or 0))
-        turns = _turns(cur, user["id"], _thread_key(mode, set_key, index), 30)
+        turns = _turns(cur, user["id"], _thread_key(mode, set_key, index, thread), 30)
     level = max([t["hintLevel"] or 0 for t in turns] or [0])
     return {"turns": turns, "hintLevel": level}
 
 
-def reset(user: dict, mode: str, set_key: str | None = None, index: int | None = None) -> dict:
+def reset(user: dict, mode: str, set_key: str | None = None, index: int | None = None, thread: str | None = None) -> dict:
     """「새 대화」 — 이 문제(또는 일반 셀)의 내 대화를 지운다. 힌트 단계도 처음부터 다시 오른다.
     모범답안은 힌트 단계가 아니라 채점 횟수로 열리므로(REVEAL_AFTER_TRIES) 지워도 답이 먼저 열리지 않는다."""
-    key = _thread_key(mode, set_key, index)
+    key = _thread_key(mode, set_key, index, thread)
     with transaction.atomic(), connection.cursor() as cur:
         _ready(cur)
         if mode == "problem":
@@ -157,7 +199,8 @@ def ask(user: dict, body: dict) -> dict:
         raise StudySourceError(422, "질문을 적어 주세요.")
     set_key = str(body.get("setId") or "")
     index = int(body.get("index") or 0)
-    key = _thread_key(mode, set_key, index)
+    retry = mode == "problem" and is_retry_thread(body.get("thread"))
+    key = _thread_key(mode, set_key, index, body.get("thread"))
 
     with connection.cursor() as cur:
         _ready(cur)
@@ -171,21 +214,18 @@ def ask(user: dict, body: dict) -> dict:
         answer: dict | None = None
         if problem and action == "answer":
             # 모범답안은 튜터가 주지 않는다 — 문제 셀의 「모범답안 보기」 규칙 그대로
-            if problem["passed"] or problem["tries"] >= REVEAL_AFTER_TRIES:
-                reply = "모범답안은 문제 아래 「모범답안 보기」에서 볼 수 있어요. 보기 전에 한 번만 더 고쳐 채점해 보는 건 어때요?"
-            else:
-                reply = (f"모범답안은 {REVEAL_AFTER_TRIES}번 채점해 본 뒤에 열려요(지금 {problem['tries']}번). "
-                         f"힌트 {level}단계까지 봤으니 고쳐서 한 번 더 채점해 볼까요?")
-            answer = {"type": "locked", "reply": reply, "lines": [], "llm": False}
+            answer = {"type": "locked", "reply": locked_reply(problem, level), "lines": [], "llm": False}
         elif not ON_TOPIC.search(question) and _offtopic_streak(cur, user["id"]):
             answer = {"type": "offtopic", "reply": STREAK_REPLY, "lines": [], "llm": False}
 
     if answer is None:
         payload = {
-            "mode": mode, "question": question, "hintLevel": level or 1,
+            # action — 「다음 힌트」 단추(more)면 튜터가 앞 대화보다 한 걸음 더 나간다
+            "mode": mode, "action": action, "question": question, "hintLevel": level or 1,
             "code": str(body.get("code") or "")[:20000], "run": str(body.get("run") or "")[:4000],
             "grade": str(body.get("grade") or "")[:4000],
-            "problem": _problem_payload(problem) if problem else None,
+            # 오답노트면 튜터가 「전에 틀린 문제를 다시 푸는 중」인 줄 안다
+            "problem": {**_problem_payload(problem), "retry": retry} if problem else None,
             "history": [{"role": t["role"], "text": t["text"]} for t in history],
         }
         try:

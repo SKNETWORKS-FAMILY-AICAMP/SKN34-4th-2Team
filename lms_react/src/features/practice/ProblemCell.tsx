@@ -431,27 +431,30 @@ export function ProblemCell({
 
       {isWeb && (
         <>
+          {/* 셀 폭을 보고 나란히 둘지 위아래로 쌓을지 정한다(styles.css 의 컨테이너 쿼리) — 튜터가 열리면 셀이 좁아진다 */}
           <div className="pb-web">
-            <CodeEditor
-              value={code}
-              onChange={(next) => {
-                onCodeChange(next);
-                setWebReport(null);
-              }}
-              onRun={gradeWebCode}
-              onRunAndNext={onRunAndNext}
-              onFocus={onFocus}
-              focusSignal={focusSignal}
-              markedLines={markedLines}
-              minLines={8}
-              label={`문제 ${number} HTML · CSS`}
-              language="html"
-            />
-            <div className="pb-web__preview">
-              <span className="pb-web__label">미리보기 · 고칠 때마다 바뀌어요</span>
-              {/* sandbox 빈 값 — 학생이 쓴 <script> · 링크 이동 · 폼 보내기를 막는다. 채점은 서버가 따로 한다 */}
-              {/* 스크립트 있는 문제는 눌러 볼 수 있게 allow-scripts 만 — 이 페이지(부모)에는 닿지 못한다 */}
-              <iframe title={`문제 ${number} 미리보기`} sandbox={isWebJs ? 'allow-scripts' : ''} srcDoc={preview} />
+            <div className="pb-web__grid">
+              <CodeEditor
+                value={code}
+                onChange={(next) => {
+                  onCodeChange(next);
+                  setWebReport(null);
+                }}
+                onRun={gradeWebCode}
+                onRunAndNext={onRunAndNext}
+                onFocus={onFocus}
+                focusSignal={focusSignal}
+                markedLines={markedLines}
+                minLines={8}
+                label={`문제 ${number} HTML · CSS`}
+                language="html"
+              />
+              <div className="pb-web__preview">
+                <span className="pb-web__label">미리보기 · 고칠 때마다 바뀌어요</span>
+                {/* sandbox 빈 값 — 학생이 쓴 <script> · 링크 이동 · 폼 보내기를 막는다. 채점은 서버가 따로 한다 */}
+                {/* 스크립트 있는 문제는 눌러 볼 수 있게 allow-scripts 만 — 이 페이지(부모)에는 닿지 못한다 */}
+                <iframe title={`문제 ${number} 미리보기`} sandbox={isWebJs ? 'allow-scripts' : ''} srcDoc={preview} />
+              </div>
             </div>
           </div>
           <div className="pb__actions">

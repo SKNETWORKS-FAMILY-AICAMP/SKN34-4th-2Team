@@ -2,7 +2,7 @@ import type { PracticeProblem, PracticeSet } from '../../domain/types';
 import type { TableData } from './pythonProtocol';
 import { FIRST_CELLS } from './notebookExamples';
 import { canPromptInput } from './pythonRunner';
-import { RETRY_SET_ID } from './review';
+import { isRetryId } from './review';
 
 /**
  * 연습장 노트북의 셀 — 모양, 새 셀, 세트로 채우기, 저장·불러오기.
@@ -82,7 +82,7 @@ function startCode(problem: PracticeProblem): string {
 
 /** 세트를 처음 열 때의 셀 — 안내 · 문제 셀들 · 자유 셀 */
 export function cellsForSet(set: PracticeSet): Cell[] {
-  if (set.id === RETRY_SET_ID) {
+  if (isRetryId(set.id)) {
     return [
       newCell(
         '지난 복습에서 틀렸던 문제를 모았습니다. 문제 머리에 원래 수업 날짜가 적혀 있어요. ' +
@@ -133,7 +133,7 @@ export function loadNoteCodeNotebook(key: string): { cells: Cell[]; stdin: strin
 export function loadNotebook(set: PracticeSet | undefined): { cells: Cell[]; stdin: string } {
   try {
     // 다시 풀 문제는 열 때마다 목록이 달라서 저장본을 쓰지 않는다
-    if (set?.id === RETRY_SET_ID) return { cells: cellsForSet(set), stdin: '' };
+    if (set && isRetryId(set.id)) return { cells: cellsForSet(set), stdin: '' };
     const raw = window.localStorage.getItem(storeKey(set));
     if (raw) {
       const saved = JSON.parse(raw) as {
