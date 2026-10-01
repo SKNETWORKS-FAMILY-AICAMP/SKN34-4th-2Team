@@ -35,6 +35,7 @@ from typing import Any, Callable
 
 from job_matching_bot.api import abuse, prompts, schemas
 from job_matching_bot.matching.hard_filter import APPLICANT_UNMET, hard_filter
+from job_matching_bot.matching.company_tier import company_tier
 from job_matching_bot.matching.pre_ranker import pre_rank, preferred_match, skill_match
 from job_matching_bot.retrieval import search as retrieval
 from job_matching_bot.retrieval import market_stats, store_search
@@ -798,7 +799,8 @@ class RecommendService(_LivenessMixin):
 
         # 같은 적합도 안에서는 다시 세운 순서를 쓴다. 예전에는 벡터 순위였는데,
         # 판정을 예측하는 힘이 더 약한 신호였다(+0.26 대 +0.42).
-        rows: list[tuple[int, int, schemas.Recommendation]] = []
+        # 그 순서 앞에 기업 등급(대기업 · 공기업 → 외국계 · 중견 · 상장 → 그 밖)을 둔다. 적합도를 넘지는 않는다.
+        rows: list[tuple[int, int, int, schemas.Recommendation]] = []
         for position, (hit, job, filter_result) in enumerate(candidates):
             fit = fits.get(job.job_id)
             if fit is not None:
@@ -807,6 +809,7 @@ class RecommendService(_LivenessMixin):
             rows.append(
                 (
                     fit_order(fit.fit if fit else None),
+                    company_tier(job.company_type),
                     position,
                     schemas.Recommendation(
                         job_id=job.job_id,
@@ -835,8 +838,8 @@ class RecommendService(_LivenessMixin):
             )
 
         say("judge", f"{len(rows)}건의 근거를 맞대어 봤어요")
-        rows.sort(key=lambda r: (r[0], r[1]))
-        limited = _limit_per_company(row[2] for row in rows)
+        rows.sort(key=lambda r: (r[0], r[1], r[2]))
+        limited = _limit_per_company(row[3] for row in rows)
         clock.lap("verify")
         return finish(schemas.RecommendResponse(
             recommendations=limited[: request.top_k],
