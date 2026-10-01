@@ -3692,6 +3692,10 @@ html {
   gap: 6px;
 }
 
+.mypref__add {
+  margin-top: 8px;
+}
+
 /* ── 자격 시험 일정 ───────────────────────────────────── */
 .qual-page {
   padding: 16px;
