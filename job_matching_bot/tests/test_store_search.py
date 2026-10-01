@@ -234,6 +234,20 @@ class StoreSearchTest(unittest.TestCase):
         self.assertIn("H3", ids)
         self.assertEqual(len(ids), result.total)
 
+    def test_training_programs_are_not_listed(self):
+        """교육 과정 모집(「6기」 · 부트캠프)은 채용이 아니다. 채용이 적힌 기수 공고는 남긴다."""
+        self._add(
+            self._job("T1", title="[IBM] Cloud Native Dev base AI agent 6기", company="가"),
+            self._job("T2", title="백엔드 부트캠프 교육생 모집", company="나"),
+            self._job("T3", title="채용연계형 백엔드 아카데미 모집", company="다"),
+            self._job("T4", title="백엔드 개발 1기 신입사원 공개채용", company="라"),
+        )
+        found = {job.job_id for job in self.find(roles=["백엔드"]).jobs}
+        self.assertNotIn("T1", found)
+        self.assertNotIn("T2", found)
+        self.assertIn("T3", found)
+        self.assertIn("T4", found)
+
     def test_excluded_company_type_is_left_out(self):
         """'스타트업은 빼고'는 기업 정보 칸에 스타트업이 있는 공고를 뺀다."""
         self._add(

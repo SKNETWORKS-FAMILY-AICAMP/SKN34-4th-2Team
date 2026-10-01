@@ -24,6 +24,7 @@ from typing import Collection
 
 from job_matching_bot.matching.hard_filter import ENTRY_ONLY_MAX_YEARS
 from job_matching_bot.matching.skill_normalize import canonical_skill
+from job_matching_bot.retrieval.training import sql_exclusion as training_exclusion
 
 KST = timezone(timedelta(hours=9))
 
@@ -252,6 +253,17 @@ EMPLOYMENT_WORDS: dict[str, str] = {
 }
 
 
+# 법인 표기 · 띄어쓰기를 뗀 회사 이름 — 사이트마다 「(주)비상교육」 「㈜비상교육」으로 달리 적는다
+_COMPANY_KEY_SQL = r"regexp_replace(company, '\(주\)|\(유\)|㈜|주식회사|유한회사|\s', '', 'g')"
+_SIZED_SMALLER = r"(?:^|,)\s*(?:중견기업|중소기업)\s*(?:,|$)"
+# 사람인이 중견 · 중소로만 적은 회사(한 번도 대기업으로 적지 않은 회사)의 잡코리아 공고가 아니다
+_NOT_SMALLER_ON_SARAMIN = (
+    f"NOT (source = 'JOBKOREA_POC' AND {_COMPANY_KEY_SQL} IN ("
+    f"SELECT {_COMPANY_KEY_SQL} FROM jobs WHERE source = 'SARAMIN_POC' GROUP BY 1"
+    " HAVING bool_or(COALESCE(company_type, '') ~* %s) AND NOT bool_or(COALESCE(company_type, '') ~* %s)))"
+)
+
+
 def _company_type_keywords(filters: "JobFilters") -> list[str]:
     return [word for word in _dedupe(filters.keywords) if word.replace(" ", "") in COMPANY_TYPES]
 
@@ -293,13 +305,18 @@ _cache: "OrderedDict[tuple, tuple[float, object]]" = OrderedDict()
 _cache_lock = threading.Lock()
 
 
-def cache_key(kind: str, store_path: Path, filters: "JobFilters", as_of: datetime) -> tuple | None:
-    """재사용 열쇠. 운영 저장소가 아니면 None — 담아 두지 않는다."""
+def cache_key(
+    kind: str, store_path: Path, filters: "JobFilters", as_of: datetime, prefer: tuple[str, ...] = ()
+) -> tuple | None:
+    """재사용 열쇠. 운영 저장소가 아니면 None — 담아 두지 않는다. 선호 직무가 다르면 순서가 달라 따로 둔다."""
     from job_matching_bot.ingestion.sqlite_store import is_managed_store
 
     if not is_managed_store(store_path):
         return None
-    return (kind, json.dumps(asdict(filters), sort_keys=True, ensure_ascii=False, default=str), as_of.date().isoformat())
+    return (
+        kind, json.dumps(asdict(filters), sort_keys=True, ensure_ascii=False, default=str),
+        as_of.date().isoformat(), prefer,
+    )
 
 
 def remember(key: tuple | None, compute):
@@ -502,6 +519,11 @@ def conditions(filters: JobFilters, as_of: datetime, *, listing: bool = False) -
     where = ["status = 'OPEN'", "(deadline IS NULL OR substr(deadline, 1, 10) >= %s)"]
     params: list[object] = [today]
 
+    # 교육 과정 모집(부트캠프 · 「6기」)은 채용이 아니다 — 목록에도 통계 모수에도 넣지 않는다(training.py)
+    training_clause, training_params = training_exclusion()
+    where.append(training_clause)
+    params.extend(training_params)
+
     if filters.regions:
         where.append("(" + " OR ".join("region ILIKE %s" for _ in filters.regions) + ")")
         params.extend(f"%{region}%" for region in filters.regions)
@@ -560,6 +582,12 @@ def conditions(filters: JobFilters, as_of: datetime, *, listing: bool = False) -
     if company_types and not listing:
         where.append("(" + " OR ".join(_regex("company_type") for _ in company_types) + ")")
         params.extend(COMPANY_TYPES[word.replace(" ", "")] for word in company_types)
+        # 잡코리아의 「대기업」 분류는 넓다 — 사람인에 코스피 · 중견기업으로 적힌 비상교육도 대기업으로 달았다.
+        # 사람인은 대기업 · 중견 · 중소를 나눠 적으므로, 같은 회사를 사람인이 중견 · 중소로만 적었으면
+        # 잡코리아 공고를 대기업에서 뺀다. 사람인 정보가 없는 회사는 잡코리아 분류를 따른다.
+        if any(COMPANY_TYPES[word.replace(" ", "")] == COMPANY_TYPES["대기업"] for word in company_types):
+            where.append(_NOT_SMALLER_ON_SARAMIN)
+            params.extend([_SIZED_SMALLER, COMPANY_TYPES["대기업"]])
 
     # 빼 달라는 말. 기업형태는 기업 정보 칸, 고용형태는 고용형태 칸, 나머지는 제목·회사명에서 본다.
     # 본문은 보지 않는다 — "파견 근무 없음"처럼 빼 달라는 말이 본문에 부정으로 적힌 공고도 있다.
@@ -597,8 +625,13 @@ def search(
     limit: int = 5,
     as_of: datetime | None = None,
     exclude_ids: Collection[str] = (),
+    prefer: Collection[str] = (),
 ) -> SearchResult:
     """조건에 맞는 공고를 관련도 순으로. (보여 줄 것, 전체 건수).
+
+    `prefer`는 직무를 말하지 않았을 때 **앞에 둘 직무**다(이력서의 희망 직무, 없으면 개발 직군).
+    거르지 않고 순서만 바꾼다 — 건수와 관련도는 그대로라 답이 말하는 "N건"이 달라지지 않는다.
+    "대기업 공고"에 웹디자이너 · 물류 · 제품디자이너가 앞에 섰던 것을 고친다(2026-09-30).
 
     `exclude_ids`는 **이미 보여 준 공고**다. "이거 말고"를 거듭하면 앱이 본 것을 모아
     보내고, 여기서 빼고 다음 공고를 준다. 서버는 대화를 저장하지 않으므로 몇 쪽째인지
@@ -651,6 +684,19 @@ def search(
             f"WHEN {' OR '.join(tag_parts)} THEN 2 ELSE 1 END"
         )
 
+    # 직무를 말하지 않았을 때만 선호 직무로 순서를 가른다. 말했으면 그 직무가 기준이다.
+    preferred = "0"
+    prefer_params: list[object] = []
+    prefer_terms = _dedupe(list(prefer)) if not terms else []
+    if prefer_terms:
+        pieces = []
+        for term in prefer_terms:
+            for column, matcher in (("title", _role_match), ("keywords", _role_match), ("tech_stack", _match)):
+                sql, values = matcher(column, term)
+                pieces.append(sql)
+                prefer_params.extend(values)
+        preferred = f"CASE WHEN {' OR '.join(pieces)} THEN 1 ELSE 0 END"
+
     # 상세까지 있는 공고와, 목록에서만 본 공고를 함께 본다.
     #
     # 상세를 받아야 `jobs`에 들어가서 IT 밖 10개 대분류가 영영 0건이었다. "서울 영업직
@@ -662,11 +708,12 @@ def search(
     #
     # `has_detail`이 0인 것은 늘 뒤에 세운다. 본문이 있는 쪽이 먼저 보여야 한다.
     detail_part = (
-        f"SELECT {_HIT_COLUMNS}, {relevance} AS relevance, 1 AS has_detail, "
+        f"SELECT {_HIT_COLUMNS}, {relevance} AS relevance, {preferred} AS preferred, 1 AS has_detail, "
         "keywords, first_seen_at FROM jobs WHERE " + " AND ".join(where)
     )
     listing_part = (
-        f"SELECT {_HIT_COLUMNS}, {relevance} AS relevance, 0 AS has_detail, "
+        # 목록에서만 본 공고는 늘 상세 뒤에 서므로 선호를 따지지 않는다(13만 건을 훑는 값을 아낀다)
+        f"SELECT {_HIT_COLUMNS}, {relevance} AS relevance, 0 AS preferred, 0 AS has_detail, "
         "keywords, first_seen_at FROM list_jobs_search WHERE " + " AND ".join(listing_where)
         # 상세를 받은 공고는 `jobs`에 있다. 같은 공고가 두 번 나오지 않게 뺀다.
         # 번호만으로 견주면 안 된다 — 사이트마다 따로 매긴 번호라, 사람인 상세가
@@ -685,19 +732,20 @@ def search(
         # 다만 태그 수는 **사이트 안에서만** 견준다. 잡코리아는 태그를 짧게 달아(대기업 공고 중간값
         # 46자, 사람인 78자) 한 줄로 세우면 잡코리아가 통째로 위에 몰렸다(2026-09-29 「대기업 개발자」
         # 앞 10건이 전부 잡코리아). 사이트마다 순번을 매겨 같은 순번끼리 번갈아 세운다.
-        "SELECT *, ROW_NUMBER() OVER (PARTITION BY split_part(job_id, '-', 1), (relevance >= 2), has_detail, relevance"
+        "SELECT *, ROW_NUMBER() OVER (PARTITION BY split_part(job_id, '-', 1), (relevance >= 2), has_detail, relevance,"
+        " preferred"
         " ORDER BY LENGTH(keywords::text) ASC, first_seen_at DESC) AS site_rank"
         f" FROM ({body}) AS hits "
         # 제목·태그에 직접 맞은 공고(관련도 2 이상)를 먼저 전부 세운다. 답이 말하는 건수가
         # 이 묶음이라, 넘겨 보다 보면 그 건수만큼 본 뒤에 본문에만 스친 공고로 넘어가야
         # 말과 목록이 맞는다. 묶음 안에서는 본문이 있는 공고가 먼저다.
-        " ORDER BY (relevance >= 2) DESC, has_detail DESC, relevance DESC,"
+        " ORDER BY (relevance >= 2) DESC, has_detail DESC, relevance DESC, preferred DESC,"
         " site_rank ASC, first_seen_at DESC LIMIT %s"
     )
 
     # 값 순서는 상세 쪽 SELECT → WHERE, 목록 쪽 SELECT → WHERE, 그다음 LIMIT. 목록 쪽 WHERE는
     # 기업형태 조건이 빠질 수 있어 값이 다르다(`conditions(listing=True)`).
-    values = [*case_params, *params]
+    values = [*case_params, *prefer_params, *params]
     if with_listing:
         values += [*case_params, *listing_params]
 
@@ -709,7 +757,7 @@ def search(
             connection.close()
         return _one_per_posting(rows)
 
-    rows = remember(cache_key("search", store_path, filters, as_of), load)
+    rows = remember(cache_key("search", store_path, filters, as_of, tuple(prefer_terms)), load)
     seen = set(exclude_ids)
     remaining = [row for row in rows if row["job_id"] not in seen]
     jobs = [_to_hit(row, int(row["relevance"] or 0), bool(row["has_detail"]))

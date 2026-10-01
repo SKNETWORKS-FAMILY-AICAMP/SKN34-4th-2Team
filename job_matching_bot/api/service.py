@@ -97,6 +97,12 @@ PROFILE_EFFORT = "low"
 LIVENESS_SPARE = 2
 # 구조화 결과를 몇 벌까지 들고 있을지. 이력서 한 건이 몇 KB라 넉넉해도 가볍다.
 PROFILE_CACHE_SIZE = 64
+# 직무를 말하지 않은 코치 검색에서, 이력서가 없을 때 앞에 둘 직무. 수강생은 개발 과정이다.
+# 「AI」 「데이터」만 두면 「[AI본부] 게임 아트 어시스턴트」 「영상 콘텐츠 데이터 관리」가 앞에 섰다 — 직무 이름으로 둔다
+DEFAULT_PREFER_ROLES = (
+    "개발자", "백엔드", "프론트엔드", "풀스택", "소프트웨어 엔지니어", "데이터 엔지니어", "데이터 분석",
+    "AI 엔지니어", "클라우드 엔지니어",
+)
 # 같은 이력서 · 조건이면 추천 결과를 다시 쓴다(#23). 재정렬(LLM)이 20초 가까이 들어 한 번 받은 결과를
 # 그대로 보여 주는 편이 낫다. 공고가 새로 적재되면(runs 의 마지막 시각이 바뀌면) 버린다.
 RESULT_CACHE_SIZE = 64
@@ -536,8 +542,10 @@ class RecommendService(_LivenessMixin):
 
         # The default path identifies the managed RDS jobs schema. It need not
         # exist as a local SQLite file before the store can be opened.
+        from job_matching_bot.retrieval.training import is_training
+
         resolved: list[tuple[retrieval.Hit, Job]] = []
-        missing = inactive = 0
+        missing = inactive = training = 0
         # 한 번에 읽는다 — 한 건씩이면 RDS 왕복이 25번이라 필터 단계가 6초였다(SqliteJobStore.get_many)
         with SqliteJobStore(DEFAULT_STORE) as store:
             records = store.get_many(hit.job_id for hit in hits)
@@ -549,11 +557,17 @@ class RecommendService(_LivenessMixin):
             if record.status != 'OPEN':
                 inactive += 1
                 continue
+            # 교육 과정 모집(부트캠프 · 「6기」)은 채용이 아니다. 색인에 남아 있어도 추천에 올리지 않는다
+            if is_training(record.job.title):
+                training += 1
+                continue
             resolved.append((hit, record.job))
         if missing:
             warnings.append(f'원문 저장소에 없는 이전 검색 결과 {missing}건을 제외했습니다.')
         if inactive:
             warnings.append(f'마감 또는 비활성 공고 {inactive}건을 제외했습니다.')
+        if training:
+            warnings.append(f'채용이 아닌 교육 과정 모집 {training}건을 제외했습니다.')
         return resolved
 
     # ── ④ 재정렬 ─────────────────────────────────────
@@ -927,13 +941,46 @@ class ChatService(_LivenessMixin):
     """
 
     def __init__(self, generator=None, store_path: Path | None = None,
-                 adviser=None, job_asker=None, finder=None, comparer=None):
+                 adviser=None, job_asker=None, finder=None, comparer=None, profiler=None):
         self._generator = generator
         self._store_path = store_path
         self._adviser = adviser
         self._job_asker = job_asker
         self._finder = finder
         self._comparer = comparer
+        self._profiler = profiler
+        # 이력서 평문 → 희망 직무. 같은 이력서로 여러 번 물으므로 기억해 둔다(추천의 구조화와 같은 호출)
+        self._resume_roles: OrderedDict[str, list[str]] = OrderedDict()
+
+    @property
+    def profiler(self):
+        """이력서에서 희망 직무를 뽑는 호출. 추천의 ① 이력서 구조화와 같은 프롬프트다."""
+        if self._profiler is None:
+            self._profiler = _build_generator(prompts.PROFILE_PROMPT, schemas.ResumeProfileOut, PROFILE_EFFORT)
+        return self._profiler
+
+    def _preferred_roles(self, resume_text: str | None) -> tuple[list[str], str]:
+        """직무를 말하지 않은 검색에서 앞에 둘 직무와, 답에 밝힐 기준.
+
+        이력서가 있으면 이력서의 희망 직무, 없거나 뽑지 못하면 개발 직군. 수강생은 개발 과정이라
+        아무 순서로 세우면 「대기업 공고」에 웹디자이너 · 물류 · 제품디자이너가 앞에 섰다(2026-09-30).
+        """
+        resume = (resume_text or "").strip()
+        if resume:
+            roles = self._resume_roles.get(resume)
+            if roles is None:
+                try:
+                    roles = list(self.profiler({"resume_text": resume}).target_roles)
+                except Exception:
+                    roles = []
+                self._resume_roles[resume] = roles
+                if len(self._resume_roles) > PROFILE_CACHE_SIZE:
+                    self._resume_roles.popitem(last=False)
+            else:
+                self._resume_roles.move_to_end(resume)
+            if roles:
+                return roles, f"이력서의 희망 직무({', '.join(roles[:3])})"
+        return list(DEFAULT_PREFER_ROLES), "개발 직군"
 
     @property
     def comparer(self):
@@ -1182,13 +1229,18 @@ class ChatService(_LivenessMixin):
         more = turn.show_more and bool(request.seen_job_ids)
         seen = request.seen_job_ids if more else []
 
+        # 직무 · 기술을 말하지 않았으면 이력서의 희망 직무(없으면 개발 직군)를 앞에 둔다. 거르지는 않는다
+        prefer, prefer_basis = [], ""
+        if not filters.is_empty and not filters.roles and not filters.skills:
+            prefer, prefer_basis = self._preferred_roles(request.resume_text)
+
         if not filters.is_empty:
             clock.begin("search")
         result = (
             store_search.SearchResult(jobs=[], total=0, scanned_cap=False, strong=0)
             if filters.is_empty
             else store_search.search(
-                self.store_path, filters, limit=request.top_k, exclude_ids=seen
+                self.store_path, filters, limit=request.top_k, exclude_ids=seen, prefer=prefer
             )
         )
         clock.lap("search")
@@ -1232,8 +1284,12 @@ class ChatService(_LivenessMixin):
                 shown = kept
             clock.lap("liveness")
 
+        reply = self._reply(turn.understood, filters, result, by_meaning, more=more)
+        if prefer_basis and shown and not by_meaning:
+            # 무엇을 앞에 세웠는지 밝힌다. 직무를 말하지 않았는데 한 직무만 보이면 걸렀다고 오해한다
+            reply += f" 직무를 말하지 않으셔서 {prefer_basis}에 맞는 공고를 앞에 두었어요."
         return schemas.JobChatResponse(
-            reply=self._reply(turn.understood, filters, result, by_meaning, more=more),
+            reply=reply,
             filters=turn.filters,
             jobs=[_to_chat_job(hit) for hit in shown],
             # 답이 말한 건수와 같게 둔다. 제목·태그에 직접 맞은 공고가 있으면 그 수다.
