@@ -46,6 +46,8 @@ SYNC_TTL_SEC = 120
 
 
 # 브랜치가 없다 — 대개 커밋이 하나도 없는 저장소(수업 전 과목). 자동 출제는 이걸 실패로 적지 않는다(api.proxy_practice)
+# 폴더 올리기의 「지난 자료」 커밋 작성자 — 날짜를 모르는 자료라 수업 날짜 목록 · 「그날 파일」에서 뺀다(upload_repo.commit_past)
+PAST_AUTHOR_EMAIL = "past@lms.local"
 EMPTY_REPO_MESSAGE = "브랜치를 찾지 못했습니다. 아직 비어 있는 저장소일 수 있어요 — 수업 파일이 올라오면 보입니다."
 
 
@@ -304,13 +306,13 @@ class RepoCache:
         return paths
 
     def _log_with_files(self, extra_args: list[str]) -> list[tuple[str, str, list[str]]]:
-        """[(sha, author_iso, [paths])] 최신순."""
+        """[(sha, author_iso, [paths])] 최신순. 폴더 올리기의 「지난 자료」 커밋은 수업 날이 아니라 뺀다."""
         out = run_git(
             [
                 "log",
                 *extra_args,
                 "--name-only",
-                "--pretty=format:%x1e%H%x1f%aI",
+                "--pretty=format:%x1e%H%x1f%aI%x1f%ae",
                 self.ref,
             ],
             cwd=self.dir,
@@ -321,7 +323,9 @@ class RepoCache:
             if not block.strip():
                 continue
             header, _, body = block.partition("\n")
-            sha, _, iso = header.partition("\x1f")
+            sha, iso, email = (header.split("\x1f") + ["", ""])[:3]
+            if self.repo.upload and email.strip() == PAST_AUTHOR_EMAIL:
+                continue
             files = [line.strip() for line in body.splitlines() if line.strip()]
             commits.append((sha.strip(), iso.strip(), files))
         return commits

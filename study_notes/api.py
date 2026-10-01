@@ -350,6 +350,140 @@ def proxy_tutor(request: ProxyTutorRequest) -> dict[str, Any]:
     from study_notes.practice.tutor import ask
 
     return ask(request.model_dump())
+
+
+# ── 폴더 올리기(GitHub 없이) ────────────────────────────────────────
+_DAY = r"^\d{4}-\d{2}-\d{2}$"
+
+
+class ProxyUploadFile(BaseModel):
+    """올리기 전 목록의 한 줄 — 내용 없이 지문 · 앞부분 글만(upload_plan.UpFile)"""
+    path: str = Field(min_length=1, max_length=500)
+    blob: str = Field(pattern=r"^[0-9a-f]{40}$")
+    size: int = Field(default=0, ge=0)
+    mtime: int = Field(default=0, ge=0)
+    head: str = Field(default="", max_length=8_000)
+    cells: list[dict[str, str]] = Field(default_factory=list, max_length=400)
+
+
+class ProxyCalendar(BaseModel):
+    """Django 가 붙이는 기수 달력 — 기간 · 공휴일(lms/holidays.py) · 커리큘럼(날짜를 읽은 줄만) · 강사가 「수업 있었음」 한 날"""
+    today: str = Field(pattern=_DAY)
+    start: str = Field(default="", max_length=10)
+    end: str = Field(default="", max_length=10)
+    holidays: dict[str, str] = Field(default_factory=dict)
+    curriculum: list[dict[str, str]] = Field(default_factory=list, max_length=400)
+    unreadable: int = Field(default=0, ge=0)
+    extraDays: list[str] = Field(default_factory=list, max_length=100)
+
+
+class ProxyUploadSource(ProxySource):
+    kind: str = Field(pattern="^(upload|github)$")
+
+
+class ProxyUploadPlanRequest(BaseModel):
+    cohortId: str = Field(min_length=1, max_length=80)
+    mode: str = Field(pattern="^(import|daily)$")
+    what: str | None = Field(default=None, pattern="^(subject|cohort)$")  # 비우면 폴더 모양으로 정한다
+    date: str | None = Field(default=None, pattern=_DAY)  # 오늘 수업 올리기의 수업 날짜(기본 오늘)
+    target: str | None = Field(default=None, max_length=120)  # 오늘 수업 올리기 — 올릴 과목(소스 id)
+    files: list[ProxyUploadFile] = Field(min_length=1, max_length=3000)
+    sources: list[ProxyUploadSource] = Field(default_factory=list, max_length=200)  # 이 기수에 이미 있는 과목
+    topics: dict[str, str] = Field(default_factory=dict)  # 강사가 고른 커리큘럼 과목 {과목 이름: 커리큘럼 과목 id}
+    starts: dict[str, str] = Field(default_factory=dict)  # 강사가 고친 과목 시작일
+    calendar: ProxyCalendar
+
+
+class ProxyUploadContent(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
+    content: str = Field(max_length=8_000_000)  # base64
+
+
+class ProxyUploadDay(BaseModel):
+    date: str = Field(pattern=_DAY)
+    files: list[ProxyUploadContent] = Field(min_length=1, max_length=300)
+
+
+class ProxyUploadCommitRequest(BaseModel):
+    cohortId: str = Field(min_length=1, max_length=80)
+    source: ProxySource
+    days: list[ProxyUploadDay] = Field(default_factory=list, max_length=130)
+    past: list[ProxyUploadContent] = Field(default_factory=list, max_length=300)  # 날짜 없는 지난 자료
+
+
+@router.post("/proxy/upload/plan", dependencies=[Depends(_proxy_auth_if_configured)])
+def proxy_upload_plan(request: ProxyUploadPlanRequest) -> dict[str, Any]:
+    """올리기 전 계획 — 과목 나누기 · 날짜 근거 · 지난번과 같은 파일 · 넣을 폴더 · 확인할 날. LLM 없음, 파일 내용 없음."""
+    from study_notes import upload_plan, upload_repo
+
+    cal = upload_plan.calendar_from(request.calendar.model_dump())
+    files = [f.model_dump() for f in request.files]
+    try:
+        if request.mode == "daily":
+            target = next((s for s in request.sources if s.id == request.target and s.kind == "upload"), None)
+            if target is None:
+                raise HTTPException(status_code=400, detail="폴더로 올린 과목을 골라 주세요.")
+            snap = upload_repo.snapshot(service.repo_cache(request.cohortId, service.source_from_payload(target.model_dump())))
+            topic = request.topics.get(target.title) or upload_plan.match_topic(target.title, snap["dates"], cal)["id"]
+            plan = upload_plan.plan_daily(
+                files, cal, day=request.date or cal.today, tree=snap["tree"], texts=snap["texts"], topic=topic,
+            )
+            return {**plan, "topic": topic, "topics": cal.topics()}
+        existing: dict[str, dict[str, Any]] = {}
+        for s in request.sources:
+            info: dict[str, Any] = {"kind": s.kind, "id": s.id}
+            if s.kind == "upload":
+                snap = upload_repo.snapshot(
+                    service.repo_cache(request.cohortId, service.source_from_payload(s.model_dump())), texts=False,
+                )
+                info.update(tree=snap["tree"], dates=snap["dates"])
+            existing[(s.title or s.id).lower()] = info
+        return upload_plan.plan_import(
+            files, cal, what=request.what, existing=existing, topics=request.topics, starts=request.starts,
+        )
+    except GitToolError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/proxy/upload/commit", dependencies=[Depends(_proxy_auth_if_configured)])
+def proxy_upload_commit(request: ProxyUploadCommitRequest) -> dict[str, Any]:
+    """확정한 파일을 서버 안 저장소에 — 지난 자료 커밋 하나 + 날짜별 커밋. 같은 내용은 건너뛴다. LLM 없음."""
+    import base64
+    import binascii
+    from datetime import datetime
+
+    from study_notes import upload_repo
+    from study_notes.git_tools import SEOUL, parse_repo_url
+
+    source = service.source_from_payload(request.source.model_dump())
+    if not parse_repo_url(source.repo_url).upload:
+        raise HTTPException(status_code=400, detail="폴더 올리기 과목이 아니에요.")
+    today = datetime.now(SEOUL).strftime("%Y-%m-%d")
+    if any(d.date > today for d in request.days):
+        raise HTTPException(status_code=400, detail="앞으로 올 날짜로는 올릴 수 없어요.")
+
+    def decode(items: list[ProxyUploadContent]) -> dict[str, bytes]:
+        try:
+            return {f.path: base64.b64decode(f.content, validate=True) for f in items}
+        except (binascii.Error, ValueError) as exc:
+            raise HTTPException(status_code=422, detail="파일 내용을 읽지 못했어요.") from exc
+
+    days: dict[str, dict[str, bytes]] = {}
+    for d in request.days:
+        days.setdefault(d.date, {}).update(decode(d.files))
+    try:
+        commits = upload_repo.import_all(
+            service.repo_cache(request.cohortId, source), days, decode(request.past) if request.past else None,
+        )
+    except GitToolError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "commits": [
+            {"date": c.date or None, "sha": c.sha, "changed": c.changed, "skipped": c.skipped} for c in commits
+        ],
+    }
+
+
 @router.post("/internal/tree", dependencies=[Depends(_internal_auth)])
 def internal_tree(request: InternalTreeRequest) -> dict[str, Any]:
     return _postgres_result(lambda: postgres_service.list_tree(request.userPk, request.cohortId, request.sourceId))
