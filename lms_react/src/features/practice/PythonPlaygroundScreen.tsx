@@ -1,14 +1,16 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { usePageCrumbs } from '../../app/crumbs';
 import { RoutePaths } from '../../app/routePaths';
+import { useFullPracticeSets, useMyPracticeAttempts, usePracticeSets } from '../../data/repository';
+import { useCurrentUser } from '../auth/session';
 import { Icon } from '../../ui/Icon';
 import { NotebookCellView } from './NotebookCellView';
 import { NotebookToolbar } from './NotebookToolbar';
 import { PYODIDE_VERSION } from './pythonProtocol';
 import { usePythonRunner, type RunnerStatus } from './pythonRunner';
-import { isRetryId, RETRY_SET_ID } from './review';
+import { isRetryId, RETRY_SET_ID, retryItems } from './review';
 import { TutorProvider, useTutor } from './TutorContext';
 import { TutorPanel } from './TutorPanel';
 import { useNotebook, type Notebook } from './useNotebook';
@@ -46,9 +48,42 @@ export function PythonPlaygroundScreen() {
   const focus = Number(params.get('focus') ?? 0);
   return (
     <TutorProvider key={setId ?? 'free'}>
-      <Playground setId={setId} focusProblem={focus} />
+      <PracticeSetGate setId={setId}>
+        <Playground setId={setId} focusProblem={focus} />
+      </PracticeSetGate>
     </TutorProvider>
   );
+}
+
+/**
+ * 문제 본문이 다 온 뒤에 연습장을 연다. bootstrap 은 목록만 보내서, 본문 없이 열면
+ * 빈 시작 코드로 셀이 만들어져 저장된다. 다시 풀 문제는 틀린 문제가 있는 세트를 모두 받는다.
+ */
+function PracticeSetGate({ setId, children }: { setId: string | null; children: ReactNode }) {
+  const user = useCurrentUser();
+  const sets = usePracticeSets(user.cohortId);
+  const attempts = useMyPracticeAttempts(user.uid);
+  // 다시 풀 문제(retry · 오답노트의 retry:all · retry:날짜)는 틀린 문제가 있는 세트를 모두 받는다
+  const ids = isRetryId(setId) ? retryItems(sets, attempts).map((i) => i.set.id) : setId ? [setId] : [];
+  const { ready, failed } = useFullPracticeSets(ids);
+
+  if (failed) {
+    return (
+      <div className="screen__inner">
+        <p className="muted">문제를 불러오지 못했습니다. 잠시 후 다시 열어 주세요.</p>
+      </div>
+    );
+  }
+  if (!ready) {
+    return (
+      <div className="screen__inner">
+        <p className="muted" role="status">
+          <span className="spinner" aria-hidden /> 문제를 불러오고 있어요…
+        </p>
+      </div>
+    );
+  }
+  return <>{children}</>;
 }
 
 /**
@@ -68,7 +103,9 @@ export function EmbeddedPlayground({
 }) {
   return (
     <TutorProvider>
-      <Playground setId={setId} focusProblem={focusProblem} note={note} embedded active={active} />
+      <PracticeSetGate setId={setId}>
+        <Playground setId={setId} focusProblem={focusProblem} note={note} embedded active={active} />
+      </PracticeSetGate>
     </TutorProvider>
   );
 }

@@ -36,6 +36,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "lms.middleware.JsonGZipMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -75,7 +76,12 @@ if os.environ.get("DB_HOST"):
             "PASSWORD": os.environ["DB_PASSWORD"],
             "HOST": os.environ["DB_HOST"],
             "PORT": os.environ.get("DB_PORT", "5432"),
-            "OPTIONS": {"sslmode": os.environ.get("DB_SSLMODE", "require")},
+            # 원격 RDS 는 새 연결(TLS · 인증)이 왕복 여러 번이라 요청마다 1초를 넘긴다 — 풀로 재사용한다.
+            # runserver 는 요청마다 스레드를 새로 만들어 CONN_MAX_AGE 로는 재사용되지 않는다.
+            "OPTIONS": {
+                "sslmode": os.environ.get("DB_SSLMODE", "require"),
+                "pool": {"min_size": 2, "max_size": 10, "max_idle": 300, "max_lifetime": 1800, "timeout": 15},
+            },
         }
     }
 else:

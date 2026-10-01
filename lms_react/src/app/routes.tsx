@@ -70,6 +70,10 @@ const AdminInstructorsScreen = lazyNamed(loadAdminPeopleScreens, 'AdminInstructo
 const AdminStudentDetailScreen = lazyNamed(loadAdminPeopleScreens, 'AdminStudentDetailScreen');
 const AdminStudentFormScreen = lazyNamed(loadAdminPeopleScreens, 'AdminStudentFormScreen');
 const AdminStudentsScreen = lazyNamed(loadAdminPeopleScreens, 'AdminStudentsScreen');
+const loadAdminCounselScreens = tracked(() => import('../features/admin/AdminCounselScreens'));
+const AdminCounselScreen = lazyNamed(loadAdminCounselScreens, 'AdminCounselScreen');
+const loadAdminQuestScreen = tracked(() => import('../features/quests/AdminQuestScreen'));
+const AdminQuestScreen = lazyNamed(loadAdminQuestScreen, 'AdminQuestScreen');
 const loadAdminAttendanceScreens = tracked(() => import('../features/admin/AdminAttendanceScreens'));
 const AdminAttendanceScreen = lazyNamed(loadAdminAttendanceScreens, 'AdminAttendanceScreen');
 const AdminSeatPresenceScreen = lazyNamed(loadAdminAttendanceScreens, 'AdminSeatPresenceScreen');
@@ -222,6 +226,8 @@ export const adminRoutes: AppRoute[] = [
   { path: RoutePaths.adminStudentsCreate, element: <AdminStudentFormScreen />, roles: admin },
   { path: '/admin/students/:studentUid', element: <AdminStudentDetailScreen />, roles: admin },
   { path: '/admin/students/:studentUid/edit', element: <AdminStudentFormScreen />, roles: admin },
+  { path: RoutePaths.adminCounsel, element: <AdminCounselScreen />, roles: admin },
+  { path: RoutePaths.adminQuests, element: <AdminQuestScreen />, roles: admin },
 
   { path: RoutePaths.adminInstructors, element: <AdminInstructorsScreen />, roles: admin },
   { path: RoutePaths.adminInstructorsCreate, element: <AdminInstructorCreateScreen />, roles: admin },

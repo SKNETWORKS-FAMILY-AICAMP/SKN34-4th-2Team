@@ -39,6 +39,8 @@ export interface User {
   mileageBalance: number;
   createdAt?: Date;
   lastLoginAt?: Date;
+  /** 상담 내용(student_intakes)의 「학력 / 전공」 그대로 — 관리자 · 강사에게만 온다 */
+  educationMajor?: string;
 }
 
 /** 출결 상태 — core/constants/attendance_status.dart */
@@ -192,6 +194,66 @@ export interface StudentIntake {
   teamRole: string;
   selfLearningStyle: string;
   slumpOvercomeExperience: string;
+}
+
+export type QuestEvidenceType = 'none' | 'text' | 'link' | 'file';
+export type QuestApproval = 'manual' | 'auto';
+export type QuestSubmissionStatus = 'pending' | 'approved' | 'rejected' | 'revoked';
+
+/** 마일리지 퀘스트 — quests. bootstrap 밖, /quests 로 받는다 */
+export interface Quest {
+  id: string;
+  title: string;
+  description: string;
+  reward: number;
+  evidenceType: QuestEvidenceType;
+  approval: QuestApproval;
+  maxCompletions: number;
+  startOn: string | null;
+  endOn: string | null;
+  published: boolean;
+  closed: boolean;
+  /** 지금 참여할 수 있는지(공개 · 마감 전 · 기간 안) — 서버가 계산한다 */
+  open: boolean;
+  createdAt: string | null;
+  /** 관리자에게만 — 상태별 제출 수 */
+  counts?: Partial<Record<QuestSubmissionStatus, number>>;
+}
+
+export interface QuestSubmission {
+  id: string;
+  questId: string;
+  questTitle: string;
+  uid: string;
+  studentName: string;
+  status: QuestSubmissionStatus;
+  text: string;
+  link: string;
+  files: { key: string; url: string | null }[];
+  reviewComment: string;
+  grantedAmount: number;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+}
+
+export type CounselCategory = 'regular' | 'adhoc' | 'career' | 'other';
+
+/** 정기 상담 한 번 — student_counsel_notes. 관리자만 본다. 기수 단위 조회에는 content 가 없다 */
+export interface CounselNote {
+  id: string;
+  uid: string;
+  cohortId: string;
+  round: number;
+  /** 'YYYY-MM-DD' */
+  counseledOn: string;
+  category: CounselCategory;
+  content?: string;
+  followUp: string;
+  followUpDone: boolean;
+  nextOn: string | null;
+  counselorName: string;
+  createdAt: string | null;
+  updatedAt: string | null;
 }
 
 export interface Cohort {
@@ -601,6 +663,8 @@ export interface PracticeSet {
   problems: PracticeProblem[];
   /** lesson — 수업 세트(반 전체) · note · file — 학생이 자기 노트 · 연습장 파일로 만든 것(만든 학생에게만 온다) */
   origin?: 'lesson' | 'note' | 'file';
+  /** bootstrap 이 보낸 목록용 세트 — 문제 본문 · 코드 · 테스트가 비어 있다. 열 때 loadFullPracticeSets 로 받는다 */
+  partial?: boolean;
 }
 
 export interface PracticeAttempt {

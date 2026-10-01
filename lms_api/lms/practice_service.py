@@ -6,6 +6,8 @@ import hashlib
 import json
 from datetime import date, datetime
 
+from lms.permissions import can_access_cohort
+
 
 REASONS = {"unclear", "answer", "tests", "offtopic", "other"}
 KINDS = {"concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query", "web_task"}
@@ -57,10 +59,66 @@ def _problem_json(p: dict) -> dict:
     }
 
 
+LIGHT_PROMPT_CHARS = 200
+# 목록 화면(복습 카드 · 수업일 · 신고 목록)이 쓰는 칸만. 본문 · 코드 · 정답 · 테스트는 세트를 열 때 받는다
+LIGHT_PROBLEM_COLUMNS = (
+    "id, problem_set_id, position, kind, topic, LEFT(prompt, %s) AS prompt, source_files, packages"
+    % LIGHT_PROMPT_CHARS
+)
+
+
+def _problem_light(p: dict) -> dict:
+    return {
+        "kind": stored_kind(p), "topic": p["topic"], "prompt": p["prompt"] or "",
+        "sourceFiles": _json(p["source_files"]), "explanation": "",
+        "choices": [], "answerIndex": None, "starterCode": "", "expectedStdout": "",
+        "blankAnswers": [], "referenceSolution": "", "hiddenTests": "", "setupSql": "",
+        "packages": _json(p["packages"]),
+    }
+
+
+def _set_json(s: dict, problems: list[dict], light: bool) -> dict:
+    to_json = _problem_light if light else _problem_json
+    out = {
+        "id": s["legacy_id"], "cohortId": s["cohort_code"],
+        "sourceTitle": s["source_title"], "lessonDate": _iso(s["lesson_date"]),
+        "dayLabel": s["day_label"], "title": s["title"],
+        "files": _json(s["source_files"]), "model": s["generation_model"],
+        "origin": s["origin"],
+        "problems": [to_json(p) for p in problems if p["problem_set_id"] == s["id"]],
+    }
+    if light:
+        out["partial"] = True
+    return out
+
+
 def _rows(cur, sql, args=()):
     cur.execute(sql, args)
     names = [column[0] for column in cur.description]
     return [dict(zip(names, row)) for row in cur.fetchall()]
+
+
+def _pipelined(cur, queries: list[tuple[str, list]]) -> list[list[dict]]:
+    """서로 기다리지 않는 쿼리들을 원격 DB 왕복 한 번에 보낸다. cur 는 기본 연결의 커서다."""
+    from django.db import connection
+
+    connection.ensure_connection()
+    cursors = []
+    try:
+        with connection.connection.pipeline() as pipeline:
+            for sql, args in queries:
+                query_cur = connection.cursor()
+                cursors.append(query_cur)
+                query_cur.execute(sql, args)
+            pipeline.sync()
+            out = []
+            for query_cur in cursors:
+                names = [column[0] for column in query_cur.description]
+                out.append([dict(zip(names, row)) for row in query_cur.fetchall()])
+            return out
+    finally:
+        for query_cur in cursors:
+            query_cur.close()
 
 
 def _json(value):
@@ -79,61 +137,46 @@ def _anon(uid):
     return "anon-" + hashlib.sha1(uid.encode()).hexdigest()[:10]
 
 
-def practice_snapshot(cur, user: dict, cohort_codes: list[str]) -> dict:
-    """Read sets and learner activity; convert relational IDs at the API boundary."""
+def practice_snapshot(cur, user: dict, cohort_codes: list[str], light: bool = False) -> dict:
+    """Read sets and learner activity; convert relational IDs at the API boundary.
+
+    light=True 면 문제 본문을 빼고(partial) 보낸다 — bootstrap 용. 본문은 practice_sets_full 로 받는다.
+    """
     empty = {"practiceSets": [], "practiceAttempts": [], "practiceReports": [], "practiceReviews": []}
     if not cohort_codes:
         return empty
     staff = user.get("role") in ("admin", "instructor")
     user_id = user["id"]
-    sets = _rows(
-        cur,
-        """SELECT s.*, c.code AS cohort_code FROM practice_sets s
-           JOIN cohorts c ON c.id = s.cohort_id
-           WHERE c.code = ANY(%s) AND (s.owner_id IS NULL OR s.owner_id = %s)
-           ORDER BY s.lesson_date, s.id""",
-        [cohort_codes, user_id],
-    )
-    set_ids = [row["id"] for row in sets] or [-1]
-    problems = _rows(
-        cur,
-        "SELECT * FROM practice_problems WHERE problem_set_id = ANY(%s) ORDER BY problem_set_id, position",
-        [set_ids],
-    )
+    columns = LIGHT_PROBLEM_COLUMNS if light else "*"
+    # 앞 결과를 기다리지 않게 id 목록 대신 같은 조건의 서브쿼리를 쓰고, 다섯 쿼리를 왕복 한 번에 보낸다
+    visible_sets = """SELECT s.id FROM practice_sets s JOIN cohorts c ON c.id = s.cohort_id
+                      WHERE c.code = ANY(%s) AND (s.owner_id IS NULL OR s.owner_id = %s)"""
+    visible_problems = f"SELECT pp.id FROM practice_problems pp WHERE pp.problem_set_id IN ({visible_sets})"
+    scope = [cohort_codes, user_id]
+    sets, problems, attempts, reports, reviews = _pipelined(cur, [
+        ("""SELECT s.*, c.code AS cohort_code FROM practice_sets s
+            JOIN cohorts c ON c.id = s.cohort_id
+            WHERE c.code = ANY(%s) AND (s.owner_id IS NULL OR s.owner_id = %s)
+            ORDER BY s.lesson_date, s.id""", scope),
+        (f"""SELECT {columns} FROM practice_problems WHERE problem_set_id IN ({visible_sets})
+             ORDER BY problem_set_id, position""", scope),
+        (f"""SELECT a.*, u.firebase_uid FROM practice_attempts a
+             JOIN users u ON u.id = a.user_id
+             WHERE a.user_id = %s AND a.problem_id IN ({visible_problems})""", [user_id, *scope]),
+        (f"""SELECT r.*, u.firebase_uid FROM practice_reports r
+             JOIN users u ON u.id = r.user_id WHERE r.problem_id IN ({visible_problems})""", scope),
+        (f"""SELECT r.*, u.firebase_uid AS decided_by_uid FROM practice_reviews r
+             JOIN users u ON u.id = r.decided_by_id WHERE r.problem_id IN ({visible_problems})""", scope),
+    ])
     set_keys = {row["id"]: row["legacy_id"] for row in sets}
+    problems = [p for p in problems if p["problem_set_id"] in set_keys]
     problem_keys = {row["id"]: (set_keys[row["problem_set_id"]], row["position"]) for row in problems}
-    problem_ids = list(problem_keys) or [-1]
-    attempts = _rows(
-        cur,
-        """SELECT a.*, u.firebase_uid FROM practice_attempts a
-           JOIN users u ON u.id = a.user_id
-           WHERE a.user_id = %s AND a.problem_id = ANY(%s)""",
-        [user_id, problem_ids],
-    )
-    reports = _rows(
-        cur,
-        """SELECT r.*, u.firebase_uid FROM practice_reports r
-           JOIN users u ON u.id = r.user_id WHERE r.problem_id = ANY(%s)""",
-        [problem_ids],
-    )
-    reviews = _rows(
-        cur,
-        """SELECT r.*, u.firebase_uid AS decided_by_uid FROM practice_reviews r
-           JOIN users u ON u.id = r.decided_by_id WHERE r.problem_id = ANY(%s)""",
-        [problem_ids],
-    )
+    # 다섯 쿼리는 각자 자동 커밋이라 사이에 세트가 바뀌면 어긋날 수 있다
+    attempts = [a for a in attempts if a["problem_id"] in problem_keys]
+    reports = [r for r in reports if r["problem_id"] in problem_keys]
+    reviews = [r for r in reviews if r["problem_id"] in problem_keys]
     return {
-        "practiceSets": [
-            {
-                "id": s["legacy_id"], "cohortId": s["cohort_code"],
-                "sourceTitle": s["source_title"], "lessonDate": _iso(s["lesson_date"]),
-                "dayLabel": s["day_label"], "title": s["title"],
-                "files": _json(s["source_files"]), "model": s["generation_model"],
-                "origin": s["origin"],
-                "problems": [_problem_json(p) for p in problems if p["problem_set_id"] == s["id"]],
-            }
-            for s in sets
-        ],
+        "practiceSets": [_set_json(s, problems, light) for s in sets],
         "practiceAttempts": [
             {"id": f"{_uid(a)}#{a['problem_id']}", "uid": _uid(a),
              "setId": problem_keys[a["problem_id"]][0], "index": problem_keys[a["problem_id"]][1],
@@ -155,6 +198,32 @@ def practice_snapshot(cur, user: dict, cohort_codes: list[str]) -> dict:
             for r in reviews
         ],
     }
+
+
+MAX_FULL_SETS = 50
+
+
+def practice_sets_full(cur, user: dict, set_keys: list[str]) -> list[dict]:
+    """세트 본문 전체 — 연습장을 열 때 받는다. 볼 수 있는 기수의 수업 세트와 내가 만든 세트만."""
+    keys = [str(k) for k in dict.fromkeys(set_keys or []) if k][:MAX_FULL_SETS]
+    if not keys:
+        return []
+    sets = _rows(
+        cur,
+        """SELECT s.*, c.code AS cohort_code FROM practice_sets s
+           JOIN cohorts c ON c.id = s.cohort_id
+           WHERE s.legacy_id = ANY(%s) AND (s.owner_id IS NULL OR s.owner_id = %s)""",
+        [keys, user["id"]],
+    )
+    sets = [s for s in sets if can_access_cohort(user, s["cohort_id"])]
+    if not sets:
+        return []
+    problems = _rows(
+        cur,
+        "SELECT * FROM practice_problems WHERE problem_set_id = ANY(%s) ORDER BY problem_set_id, position",
+        [[s["id"] for s in sets]],
+    )
+    return [_set_json(s, problems, light=False) for s in sets]
 
 
 def _problem_id(cur, user, set_key, index):

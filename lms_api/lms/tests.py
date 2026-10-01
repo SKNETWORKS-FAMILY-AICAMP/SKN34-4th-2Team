@@ -258,7 +258,8 @@ class AiProxyContractTests(SimpleTestCase):
             urlopen.return_value.__enter__.return_value.read.return_value = b'{"answer":"ok"}'
             response = chat(request, ChatIn(message="hello"))
             sent = urlopen.call_args.args[0]
-        self.assertEqual(response["answer"], "ok")
+        self.assertEqual(json.loads(response.content)["answer"], "ok")
+        self.assertTrue(response["Server-Timing"].startswith("ai_upstream;dur="))
         self.assertEqual(sent.get_header("X-lms-ai-token"), "private-test-token")
         self.assertNotIn(b"private-test-token", sent.data)
 

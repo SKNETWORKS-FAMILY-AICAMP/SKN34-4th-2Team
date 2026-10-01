@@ -2588,8 +2588,21 @@ html {
 
 .teams-pool__name {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
   font-size: 13px;
   font-weight: 600;
+}
+
+.teams-major {
+  max-width: 14em;
+  overflow: hidden;
+  color: var(--text-hint);
+  font-size: 11px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .teams-pool__item .icon-btn {
@@ -3287,6 +3300,187 @@ html {
 
 .people-row__email {
   font-size: 12px;
+}
+
+.quest__pad {
+  padding: 16px;
+}
+
+.quest-student {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+.quest-student__summary {
+  margin: 0;
+  font-size: 14px;
+}
+
+.quest-student__flash {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--success, #16a34a) 12%, transparent);
+  font-size: 14px;
+}
+
+.quest-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quest-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 14px;
+}
+
+.quest-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.quest-card__reward {
+  color: var(--primary);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.quest-card__desc {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.quest-card__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.quest-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+}
+
+.quest-files {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.quest-review {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.quest-review__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quest-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 320px;
+  font-size: 13px;
+}
+
+.quest-evidence__text {
+  margin: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  white-space: pre-wrap;
+}
+
+.quest-evidence a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.counsel__major {
+  margin: 0 0 12px;
+}
+
+.counsel__progress {
+  align-self: center;
+  font-size: 14px;
+}
+
+.counsel__pad {
+  padding: 16px;
+}
+
+.counsel__ellipsis {
+  display: inline-block;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.counsel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.counsel-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+}
+
+.counsel-item__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.counsel-item__content {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.counsel-item__done {
+  color: var(--text-hint);
+  text-decoration: line-through;
+}
+
+.people-row__major {
+  overflow: hidden;
+  color: var(--text-hint);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .people-row__chip {

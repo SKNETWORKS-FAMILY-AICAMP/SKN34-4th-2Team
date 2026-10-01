@@ -52,6 +52,7 @@ import { MoreMenu } from '../../ui/MoreMenu';
 import { Icon } from '../../ui/Icon';
 import { dateKeyOf } from '../../data/seed';
 import { useCurrentUser } from '../auth/session';
+import { StudentCounselSection } from './AdminCounselScreens';
 import { CredentialDialog } from './CredentialDialog';
 
 // 내 PC 시각 기준 — toISOString 은 세계 표준시라 하루 어긋난다
@@ -138,6 +139,9 @@ export function AdminStudentsScreen() {
               <span className="people-row__body">
                 <strong>{s.displayName}</strong>
                 <span className="people-row__email">{s.email}</span>
+                <span className="people-row__major" title={s.educationMajor}>
+                  {s.educationMajor ?? '전공 미입력'}
+                </span>
                 <span className="hint">
                   {s.seatNumber === undefined ? '좌석 미배정' : `${s.seatNumber}번`} ·{' '}
                   {formatMileage(s.mileageBalance)}
@@ -255,6 +259,8 @@ export function AdminStudentDetailScreen() {
           />
         </Card>
       </div>
+
+      <StudentCounselSection student={student} />
 
       <Card padded={false} title="제출 기록">
         <DataTable

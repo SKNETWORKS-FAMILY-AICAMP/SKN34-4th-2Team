@@ -36,6 +36,7 @@ import type {
 } from '../domain/types';
 import { resumeStatusFromServer } from '../features/resume/resumeGroups';
 import { http } from './http';
+import { queryClient, queryKeys } from './queryClient';
 import { emptyDb, type Database } from './store';
 
 function asDate(value: unknown): Date | undefined {
@@ -310,8 +311,8 @@ function mapSubmission(row: Record<string, unknown>): Submission {
     learningDate: asDate(pick('learningDate', 'learning_date')),
     learningContent: text(pick('learningContent', 'learning_content')),
     isTeamStudy: pick('isTeamStudy', 'is_team_study') == null ? undefined : Boolean(pick('isTeamStudy', 'is_team_study')),
-    mileageGranted: Boolean(row.mileageGranted ?? row.mileage_granted),
-    mileageAmount: Number(row.mileageAmount ?? row.mileage_amount ?? 0),
+    mileageGranted: (num(pick('mileageAmount', 'mileage_amount')) ?? 0) > 0,
+    mileageAmount: num(pick('mileageAmount', 'mileage_amount')) ?? 0,
   };
 }
 
@@ -751,7 +752,12 @@ function groupBy<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
 
 export function mapBootstrap(payload: Record<string, unknown>): Database {
   const me = parseJsonb((payload.me ?? {}) as Record<string, unknown>);
-  const users = rowsOf(payload, 'users').map(mapUser);
+  const majorOf = new Map(
+    rowsOf(payload, 'studentIntakes').map((r) => [String(r.userId ?? ''), String(r.educationMajor ?? '').trim()]),
+  );
+  const users = rowsOf(payload, 'users')
+    .map(mapUser)
+    .map((u) => (majorOf.get(u.uid) ? { ...u, educationMajor: majorOf.get(u.uid) } : u));
   const cohorts = rowsOf(payload, 'cohorts').map(mapCohort);
   const sessionUid = String(me.uid ?? me.firebase_uid ?? '');
   const sessionCohort = String(me.cohortId ?? cohorts[0]?.cohortId ?? '');
@@ -904,9 +910,17 @@ export function lastBootstrapSession(): { uid: string; cohortId: string } {
   return { uid: lastSessionUid, cohortId: lastSessionCohortId };
 }
 
+/** bootstrap 은 문제 본문을 뺀 세트를 보낸다. 이미 받아 둔 본문은 다시 받을 때 덮지 않는다(열린 연습장이 깨지지 않게) */
+function keepFullSets(db: Database): Database {
+  const prev = queryClient.getQueryData<Database>(queryKeys.bootstrap);
+  const full = new Map((prev?.practiceSets ?? []).filter((s) => !s.partial).map((s) => [s.id, s]));
+  if (full.size === 0) return db;
+  return { ...db, practiceSets: db.practiceSets.map((s) => (s.partial ? full.get(s.id) ?? s : s)) };
+}
+
 export async function fetchBootstrap(): Promise<Database> {
   const { data } = await http.get<Record<string, unknown>>('/bootstrap');
-  const db = mapBootstrap(data);
+  const db = keepFullSets(mapBootstrap(data));
   const me = (data.me ?? {}) as Record<string, unknown>;
   lastSessionUid = String(me.uid ?? me.firebase_uid ?? '');
   lastSessionCohortId = String(me.cohortId ?? db.cohorts[0]?.cohortId ?? '');
