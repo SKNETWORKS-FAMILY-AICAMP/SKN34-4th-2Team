@@ -253,6 +253,33 @@ EMPLOYMENT_WORDS: dict[str, str] = {
     "프리랜서": "프리랜서", "아르바이트": "아르바이트", "알바": "아르바이트",
 }
 
+# 묻지 않으면 빼는 고용형태 — (고용형태 칸, 제목). 「대기업 신입」에 「[KD운송그룹] 전산개발 계약직
+# 사원 모집」이 나갔다(2026-10-01). 고용형태 칸은 계약직 · 파트타임 · 정규직처럼 하나만 적히고 파견은
+# 칸에 없다(「[SK하이닉스 파견] … 개발자」가 정규직) — 제목도 본다. 제목에 정규직을 함께 적은
+# 「계약직/정규직 전환」 「정규직/계약직」은 정규직으로도 뽑으므로 두고, 「알바몬」은 알바가 아니다.
+# 계약직 · 파견 · 알바를 물으면(고용형태 조건이나 키워드) 그 갈래는 빼지 않고 그것으로 찾는다.
+_NON_REGULAR: dict[str, tuple[str | None, str]] = {
+    "계약": (r"계약", r"계약직|기간제"),
+    "파견": (None, r"파견"),
+    "아르바이트": (r"파트타임|아르바이트", r"아르바이트|알바(?!몬)"),
+}
+_NON_REGULAR_WORDS: dict[str, str] = {
+    "계약직": "계약", "계약": "계약", "기간제": "계약",
+    "파견": "파견", "파견직": "파견",
+    "알바": "아르바이트", "아르바이트": "아르바이트", "파트타임": "아르바이트",
+}
+
+
+def _non_regular_match(kind: str) -> tuple[str, list[object]]:
+    """그 고용형태 공고를 고르는 조건. 제목은 정규직을 함께 적지 않았을 때만 본다."""
+    column, title = _NON_REGULAR[kind]
+    sql = f"({_regex('title')} AND NOT {_regex('title')})"
+    params: list[object] = [title, "정규직"]
+    if column is not None:
+        sql = f"({_regex('employment_type')} OR {sql})"
+        params.insert(0, column)
+    return sql, params
+
 
 # 법인 표기 · 띄어쓰기를 뗀 회사 이름 — 사이트마다 「(주)비상교육」 「㈜비상교육」으로 달리 적는다
 _COMPANY_KEY_SQL = r"regexp_replace(company, '\(주\)|\(유\)|㈜|주식회사|유한회사|\s', '', 'g')"
@@ -550,8 +577,29 @@ def conditions(filters: JobFilters, as_of: datetime, *, listing: bool = False) -
             where.append("career_type != 'ENTRY'")
 
     if filters.employment_types:
-        where.append("(" + " OR ".join("employment_type ILIKE %s" for _ in filters.employment_types) + ")")
-        params.extend(f"%{value}%" for value in filters.employment_types)
+        clauses = []
+        for value in filters.employment_types:
+            kind = _NON_REGULAR_WORDS.get(value.replace(" ", ""))
+            if kind is None:
+                clauses.append("employment_type ILIKE %s")
+                params.append(f"%{value}%")
+            else:  # 파견 · 알바는 고용형태 칸에 없어 제목도 본다
+                sql, values = _non_regular_match(kind)
+                clauses.append(sql)
+                params.extend(values)
+        where.append("(" + " OR ".join(clauses) + ")")
+
+    # 계약직 · 파견 · 알바는 물었을 때만 보인다(위 `_NON_REGULAR`)
+    asked = {
+        _NON_REGULAR_WORDS[key]
+        for word in [*filters.employment_types, *filters.keywords, *filters.roles]
+        if (key := word.replace(" ", "")) in _NON_REGULAR_WORDS
+    }
+    for kind in _NON_REGULAR:
+        if kind not in asked:
+            sql, values = _non_regular_match(kind)
+            where.append(f"NOT {sql}")
+            params.extend(values)
 
     if filters.deadline_within_days:
         until = (as_of + timedelta(days=filters.deadline_within_days)).date().isoformat()

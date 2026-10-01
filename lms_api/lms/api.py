@@ -1061,6 +1061,9 @@ class JobChatIn(Schema):
     lastJobIds: list[str] = []
     lastAnswerJobIds: list[str] = []
     seenJobIds: list[str] = []
+    # 직전 검색 답이 준 이어 볼 거리. "더 보여줘"에 그대로 되돌려 보낸다
+    requirementQuery: str = Field(default="", max_length=1000)
+    preferRoles: list[str] = []
 
 
 def _jobs_chat_payload(request, body: JobChatIn) -> tuple[dict[str, Any] | None, Response | None]:
@@ -1072,6 +1075,8 @@ def _jobs_chat_payload(request, body: JobChatIn) -> tuple[dict[str, Any] | None,
         "last_job_ids": body.lastJobIds[:20],
         "last_answer_job_ids": body.lastAnswerJobIds[:20],
         "seen_job_ids": body.seenJobIds[:3000],
+        "requirement_query": body.requirementQuery,
+        "prefer_roles": body.preferRoles[:20],
     }
     if body.resumeId:
         _row, content, error = _jobs_resume(request, body.resumeId)
@@ -1113,6 +1118,45 @@ def jobs_chat(request, body: JobChatIn):
         if not isinstance(detail, str):
             detail = None
         return Response({"detail": detail or "답을 찾지 못했습니다. 잠시 후 다시 물어봐 주세요."}, status=exc.code)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return Response({"detail": "공고 서버에 연결하지 못했습니다."}, status=503)
+
+
+class JobChatMoreIn(Schema):
+    # 직전 검색 답이 준 그대로. 서버가 대화를 저장하지 않아서다
+    filters: dict[str, Any]
+    requirementQuery: str = Field(default="", max_length=1000)
+    preferRoles: list[str] = []
+    seenJobIds: list[str] = []
+
+
+@api.post("/jobs/chat/more")
+def jobs_chat_more(request, body: JobChatMoreIn):
+    """코치 답 아래 「더 보기」 — 같은 조건으로 다음 공고(job_matching_bot `/api/v1/jobs/chat/more`).
+
+    말을 해석하지 않으므로 LLM 호출이 없고 이력서도 필요 없다. 앞에 세울 직무는 직전 답이 준 것을 쓴다.
+    """
+    _require_user(request)
+    base = (os.environ.get("JOBS_URL") or "").rstrip("/")
+    if not base:
+        return Response({"detail": "공고 서버가 연결되어 있지 않습니다(JOBS_URL)."}, status=503)
+    payload = {
+        "filters": body.filters,
+        "requirement_query": body.requirementQuery,
+        "prefer_roles": body.preferRoles[:20],
+        "seen_job_ids": body.seenJobIds[:3000],
+    }
+    req = urllib.request.Request(
+        f"{base}/api/v1/jobs/chat/more",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        return Response({"detail": "공고를 더 불러오지 못했습니다."}, status=exc.code)
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         return Response({"detail": "공고 서버에 연결하지 못했습니다."}, status=503)
 

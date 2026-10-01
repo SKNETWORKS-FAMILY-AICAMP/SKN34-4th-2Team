@@ -8056,6 +8056,29 @@ a.coach-ask__card-title:hover {
   background: color-mix(in srgb, var(--primary) 14%, var(--surface));
 }
 
+/* 검색 답 아래 「공고 더 보기」 — 같은 조건으로 다음 공고를 카드 밑에 잇는다 */
+.coach-ask__load-more {
+  align-self: stretch;
+  padding: 7px 8px;
+  border: 1px dashed color-mix(in srgb, var(--primary) 40%, var(--border));
+  border-radius: 8px;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.coach-ask__load-more:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+}
+
+.coach-ask__load-more:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .coach-ask__card-ask {
   padding: 2px 4px;
   border: 0;

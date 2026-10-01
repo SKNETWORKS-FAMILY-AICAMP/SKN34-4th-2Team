@@ -298,6 +298,15 @@ async def chat_stream(request: schemas.JobChatRequest) -> StreamingResponse:
     )
 
 
+@app.post("/api/v1/jobs/chat/more", response_model=schemas.JobChatResponse)
+def chat_more(request: schemas.JobChatMoreRequest) -> schemas.JobChatResponse:
+    """코치 답 아래 「더 보기」 — 직전 검색 답과 같은 조건으로 다음 공고. LLM 호출이 0이다."""
+    try:
+        return _chat.chat_more(request)
+    except StoreUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
 @app.post("/api/v1/jobs/verify", response_model=schemas.JobVerifyResponse)
 def verify_job(request: schemas.JobVerifyRequest) -> schemas.JobVerifyResponse:
     """공고 하나가 지금도 사이트에 있는지 페이지를 열어 본다.

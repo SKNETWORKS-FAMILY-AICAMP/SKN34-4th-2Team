@@ -1216,10 +1216,18 @@ class ChatService(_LivenessMixin):
         if turn.intent == "질문":
             return self._advise(request, turn, filters, clock)
 
+        # "이거 말고" — 같은 조건에서 앱이 지금까지 보여 준 공고를 빼고 다음 것을 준다.
+        # 직전 한 쪽만 빼면 두 번째 "이거 말고"에 첫 목록이 다시 나오므로 전부 받는다.
+        more = turn.show_more and bool(request.seen_job_ids)
+        seen = request.seen_job_ids if more else []
+        # 뜻으로 찾던 중이면 직전 답의 문장을 다시 쓴다. "더 보여줘"만 보고는 "돈 다루는 일"을
+        # 되살리지 못해, 조건 없는 새 검색이 되어 "못 찾았다"로 끝났다.
+        query = (request.requirement_query if more else "") or turn.requirement_query
+
         # 조건이 하나도 안 잡혔다고 바로 되묻지 않는다. "돈 다루는 일"처럼 조건으로
         # 옮길 말이 없는 경우가 있고, 그때는 뜻으로 찾으면 된다. 되묻는 것은 뜻으로
         # 찾을 문장마저 없을 때다.
-        if filters.is_empty and not turn.requirement_query:
+        if filters.is_empty and not query:
             return schemas.JobChatResponse(
                 mode="안내",
                 reply=turn.understood or "어떤 일을 찾으시는지 알려 주세요. 예: 데이터 분석 신입",
@@ -1227,34 +1235,85 @@ class ChatService(_LivenessMixin):
                 total=0,
             )
 
-        # "이거 말고" — 같은 조건에서 앱이 지금까지 보여 준 공고를 빼고 다음 것을 준다.
-        # 직전 한 쪽만 빼면 두 번째 "이거 말고"에 첫 목록이 다시 나오므로 전부 받는다.
-        more = turn.show_more and bool(request.seen_job_ids)
-        seen = request.seen_job_ids if more else []
-
         # 직무 · 기술을 말하지 않았으면 이력서의 희망 직무(없으면 개발 직군)를 앞에 둔다. 거르지는 않는다
         prefer, prefer_basis = [], ""
-        if not filters.is_empty and not filters.roles and not filters.skills:
+        if more and request.prefer_roles:
+            prefer = list(request.prefer_roles)  # 넘겨 보는 중에는 처음 세운 순서 그대로. 기준은 이미 말했다
+        elif not filters.is_empty and not filters.roles and not filters.skills:
             prefer, prefer_basis = self._preferred_roles(request.resume_text)
 
+        result, by_meaning, has_more = self._find(filters, query, prefer, seen, request.top_k, clock)
+        shown = result.jobs
+
+        reply = self._reply(turn.understood, filters, result, by_meaning, more=more)
+        if prefer_basis and shown and not by_meaning:
+            # 무엇을 앞에 세웠는지 밝힌다. 직무를 말하지 않았는데 한 직무만 보이면 걸렀다고 오해한다
+            reply += f" 직무를 말하지 않으셔서 {prefer_basis}에 맞는 공고를 앞에 두었어요."
+        return schemas.JobChatResponse(
+            reply=reply,
+            filters=turn.filters,
+            jobs=[_to_chat_job(hit) for hit in shown],
+            # 답이 말한 건수와 같게 둔다. 제목·태그에 직접 맞은 공고가 있으면 그 수다.
+            total=result.total if by_meaning else (result.strong or result.total),
+            suggestions=_suggestions(filters, result),
+            requirement_query=query,
+            prefer_roles=prefer,
+            has_more=has_more,
+        )
+
+    def chat_more(self, request: schemas.JobChatMoreRequest) -> schemas.JobChatResponse:
+        """코치 답 아래 「더 보기」 — 직전 답과 같은 조건으로 다음 공고. LLM을 부르지 않는다.
+
+        조건 · 뜻 문장 · 앞에 세운 직무를 직전 답이 준 그대로 받으므로 순서와 갈래가 답과 같다.
+        답 문장은 없다. 앱이 그 답의 카드 밑에 이어 붙인다.
+        """
+        if not store_available(self.store_path):
+            raise StoreUnavailable("공고 저장소가 없습니다. 공유 파일을 먼저 받아 주세요.")
+        filters = _to_job_filters(request.filters)
+        if filters.is_empty and not request.requirement_query:
+            return schemas.JobChatResponse(reply="", filters=request.filters, total=0)
+        clock = StageClock()
+        result, by_meaning, has_more = self._find(
+            filters, request.requirement_query, request.prefer_roles, request.seen_job_ids, request.top_k, clock
+        )
+        print(format_chat_timings(clock.timings(), "더 보기"))
+        return schemas.JobChatResponse(
+            reply="",
+            filters=request.filters,
+            jobs=[_to_chat_job(hit) for hit in result.jobs],
+            total=result.total if by_meaning else (result.strong or result.total),
+            requirement_query=request.requirement_query,
+            prefer_roles=request.prefer_roles,
+            has_more=has_more,
+        )
+
+    def _find(
+        self, filters, query: str, prefer: list[str], seen: list[str], top_k: int, clock: StageClock
+    ) -> tuple[store_search.SearchResult, bool, bool]:
+        """검색 답 한 쪽. (결과, 뜻으로 찾았나, 더 있나). 말로 찾은 답과 「더 보기」가 같이 쓴다."""
         if not filters.is_empty:
             clock.begin("search")
         result = (
             store_search.SearchResult(jobs=[], total=0, scanned_cap=False, strong=0)
             if filters.is_empty
             else store_search.search(
-                self.store_path, filters, limit=request.top_k, exclude_ids=seen, prefer=prefer
+                self.store_path, filters, limit=top_k, exclude_ids=seen, prefer=prefer
             )
         )
         clock.lap("search")
+        # 아직 안 보여 준 공고가 이번 쪽 말고도 남았나
+        has_more = result.total - result.skipped > len(result.jobs)
 
         # 조건으로 못 찾았으면 뜻으로 찾는다. 사용자가 말한 직무·기술이 공고에 그대로
         # 적히는 말이 아닐 때(예: "돈 다루는 일") 여기서만 답이 나온다.
         by_meaning = False
-        if turn.requirement_query and self._needs_meaning(filters, result):
+        if query and self._needs_meaning(filters, result):
             clock.begin("meaning")
-            found = self._by_meaning(turn.requirement_query, filters, request.top_k, seen)
+            # 하나 더 가져와 남은 것이 있는지 본다. 뜻 검색은 전체 건수를 세지 않는다
+            found = self._by_meaning(query, filters, top_k + 1, seen)
             if found:
+                has_more = len(found) > top_k
+                found = found[:top_k]
                 result = store_search.SearchResult(
                     jobs=found, total=len(found), scanned_cap=False, strong=0
                 )
@@ -1284,21 +1343,8 @@ class ChatService(_LivenessMixin):
                     strong=max(result.strong - sum(1 for hit in gone if hit.relevance >= 2), 0),
                     skipped=result.skipped,
                 )
-                shown = kept
             clock.lap("liveness")
-
-        reply = self._reply(turn.understood, filters, result, by_meaning, more=more)
-        if prefer_basis and shown and not by_meaning:
-            # 무엇을 앞에 세웠는지 밝힌다. 직무를 말하지 않았는데 한 직무만 보이면 걸렀다고 오해한다
-            reply += f" 직무를 말하지 않으셔서 {prefer_basis}에 맞는 공고를 앞에 두었어요."
-        return schemas.JobChatResponse(
-            reply=reply,
-            filters=turn.filters,
-            jobs=[_to_chat_job(hit) for hit in shown],
-            # 답이 말한 건수와 같게 둔다. 제목·태그에 직접 맞은 공고가 있으면 그 수다.
-            total=result.total if by_meaning else (result.strong or result.total),
-            suggestions=_suggestions(filters, result),
-        )
+        return result, by_meaning, has_more
 
     @staticmethod
     def _small_talk(turn, previous) -> schemas.JobChatResponse:

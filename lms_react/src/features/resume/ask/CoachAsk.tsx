@@ -54,6 +54,19 @@ interface ChatMessage {
   suggestions: string[];
   /** 이력서를 읽고 고른 공고. 적합도와 근거가 붙는다 */
   recommendations: JobPick[];
+  /** 검색 답이면 같은 조건으로 이어 볼 거리(「더 보기」) */
+  more?: MoreQuery;
+  /** 같은 조건으로 더 보여 줄 공고가 남았나 */
+  hasMore?: boolean;
+}
+
+/** 검색 답을 이어 볼 거리. 서버가 준 그대로 되돌려 보낸다 — 서버는 대화를 저장하지 않는다 */
+interface MoreQuery {
+  filters: Record<string, unknown>;
+  /** 뜻으로 찾을 때 쓴 문장. 「돈 다루는 일」은 조건에 남는 것이 없어 이것으로만 이어 찾는다 */
+  requirementQuery: string;
+  /** 앞에 세운 직무. 이어 본 공고도 같은 순서로 */
+  preferRoles: string[];
 }
 
 interface ChatResponse {
@@ -63,6 +76,9 @@ interface ChatResponse {
   filters?: Record<string, unknown>;
   jobs?: Record<string, unknown>[];
   suggestions?: string[];
+  requirement_query?: string;
+  prefer_roles?: string[];
+  has_more?: boolean;
 }
 
 const INTRO_SUGGESTIONS = ['서울 백엔드 신입', '백엔드 신입은 뭘 준비해야 해?', '요즘 많이 요구하는 기술이 뭐야?'];
@@ -90,6 +106,14 @@ function toChatJob(raw: Record<string, unknown>): ChatJob {
     employmentType: String(raw.employment_type ?? ''),
     deadline: typeof raw.deadline === 'string' && raw.deadline !== '' ? raw.deadline : null,
     techStack: Array.isArray(raw.tech_stack) ? raw.tech_stack.map(String) : [],
+  };
+}
+
+function moreQueryOf(data: ChatResponse): MoreQuery {
+  return {
+    filters: data.filters ?? {},
+    requirementQuery: String(data.requirement_query ?? ''),
+    preferRoles: Array.isArray(data.prefer_roles) ? data.prefer_roles.map(String) : [],
   };
 }
 
@@ -132,18 +156,29 @@ export function CoachAsk({
   /** 공고 하나를 놓고 묻는 중이면 그 공고. 이 동안의 말은 전부 이 공고에 대한 물음으로 간다 */
   const [askingAbout, setAskingAbout] = useState<ChatJob | null>(null);
   const [viewing, setViewing] = useState<string | null>(null);
+  /** 「더 보기」를 불러오는 답과, 불러오지 못한 답 */
+  const [moreLoading, setMoreLoading] = useState<string | null>(null);
+  const [moreFailed, setMoreFailed] = useState<string | null>(null);
   /**
    * 서버에 되돌려 보낼 대화 기억. 화면에 그리지 않으므로 상태가 아니라 ref 로 든다.
    * - filters: 직전 검색 조건. "그중 판교만"이 통한다
    * - shown: 번호가 가리킬 목록("2번")
    * - answered: 방금 이야기한 공고("두 공고")
    * - seen: 같은 조건으로 본 공고 전부("이거 말고")
+   * - query: 직전 검색 답의 뜻 문장 · 앞에 세운 직무. "더 보여줘"가 같은 것을 이어 찾는다
    */
-  const memory = useRef<{ filters: Record<string, unknown> | null; shown: string[]; answered: string[]; seen: string[] }>({
+  const memory = useRef<{
+    filters: Record<string, unknown> | null;
+    shown: string[];
+    answered: string[];
+    seen: string[];
+    query: Omit<MoreQuery, 'filters'>;
+  }>({
     filters: null,
     shown: [],
     answered: [],
     seen: [],
+    query: { requirementQuery: '', preferRoles: [] },
   });
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -153,6 +188,15 @@ export function CoachAsk({
     if (list === null || hidden) return;
     list.scrollTo?.({ top: list.scrollHeight, behavior: 'smooth' });
   }, [messages.length, busy, hidden, streaming]);
+
+  // 「더 보기」로 붙은 공고는 말이 늘지 않아 위가 따라가지 않는다. 새로 붙은 첫 카드를 맨 위로 올린다
+  const [revealJob, setRevealJob] = useState<string | null>(null);
+  useEffect(() => {
+    if (revealJob === null || hidden) return;
+    const cards = listRef.current?.querySelectorAll<HTMLElement>('[data-job-id]') ?? [];
+    const card = [...cards].find((c) => c.dataset.jobId === revealJob);
+    card?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, [revealJob, hidden]);
 
   const push = (message: ChatMessage) => setMessages((m) => [...m, message]);
 
@@ -201,6 +245,8 @@ export function CoachAsk({
       lastJobIds: mem.shown,
       lastAnswerJobIds: mem.answered,
       seenJobIds: mem.seen,
+      requirementQuery: mem.query.requirementQuery,
+      preferRoles: mem.query.preferRoles,
     };
     try {
       let data: ChatResponse;
@@ -224,7 +270,16 @@ export function CoachAsk({
       mem.shown = nextShownJobIds(mode, ids, mem.shown);
       // 답에 공고가 들어 있으면 방금 이야기한 대상이 곧 그 공고들이다
       if (ids.length > 0) mem.answered = ids;
-      push(coach(String(data.reply ?? ''), { mode, jobs, suggestions: data.suggestions ?? [] }));
+      const more = mode === '검색' ? moreQueryOf(data) : undefined;
+      if (more !== undefined) mem.query = { requirementQuery: more.requirementQuery, preferRoles: more.preferRoles };
+      push(
+        coach(String(data.reply ?? ''), {
+          mode,
+          jobs,
+          suggestions: data.suggestions ?? [],
+          ...(more !== undefined && jobs.length > 0 ? { more, hasMore: data.has_more === true } : {}),
+        }),
+      );
       if (mode === '추천') recommendScope = String(data.resume_scope ?? '전체');
     } catch (err) {
       push(coach(errorDetail(err) ?? '답을 찾지 못했습니다. 잠시 후 다시 물어봐 주세요.'));
@@ -235,6 +290,40 @@ export function CoachAsk({
     }
     if (recommendScope !== null) await recommendInChat(recommendScope);
   };
+
+  /** 「더 보기」 — 같은 조건으로 다음 공고를 그 답의 카드 밑에 잇는다. 말을 해석하지 않아 곧 온다 */
+  const loadMore = async (message: ChatMessage) => {
+    if (message.more === undefined || moreLoading !== null) return;
+    const mem = memory.current;
+    const own = message.jobs.map((j) => j.jobId);
+    // 지금 대화가 이 답의 조건 그대로면 "더 보여줘"로 본 공고까지 뺀다
+    const current = sameChatConditions(mem.filters, message.more.filters);
+    const seen = current ? [...mem.seen, ...own.filter((id) => !mem.seen.includes(id))] : own;
+    setMoreLoading(message.id);
+    setMoreFailed(null);
+    try {
+      const { data } = await http.post<ChatResponse>('/jobs/chat/more', { ...message.more, seenJobIds: seen });
+      const jobs = (data.jobs ?? []).map(toChatJob).filter((j) => !own.includes(j.jobId));
+      const ids = jobs.map((j) => j.jobId);
+      if (current) {
+        mem.seen = [...seen, ...ids];
+        // "7번"도 가리킬 수 있게 번호 목록을 늘린다(서버는 20개까지 받는다)
+        mem.shown = [...own, ...ids].slice(0, 20);
+      }
+      setMessages((ms) =>
+        ms.map((m) =>
+          m.id === message.id ? { ...m, jobs: [...m.jobs, ...jobs], hasMore: data.has_more === true && jobs.length > 0 } : m,
+        ),
+      );
+      if (ids.length > 0) setRevealJob(ids[0]);
+    } catch {
+      setMoreFailed(message.id);
+    } finally {
+      setMoreLoading(null);
+    }
+  };
+  // 「더 보기」는 마지막 검색 답에만. 지나간 답은 그때 조건이라 지금 본 공고와 섞인다
+  const lastSearchId = [...messages].reverse().find((m) => m.more !== undefined)?.id;
 
   const askAbout = (job: ChatJob) => {
     setAskingAbout(job);
@@ -279,6 +368,15 @@ export function CoachAsk({
             onOpenDetail={busy ? undefined : onOpenDetail}
             onOpenPosting={setViewing}
             pick={onPickJob === undefined ? undefined : { onPick: onPickJob, label: pickLabel }}
+            more={
+              message.id === lastSearchId && message.hasMore === true
+                ? {
+                    onMore: busy ? undefined : () => void loadMore(message),
+                    loading: moreLoading === message.id,
+                    failed: moreFailed === message.id,
+                  }
+                : undefined
+            }
           />
         ))}
         {busy && streaming !== null && <Bubble message={coach(streaming)} onOpenPosting={setViewing} />}
@@ -321,6 +419,7 @@ function Bubble({
   onOpenDetail,
   onOpenPosting,
   pick,
+  more,
 }: {
   message: ChatMessage;
   onSuggestion?: (text: string) => void;
@@ -328,6 +427,8 @@ function Bubble({
   onOpenDetail?: () => void;
   onOpenPosting(jobId: string): void;
   pick?: PickAction;
+  /** 「더 보기」. 없으면 단추를 두지 않는다 */
+  more?: { onMore?: () => void; loading: boolean; failed: boolean };
 }) {
   const bubble = (
     <div className={`coach-ask__bubble coach-ask__bubble--${message.role}`}>
@@ -355,6 +456,14 @@ function Bubble({
           pick={pick}
         />
       ))}
+      {more !== undefined && (
+        <>
+          {more.failed && <span className="coach-ask__note">공고를 더 불러오지 못했어요. 다시 눌러 주세요.</span>}
+          <button type="button" className="coach-ask__load-more" onClick={more.onMore} disabled={more.onMore === undefined || more.loading}>
+            {more.loading ? '불러오는 중…' : '공고 더 보기'}
+          </button>
+        </>
+      )}
 
       {onSuggestion !== undefined &&
         message.suggestions.map((s) => (
@@ -433,7 +542,7 @@ function JobCard({
 }) {
   const hasLink = job.jobId !== '';
   return (
-    <div className="coach-ask__card">
+    <div className="coach-ask__card" data-job-id={job.jobId}>
       {hasLink ? (
         <PostingLink jobId={job.jobId} onOpen={onOpenPosting} className="coach-ask__card-title">
           {job.title}
