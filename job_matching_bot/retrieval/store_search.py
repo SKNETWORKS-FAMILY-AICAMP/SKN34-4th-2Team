@@ -22,6 +22,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Collection
 
+from job_matching_bot import config
 from job_matching_bot.matching.hard_filter import ENTRY_ONLY_MAX_YEARS
 from job_matching_bot.matching.skill_normalize import canonical_skill
 from job_matching_bot.retrieval.training import sql_exclusion as training_exclusion
@@ -458,7 +459,9 @@ def deadline_passed(deadline: str | None, now: datetime | None = None) -> bool:
     """
     if not deadline:
         return False
-    now = now or datetime.now(KST)
+    # 운영은 지금, 테스트는 고정한 시각(`config.now`). datetime.now 를 쓰면 목업 공고(마감 2026-09-30)가
+    # 그날 이후로 테스트에서 전부 마감으로 빠졌다.
+    now = now or config.now()
     try:
         when = datetime.fromisoformat(deadline)
     except ValueError:
