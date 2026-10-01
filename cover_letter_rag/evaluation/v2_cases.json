@@ -57,10 +57,10 @@
   },
   {
     "case_id": "08_uncertain_claim",
-    "failure_type": "uncertainty must remain uncertain",
-    "experience": {"experience_id": "project-search-1", "kind": "project", "title": "문서 검색 서비스", "current_text": "검색 API를 구현했습니다.", "field_path": "projects[0].description", "content_hash": "offline-08"},
+    "failure_type": "clear correction supersedes an old claim, uncertain outcome remains uncertain",
+    "experience": {"experience_id": "project-search-1", "kind": "project", "title": "문서 검색 서비스", "current_text": "검색 API를 구현하고 모델 학습을 직접 수행해 검색 정확도를 높였습니다.", "field_path": "projects[0].description", "content_hash": "offline-08-correction"},
     "question": "검색 정확도가 개선됐다는 결과를 확인했나요?",
-    "answer": "아마 좋아졌을 거예요. 정확도를 수치로 비교하지는 않았고, 저는 검색 API 연결만 했습니다.",
+    "answer": "정확도는 수치로 비교하지 않아 좋아졌는지 모릅니다. 모델 학습은 팀원이 했고 저는 검색 API 연결만 담당했습니다.",
     "answer_source_id": "answer-08"
   },
   {

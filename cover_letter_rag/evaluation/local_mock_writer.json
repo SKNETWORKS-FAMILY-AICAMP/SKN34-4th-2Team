@@ -1,0 +1,13 @@
+{
+  "note": "Hand-authored fictional contract fixture, not an LLM quality evaluation.",
+  "A-Q3": {
+    "candidate": {
+      "question_id": "A-Q3",
+      "sentences": [
+        {"text": "팀 프로젝트에서 API 연결 오류의 원인을 추적하고 수정했습니다.", "claim_types": ["evidence"], "support_refs": [{"source_type": "evidence", "source_id": "exp-B-5"}]},
+        {"text": "팀원들과 API contract를 조율해 연결 과정의 오류를 해결했습니다.", "claim_types": ["evidence"], "support_refs": [{"source_type": "evidence", "source_id": "exp-B-4"}, {"source_type": "evidence", "source_id": "exp-B-3"}]}
+      ]
+    },
+    "semantic": {"question_id": "A-Q3", "factual_issues": [], "quality_issues": [], "expressed_core_evidence_ids": ["exp-B-5", "exp-B-4"], "covered_requirements": ["challenge", "result"], "story_focus_preserved": true}
+  }
+}

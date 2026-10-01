@@ -56,12 +56,14 @@ def validate_analysis(request: ReviewInput, analysis: AnalystOutput) -> tuple[di
     if analysis.experience_id != experience.experience_id:
         raise ContractError("analysis experience_id mismatch")
     evidence: dict[str, Evidence] = {}
-    for fact in [*experience.existing_evidence, *analysis.extracted_evidence]:
+    extracted_ids = {item.evidence_id for item in analysis.extracted_evidence}
+    for original_fact in [*experience.existing_evidence, *analysis.extracted_evidence]:
+        fact = original_fact.model_copy(deep=True)
         if fact.experience_id != experience.experience_id:
             raise ContractError(f"cross-experience evidence: {fact.evidence_id}")
         if fact.evidence_id in evidence:
             raise ContractError(f"duplicate evidence_id: {fact.evidence_id}")
-        if fact.evidence_id in {item.evidence_id for item in analysis.extracted_evidence}:
+        if fact.evidence_id in extracted_ids:
             if fact.source_type == "resume_text":
                 source = experience.current_text
                 if fact.source_id != experience.experience_id:
@@ -78,43 +80,71 @@ def validate_analysis(request: ReviewInput, analysis: AnalystOutput) -> tuple[di
             fact.evidence_quote = exact_quote
         evidence[fact.evidence_id] = fact
 
-    plan = analysis.plan
-    # The original document is first-class applicant evidence even if the Analyst
-    # extracts only new answer facts. Preserving it never turns a job posting into
-    # applicant evidence, and the Writer must still cite it for original claims.
-    original_id = f"original:{experience.experience_id}:{experience.content_hash}"
-    if original_id not in evidence:
-        evidence[original_id] = Evidence(
-            evidence_id=original_id, experience_id=experience.experience_id,
-            fact_type=FactType.CONTEXT, normalized_fact=experience.current_text,
-            evidence_quote=experience.current_text, source_type="resume_text",
-            source_id=experience.experience_id,
-            assertion_state=AssertionState.RESUME_STATED,
-        )
-    if plan.operation == "replace_field" and original_id not in plan.preserved_evidence_ids:
-        plan.preserved_evidence_ids.append(original_id)
-    selected = plan.selected_evidence_ids
+    # Only an explicit, certain user correction can supersede an atomic resume fact.
+    # The original text is editing context, never an all-purpose evidence citation.
+    blocked_by_conflict: set[str] = set()
+    for fact in evidence.values():
+        if fact.conflicts_with_evidence_ids:
+            for target_id in fact.conflicts_with_evidence_ids:
+                target = evidence.get(target_id)
+                if target is None or target_id == fact.evidence_id:
+                    raise ContractError(f"invalid conflicting evidence_id: {target_id}")
+                if fact.source_type == "user_answer" and target.source_type == "resume_text":
+                    answer_fact, resume_fact = fact, target
+                elif fact.source_type == "resume_text" and target.source_type == "user_answer":
+                    answer_fact, resume_fact = target, fact
+                else:
+                    raise ContractError(f"invalid unresolved conflict relation: {fact.evidence_id}")
+                if answer_fact.assertion_state not in {
+                    AssertionState.UNCERTAIN, AssertionState.USER_ASSERTED,
+                }:
+                    raise ContractError(f"invalid unresolved conflict state: {answer_fact.evidence_id}")
+                if resume_fact.evidence_id in answer_fact.supersedes_evidence_ids:
+                    continue  # An explicit correction resolves this pair.
+                blocked_by_conflict.add(resume_fact.evidence_id)
+                if answer_fact.assertion_state == AssertionState.USER_ASSERTED:
+                    blocked_by_conflict.add(answer_fact.evidence_id)
+        if not fact.supersedes_evidence_ids:
+            continue
+        if fact.source_type != "user_answer" or fact.assertion_state != AssertionState.USER_ASSERTED:
+            raise ContractError(f"uncertain or non-answer correction: {fact.evidence_id}")
+        if len(set(fact.supersedes_evidence_ids)) != len(fact.supersedes_evidence_ids):
+            raise ContractError(f"duplicate superseded evidence_id: {fact.evidence_id}")
+        for target_id in fact.supersedes_evidence_ids:
+            target = evidence.get(target_id)
+            if target is None or target.source_type != "resume_text" or target.assertion_state not in {
+                AssertionState.RESUME_STATED, AssertionState.SUPERSEDED,
+            }:
+                raise ContractError(f"invalid superseded evidence_id: {target_id}")
+            target.assertion_state = AssertionState.SUPERSEDED
+
+    plan = analysis.plan.model_copy(deep=True)
+    core = plan.core_evidence_ids
+    supporting = plan.supporting_evidence_ids
     preserved = plan.preserved_evidence_ids
     omitted = [item.evidence_id for item in plan.omitted_evidence]
-    if len(set(selected)) != len(selected) or len(set(omitted)) != len(omitted):
-        raise ContractError("duplicate selected/omitted evidence_id")
-    if set(selected) & set(omitted):
-        raise ContractError("evidence cannot be both selected and omitted")
-    for evidence_id in [*selected, *preserved, *omitted]:
+    groups = [core, supporting, preserved, omitted]
+    if any(len(set(group)) != len(group) for group in groups):
+        raise ContractError("duplicate evidence_id within a plan group")
+    if set(core) & set(supporting) or set(omitted) & (set(core) | set(supporting) | set(preserved)):
+        raise ContractError("core/supporting/omitted evidence groups must be disjoint")
+    all_ids = [eid for group in groups for eid in group]
+    for evidence_id in all_ids:
         if evidence_id not in evidence:
             raise ContractError(f"unknown evidence_id: {evidence_id}")
-    for evidence_id in [*selected, *preserved]:
+    for evidence_id in [*core, *supporting, *preserved]:
         if evidence[evidence_id].assertion_state not in ALLOWED_STATES:
             raise ContractError(f"unusable evidence state: {evidence_id}")
-    # Model-selected facts are authoritative for drafting. Anything it extracted but
-    # did not select is an explicit omission, never an implicit extra Writer input.
-    for evidence_id in sorted(set(f.evidence_id for f in analysis.extracted_evidence) - set(selected) - set(omitted)):
+        if evidence_id in blocked_by_conflict:
+            raise ContractError(f"unresolved conflict evidence: {evidence_id}")
+    # Every extracted fact outside the approved groups is explicitly omitted.
+    for evidence_id in sorted(extracted_ids - set(all_ids)):
         plan.omitted_evidence.append(OmittedEvidence(
             evidence_id=evidence_id,
-            reason="분석에서 확인됐지만 이번 수정안의 핵심 사실로 선택되지 않음",
+            reason="이번 수정안의 작성 근거로 선택되지 않음",
         ))
-    if plan.operation == "replace_field" and not selected:
-        raise ContractError("a revision requires selected evidence")
+    if plan.operation == "replace_field" and not core:
+        raise ContractError("a revision requires core evidence")
     if analysis.question and analysis.question.dedupe_key in request.previous_question_keys:
         raise ContractError("repeated question")
     return evidence, plan
@@ -138,27 +168,28 @@ def validate_candidate(
     if not writer.original_quote or writer.original_quote not in experience.current_text:
         factual.append(ValidationIssue(code="missing_target", detail="Original quote is absent"))
 
-    allowed_ids = set(plan.selected_evidence_ids) | set(plan.preserved_evidence_ids)
+    allowed_ids = set(plan.core_evidence_ids) | set(plan.supporting_evidence_ids) | set(plan.preserved_evidence_ids)
     mapped_ids: set[str] = set()
-    for claim in writer.claims:
-        if claim.text not in writer.suggested_text:
-            factual.append(ValidationIssue(code="claim_not_in_text", detail=claim.text))
-        for evidence_id in claim.evidence_ids:
+    for sentence in writer.sentences:
+        if not sentence.text.strip():
+            factual.append(ValidationIssue(code="empty_sentence", detail="Writer returned a blank sentence"))
+        sentence_ids: set[str] = set()
+        for evidence_id in sentence.evidence_ids:
             if evidence_id not in allowed_ids or evidence_id not in evidence:
                 factual.append(ValidationIssue(code="unapproved_claim_evidence", detail=evidence_id))
             elif evidence[evidence_id].assertion_state not in ALLOWED_STATES:
                 factual.append(ValidationIssue(code="unusable_claim_evidence", detail=evidence_id))
             else:
                 mapped_ids.add(evidence_id)
-
-    allowed_text = " ".join(
-        f"{evidence[eid].normalized_fact} {evidence[eid].evidence_quote}"
-        for eid in allowed_ids if eid in evidence
-    )
-    for number in sorted(_numbers(writer.suggested_text) - _numbers(allowed_text)):
-        factual.append(ValidationIssue(code="unsupported_number", detail=number))
-    for tech in sorted(_technologies(writer.suggested_text) - _technologies(allowed_text)):
-        factual.append(ValidationIssue(code="unsupported_technology", detail=tech))
+                sentence_ids.add(evidence_id)
+        source_text = " ".join(
+            f"{evidence[eid].normalized_fact} {evidence[eid].evidence_quote}"
+            for eid in sentence_ids
+        )
+        for number in sorted(_numbers(sentence.text) - _numbers(source_text)):
+            factual.append(ValidationIssue(code="unsupported_number", detail=number))
+        for tech in sorted(_technologies(sentence.text) - _technologies(source_text)):
+            factual.append(ValidationIssue(code="unsupported_technology", detail=tech))
     if verification is not None:
         for text in verification.unsupported_claims:
             factual.append(ValidationIssue(code="semantic_unsupported_claim", detail=text))
@@ -166,14 +197,20 @@ def validate_candidate(
             factual.append(ValidationIssue(code="unclaimed_factual_content", detail=text))
         for text in verification.weakened_original_facts:
             factual.append(ValidationIssue(code="weakened_original_fact", detail=text))
+        for text in verification.critical_technical_signal_loss:
+            quality.append(ValidationIssue(code="critical_technical_signal_loss", detail=text))
 
-    selected_unused = set(plan.selected_evidence_ids) - mapped_ids
-    if selected_unused:
-        quality.append(ValidationIssue(code="selected_fact_unused", detail=", ".join(sorted(selected_unused))))
-    tech_ids = [eid for eid in plan.selected_evidence_ids if evidence[eid].fact_type in
+    core_unused = set(plan.core_evidence_ids) - mapped_ids
+    if core_unused:
+        quality.append(ValidationIssue(code="core_fact_unused", detail=", ".join(sorted(core_unused))))
+    tech_ids = [eid for eid in plan.core_evidence_ids if evidence[eid].fact_type in
                 {FactType.TECHNOLOGY, FactType.IMPLEMENTATION, FactType.TECHNICAL_DECISION}]
-    if tech_ids and not set(tech_ids) & mapped_ids:
-        quality.append(ValidationIssue(code="critical_technical_signal_loss", detail=", ".join(tech_ids)))
+    for eid in tech_ids:
+        expected_technologies = _technologies(
+            f"{evidence[eid].normalized_fact} {evidence[eid].evidence_quote}"
+        )
+        if eid not in mapped_ids or expected_technologies - _technologies(writer.suggested_text):
+            quality.append(ValidationIssue(code="critical_technical_signal_loss", detail=eid))
     if len(writer.suggested_text) >= 25 and request.answer:
         similarity = SequenceMatcher(None, _normalized(request.answer), _normalized(writer.suggested_text)).ratio()
         if similarity >= COPY_THRESHOLD:
@@ -188,8 +225,11 @@ def validate_candidate(
                       {FactType.ACTION, FactType.IMPLEMENTATION, FactType.TECHNOLOGY}]
     high_value_ids = [eid for eid in mapped_ids if evidence[eid].fact_type in
                       {FactType.TECHNICAL_DECISION, FactType.RESULT, FactType.VERIFICATION}]
-    if len(writer.claims) >= 4 and len(procedural_ids) >= 4 and not high_value_ids:
-        quality.append(ValidationIssue(code="procedure_overload", detail="four procedure claims without a decision or result"))
+    if (len(procedural_ids) >= 4 and not high_value_ids
+            and (len(writer.sentences) >= 4 or len(writer.suggested_text) >= 110)):
+        quality.append(ValidationIssue(
+            code="procedure_overload", detail="four procedural facts expanded into a long revision",
+        ))
     if (len(procedural_ids) >= 3 and not high_value_ids
             and len(writer.suggested_text) >= 75
             and writer.suggested_text.count(".") >= 2):

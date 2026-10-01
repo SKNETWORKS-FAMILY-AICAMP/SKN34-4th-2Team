@@ -77,10 +77,13 @@ class LangChainReviewLLM:
         }, WriterOutput)
 
     def verify(self, request: ReviewInput, candidate: WriterOutput,
-               evidence: list[Evidence]) -> tuple[FactVerification, Usage]:
+               evidence: list[Evidence], core_ids: list[str],
+               superseded: list[Evidence]) -> tuple[FactVerification, Usage]:
         return self._call(VERIFY_SYSTEM_PROMPT, {
             "original_experience_text": request.experience.current_text,
             "suggested_text": candidate.suggested_text,
-            "claims": [item.model_dump(mode="json") for item in candidate.claims],
+            "sentences": [item.model_dump(mode="json") for item in candidate.sentences],
             "approved_evidence": [item.model_dump(mode="json") for item in evidence],
+            "core_evidence_ids": core_ids,
+            "superseded_original_evidence": [item.model_dump(mode="json") for item in superseded],
         }, FactVerification)

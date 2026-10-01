@@ -30,6 +30,7 @@ class AssertionState(StrEnum):
     UNCERTAIN = "uncertain"
     CONTRADICTED = "contradicted"
     RETRACTED = "retracted"
+    SUPERSEDED = "superseded"
 
 
 class Evidence(StrictModel):
@@ -41,6 +42,8 @@ class Evidence(StrictModel):
     source_type: Literal["resume_text", "user_answer", "uploaded_document"]
     source_id: str = Field(min_length=1)
     assertion_state: AssertionState
+    supersedes_evidence_ids: list[str] = Field(default_factory=list)
+    conflicts_with_evidence_ids: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -107,7 +110,8 @@ class QuestionProposal(StrictModel):
 class RevisionPlan(StrictModel):
     objective: str
     operation: Literal["replace_field", "no_change"]
-    selected_evidence_ids: list[str] = Field(max_length=4)
+    core_evidence_ids: list[str] = Field(default_factory=list, max_length=2)
+    supporting_evidence_ids: list[str] = Field(default_factory=list, max_length=2)
     preserved_evidence_ids: list[str] = Field(default_factory=list)
     omitted_evidence: list[OmittedEvidence] = Field(default_factory=list)
     reason: str = ""
@@ -121,8 +125,8 @@ class AnalystOutput(StrictModel):
     question: QuestionProposal | None = None
 
 
-class Claim(StrictModel):
-    text: str = Field(min_length=1)  # Exact, contiguous quote from suggested_text.
+class RevisionSentence(StrictModel):
+    text: str = Field(min_length=1)
     evidence_ids: list[str] = Field(min_length=1)
 
 
@@ -130,8 +134,11 @@ class WriterOutput(StrictModel):
     experience_id: str
     operation: Literal["replace_field"]
     original_quote: str
-    suggested_text: str = Field(min_length=1)
-    claims: list[Claim] = Field(min_length=1)
+    sentences: list[RevisionSentence] = Field(min_length=1)
+
+    @property
+    def suggested_text(self) -> str:
+        return " ".join(sentence.text.strip() for sentence in self.sentences)
 
 
 class FactVerification(StrictModel):
@@ -140,6 +147,7 @@ class FactVerification(StrictModel):
     unsupported_claims: list[str] = Field(default_factory=list)
     weakened_original_facts: list[str] = Field(default_factory=list)
     unclaimed_factual_content: list[str] = Field(default_factory=list)
+    critical_technical_signal_loss: list[str] = Field(default_factory=list)
 
 
 class ValidationIssue(StrictModel):
@@ -159,7 +167,7 @@ class RevisionCandidate(StrictModel):
     content_hash: str
     original_quote: str
     suggested_text: str
-    claims: list[Claim]
+    sentences: list[RevisionSentence]
     validation: ValidationResult
 
 

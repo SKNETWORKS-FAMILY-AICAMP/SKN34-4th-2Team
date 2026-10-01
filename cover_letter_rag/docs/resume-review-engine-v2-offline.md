@@ -10,7 +10,7 @@ adapter and an explicit human review.
 `ReviewInput(Experience, answer, question, optional job requirements)`
 → Analyst (structured evidence and revision plan)
 → exact source/ID/state validation
-→ selected Evidence only + preserved original Evidence
+→ core/supporting/preserved atomic Evidence only
 → Writer (never sees the conversational answer)
 → deterministic fact/quality validation
 → independent semantic fact verification
@@ -20,10 +20,14 @@ adapter and an explicit human review.
 `resumes.content` is still the only submitted-resume source of truth. In this
 offline phase, Experience and Evidence are Pydantic objects, not new tables.
 `experience_id` identifies the editing unit; `field_path` is an apply locator.
-The original experience text is server-provided `resume_stated` Evidence. An
-answer fact is `user_asserted`, not externally verified. Job requirements are
-never applicant Evidence. The Writer only receives approved selected/preserved
-facts, not raw Q&A text. It must link exact proposed-text claims to Evidence IDs.
+The original experience text is editing context and an apply target, not a
+blanket Evidence item. The Analyst extracts atomic `resume_stated` facts from
+it. An answer fact is `user_asserted`, not externally verified. Explicit user
+corrections can supersede original facts; uncertainty can block a conflicting
+fact without retracting it. Job requirements are never applicant Evidence.
+The Writer receives approved core, optional supporting, and preserved facts,
+not raw Q&A text. It returns sentences with Evidence IDs; the server assembles
+`suggested_text`. Unused supporting facts do not cause a failure.
 
 The LLM adapter uses the project's configurable model and medium reasoning by
 default. Analyst, Writer, and semantic verifier are separate calls. A no-change
@@ -51,9 +55,10 @@ ignored `evaluation/v2_results/`. Existing case files are skipped unless
 fixture content is not sent to an additional provider. Never commit the .env.
 
 There are ten manually curated LLM examples, not a large synthetic benchmark.
-The review artifact shows the original resume, question, answer, extracted,
-selected and omitted Evidence, plan, candidate, claim→Evidence mapping,
-validator issues, usage, and blank human verdict fields. Humans choose
+The review artifact shows the original resume, question, answer, existing and
+new Evidence, superseded/conflicting facts, core/supporting/preserved/omitted
+groups, plan, sentence→Evidence mapping, candidate, validator issues, usage,
+and blank human verdict fields. Humans choose
 `APPLY_AS_IS`, `MINOR_EDIT`, `MAJOR_EDIT`, or `REJECT`; no overall score is made.
 `v2_compare` evaluates five of these against an untouched v1 follow-up with
 the same fixed question/answer and a synthetic preceding review in memory.

@@ -3,7 +3,7 @@
 from typing import Protocol
 
 from .models import (
-    AnalystOutput, Evidence, FactVerification, ReviewInput, ReviewResult,
+    AnalystOutput, AssertionState, Evidence, FactVerification, OmittedEvidence, ReviewInput, ReviewResult,
     RevisionCandidate, RevisionPlan, Usage, ValidationIssue, ValidationResult,
     WriterOutput,
 )
@@ -18,7 +18,8 @@ class ReviewLLM(Protocol):
               previous_text: str = "") -> tuple[WriterOutput, Usage]: ...
 
     def verify(self, request: ReviewInput, candidate: WriterOutput,
-               evidence: list[Evidence]) -> tuple[FactVerification, Usage]: ...
+               evidence: list[Evidence], core_ids: list[str],
+               superseded: list[Evidence]) -> tuple[FactVerification, Usage]: ...
 
 
 def _add_usage(total: Usage, added: Usage) -> None:
@@ -41,16 +42,17 @@ class ReviewEngineV2:
         analysis, step_usage = self.llm.analyze(request)
         _add_usage(usage, step_usage)
         evidence, plan = validate_analysis(request, analysis)
-        selected = [evidence[eid] for eid in plan.selected_evidence_ids]
+        extracted = [evidence[item.evidence_id] for item in analysis.extracted_evidence]
+        selected = [evidence[eid] for eid in [*plan.core_evidence_ids, *plan.supporting_evidence_ids]]
         permitted = [evidence[eid] for eid in dict.fromkeys(
-            [*plan.selected_evidence_ids, *plan.preserved_evidence_ids]
+            [*plan.core_evidence_ids, *plan.supporting_evidence_ids, *plan.preserved_evidence_ids]
         )]
 
         if plan.operation == "no_change":
             validation = ValidationResult(status="NEEDS_EVIDENCE" if analysis.question else "READY")
             return ReviewResult(
                 experience=request.experience, question=request.question, answer=request.answer,
-                extracted_evidence=analysis.extracted_evidence, selected_evidence=selected,
+                extracted_evidence=extracted, selected_evidence=selected,
                 omitted_evidence=plan.omitted_evidence, plan=plan,
                 proposed_question=analysis.question, candidate=None, validation=validation,
                 usage=usage,
@@ -61,6 +63,14 @@ class ReviewEngineV2:
             if validation.status != "REWRITE":
                 break
             issues = [*validation.factual_issues, *validation.quality_issues]
+            if any(issue.code == "procedure_overload" for issue in issues) and plan.supporting_evidence_ids:
+                removed = set(plan.supporting_evidence_ids)
+                plan.omitted_evidence.extend(
+                    OmittedEvidence(evidence_id=eid, reason="절차 나열을 줄이기 위해 재작성에서 제외")
+                    for eid in plan.supporting_evidence_ids
+                )
+                plan.supporting_evidence_ids = []
+                permitted = [item for item in permitted if item.evidence_id not in removed]
             previous_text = writer.suggested_text
             writer, step_usage = self.llm.write(request, plan, permitted, issues, previous_text)
             _add_usage(usage, step_usage)
@@ -74,12 +84,13 @@ class ReviewEngineV2:
             content_hash=request.experience.content_hash,
             original_quote=writer.original_quote,
             suggested_text=writer.suggested_text,
-            claims=writer.claims,
+            sentences=writer.sentences,
             validation=validation,
         )
+        selected = [evidence[eid] for eid in [*plan.core_evidence_ids, *plan.supporting_evidence_ids]]
         return ReviewResult(
             experience=request.experience, question=request.question, answer=request.answer,
-            extracted_evidence=analysis.extracted_evidence, selected_evidence=selected,
+            extracted_evidence=extracted, selected_evidence=selected,
             omitted_evidence=plan.omitted_evidence, plan=plan,
             proposed_question=analysis.question, candidate=candidate,
             validation=validation, usage=usage,
@@ -97,7 +108,15 @@ class ReviewEngineV2:
             # Do not pay for semantic verification of an already-invalid contract.
             return deterministic
         try:
-            verification, step_usage = self.llm.verify(request, writer, permitted)
+            superseded = [item for item in evidence.values()
+                          if item.assertion_state == AssertionState.SUPERSEDED]
+            used_ids = {eid for sentence in writer.sentences for eid in sentence.evidence_ids}
+            verifier_evidence = [item for item in permitted if
+                                 item.evidence_id in used_ids or
+                                 item.evidence_id in plan.preserved_evidence_ids]
+            verification, step_usage = self.llm.verify(
+                request, writer, verifier_evidence, plan.core_evidence_ids, superseded,
+            )
             _add_usage(usage, step_usage)
         except Exception as exc:
             return ValidationResult(

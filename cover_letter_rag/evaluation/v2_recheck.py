@@ -21,6 +21,9 @@ def main() -> None:
             print(f"{case['case_id']}: NO_RESULT")
             continue
         saved = json.loads(path.read_text(encoding="utf-8"))
+        if "core_evidence_ids" not in saved.get("plan", {}):
+            print(f"{case['case_id']}: LEGACY_CONTRACT (rerun explicitly for v2 evidence hierarchy)")
+            continue
         if not saved.get("candidate"):
             print(f"{case['case_id']}: {saved['validation']['status']} (no candidate)")
             continue
@@ -39,7 +42,7 @@ def main() -> None:
         writer = WriterOutput.model_validate({
             "experience_id": candidate["experience_id"], "operation": "replace_field",
             "original_quote": candidate["original_quote"],
-            "suggested_text": candidate["suggested_text"], "claims": candidate["claims"],
+            "sentences": candidate["sentences"],
         })
         checked = validate_candidate(request, writer, plan, evidence)
         issues = [item.code for item in [*checked.factual_issues, *checked.quality_issues]]

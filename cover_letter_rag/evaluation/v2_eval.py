@@ -23,34 +23,57 @@ OUTPUT = HERE / "v2_results"
 
 def render_review(result: dict, case: dict) -> str:
     candidate = result.get("candidate") or {}
-    claims = candidate.get("claims") or []
-    evidence = result.get("extracted_evidence") or []
-    selected = {item["evidence_id"] for item in result.get("selected_evidence") or []}
+    sentences = candidate.get("sentences") or []
+    evidence = [*(case["experience"].get("existing_evidence") or []),
+                *(result.get("extracted_evidence") or [])]
+    by_id = {item["evidence_id"]: item for item in evidence}
+    plan = result.get("plan") or {}
+
+    def describe(item: dict) -> str:
+        relations = []
+        if item.get("supersedes_evidence_ids"):
+            relations.append(f"supersedes={','.join(item['supersedes_evidence_ids'])}")
+        if item.get("conflicts_with_evidence_ids"):
+            relations.append(f"unresolved_conflict={','.join(item['conflicts_with_evidence_ids'])}")
+        suffix = f" | {'; '.join(relations)}" if relations else ""
+        return (f"- {item['evidence_id']} ({item['fact_type']}, {item['assertion_state']}): "
+                f"{item['normalized_fact']} | 인용: {item['evidence_quote']}{suffix}")
+
+    def group(title: str, ids: list[str]) -> list[str]:
+        return ["", title, *(
+            f"- {eid}: {by_id[eid]['normalized_fact']}" if eid in by_id else f"- {eid}: (근거 조회 필요)"
+            for eid in ids
+        )]
+
     lines = [
         f"# {case['case_id']} — {case['failure_type']}",
         "", "[기존 이력서]", case["experience"]["current_text"],
         "", "[질문]", case.get("question", ""),
         "", "[사용자 답변]", case.get("answer", ""),
-        "", "[추출된 Evidence]",
+        "", "[기존 Evidence]",
     ]
-    lines.extend(f"- {item['evidence_id']} ({item['fact_type']}, {item['assertion_state']}): "
-                 f"{item['normalized_fact']} | 인용: {item['evidence_quote']}" for item in evidence)
-    lines.extend(["", "[선택된 Evidence]"])
-    lines.extend(f"- {item['evidence_id']}: {item['normalized_fact']}" for item in evidence
-                 if item["evidence_id"] in selected)
-    lines.extend(["", "[생략된 Evidence + 이유]"])
+    lines.extend(describe(item) for item in evidence if item["source_type"] == "resume_text")
+    lines.extend(["", "[새로 추출된 Evidence]"])
+    lines.extend(describe(item) for item in evidence if item["source_type"] == "user_answer")
+    lines.extend(["", "[Superseded / Contradicted Evidence]"])
+    lines.extend(describe(item) for item in evidence if
+                 item["assertion_state"] in {"superseded", "contradicted"} or
+                 item.get("conflicts_with_evidence_ids"))
+    lines.extend(group("[Core Evidence]", plan.get("core_evidence_ids") or []))
+    lines.extend(group("[Supporting Evidence]", plan.get("supporting_evidence_ids") or []))
+    lines.extend(group("[Preserved Evidence]", plan.get("preserved_evidence_ids") or []))
+    lines.extend(["", "[Omitted Evidence + reason]"])
     lines.extend(f"- {item['evidence_id']}: {item['reason']}"
                  for item in result.get("omitted_evidence") or [])
-    lines.extend(["", "[RevisionPlan]", json.dumps(result.get("plan"), ensure_ascii=False, indent=2),
-                  "", "[생성된 수정안]", candidate.get("suggested_text") or "(수정안 없음)",
-                  "", "[Claim → Evidence]"])
-    lines.extend(f"- {claim['text']} → {', '.join(claim['evidence_ids'])}" for claim in claims)
-    lines.extend(["", "[Validator 결과]",
+    lines.extend(["", "[Revision Plan]", json.dumps(plan, ensure_ascii=False, indent=2),
+                  "", "[Writer Sentences + Evidence IDs]"])
+    lines.extend(f"- {sentence['text']} → {', '.join(sentence['evidence_ids'])}" for sentence in sentences)
+    lines.extend(["", "[Final Suggested Text]", candidate.get("suggested_text") or "(수정안 없음)",
+                  "", "[Validator Result]",
                   json.dumps(result.get("validation"), ensure_ascii=False, indent=2),
-                  "", "[LLM 호출 수 / token / latency]",
+                  "", "[LLM Calls / Tokens / Latency]",
                   json.dumps(result.get("usage"), ensure_ascii=False),
-                  "", "Human judgement:",
-                  "APPLY_AS_IS | MINOR_EDIT | MAJOR_EDIT | REJECT", "", "Reason:", ""])
+                  "", "Human judgement:", "", "Reason:", ""])
     return "\n".join(lines)
 
 
