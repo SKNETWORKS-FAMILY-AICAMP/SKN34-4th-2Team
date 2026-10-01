@@ -17,12 +17,22 @@ const raw = axios.create({
 
 let refreshFlight: Promise<string> | null = null;
 
-async function refreshAccess(): Promise<string> {
+async function requestAccess(): Promise<string> {
   const refresh = useSessionStore.getState().refresh;
   if (!refresh) throw new Error('no refresh token');
   const { data } = await raw.post<{ access: string; refresh?: string }>('/token/refresh', { refresh });
   useSessionStore.getState().setTokens(data.access, data.refresh ?? refresh);
   return data.access;
+}
+
+/** 동시에 여러 곳에서 불러도 갱신 요청은 한 번만 보낸다 */
+function refreshAccess(): Promise<string> {
+  if (!refreshFlight) {
+    refreshFlight = requestAccess().finally(() => {
+      refreshFlight = null;
+    });
+  }
+  return refreshFlight;
 }
 
 http.interceptors.request.use((config) => {
@@ -45,13 +55,8 @@ http.interceptors.response.use(
       throw error;
     }
     original._retry = true;
-    if (!refreshFlight) {
-      refreshFlight = refreshAccess().finally(() => {
-        refreshFlight = null;
-      });
-    }
     try {
-      const access = await refreshFlight;
+      const access = await refreshAccess();
       original.headers = original.headers ?? {};
       original.headers.Authorization = `Bearer ${access}`;
       return http(original);
