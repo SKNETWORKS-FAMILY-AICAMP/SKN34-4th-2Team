@@ -27,6 +27,8 @@ import {
 } from './alignDraft';
 import { defaultQuestions } from './companyQuestions';
 import { CoachAsk } from '../resume/ask/CoachAsk';
+import { ApplySiteButton } from './ApplySiteButton';
+import { FeaturedPostings } from './FeaturedPostings';
 import { QuestionAnswers } from './QuestionAnswers';
 import { QuestionsStep, type QuestionChoice } from './QuestionsStep';
 import './jobApply.css';
@@ -402,9 +404,13 @@ export function JobApplyScreen() {
         {posting === null && findBy === 'link' && (
           <p className="hint">사람인 · 잡코리아 공고 상세 페이지 주소를 붙여 넣으세요. 우리가 수집해 둔 공고만 불러올 수 있어요.</p>
         )}
-        {posting === null && findBy === 'coach' && finding && <p className="hint">고른 공고를 불러오고 있어요…</p>}
+        {/* 코치 대화 · 주요 기업 카드에서 고른 공고(?job=…)를 불러오는 동안 */}
+        {posting === null && openJob !== '' && finding && <p className="hint">고른 공고를 불러오고 있어요…</p>}
         {findError !== null && <p className="apply-error">{findError}</p>}
       </Card>
+
+      {/* 대기업 · 인기 기업 · 외국계 공고. 고르면 코치 대화에서 고른 공고와 같이 2단계로 간다 */}
+      {posting === null && <FeaturedPostings busy={finding} onPick={(jobId) => setParams({ job: jobId })} />}
 
       {/* 이 탭에서 만든 자소서만. 이력서 관리의 공고 맞춤 이력서는 거기서 본다 */}
       {posting === null && <MadeList resumes={resumes.filter(isApplyCopy)} />}
@@ -473,7 +479,7 @@ export function JobApplyScreen() {
       {posting !== null && (
         <Card className="apply-step">
           <StepHead no={3} title="회사 자기소개서 문항" done={questions !== null} />
-          <QuestionsStep posting={posting} value={questions} locked={draft !== null} onChange={setQuestions} />
+          <QuestionsStep value={questions} locked={draft !== null} onChange={setQuestions} />
         </Card>
       )}
 
@@ -547,6 +553,8 @@ function StepHead({ no, title, done }: { no: number; title: string; done: boolea
 }
 
 function PostingSummary({ posting, onOpen, onChange }: { posting: Posting; onOpen(): void; onChange(): void }) {
+  /** 회사 채용 사이트를 연 뒤의 안내 — 요약 줄 아래에 */
+  const [siteNote, setSiteNote] = useState('');
   const facts = [
     posting.region,
     posting.employment_type,
@@ -554,22 +562,29 @@ function PostingSummary({ posting, onOpen, onChange }: { posting: Posting; onOpe
     posting.deadline ? `~ ${posting.deadline.slice(0, 10)}` : '',
   ].filter((v) => v !== '' && v !== null);
   return (
-    <div className="apply-posting">
-      <div className="apply-posting__text">
-        <span className="apply-posting__company">{posting.company}</span>
-        <strong className="apply-posting__title">{posting.title}</strong>
-        <span className="hint">{facts.join(' · ')}</span>
+    <>
+      <div className="apply-posting">
+        <div className="apply-posting__text">
+          <span className="apply-posting__company">{posting.company}</span>
+          <strong className="apply-posting__title">{posting.title}</strong>
+          <span className="hint">{facts.join(' · ')}</span>
+        </div>
+        <div className="apply-posting__actions">
+          {/* 공채는 요건 · 문항이 회사 채용 사이트에 있다. 일반 공고는 못 찾으면 원문을 연다 */}
+          {posting.source_url.startsWith('http') && (
+            <ApplySiteButton jobId={posting.job_id} fallbackUrl={posting.source_url} onNote={setSiteNote} />
+          )}
+          <Button variant="outline" size="sm" onClick={onOpen}>
+            <Icon name="description" size={16} />
+            원문 보기
+          </Button>
+          <Button variant="text" size="sm" onClick={onChange}>
+            다른 공고
+          </Button>
+        </div>
       </div>
-      <div className="apply-posting__actions">
-        <Button variant="outline" size="sm" onClick={onOpen}>
-          <Icon name="description" size={16} />
-          원문 보기
-        </Button>
-        <Button variant="text" size="sm" onClick={onChange}>
-          다른 공고
-        </Button>
-      </div>
-    </div>
+      {siteNote !== '' && <p className="hint apply-site-note">{siteNote}</p>}
+    </>
   );
 }
 

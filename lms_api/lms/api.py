@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import connection, transaction
@@ -29,7 +32,7 @@ from lms.posting_link import job_id_from_link
 from lms.publish import publish_scheduled_notices
 from lms.resume_text import build_profile, build_resume_text
 from lms.services import schedule_notice_vector
-from lms import practice_auto, practice_custom, practice_tutor, practice_web, study_note_service, study_source_service
+from lms import apply_link, featured_postings, practice_auto, practice_custom, practice_tutor, practice_web, study_note_service, study_source_service
 
 
 class LmsAuth(HttpBearer):
@@ -1160,6 +1163,92 @@ def jobs_chat_stream(request, body: JobChatIn):
     return response
 
 
+# 주요 기업 카드는 모든 수강생에게 같다. 후보를 고르는 정규식이 인덱스 없이 공고 전체를 훑어(7~9초) 10분 둔다.
+# 수업 시작에 여럿이 한꺼번에 열면 캐시가 빈 동안 같은 조회가 사람 수만큼 RDS 로 간다 — 한 번에 하나만 계산한다
+_FEATURED_TTL = 600
+_featured_cache: dict[tuple[str, Any], tuple[float, list[dict]]] = {}
+_featured_lock = threading.Lock()
+
+
+def _featured_cards(view: Literal["live", "past"]) -> list[dict]:
+    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+    hit = _featured_cache.get((view, today))
+    if hit is not None and time.monotonic() - hit[0] < _FEATURED_TTL:
+        return hit[1]
+    with _featured_lock:
+        # 기다리는 동안 앞 요청이 채웠으면 그것을 쓴다
+        hit = _featured_cache.get((view, today))
+        if hit is not None and time.monotonic() - hit[0] < _FEATURED_TTL:
+            return hit[1]
+        cards = _load_featured_cards(view, today)
+        # 날짜가 바뀌면 어제 것은 버린다
+        for key in [k for k in _featured_cache if k[1] != today]:
+            del _featured_cache[key]
+        _featured_cache[(view, today)] = (time.monotonic(), cards)
+        return cards
+
+
+def _load_featured_cards(view: Literal["live", "past"], today) -> list[dict]:
+    norm = featured_postings.NORM_SQL
+    with connection.cursor() as cur:
+        # 지원 방법 칸 · 회사 정보 표는 migration(recruit_roles_company_profiles) 뒤에 생긴다. 없으면 빈 값으로 읽는다
+        cur.execute(
+            """SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                              WHERE table_schema = 'jobs' AND table_name = 'jobs' AND column_name = 'apply_method'),
+                      to_regclass('jobs.company_profiles') IS NOT NULL"""
+        )
+        has_apply, has_profiles = cur.fetchone()
+        cur.execute(f"SELECT DISTINCT {norm} FROM jobs.jobs WHERE company_type ~* %s", [featured_postings.BIG_TYPE])
+        big_names = frozenset(row[0] for row in cur.fetchall() if row[0])
+        # 사람인이 중견 · 중소로만 적은 회사 — 잡코리아가 대기업으로 달아도 대기업으로 치지 않는다
+        cur.execute(
+            f"""SELECT {norm} FROM jobs.jobs WHERE source = 'SARAMIN_POC' GROUP BY 1
+                HAVING bool_or(COALESCE(company_type, '') ~* %s) AND NOT bool_or(COALESCE(company_type, '') ~* %s)""",
+            [featured_postings.SMALLER_TYPE, featured_postings.BIG_TYPE],
+        )
+        small_names = frozenset(row[0] for row in cur.fetchall() if row[0])
+        if view == "live":
+            when = "j.status = 'OPEN' AND (j.deadline IS NULL OR j.deadline = '' OR j.deadline >= %s)"
+            params: list[Any] = [today.isoformat()]
+        else:
+            # 상태는 보지 않는다 — 마감일이 지났는데 OPEN 으로 남은 공고도 지난 공채다
+            when = "j.deadline >= %s AND j.deadline < %s"
+            params = [(today - timedelta(days=featured_postings.PAST_DAYS)).isoformat(), today.isoformat()]
+        cur.execute(
+            f"""SELECT j.job_id, j.source, j.group_key, j.company, j.company_type, j.title, j.deadline, j.posted_at,
+                       j.career_type, j.employment_type, j.tech_stack, j.status,
+                       {"j.apply_method" if has_apply else "NULL::varchar AS apply_method"},
+                       {"p.logo_url" if has_profiles else "NULL::varchar AS logo_url"}
+                FROM jobs.jobs j
+                {f"LEFT JOIN jobs.company_profiles p ON p.company_key = {norm}" if has_profiles else ""}
+                WHERE {when} AND j.career_type IN ('ENTRY', 'ANY')
+                  AND (j.company_type ~* %s OR j.company ~* %s OR {norm} = ANY(%s))""",
+            [*params, featured_postings.COARSE_TYPE, featured_postings.COARSE_NAME, list(big_names)],
+        )
+        rows = _dicts(cur)
+    pick = featured_postings.pick_live if view == "live" else featured_postings.pick_past
+    return pick(rows, today, big_names, small_names)
+
+
+@api.get("/featured-postings")
+def featured_posting_list(request, view: str = "live", tier: str = "", offset: int = 0, limit: int = 12):
+    """공고 맞춤 지원 첫 화면의 주요 기업 카드(featured_postings.py).
+
+    `view` 는 live(진행 중) · past(지난 공채). `tier` 로 기업 구분 하나만 거른다. `counts` 는 거르기 단추에 붙일 수다.
+    """
+    _require_user(request)
+    if view not in ("live", "past"):
+        return Response({"detail": "view 는 live 나 past 여야 합니다."}, status=400)
+    cards = _featured_cards(view)
+    shown = [c for c in cards if c["tier"] == tier] if tier else cards
+    offset = max(offset, 0)
+    return {
+        "items": shown[offset : offset + max(1, min(limit, 48))],
+        "total": len(shown),
+        "counts": {t: sum(1 for c in cards if c["tier"] == t) for t in featured_postings.TIERS},
+    }
+
+
 @api.get("/postings/{job_id}", auth=None)
 def job_posting(request, job_id: str):
     """공고 원문 한 건 — 추천 카드에서 새 탭으로 여는 화면이 읽는다.
@@ -1194,6 +1283,64 @@ def job_posting(request, job_id: str):
         if isinstance(row[key], str):
             row[key] = json.loads(row[key] or "[]")
     return row
+
+
+# 회사 채용 사이트 주소는 공고가 바뀌지 않는 한 그대로다. 찾으면 6시간, 못 찾았으면 10분 둔다
+# (사이트가 잠깐 안 열렸던 것일 수 있다)
+_APPLY_LINK_TTL = 6 * 3600
+_APPLY_LINK_MISS_TTL = 600
+_APPLY_LINK_CACHE_SIZE = 2000
+_apply_link_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _read_listing_page(url: str) -> str | None:
+    """사람인 · 잡코리아 페이지 한 장. 허용 목록 밖으로 넘겨 가면 열지 않는다(_ATTACHMENT_OPENER)."""
+    if not _attachment_host_allowed(url):
+        return None
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (LMS apply link reader)"})
+    try:
+        with _ATTACHMENT_OPENER.open(req, timeout=10) as resp:
+            return resp.read(2_000_000).decode("utf-8", errors="replace")
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return None
+
+
+@api.get("/postings/{job_id}/apply-link")
+def posting_apply_link(request, job_id: str):
+    """홈페이지 지원 공고의 회사 채용 사이트 주소(apply_link.py). 못 찾으면 url 이 null — 화면이 공고 원문을 연다.
+
+    같은 공고가 사람인 · 잡코리아에 함께 있으면(group_key) 잡코리아 쪽을 먼저 본다. 공고 페이지로 바로 가서다.
+    `precise` 는 공고 페이지로 바로 가는 주소인가(잡코리아)다. 사람인 주소는 채용 사이트 첫 화면일 때가 많다.
+    """
+    _require_user(request)
+    hit = _apply_link_cache.get(job_id)
+    if hit is not None:
+        ttl = _APPLY_LINK_TTL if hit[1]["url"] else _APPLY_LINK_MISS_TTL
+        if time.monotonic() - hit[0] < ttl:
+            return hit[1]
+    with connection.cursor() as cur:
+        cur.execute("SELECT job_id, group_key FROM jobs.jobs WHERE job_id = %s", [job_id])
+        row = _one(cur)
+        if row is None:
+            return Response({"detail": "공고를 찾을 수 없습니다."}, status=404)
+        ids = [job_id]
+        if row["group_key"]:
+            cur.execute(
+                "SELECT job_id FROM jobs.jobs WHERE group_key = %s AND job_id <> %s AND status <> 'REMOVED'",
+                [row["group_key"], job_id],
+            )
+            ids += [r["job_id"] for r in _dicts(cur)]
+    found = apply_link.find_homepage(ids, _read_listing_page)
+    result = (
+        {"url": found[0], "precise": found[1].startswith("JOBKOREA-")}
+        if found is not None
+        else {"url": None, "precise": False}
+    )
+    _apply_link_cache[job_id] = (time.monotonic(), result)
+    # 눌린 공고마다 쌓인다. 넘치면 오래된 것부터 버린다(dict 는 넣은 순서를 지킨다)
+    while len(_apply_link_cache) > _APPLY_LINK_CACHE_SIZE:
+        del _apply_link_cache[next(iter(_apply_link_cache))]
+    return result
 
 
 @api.get("/posting-link")
