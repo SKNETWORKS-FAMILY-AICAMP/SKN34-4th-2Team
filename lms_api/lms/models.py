@@ -904,6 +904,101 @@ class StudentIntakes(models.Model):
         db_table = 'student_intakes'
 
 
+class Quests(models.Model):
+    """관리자가 만드는 마일리지 퀘스트. approval=auto 면 제출 즉시, manual 이면 승인할 때 지급한다."""
+
+    cohort = models.ForeignKey(Cohorts, models.PROTECT)
+    title = models.CharField()
+    description = models.TextField(blank=True, default='')
+    reward = models.IntegerField()
+    evidence_type = models.CharField(default='none')
+    approval = models.CharField(default='manual')
+    max_completions = models.PositiveSmallIntegerField(default=1)
+    start_on = models.DateField(blank=True, null=True)
+    end_on = models.DateField(blank=True, null=True)
+    published = models.BooleanField(default=False)
+    closed = models.BooleanField(default=False)
+    created_by = models.ForeignKey('Users', models.SET_NULL, related_name='quests_created', blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'quests'
+        indexes = [models.Index(fields=['cohort', 'published'], name='quests_cohort_published_idx')]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(reward__gt=0), name='ck_quest_reward_positive'),
+            models.CheckConstraint(
+                condition=models.Q(evidence_type__in=('none', 'text', 'link', 'file')), name='ck_quest_evidence_type'
+            ),
+            models.CheckConstraint(condition=models.Q(approval__in=('manual', 'auto')), name='ck_quest_approval'),
+        ]
+
+
+class QuestSubmissions(models.Model):
+    """학생의 퀘스트 제출 한 번. granted_amount 는 지금 지급된 채로 남아 있는 마일리지(회수하면 0)."""
+
+    quest = models.ForeignKey(Quests, models.PROTECT, related_name='submissions')
+    user = models.ForeignKey('Users', models.PROTECT, related_name='quest_submissions')
+    cohort = models.ForeignKey(Cohorts, models.PROTECT)
+    status = models.CharField(default='pending')
+    text = models.TextField(blank=True, default='')
+    link = models.CharField(blank=True, default='')
+    file_keys = models.JSONField(default=list, blank=True)
+    review_comment = models.TextField(blank=True, default='')
+    reviewed_by = models.ForeignKey(
+        'Users', models.SET_NULL, related_name='quest_reviews', blank=True, null=True
+    )
+    reviewed_at = models.DateTimeField(blank=True, null=True)
+    granted_amount = models.IntegerField(default=0)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'quest_submissions'
+        indexes = [
+            models.Index(fields=['quest', 'user'], name='quest_sub_quest_user_idx'),
+            models.Index(fields=['cohort', 'status'], name='quest_sub_cohort_status_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(status__in=('pending', 'approved', 'rejected', 'revoked')),
+                name='ck_quest_submission_status',
+            ),
+        ]
+
+
+class StudentCounselNotes(models.Model):
+    """정기 상담 한 번 — 관리자만 보고 쓴다. 차수(round)로 정기 상담 진행을 본다."""
+
+    user = models.ForeignKey('Users', models.PROTECT, related_name='counsel_notes')
+    cohort = models.ForeignKey(Cohorts, models.PROTECT)
+    round = models.PositiveSmallIntegerField()
+    counseled_on = models.DateField()
+    category = models.CharField(default='regular')
+    content = models.TextField()
+    follow_up = models.TextField(blank=True, default='')
+    follow_up_done = models.BooleanField(default=False)
+    next_on = models.DateField(blank=True, null=True)
+    counselor = models.ForeignKey(
+        'Users', models.SET_NULL, related_name='counsel_notes_written', blank=True, null=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'student_counsel_notes'
+        indexes = [
+            models.Index(fields=['cohort', 'round'], name='student_cou_cohort__a1c0e2_idx'),
+            models.Index(fields=['user', 'counseled_on'], name='student_cou_user_id_5b7d31_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(category__in=('regular', 'adhoc', 'career', 'other')),
+                name='ck_counsel_note_category',
+            ),
+        ]
+
+
 class StudyNotes(models.Model):
     id = models.BigAutoField(primary_key=True)
     legacy_id = models.CharField(unique=True, blank=True, null=True)

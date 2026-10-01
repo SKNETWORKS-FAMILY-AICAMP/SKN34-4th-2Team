@@ -37,6 +37,8 @@ export const RoutePaths = {
   adminCohortsCreate: '/admin/cohorts/create',
   adminStudents: '/admin/students',
   adminStudentsCreate: '/admin/students/create',
+  adminCounsel: '/admin/counsel',
+  adminQuests: '/admin/quests',
   adminInstructors: '/admin/instructors',
   adminInstructorsCreate: '/admin/instructors/create',
   adminAttendance: '/admin/attendance',

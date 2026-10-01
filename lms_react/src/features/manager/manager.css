@@ -237,6 +237,29 @@
   background: var(--surface-variant);
 }
 
+.assistant__thinking {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.assistant__thinking .dot:nth-child(3) {
+  margin-right: 4px;
+}
+
+.assistant__busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.assistant__busy .spinner {
+  width: 12px;
+  height: 12px;
+  border-color: color-mix(in srgb, currentColor 35%, transparent);
+  border-top-color: currentColor;
+}
+
 .assistant__msg--error {
   align-self: flex-start;
   background: color-mix(in srgb, var(--warning) 14%, var(--surface));

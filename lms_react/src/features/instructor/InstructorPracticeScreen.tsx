@@ -1,4 +1,4 @@
-import { reviewPracticeProblem, usePracticeReports, usePracticeReviews, usePracticeSets, useUsers } from '../../data/repository';
+import { reviewPracticeProblem, useFullPracticeSets, usePracticeReports, usePracticeReviews, usePracticeSets, useUsers } from '../../data/repository';
 import { Icon } from '../../ui/Icon';
 import { Badge, PageHeader } from '../../ui/components';
 import { formatRelative } from '../../utils/format';
@@ -21,6 +21,7 @@ export function InstructorPracticeScreen() {
   const reports = usePracticeReports();
   const reviews = usePracticeReviews();
   const list = flaggedProblems(sets, reports, reviews);
+  useFullPracticeSets(list.map((f) => f.set.id));
   const hidden = list.filter((f) => f.hidden).length;
 
   return (

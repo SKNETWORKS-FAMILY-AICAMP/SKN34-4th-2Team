@@ -4,13 +4,16 @@ import { Link } from 'react-router-dom';
 import { RoutePaths } from '../../app/routePaths';
 
 import {
+  ASSISTANT_BULK_TARGETS,
+  ASSISTANT_MAX_CONTENT_CHARS,
+  ASSISTANT_MAX_TITLE_CHARS,
   askAdminAssistant,
   executeAssistantAction,
   type AssistantAction,
   type AssistantTurn,
 } from '../../data/repository';
 import { Icon } from '../../ui/Icon';
-import { Badge, Button, Chip, Spacer, TextArea, TextInput } from '../../ui/components';
+import { Badge, Button, Checkbox, Chip, Spacer, TextArea, TextInput } from '../../ui/components';
 import { useSession } from '../auth/session';
 import './manager.css';
 
@@ -32,7 +35,7 @@ interface Message {
   role: 'user' | 'assistant' | 'error';
   text: string;
   cards?: CardState[];
-  /** 화면에는 안 보이고 다음 질문 때만 같이 보내는 조회 결과 */
+  /** 화면에는 안 보이는 서명된 조회 결과 토큰 — 다음 질문 때 따로 보낸다 */
   context?: string;
 }
 
@@ -46,6 +49,41 @@ const EXAMPLES = [
   '방금 불시 점검에서 자리에 없던 학생 알려줘',
   '내일 오전 특강 안내 공지 만들어줘',
 ];
+
+/** 기다린 시간에 따라 바꿔 보여 줄 안내 — [시작 초, 문구] */
+const THINKING_STEPS: [number, string][] = [
+  [0, '요청을 확인하고 있어요'],
+  [4, '학생 정보를 조회하고 있어요'],
+  [12, '답변을 정리하고 있어요. 조금만 기다려 주세요'],
+];
+
+function ThinkingBubble() {
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const label = THINKING_STEPS.filter(([from]) => seconds >= from).at(-1)?.[1] ?? THINKING_STEPS[0][1];
+  return (
+    <div className="assistant__msg assistant__msg--assistant assistant__thinking" role="status" aria-live="polite">
+      <span className="dot" aria-hidden />
+      <span className="dot" aria-hidden />
+      <span className="dot" aria-hidden />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function Busy({ label }: { label: string }) {
+  return (
+    <span className="assistant__busy">
+      <span className="spinner" aria-hidden />
+      {label}
+    </span>
+  );
+}
 
 let seq = 0;
 const newId = (prefix: string) => `${prefix}-${Date.now()}-${(seq += 1)}`;
@@ -91,7 +129,7 @@ export function AdminAssistantHost() {
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
-  if (user === null || (user.role !== 'admin' && user.role !== 'instructor')) return null;
+  if (user === null || user.role !== 'admin') return null;
 
   const ask = (question: string) => {
     const history: AssistantTurn[] = [
@@ -99,14 +137,15 @@ export function AdminAssistantHost() {
         .filter((m): m is Message & { role: 'user' | 'assistant' } => m.role !== 'error')
         .map((m) => ({
           role: m.role,
-          content: [m.text, ...(m.cards ?? []).map(cardSummary), m.context ?? ''].join('\n').trim(),
+          content: [m.text, ...(m.cards ?? []).map(cardSummary)].join('\n').trim(),
         }))
         .filter((t) => t.content !== ''),
       { role: 'user', content: question },
     ];
+    const context = [...messages].reverse().find((m) => m.role === 'assistant')?.context ?? '';
     setMessages((m) => [...m, { id: newId('u'), role: 'user', text: question }]);
     setThinking(true);
-    askAdminAssistant(history)
+    askAdminAssistant(history, context)
       .then(({ reply, actions, context }) =>
         setMessages((m) => [
           ...m,
@@ -197,7 +236,7 @@ export function AdminAssistantHost() {
           <div className="assistant__examples">
             <p className="muted">이렇게 시켜 보세요.</p>
             {EXAMPLES.map((example) => (
-              <button key={example} type="button" className="chip" onClick={() => ask(example)}>
+              <button key={example} type="button" className="chip" onClick={() => ask(example)} disabled={thinking}>
                 {example}
               </button>
             ))}
@@ -221,11 +260,7 @@ export function AdminAssistantHost() {
           </div>
         ))}
 
-        {thinking && (
-          <div className="assistant__msg assistant__msg--assistant" role="status" aria-live="polite">
-            확인하고 있어요…
-          </div>
-        )}
+        {thinking && <ThinkingBubble />}
       </div>
 
       <form className="assistant__form" onSubmit={submit}>
@@ -234,10 +269,11 @@ export function AdminAssistantHost() {
           value={draft}
           placeholder="예: 출결 신청 안 한 학생에게 알림 보내줘"
           aria-label="어시스턴트에게 요청"
+          disabled={thinking}
           onChange={(e) => setDraft(e.target.value)}
         />
         <Button type="submit" size="sm" disabled={draft.trim() === '' || thinking}>
-          보내기
+          {thinking ? <Busy label="답변 중" /> : '보내기'}
         </Button>
       </form>
     </section>
@@ -258,6 +294,11 @@ function ActionCard({
   const { action, status } = card;
   const editable = status === 'pending';
   const noTargets = action.type === 'send_alert' && !action.allStudents && action.targets.length === 0;
+  const tooLong =
+    action.title.trim().length > ASSISTANT_MAX_TITLE_CHARS || action.content.trim().length > ASSISTANT_MAX_CONTENT_CHARS;
+  const bulk =
+    action.type === 'send_alert' && (action.allStudents || action.targets.length >= ASSISTANT_BULK_TARGETS);
+  const needsBulkCheck = bulk && action.type === 'send_alert' && !action.confirmBulk;
 
   return (
     <div
@@ -314,6 +355,25 @@ function ActionCard({
         </div>
       )}
 
+      {action.type === 'send_alert' &&
+        (editable ? (
+          <div className="assistant-action__targets">
+            <span className="hint">링크</span>
+            <TextInput
+              aria-label="연결 링크"
+              placeholder="/attendance-request 또는 https://…"
+              value={action.linkUrl ?? ''}
+              onChange={(e) => onChange({ ...action, linkUrl: e.target.value.trim() || null })}
+            />
+          </div>
+        ) : (
+          action.linkUrl && (
+            <div className="assistant-action__targets">
+              <span className="hint">링크 {action.linkUrl}</span>
+            </div>
+          )
+        ))}
+
       {action.type === 'send_alert' && (
         <div className="assistant-action__targets">
           <span className="hint">노출</span>
@@ -332,6 +392,25 @@ function ActionCard({
             <span className="hint">{action.endDate ? `${action.endDate}까지` : '끌 때까지'}</span>
           )}
         </div>
+      )}
+
+      {editable && bulk && action.type === 'send_alert' && (
+        <div className="assistant-action__targets" role="alert">
+          <Badge tone="warning">
+            {action.allStudents ? '기수 전체에게 보냅니다' : `${action.targets.length}명에게 한꺼번에 보냅니다`}
+          </Badge>
+          <Checkbox
+            checked={action.confirmBulk === true}
+            onChange={(next) => onChange({ ...action, confirmBulk: next })}
+            label="받는 사람과 문구를 확인했습니다"
+          />
+        </div>
+      )}
+
+      {editable && tooLong && (
+        <p className="field__error" role="alert">
+          제목은 {ASSISTANT_MAX_TITLE_CHARS}자, 내용은 {ASSISTANT_MAX_CONTENT_CHARS}자 이내로 써 주세요.
+        </p>
       )}
 
       {card.error !== undefined && (
@@ -358,9 +437,15 @@ function ActionCard({
           <Button
             size="sm"
             onClick={onRun}
-            disabled={status === 'running' || action.title.trim() === '' || noTargets}
+            disabled={status === 'running' || action.title.trim() === '' || noTargets || tooLong || needsBulkCheck}
           >
-            {status === 'running' ? '실행 중' : action.type === 'send_alert' ? '보내기' : '등록하기'}
+            {status === 'running' ? (
+              <Busy label={action.type === 'send_alert' ? '보내는 중…' : '등록하는 중…'} />
+            ) : action.type === 'send_alert' ? (
+              '보내기'
+            ) : (
+              '등록하기'
+            )}
           </Button>
         </div>
       )}
