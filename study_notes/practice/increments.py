@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
 from typing import Any
 
@@ -27,8 +28,6 @@ from study_notes.pipeline import MAX_CHARS_PER_FILE, Material
 SIMILAR_RATIO = 0.9
 MIN_NEW_CHARS = 200
 MIN_PER_FILE = 1
-# 그날 수업 파일이 하나뿐이어도 8문제는 낸다
-MAX_PER_FILE = 8
 # 코드 셀이 없는 파일(설명만 있는 노트북 · .md)이 받을 수 있는 문제 수 — 모두 개념 문제
 MAX_CONCEPT_ONLY = 2
 SUMMARY_CHARS = 600
@@ -38,6 +37,13 @@ KIND_MIX: dict[str, int] = {
     "concept": 2, "code_output": 3, "code_blank": 2, "code_fix": 2, "code_write": 2, "code_scratch": 1,
 }
 DAY_QUOTA = sum(KIND_MIX.values())  # 12
+# 하루 문제 수는 그날 새 내용 양에 따라 — 많을수록 덜 늘게(제곱근), 실측 중간쯤 날(새 내용 1만 6천 자)이 12문제.
+# 34기 실제 수업일은 3천 자 ~ 8만 자로 25배 차이가 났는데 문제는 늘 12개였다(10/1 사용자 결정: 8 ~ 25문제)
+BASE_CHARS = 16_000
+MIN_DAY = 8
+MAX_DAY = 25
+# LLM 한 번에 받는 문제 수 — 12문제에 최대 240초라(generate.py) 그보다 많은 날은 묶음으로 나눠 동시에 만든다
+BATCH = 12
 # 남은 개수가 12보다 적을 때(파일이 하나뿐이거나 같은 날 늦은 커밋 추가분) 이 순서로 채운다 — 가벼운 코드 문제부터.
 # 처음부터 문제는 7번째 — 파일 하나짜리 날(8문제)에도 하나는 들어간다
 _FILL_ORDER = [
@@ -50,8 +56,28 @@ def is_js_file(path: str) -> bool:
     return path.lower().endswith(".js")
 
 
+def day_quota(new_chars: int, already: int = 0) -> int:
+    """그날 낼 문제 수 — 새 내용 양으로. 같은 날 늦게 더 올린 몫(already > 0)은 하한 없이 내용만큼, 하루 상한 안에서
+    (오타 몇 줄 고친 커밋에 8문제가 더 나오지 않게)"""
+    if new_chars <= 0:
+        return 0
+    scaled = round(DAY_QUOTA * math.sqrt(new_chars / BASE_CHARS))
+    if already:
+        return max(0, min(max(1, scaled), MAX_DAY - already))
+    return min(MAX_DAY, max(MIN_DAY, scaled))
+
+
+def _take(order: list[str], n: int) -> dict[str, int]:
+    """순서를 처음부터(끝나면 다시 처음부터) n 개 — 종류별 개수"""
+    mix: dict[str, int] = {}
+    for i in range(max(0, n)):
+        kind = order[i % len(order)]
+        mix[kind] = mix.get(kind, 0) + 1
+    return mix
+
+
 def kind_mix(total: int, *, sql: bool = False, web: bool = False, js: bool = False) -> dict[str, int]:
-    """문제 total 개의 종류별 개수. total 이 하루 구성(12)이면 KIND_MIX 그대로.
+    """문제 total 개의 종류별 개수. 12면 KIND_MIX 그대로, 그보다 많으면 같은 비율로 늘린다.
 
     sql — 그날 자료가 SQL(.sql)이면 코드 문제 대신 SQL 조회 문제를 낸다. 파이썬 코드 문제는 수업과 상관없어진다.
     web — 웹 수업(.html · .css)이면 1/3 개념 + 웹 실습(web_task). 태그 · 속성 · 선택자처럼 외워 둘 개념이 많다.
@@ -62,19 +88,16 @@ def kind_mix(total: int, *, sql: bool = False, web: bool = False, js: bool = Fal
         return {"concept": concept, "web_task": total - concept}
     if js:
         concept = round(total / 3)
-        mix = {"concept": concept}
-        for kind in [k for k in _FILL_ORDER if k != "concept"][:max(0, total - concept)]:
-            mix[kind] = mix.get(kind, 0) + 1
-        return mix
+        return {"concept": concept, **_take([k for k in _FILL_ORDER if k != "concept"], total - concept)}
     if sql:
         concept = min(2, total // 4)
         return {"concept": concept, "sql_query": total - concept}
     if total >= DAY_QUOTA:
-        return dict(KIND_MIX)
-    mix: dict[str, int] = {}
-    for kind in _FILL_ORDER[:max(0, total)]:
-        mix[kind] = mix.get(kind, 0) + 1
-    return mix
+        mix = {k: n * total // DAY_QUOTA for k, n in KIND_MIX.items()}
+        for kind, n in _take(_FILL_ORDER, total - sum(mix.values())).items():
+            mix[kind] += n
+        return mix
+    return _take(_FILL_ORDER, total)
 
 
 def is_sql_file(path: str) -> bool:
@@ -221,6 +244,34 @@ class DayPlan:
         ]
         return "\n".join(lines)
 
+    def batches(self, limit: int = BATCH) -> list[DayPlan]:
+        """LLM 한 번에 limit 문제까지 — 넘으면 파일 묶음으로 나눠 따로(동시에) 만든다.
+        한 파일 몫이 limit 보다 크면 새 셀을 앞뒤로 갈라, 뒤 조각은 앞 조각을 「앞서 배운 부분」으로 본다(같은 걸 두 번 묻지 않게).
+        출제 기록(coverage_after)은 나누기 전 계획으로 한다."""
+        if self.total <= limit:
+            return [self]
+        pieces: list[FileIncrement] = []
+        for f in self.targets:
+            parts = min(math.ceil(f.quota / limit), len(f.new_cells))
+            if parts <= 1:
+                pieces.append(f)
+                continue
+            seen = list(f.seen_cells)
+            chunks = _split_cells(f.new_cells, parts)
+            sizes = [sum(len(c.text) for c in chunk) for chunk in chunks]
+            for chunk, size, quota in zip(chunks, sizes, _shares(f.quota, sizes)):
+                pieces.append(replace(f, new_cells=chunk, seen_cells=list(seen), new_chars=size, quota=quota))
+                seen += chunk
+        bins: list[list[FileIncrement]] = []
+        for piece in pieces:
+            for group in bins:
+                if sum(x.quota for x in group) + piece.quota <= limit:
+                    group.append(piece)
+                    break
+            else:
+                bins.append([piece])
+        return [DayPlan(date=self.date, files=group) for group in bins]
+
     def coverage_after(self, previous: dict[str, FileCoverage]) -> dict[str, FileCoverage]:
         """출제에 쓴 파일의 새 셀을 「이미 출제함」으로 더한 새 기록. 건너뛴 파일은 그대로 둔다."""
         result = {k: FileCoverage.from_json(v.to_json()) for k, v in previous.items()}
@@ -303,12 +354,16 @@ def plan_day(
     date: str,
     files: list[tuple[str, str, str]],
     coverage: dict[str, FileCoverage],
-    quota: int = DAY_QUOTA,
+    quota: int | None = None,
+    *,
+    already: int = 0,
 ) -> DayPlan:
     """files: [(경로, 커밋, 원문)]. 새 내용이 많은 파일에 문제를 더 나눈다.
-    quota — 이번에 낼 수 있는 문제 수. 같은 날 늦은 커밋으로 다시 돌 때는 하루 몫에서 이미 낸 만큼 뺀다."""
+    quota — 이번에 낼 문제 수. 비우면 새 내용 양으로 정한다(day_quota). already — 같은 날 이미 낸 문제 수(늦은 커밋)."""
     increments = [diff_file(p, c, raw, coverage.get(p)) for p, c, raw in files]
     targets = [f for f in increments if not f.skipped]
+    if quota is None:
+        quota = day_quota(sum(f.new_chars for f in targets), already)
     # 파일이 너무 많으면 새 내용이 많은 순으로 quota 개까지만
     targets.sort(key=lambda f: -f.new_chars)
     for f in targets[max(0, quota):]:
@@ -318,14 +373,38 @@ def plan_day(
     return DayPlan(date=date, files=increments)
 
 
+def _split_cells(cells: list[Cell], parts: int) -> list[list[Cell]]:
+    """셀을 순서대로 parts 조각으로 — 글자 수가 비슷하게"""
+    total = sum(len(c.text) for c in cells)
+    chunks: list[list[Cell]] = [[]]
+    done = 0
+    for i, cell in enumerate(cells):
+        left = len(cells) - i
+        if chunks[-1] and len(chunks) < parts and (done >= total * len(chunks) / parts or left <= parts - len(chunks)):
+            chunks.append([])
+        chunks[-1].append(cell)
+        done += len(cell.text)
+    return chunks
+
+
+def _shares(total: int, sizes: list[int]) -> list[int]:
+    """total 을 sizes 비율로 — 조각마다 1개 이상, 합은 정확히 total"""
+    out = [1] * len(sizes)
+    for _ in range(total - len(sizes)):
+        best = max(range(len(sizes)), key=lambda i: sizes[i] / (out[i] + 1))
+        out[best] += 1
+    return out
+
+
 def _distribute(targets: list[FileIncrement], quota: int) -> None:
     """파일마다 1개씩 주고, 남은 개수는 한 개씩 「새 내용 ÷ (받은 수 + 1)」이 가장 큰 파일에 준다.
+    파일당 상한(예전 8)은 없앴다 — 하루 문제 수를 새 내용 양으로 정하니, 큰 파일 하나뿐인 날도 그 양만큼 받는다.
     합이 정확히 quota 이고(파일당 최대치가 허락하는 한) 새 내용이 많은 파일이 더 받는다.
     코드가 없는 파일은 MAX_CONCEPT_ONLY 까지만 — 설명 글이 길어 5문제를 받았다가 코드 문제를 못 낸 날이 있었다."""
     for f in targets:
         f.quota = MIN_PER_FILE
     for _ in range(quota - MIN_PER_FILE * len(targets)):
-        open_ = [f for f in targets if f.quota < (MAX_PER_FILE if f.has_code or is_sql_file(f.path) else MAX_CONCEPT_ONLY)]
+        open_ = [f for f in targets if f.has_code or is_sql_file(f.path) or f.quota < MAX_CONCEPT_ONLY]
         if not open_:
             break
         best = max(open_, key=lambda f: f.new_chars / (f.quota + 1))
