@@ -104,6 +104,7 @@ from job_matching_bot.crawling.http_session import (
     BlockedByTargetSiteError,
     polite_delay,
 )
+from job_matching_bot.ingestion.detail_quality import BLOCK_PAGE_MARKERS, is_block_page
 from job_matching_bot.ingestion.jobkorea import PARSER_VERSION, is_closed_page
 
 KST = timezone(timedelta(hours=9))
@@ -152,6 +153,8 @@ BLOCK_MARKERS = (
     "자동입력 방지",
     "일시적으로 차단",
     "접근이 제한",
+    # 2026-09-30 01시의 보안 정책 안내 페이지는 위 문구와 안 맞아 차단당하고도 370건을 저장했다
+    *BLOCK_PAGE_MARKERS,
 )
 
 # 잡코리아 직무 대분류(`dutyCtgr`). 목록 화면의 input[name=duty] 에서 읽었다.
@@ -262,7 +265,13 @@ def _guard(url: str) -> None:
 
 
 def check_response(response: requests.Response) -> None:
-    """차단·속도 제한이면 예외. 그 밖의 HTTP 오류는 raise_for_status에 맡긴다."""
+    """차단·속도 제한이면 예외. 그 밖의 HTTP 오류는 raise_for_status에 맡긴다.
+
+    charset 없이 온 응답은 UTF-8로 읽게 고친다. requests는 그런 text/* 응답을 ISO-8859-1로
+    읽는데, 차단 안내 페이지가 그렇게 와서 한글 표식이 하나도 안 걸리고 깨진 글자로 저장됐다.
+    """
+    if "charset" not in response.headers.get("Content-Type", "").lower():
+        response.encoding = "utf-8"
     if response.status_code in (403, 429):
         raise BlockedByTargetSiteError(
             f"잡코리아가 요청을 거부했습니다(HTTP {response.status_code}). 자동화를 중단합니다. "
@@ -579,20 +588,24 @@ def read_done_ids(path: Path) -> set[str]:
     잡코리아 상세는 공고 하나에 요청이 두 번이라 사람인보다 느리다(건당 약 6초,
     IT 8,504건이면 14시간쯤). 한 번에 끝나지 않는 것을 전제로 두고, 받는 족족
     `.jsonl`에 붙여 두었다가 다음 실행에서 건너뛴다.
+
+    마지막으로 받은 것이 차단 안내 페이지인 공고는 받은 것으로 치지 않는다. 다음 실행이 다시 받아
+    뒤에 붙이고, 적재는 마지막 줄을 쓰므로(`record_files.latest_by_id`) 그것으로 덮인다.
     """
     if not path.exists():
         return set()
-    done: set[str] = set()
+    blocked: dict[str, bool] = {}
     with path.open(encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
             if not line:
                 continue
             try:
-                done.add(str(json.loads(line)["source_job_id"]))
+                record = json.loads(line)
+                blocked[str(record["source_job_id"])] = is_block_page(record.get("description") or "")
             except (ValueError, KeyError):
                 continue
-    return done
+    return {job_id for job_id, is_blocked in blocked.items() if not is_blocked}
 
 
 def categories_for(today: date, *, full: bool = False) -> list[str]:
