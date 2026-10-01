@@ -548,6 +548,16 @@ def practice_auto_run(request, source_id: str, body: PracticeRunIn | None = None
     return _sources(lambda: practice_auto.run_now(user, source_id, dates))
 
 
+@api.get("/practice-sets")
+def practice_sets(request, ids: str = ""):
+    """세트 본문 전체(문제 · 코드 · 테스트) — bootstrap 은 목록만 보내므로 연습장을 열 때 받는다. ids 는 쉼표로"""
+    from lms.practice_service import practice_sets_full
+
+    user = _require_user(request)
+    with connection.cursor() as cur:
+        return {"practiceSets": practice_sets_full(cur, user, ids.split(","))}
+
+
 class PracticeFileIn(Schema):
     name: str = ""
     content: str = ""
@@ -1424,6 +1434,106 @@ def mileage_adjust(request, body: dict[str, Any] = Body(...)):
     return {"ok": True}
 
 
+def _counsel(request, call):
+    from lms.counsel_service import CounselError
+
+    user = _require_user(request)
+    try:
+        with transaction.atomic(), connection.cursor() as cur:
+            return call(cur, user)
+    except PermissionError:
+        return Response({"detail": "forbidden"}, status=403)
+    except CounselError as exc:
+        return Response({"detail": exc.detail}, status=exc.status)
+
+
+@api.get("/counsel-notes")
+def counsel_notes(request, student: str = "", cohort: str = ""):
+    from lms.counsel_service import list_notes
+
+    return _counsel(request, lambda cur, user: {"notes": list_notes(cur, user, student, cohort)})
+
+
+@api.post("/counsel-notes")
+def counsel_note_create(request, body: dict[str, Any] = Body(...)):
+    from lms.counsel_service import create_note
+
+    return _counsel(request, lambda cur, user: {"note": create_note(cur, user, _data(body))})
+
+
+@api.patch("/counsel-notes/{pk}")
+def counsel_note_update(request, pk: int, body: dict[str, Any] = Body(...)):
+    from lms.counsel_service import update_note
+
+    return _counsel(request, lambda cur, user: {"note": update_note(cur, user, pk, _data(body))})
+
+
+@api.delete("/counsel-notes/{pk}")
+def counsel_note_delete(request, pk: int):
+    from lms.counsel_service import delete_note
+
+    def run(cur, user):
+        delete_note(cur, user, pk)
+        return {"ok": True}
+
+    return _counsel(request, run)
+
+
+def _quest(request, call):
+    from lms.quest_service import QuestError
+
+    user = _require_user(request)
+    try:
+        with transaction.atomic(), connection.cursor() as cur:
+            return call(cur, user)
+    except PermissionError:
+        return Response({"detail": "forbidden"}, status=403)
+    except QuestError as exc:
+        return Response({"detail": exc.detail}, status=exc.status)
+
+
+@api.get("/quests")
+def quests(request, cohort: str = ""):
+    from lms.quest_service import list_quests
+
+    return _quest(request, lambda cur, user: list_quests(cur, user, cohort))
+
+
+@api.post("/quests")
+def quest_create(request, body: dict[str, Any] = Body(...)):
+    from lms.quest_service import create_quest
+
+    return _quest(request, lambda cur, user: {"quest": create_quest(cur, user, _data(body))})
+
+
+@api.patch("/quests/{pk}")
+def quest_update(request, pk: int, body: dict[str, Any] = Body(...)):
+    from lms.quest_service import update_quest
+
+    return _quest(request, lambda cur, user: {"quest": update_quest(cur, user, pk, _data(body))})
+
+
+@api.post("/quests/{pk}/submit")
+def quest_submit(request, pk: int, body: dict[str, Any] = Body(...)):
+    from lms.quest_service import submit_quest
+
+    return _quest(request, lambda cur, user: {"submission": submit_quest(cur, user, pk, _data(body))})
+
+
+@api.get("/quest-submissions")
+def quest_submissions(request, cohort: str = "", status: str = "", quest: str = ""):
+    from lms.quest_service import list_submissions
+
+    return _quest(request, lambda cur, user: {"submissions": list_submissions(cur, user, cohort, status, quest)})
+
+
+@api.post("/quest-submissions/{pk}/review")
+def quest_review(request, pk: int, body: dict[str, Any] = Body(...)):
+    from lms.quest_service import review_submission
+
+    return _quest(request, lambda cur, user: {"submission": review_submission(cur, user, pk, _data(body))})
+
+
 @api.post("/command")
 def command(request, body: CommandIn):
     user = _require_user(request)
@@ -1720,6 +1830,7 @@ def read_alert(request, pk: int):
 
 class AssistantIn(Schema):
     messages: list[dict[str, Any]] = Field(default_factory=list)
+    context: str = ""
     cohortId: str = ""
 
 
@@ -1743,7 +1854,7 @@ def admin_assistant(request, body: AssistantIn):
     if cohort_id is None:
         return Response({"detail": "forbidden"}, status=403)
     try:
-        return run_assistant(user, cohort_id, body.messages)
+        return run_assistant(user, cohort_id, body.messages, context_token=body.context)
     except AssistantError as exc:
         return Response({"detail": exc.detail}, status=exc.status)
 
