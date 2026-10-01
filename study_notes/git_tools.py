@@ -35,6 +35,8 @@ MAX_TREE_ENTRIES = 400
 GIT_TIMEOUT_SEC = 180
 
 _REPO_RE = re.compile(r"^https://github\.com/([\w.-]+)/([\w.-]+?)(?:\.git)?/?$")
+# 폴더 올리기 — upload://<기수>/<과목>. 과목 이름은 강사가 올린 폴더 이름(한글 · 공백 가능, / 와 .. 는 안 됨)
+_UPLOAD_RE = re.compile(r"^upload://((?!\.+/)[\w.-]+)/((?!\.+/?$)(?!\.\.)[^/\\\x00]+?)/?$")
 _BRANCH_RE = re.compile(r"^[\w./-]+$")
 
 _locks: dict[str, threading.Lock] = {}
@@ -59,10 +61,12 @@ class GitToolError(Exception):
 class RepoRef:
     owner: str
     repo: str
+    # 폴더 올리기(upload://기수/과목) — GitHub 가 아니라 서버 안 저장소(study_notes/upload_repo.py)
+    upload: bool = False
 
     @property
     def clone_url(self) -> str:
-        return f"https://github.com/{self.owner}/{self.repo}.git"
+        return "" if self.upload else f"https://github.com/{self.owner}/{self.repo}.git"
 
 
 @dataclass(frozen=True)
@@ -72,6 +76,9 @@ class ChangedFile:
 
 
 def parse_repo_url(repo_url: str) -> RepoRef:
+    upload = _UPLOAD_RE.match(repo_url.strip())
+    if upload:
+        return RepoRef(owner=upload.group(1), repo=upload.group(2), upload=True)
     match = _REPO_RE.match(repo_url.strip())
     if not match:
         raise GitToolError("https://github.com/owner/repo 형식의 저장소 주소만 허용됩니다.")
@@ -157,7 +164,8 @@ def _auth_args() -> list[str]:
     return ["-c", f"http.https://github.com/.extraheader=AUTHORIZATION: basic {basic}"]
 
 
-def run_git(args: list[str], cwd: Path | None = None) -> str:
+def run_git(args: list[str], cwd: Path | None = None, extra_env: dict[str, str] | None = None) -> str:
+    """extra_env — 이번 호출에만 얹는 환경 변수(폴더 올리기 커밋의 작성자 · 날짜). 프로세스 환경은 건드리지 않는다"""
     command = ["git", *_auth_args(), *args]
     try:
         result = subprocess.run(
@@ -169,7 +177,7 @@ def run_git(args: list[str], cwd: Path | None = None) -> str:
             errors="replace",
             check=False,
             timeout=GIT_TIMEOUT_SEC,
-            env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"},
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C", **(extra_env or {})},
         )
     except FileNotFoundError as exc:
         raise GitToolError("서버에 git이 설치되어 있지 않습니다.") from exc
@@ -209,7 +217,8 @@ class RepoCache:
 
     @property
     def ref(self) -> str:
-        return f"refs/remotes/origin/{self.branch}"
+        # 폴더 올리기 저장소는 원격이 없다 — 서버가 커밋한 브랜치 그대로
+        return f"refs/heads/{self.branch}" if self.repo.upload else f"refs/remotes/origin/{self.branch}"
 
     def _clone(self) -> None:
         self.dir.parent.mkdir(parents=True, exist_ok=True)
@@ -240,6 +249,8 @@ class RepoCache:
         같은 저장소는 2분 안이면 fetch를 건너뛴다. 트리 조회가 매번 GitHub에
         나가지 않게 해서 화면 진입을 빠르게 한다.
         """
+        if self.repo.upload:
+            return self._upload_head()
         cache_key = str(self.dir)
         with self._lock:
             cached = (self.dir / ".git").exists() or (self.dir / "HEAD").exists()
@@ -268,6 +279,16 @@ class RepoCache:
             sha = run_git(["rev-parse", self.ref], cwd=self.dir).strip()
             _sync_cache[cache_key] = (time.monotonic(), sha)
             return sha
+
+    def _upload_head(self) -> str:
+        """폴더 올리기 저장소 — 받아 올 원격이 없다. 있는 저장소의 브랜치 HEAD, 아직 아무것도 안 올렸으면 빈 저장소"""
+        from study_notes.upload_repo import ensure_repo, has_commits
+
+        with self._lock:
+            repo = ensure_repo(self)
+            if not has_commits(repo):
+                raise GitToolError(EMPTY_REPO_MESSAGE)
+            return run_git(["rev-parse", self.ref], cwd=self.dir).strip()
 
     # ── 조회 ────────────────────────────────────────────────────────
 
@@ -323,9 +344,13 @@ class RepoCache:
         end = start + timedelta(days=1)
         latest: dict[str, str] = {}
         shas: list[str] = []
-        for sha, _iso, files in self._log_with_files(
-            [f"--since={start.isoformat()}", f"--until={end.isoformat()}"],
-        ):
+        if self.repo.upload:
+            # 폴더 올리기는 지난 날짜로 늦게 올릴 수 있어 커밋 날짜가 순서대로가 아니다. git log --since 는 날짜가
+            # 순서대로라고 보고 중간에 멈출 수 있어서, 전부 읽고 날짜를 직접 거른다(과목 하나 커밋은 많지 않다)
+            commits = [c for c in self._log_with_files([]) if _day_of(c[1]) == date]
+        else:
+            commits = self._log_with_files([f"--since={start.isoformat()}", f"--until={end.isoformat()}"])
+        for sha, _iso, files in commits:
             shas.append(sha)
             for path in files:
                 if not is_learning_file(path) or not path_allowed(path, prefixes):
@@ -364,6 +389,14 @@ class RepoCache:
                 if len(parts) == 3 and parts[1] == "blob":
                     found[(commit, path)] = parts[2]
         return found
+
+
+def _day_of(iso: str) -> str:
+    """커밋 작성 시각 → KST 날짜(recent_lesson_dates 와 같은 기준)"""
+    try:
+        return datetime.fromisoformat(iso).astimezone(SEOUL).strftime("%Y-%m-%d")
+    except ValueError:
+        return ""
 
 
 def notebook_to_text(raw: str) -> str:
