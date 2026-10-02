@@ -51,6 +51,16 @@ def _ai_base() -> str:
 
 
 def _call(path: str, payload: dict, timeout: int) -> dict:
+    """AI 서버 호출. 폴더 올리기 과목이면 먼저 서버 안 저장소가 있는지 보고 없으면 보관본으로 되살린다(lms/folder_upload.py)."""
+    source = payload.get("source")
+    if isinstance(source, dict) and str(source.get("repoUrl") or "").startswith("upload://") and payload.get("cohortId"):
+        from lms.folder_upload import ensure_repo
+
+        ensure_repo(str(payload["cohortId"]), source)
+    return _post(path, payload, timeout)
+
+
+def _post(path: str, payload: dict, timeout: int) -> dict:
     base = _ai_base()
     if not base:
         raise StudyNoteError(503, "공부방 서버가 연결되어 있지 않습니다(STUDY_NOTES_URL).")

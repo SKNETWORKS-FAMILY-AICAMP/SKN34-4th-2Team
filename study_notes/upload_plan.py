@@ -499,19 +499,26 @@ def _date_warnings(items: list[dict[str, Any]], cal: Calendar, topic: str | None
     return [w for d in days if (w := day_warning(d, cal, topic))]
 
 
+def _unit(topic_key: str) -> str:
+    """커리큘럼 과목 id(단원|과목) → 단원. 단원 칸이 비었으면 과목 자체"""
+    unit, _, topic = topic_key.partition("|")
+    return unit or topic
+
+
 def day_warning(day: str, cal: Calendar, topic: str | None) -> dict[str, Any] | None:
     if day in cal.extra_days:
         return None
     if off := cal.off_day(day):
-        return {"kind": "off_day", "date": day, "name": off, "text": f"{_short(day)}은 {off}이에요. 수업한 날이 맞나요?"}
+        return {"kind": "off_day", "date": day, "name": off, "text": f"{_short(day)}({off})에 수업한 게 맞나요?"}
     if not cal.curriculum:
         return None
     on = cal.topic_on(day)
     if on is None:
         return {"kind": "not_in_curriculum", "date": day, "text": f"커리큘럼엔 {_short(day)}에 수업이 없어요. 보강이었나요?"}
-    if topic and on.key != topic:
-        return {"kind": "other_topic", "date": day, "topic": on.topic,
-                "text": f"커리큘럼의 {_short(day)} 수업은 「{on.topic}」이에요. 이 과목이 맞나요?"}
+    # 단원(큰 묶음)으로 견준다 — 커리큘럼 과목은 저장소와 1:1 이 아니다(34기 「딥러닝」 23일에 저장소 넷, LLM 저장소 하나에 과목 셋)
+    if topic and _unit(on.key) != _unit(topic):
+        return {"kind": "other_topic", "date": day, "topic": on.topic, "unit": on.unit,
+                "text": f"커리큘럼의 {_short(day)} 수업은 다른 단원 「{on.unit or on.topic}」({on.topic})이에요. 이 과목이 맞나요?"}
     return None
 
 
@@ -611,31 +618,40 @@ def suggest_folder(f: UpFile, tree: dict[str, str], texts: dict[str, str], day: 
 
 
 def schedule_check(cal: Calendar, subjects: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    """실제 수업 날짜 ↔ 커리큘럼. subjects — {과목 이름: {"topic": 커리큘럼 과목 id|None, "dates": [실제 수업 날짜]}}.
-    커리큘럼이 틀렸을 수도, 실제가 밀렸을 수도 있다 — 어느 쪽이 맞는지 정하지 않고 어긋난 것만 보여 준다."""
+    """실제 수업 날짜 ↔ 커리큘럼. subjects — {과목(저장소) 이름: {"topic": 커리큘럼 과목 id|None, "dates": [실제 수업 날짜]}}.
+
+    커리큘럼 과목은 저장소와 1:1 이 아니다 — 34기 「딥러닝」(7/6~8/6) 한 칸에 저장소 넷(data_analysis · ML · DL ·
+    model_validation), LLM 저장소 하나에 과목 셋(LLM · 프롬프트 엔지니어링 · 파인튜닝). 과목 단위로 견주면 다 어긋난 것처럼 나왔다.
+    그래서 단원(커리큘럼의 큰 묶음)으로 본다. 알리는 것은 둘이다.
+    ① 저장소 수업이 그 저장소의 단원(수업일이 가장 많은 단원)이 아닌 날에 있음 — 다음 단원까지 밀렸거나 당겨짐
+    ② 커리큘럼에 수업이 없는 날 수업함(보강 · 휴일 수업)
+    단원 안에서 며칠 밀린 것은 알 수 없다(커리큘럼이 그만큼 자세하지 않다). 어느 쪽이 맞는지는 정하지 않는다."""
     out: list[dict[str, Any]] = [*cal.warnings()]
+    on_day = {c.date: c for c in cal.curriculum if c.date not in cal.holidays or c.date in cal.extra_days}
     for name, info in sorted(subjects.items()):
-        dates = sorted(info.get("dates") or [])
-        topic = info.get("topic") or match_topic(name, dates, cal)["id"]
-        if not topic or not dates:
+        dates = sorted(set(info.get("dates") or []))
+        off = [d for d in dates if d not in on_day]
+        if off:
+            why = [f"{_short(d)}({cal.off_day(d) or '커리큘럼에 없음'})" for d in off[:5]]
+            out.append({"kind": "off_curriculum", "subject": name, "dates": off,
+                        "text": f"「{name}」 수업 {len(off)}일이 커리큘럼엔 수업이 없는 날이에요: {', '.join(why)}"})
+        units = Counter(_unit(on_day[d].key) for d in dates if d in on_day)
+        if not units:
             continue
-        days = cal.class_days(topic)
-        if not days:
-            continue
-        outside = [d for d in dates if d not in days]
-        if not outside:
-            continue
-        label = topic.split("|", 1)[-1]
-        late = [d for d in outside if d > days[-1]]
-        early = [d for d in outside if d < days[0]]
-        if late and len(late) == len(outside):
-            gap = sum(1 for d in cal.class_days() if days[-1] < d <= late[-1])
-            text = f"「{name}」 수업이 커리큘럼({label} {_short(days[0])}~{_short(days[-1])})보다 {gap}일 늦게까지 이어졌어요. 커리큘럼을 다시 올려 주세요."
-        elif early and len(early) == len(outside):
-            text = f"「{name}」 수업이 커리큘럼({label} {_short(days[0])}~)보다 먼저 시작했어요."
-        else:
-            text = f"「{name}」 수업 {len(outside)}일이 커리큘럼({label})에 없는 날이에요: {', '.join(_short(d) for d in outside[:5])}"
-        out.append({"kind": "schedule_drift", "subject": name, "topic": topic, "dates": outside, "text": text})
+        home = _unit(info["topic"]) if info.get("topic") else units.most_common(1)[0][0]
+        away: dict[str, list[str]] = {}
+        for d in dates:
+            if d in on_day and _unit(on_day[d].key) != home:
+                away.setdefault(_unit(on_day[d].key), []).append(d)
+        for unit, days in away.items():
+            late = days[0] > max(d for d in dates if d in on_day and _unit(on_day[d].key) == home) if units[home] else False
+            out.append({
+                "kind": "schedule_drift", "subject": name, "unit": unit, "home": home, "dates": days,
+                "text": f"「{name}」({home}) 수업 {len(days)}일이 커리큘럼에선 다음 단원 「{unit}」 날이에요: "
+                        f"{', '.join(_short(d) for d in days[:5])}. 일정이 밀렸다면 커리큘럼을 다시 올려 주세요." if late else
+                        f"「{name}」({home}) 수업 {len(days)}일이 커리큘럼에선 다른 단원 「{unit}」 날이에요: "
+                        f"{', '.join(_short(d) for d in days[:5])}. 일정이 바뀌었다면 커리큘럼을 다시 올려 주세요.",
+            })
     return out
 
 

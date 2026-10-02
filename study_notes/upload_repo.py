@@ -22,6 +22,7 @@ from study_notes.git_tools import (
     GitToolError,
     RepoCache,
     _lock_for,
+    _remove_tree,
     _sync_cache,
     is_learning_file,
     run_git,
@@ -36,6 +37,8 @@ PAST_AUTHOR = ("LMS 지난 자료", PAST_AUTHOR_EMAIL)
 # 한 번에 받는 파일 — 화면이 이보다 많으면 나눠 보낸다
 MAX_FILES = 300
 MAX_FILE_BYTES = 5 * 1024 * 1024
+# 올린 그대로 저장(지문이 화면과 같게), 한글 파일 이름을 따옴표 · 8진수로 바꾸지 않게
+CONFIG = (("core.autocrlf", "false"), ("core.safecrlf", "false"), ("core.quotepath", "false"))
 
 
 @dataclass(frozen=True)
@@ -63,8 +66,7 @@ def ensure_repo(cache: RepoCache) -> Path:
     if not (repo / ".git").exists():
         repo.mkdir(parents=True, exist_ok=True)
         run_git(["init", "-q", "-b", BRANCH], cwd=repo)
-        # 올린 그대로 저장(지문이 화면과 같게), 한글 파일 이름을 따옴표 · 8진수로 바꾸지 않게
-        for key, value in (("core.autocrlf", "false"), ("core.safecrlf", "false"), ("core.quotepath", "false")):
+        for key, value in CONFIG:
             run_git(["config", key, value], cwd=repo)
     return repo
 
@@ -170,3 +172,49 @@ def snapshot(cache: RepoCache, *, texts: bool = True) -> dict:
         found = read_texts(cache.dir, [p for p in tree if "/" in p and is_learning_file(p)]) if texts else {}
     dates = cache.recent_lesson_dates([]) if tree else []
     return {"tree": tree, "dates": dates, "texts": found}
+
+
+# ── 보관 · 되살리기 — 서버 안 저장소는 캐시 폴더에 있어 서버를 새로 띄우면 사라질 수 있다 ──────────
+# Django 가 올릴 때마다 받은 묶음(git bundle)을 S3(lms.storage)에 두고, AI 서버에 저장소가 없으면 그것으로 되살린다.
+
+
+def head(cache: RepoCache) -> str | None:
+    """서버 안 저장소의 마지막 커밋. 저장소가 없거나 비었으면 None — Django 가 보관본으로 되살릴지 정한다"""
+    if not (cache.dir / ".git").exists():
+        return None
+    with _lock_for(str(cache.dir)):
+        if not has_commits(cache.dir):
+            return None
+        return run_git(["rev-parse", f"refs/heads/{BRANCH}"], cwd=cache.dir).strip()
+
+
+def bundle(cache: RepoCache) -> bytes:
+    """저장소 전체를 파일 하나로(git bundle) — 커밋 기록 · 날짜까지 그대로 되살릴 수 있다"""
+    with _lock_for(str(cache.dir)):
+        target = cache.dir.parent / f".{cache.dir.name}.bundle"
+        try:
+            run_git(["bundle", "create", str(target), f"refs/heads/{BRANCH}"], cwd=cache.dir)
+            return target.read_bytes()
+        finally:
+            target.unlink(missing_ok=True)
+
+
+def restore(cache: RepoCache, data: bytes) -> str:
+    """보관본(git bundle)으로 저장소를 되살린다. 이미 있으면 그대로 둔다(더 새것일 수 있다). 마지막 커밋을 돌려준다"""
+    with _lock_for(str(cache.dir)):
+        if (cache.dir / ".git").exists() and has_commits(cache.dir):
+            return run_git(["rev-parse", f"refs/heads/{BRANCH}"], cwd=cache.dir).strip()
+        if cache.dir.exists():
+            _remove_tree(cache.dir)
+        cache.dir.parent.mkdir(parents=True, exist_ok=True)
+        source = cache.dir.parent / f".{cache.dir.name}.restore.bundle"
+        source.write_bytes(data)
+        try:
+            # 받는 순간부터 줄바꿈을 바꾸지 않게 — 시스템 설정이 autocrlf=true 인 PC 에서 작업 폴더가 CRLF 로 바뀌었다
+            options = [arg for key, value in CONFIG for arg in ("-c", f"{key}={value}")]
+            run_git(["clone", "-q", *options, "-b", BRANCH, str(source), str(cache.dir)])
+            run_git(["remote", "remove", "origin"], cwd=cache.dir)
+        finally:
+            source.unlink(missing_ok=True)
+        _sync_cache.pop(str(cache.dir), None)
+        return run_git(["rev-parse", f"refs/heads/{BRANCH}"], cwd=cache.dir).strip()

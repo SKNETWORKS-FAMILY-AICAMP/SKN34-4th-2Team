@@ -409,6 +409,9 @@ class ProxyUploadCommitRequest(BaseModel):
     source: ProxySource
     days: list[ProxyUploadDay] = Field(default_factory=list, max_length=130)
     past: list[ProxyUploadContent] = Field(default_factory=list, max_length=300)  # 날짜 없는 지난 자료
+    # 새 과목(저장소가 없어도 된다). 아니면 저장소가 없을 때 거절한다 — 빈 저장소에 커밋하면 그 보관본이
+    # S3 의 전체 기록을 덮어쓴다(서버를 새로 띄워 캐시가 사라졌는데 되살리지 못한 경우)
+    create: bool = False
 
 
 @router.post("/proxy/upload/plan", dependencies=[Depends(_proxy_auth_if_configured)])
@@ -471,17 +474,82 @@ def proxy_upload_commit(request: ProxyUploadCommitRequest) -> dict[str, Any]:
     days: dict[str, dict[str, bytes]] = {}
     for d in request.days:
         days.setdefault(d.date, {}).update(decode(d.files))
+    if not request.create and upload_repo.head(service.repo_cache(request.cohortId, source)) is None:
+        raise HTTPException(status_code=409, detail="서버 안 저장소가 없어요. 보관본으로 되살린 뒤 다시 올려 주세요.")
     try:
         commits = upload_repo.import_all(
             service.repo_cache(request.cohortId, source), days, decode(request.past) if request.past else None,
         )
     except GitToolError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    cache = service.repo_cache(request.cohortId, source)
+    changed = any(c.sha for c in commits)
     return {
         "commits": [
             {"date": c.date or None, "sha": c.sha, "changed": c.changed, "skipped": c.skipped} for c in commits
         ],
+        "head": upload_repo.head(cache),
+        # 바뀐 게 있으면 저장소 전체 보관본 — Django 가 S3 에 둔다(서버를 새로 띄워도 되살리게)
+        "bundle": base64.b64encode(upload_repo.bundle(cache)).decode() if changed else None,
     }
+
+
+class ProxyUploadSourceRequest(BaseModel):
+    cohortId: str = Field(min_length=1, max_length=80)
+    source: ProxySource
+
+
+class ProxyUploadRestoreRequest(ProxyUploadSourceRequest):
+    bundle: str = Field(min_length=1, max_length=200_000_000)  # base64
+
+
+def _upload_cache(request: ProxyUploadSourceRequest):
+    from study_notes.git_tools import parse_repo_url
+
+    source = service.source_from_payload(request.source.model_dump())
+    if not parse_repo_url(source.repo_url).upload:
+        raise HTTPException(status_code=400, detail="폴더 올리기 과목이 아니에요.")
+    return service.repo_cache(request.cohortId, source)
+
+
+@router.post("/proxy/upload/head", dependencies=[Depends(_proxy_auth_if_configured)])
+def proxy_upload_head(request: ProxyUploadSourceRequest) -> dict[str, Any]:
+    """서버 안 저장소의 마지막 커밋 — 없으면 null(Django 가 보관본으로 되살린다)"""
+    from study_notes import upload_repo
+
+    return {"head": upload_repo.head(_upload_cache(request))}
+
+
+@router.post("/proxy/upload/restore", dependencies=[Depends(_proxy_auth_if_configured)])
+def proxy_upload_restore(request: ProxyUploadRestoreRequest) -> dict[str, Any]:
+    """보관본(git bundle)으로 서버 안 저장소를 되살린다. 이미 있으면 그대로."""
+    import base64
+    import binascii
+
+    from study_notes import upload_repo
+
+    try:
+        data = base64.b64decode(request.bundle, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="보관본을 읽지 못했어요.") from exc
+    try:
+        return {"head": upload_repo.restore(_upload_cache(request), data)}
+    except GitToolError as exc:
+        raise HTTPException(status_code=422, detail=f"보관본으로 되살리지 못했어요: {exc}") from exc
+
+
+class ProxyScheduleRequest(BaseModel):
+    calendar: ProxyCalendar
+    subjects: dict[str, dict[str, Any]] = Field(default_factory=dict)  # {과목 이름: {topic?, dates: [실제 수업 날짜]}}
+
+
+@router.post("/proxy/upload/schedule", dependencies=[Depends(_proxy_auth_if_configured)])
+def proxy_upload_schedule(request: ProxyScheduleRequest) -> dict[str, Any]:
+    """커리큘럼 ↔ 실제 수업 날짜 어긋남(강사 · 관리자 수업 저장소 화면). 저장소는 읽지 않는다 — 날짜는 Django 가 준다."""
+    from study_notes import upload_plan
+
+    cal = upload_plan.calendar_from(request.calendar.model_dump())
+    return {"issues": upload_plan.schedule_check(cal, request.subjects), "topics": cal.topics()}
 
 
 @router.post("/internal/tree", dependencies=[Depends(_internal_auth)])

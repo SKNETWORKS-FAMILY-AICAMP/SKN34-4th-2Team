@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from study_notes import upload_plan, upload_repo
-from study_notes.git_tools import SEOUL, RepoCache, parse_repo_url, run_git
+from study_notes.git_tools import SEOUL, RepoCache, _remove_tree, parse_repo_url, run_git
 from study_notes.upload_plan import Calendar, CurriculumDay, file_row
 
 HOLIDAYS = {"2026-09-24": "추석", "2026-09-25": "추석", "2026-09-26": "추석", "2026-10-03": "개천절",
@@ -217,15 +217,34 @@ class PlanDailyTests(unittest.TestCase):
 
 
 class ScheduleCheckTests(unittest.TestCase):
-    def test_subject_running_past_curriculum_is_reported(self) -> None:
+    def test_subject_running_into_the_next_unit_is_reported(self) -> None:
         issues = upload_plan.schedule_check(calendar(), {
-            "python_basic": {"topic": None, "dates": ["2026-06-18", "2026-06-23", "2026-06-25", "2026-06-26"]},
-            "web_server": {"topic": None, "dates": ["2026-09-30", "2026-10-01"]},
+            "python_basic": {"dates": ["2026-06-18", "2026-06-23", "2026-06-25", "2026-07-06", "2026-07-07"]},
+            "web_server": {"dates": ["2026-09-30", "2026-10-01"]},
         })
         drift = [i for i in issues if i["kind"] == "schedule_drift"]
-        self.assertEqual(["python_basic"], [i["subject"] for i in drift])
-        self.assertEqual(["2026-06-25", "2026-06-26"], drift[0]["dates"])
-        self.assertIn("2일 늦게", drift[0]["text"])
+        # 6/25(Database)는 같은 단원이라 그대로, 7/6 · 7/7(딥러닝 — 다음 단원)만
+        self.assertEqual([("python_basic", ["2026-07-06", "2026-07-07"])], [(i["subject"], i["dates"]) for i in drift])
+        self.assertIn("다음 단원 「데이터 분석과 머신러닝」", drift[0]["text"])
+
+    def test_curriculum_subjects_are_not_one_to_one_with_repos(self) -> None:
+        # 「딥러닝」 한 칸에 저장소 여럿, LLM 저장소 하나에 과목 여럿 — 같은 단원이면 어긋남이 아니다(34기 실측)
+        cal = calendar(curriculum=[
+            *curriculum(),
+            CurriculumDay("2026-08-21", "LLM", "LLM"), CurriculumDay("2026-08-27", "프롬프트 엔지니어링", "LLM"),
+            CurriculumDay("2026-09-02", "파인튜닝", "LLM"),
+        ])
+        issues = upload_plan.schedule_check(cal, {
+            "llm": {"dates": ["2026-08-21", "2026-08-27", "2026-09-02"]},
+            "data_analysis": {"dates": ["2026-07-06", "2026-07-07"]},
+            "dl": {"dates": ["2026-07-08"]},
+        })
+        self.assertEqual([], issues)
+
+    def test_lesson_on_a_day_without_curriculum_class(self) -> None:
+        issues = upload_plan.schedule_check(calendar(), {"web_client": {"dates": ["2026-09-23", "2026-09-24", "2026-09-28"]}})
+        self.assertEqual(["off_curriculum"], [i["kind"] for i in issues])
+        self.assertIn("9/24(추석)", issues[0]["text"])
 
 
 class UploadRepoPlanTests(unittest.TestCase):
@@ -279,6 +298,61 @@ class UploadRepoPlanTests(unittest.TestCase):
         self.assertIn("lambda x: x", snap["texts"]["04_function/exercise.ipynb"])
         log = run_git(["log", "--format=%ae %s"], cwd=self.cache.dir)
         self.assertIn("past@lms.local 지난 자료 2개(날짜 없음)", log)
+
+    def test_bundle_restores_dates_files_and_past_mark(self) -> None:
+        upload_repo.import_all(
+            self.cache,
+            {"2026-06-18": {"01_variable/a.py": b"x = 1\r\n"}, "2026-06-19": {"04_function/f.py": b"def f(): pass"}},
+            past={"09_exception/e.py": b"try: pass\nexcept: pass"},
+        )
+        data = upload_repo.bundle(self.cache)
+        before = upload_repo.head(self.cache)
+        # 서버를 새로 띄워 캐시 폴더가 사라졌다
+        _remove_tree(self.cache.dir)
+        self.assertIsNone(upload_repo.head(self.cache))
+        self.assertEqual(before, upload_repo.restore(self.cache, data))
+        self.assertEqual(["2026-06-19", "2026-06-18"], self.cache.recent_lesson_dates([]))
+        self.assertEqual(upload_plan.blob_id(b"x = 1\r\n"), upload_repo.tree_blobs(self.cache.dir)["01_variable/a.py"])
+        # 되살린 뒤에도 이어서 올린다 — 원격(origin)은 남기지 않는다
+        upload_repo.commit_day(self.cache, "2026-06-22", {"04_function/f.py": b"def f(): pass\nlambda: 1"})
+        self.assertEqual(["2026-06-22", "2026-06-19", "2026-06-18"], self.cache.recent_lesson_dates([]))
+        self.assertEqual("", run_git(["remote"], cwd=self.cache.dir).strip())
+        # 이미 있으면 보관본으로 덮지 않는다
+        self.assertEqual(upload_repo.head(self.cache), upload_repo.restore(self.cache, data))
+
+    def test_restore_keeps_line_endings_in_the_work_folder(self) -> None:
+        # 시스템 git 설정이 autocrlf=true 인 PC 에서 되살린 작업 폴더가 CRLF 로 바뀌었다
+        lf, crlf = b"x = 1\ny = 2\n", b"z = 3\r\n"
+        upload_repo.commit_day(self.cache, "2026-06-18", {"a.py": lf, "b.py": crlf})
+        data = upload_repo.bundle(self.cache)
+        _remove_tree(self.cache.dir)
+        upload_repo.restore(self.cache, data)
+        self.assertEqual(lf, (self.cache.dir / "a.py").read_bytes())
+        self.assertEqual(crlf, (self.cache.dir / "b.py").read_bytes())
+
+    def test_commit_endpoint_refuses_a_missing_repo_unless_new(self) -> None:
+        import base64
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from study_notes.api import router
+
+        app = FastAPI()
+        app.include_router(router)
+        client = TestClient(app)
+        source = {"id": "99", "title": "python_basic", "repoUrl": "upload://cohort_34/python_basic", "branch": "main"}
+        body = {"cohortId": "cohort_34", "source": source,
+                "days": [{"date": "2026-06-18", "files": [{"path": "a.py", "content": base64.b64encode(b"x = 1").decode()}]}]}
+        with mock.patch.dict("os.environ", {"LMS_AI_SHARED_TOKEN": ""}):
+            refused = client.post("/api/v1/study-notes/proxy/upload/commit", json=body)
+            self.assertEqual(409, refused.status_code)
+            self.assertIsNone(upload_repo.head(self.cache))
+            made = client.post("/api/v1/study-notes/proxy/upload/commit", json={**body, "create": True})
+            self.assertEqual(200, made.status_code)
+            self.assertTrue(made.json()["bundle"])
+            again = client.post("/api/v1/study-notes/proxy/upload/commit",
+                                json={**body, "days": [{"date": "2026-06-19", "files": [{"path": "a.py", "content": base64.b64encode(b"x = 2").decode()}]}]})
+            self.assertEqual(200, again.status_code)
+        self.assertEqual(["2026-06-19", "2026-06-18"], self.cache.recent_lesson_dates([]))
 
     def test_snapshot_of_missing_subject_is_empty(self) -> None:
         self.assertEqual({"tree": {}, "dates": [], "texts": {}}, upload_repo.snapshot(self.cache))
