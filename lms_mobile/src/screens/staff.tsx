@@ -1,6 +1,11 @@
+import { MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Text } from 'react-native';
+import { Alert, Linking, Text, View } from 'react-native';
+import { RoutePaths } from '@web/app/routePaths';
+import { CohortStatusLabels, PurchaseRequestStatusLabels } from '@web/domain/constants';
+import { RequestStatusLabels, RequestStatusTones, labelOf } from '@web/features/attendance/attendanceRequest';
+import { STATUS_LABEL as QUEST_STATUS_LABEL, STATUS_TONE as QUEST_STATUS_TONE } from '@web/features/quests/questLabels';
 import type { AssessmentQuestion, UserRole } from '@web/domain/types';
 
 import { useSession } from '../auth/session';
@@ -11,14 +16,17 @@ import { deleteFormTask, saveFormTask, useFormResponses, useFormTasks } from '..
 import { askAssistant, executeAssistant, type AssistantAction } from '../data/jobs';
 import { adjustMileage, deleteProduct, reviewPurchase, saveMileageSettings, saveProduct, useMileageSettings, useProducts, usePurchases, useTransactions } from '../data/mileage';
 import { publishScheduled, removeAlert, removeNotice, removeScheduled, saveAlert, saveNotice, saveScheduled, useAlerts, useNotices, useScheduled } from '../data/notices';
+import { absoluteFileUrl } from '../data/http';
 import { useDb } from '../data/query';
 import { createCohort, createUser, deletePackage, replaceCurriculum, resetPassword, saveIntake, savePackage, syncQualExams, updateCohort, useCohorts, useCurriculum, usePackages, useUsers } from '../data/people';
 import { deleteCounsel, reviewQuest, saveCounsel, saveQuest, useCounsel, useQuestSubmissions, useQuests } from '../data/quests';
-import { reviewSubmission, useSubmissions as useRecords } from '../data/records';
 import { useResumes } from '../data/resumes';
 import { replaceTeams, useRooms, useTeams } from '../data/seating';
 import { addGithub, listGithub, removeGithub, setSourceActive, syncSources, useNotes, useSources, type GithubOwner } from '../data/study';
-import { Btn, Card, Field, Muted, Row, Screen, fmt, todayKey } from '../ui/kit';
+import { MenuButton } from '../nav/StaffDrawer';
+import { appNav, navLabel } from '../nav/webNav';
+import { useTheme } from '../theme/Theme';
+import { Avatar, Badge, Btn, Card, Field, ListGroup, ListItem, Muted, Row, Screen, StatTile, T, fmt, todayKey } from '../ui/kit';
 import { SettingsPage } from './student';
 import { ResumeListPage } from './extra';
 
@@ -31,13 +39,65 @@ export function StaffHome({ role }: { role: 'instructor' | 'admin' }) {
   const today = todayKey();
   const attendance = useAttendance().filter((row) => row.dateKey === today);
   const issues = useIssues().filter((row) => row.status === 'submitted');
+  const home = role === 'admin' ? RoutePaths.admin : RoutePaths.instructor;
   return (
-    <Screen title={role === 'admin' ? '관리자' : '자리 확인'} back={false}>
-      <Muted>{user?.displayName} · {user?.cohortName}</Muted>
-      <Card><Text>오늘 출결 {attendance.length}건 · 대기 신청 {issues.length}건</Text></Card>
+    <Screen title={navLabel(home, role === 'admin' ? '대시보드' : '자리 확인')} back={false} left={<MenuButton />}>
+      <Card>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+          <Avatar name={user?.displayName} />
+          <View style={{ flex: 1, gap: 2 }}>
+            <T variant="caption" tone="primary" style={{ fontWeight: '600' }}>{user?.cohortName || '기수 없음'}</T>
+            <T variant="title">{user?.displayName}님</T>
+            <T variant="caption" tone="secondary">{role === 'admin' ? '관리자' : '강사'}</T>
+          </View>
+        </View>
+      </Card>
+      <View style={{ flexDirection: 'row', gap: 12 }}>
+        <StatTile icon="fact-check" label="오늘 출결" value={`${attendance.length}건`} tone="success" />
+        <StatTile
+          icon="pending-actions"
+          label="대기 중인 출결 신청"
+          value={`${issues.length}건`}
+          tone={issues.length > 0 ? 'warning' : 'neutral'}
+          onPress={role === 'admin' ? () => push('/(admin)/attendance') : undefined}
+        />
+      </View>
       {role === 'admin' ? <CohortPicker /> : null}
-      <Btn label="메뉴" onPress={() => push(role === 'admin' ? '/(admin)/menu' : '/(instructor)/menu')} />
+      <StaffMenuList role={role} />
     </Screen>
+  );
+}
+
+function StaffMenuList({ role }: { role: 'instructor' | 'admin' }) {
+  const { palette } = useTheme();
+  const sections = appNav(role).map((section) => ({
+    ...section,
+    items: section.items.filter((item) => item.webPath !== (role === 'admin' ? RoutePaths.admin : RoutePaths.instructor)),
+  }));
+  return (
+    <>
+      {sections
+        .filter((section) => section.items.length > 0)
+        .map((section) => (
+          <View key={section.id} style={{ gap: 8 }}>
+            <T variant="label" tone="secondary" style={{ marginLeft: 4, marginTop: 4 }}>{section.title ?? '메뉴'}</T>
+            <ListGroup>
+              {section.items.map((item) => (
+                <ListItem
+                  key={item.href + item.label}
+                  title={item.label}
+                  left={
+                    <View style={{ width: 32, height: 32, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.primaryLight }}>
+                      <MaterialIcons name={item.icon} size={18} color={palette.primary} />
+                    </View>
+                  }
+                  onPress={() => push(item.href)}
+                />
+              ))}
+            </ListGroup>
+          </View>
+        ))}
+    </>
   );
 }
 
@@ -46,55 +106,19 @@ function CohortPicker() {
   const cohorts = useCohorts();
   if (!user) return null;
   return (
-    <Card>
-      <Text style={{ fontWeight: '700' }}>기수</Text>
+    <Card style={{ gap: 8 }}>
+      <T variant="label" tone="secondary">기수 선택</T>
       {cohorts.map((cohort) => (
-        <Btn key={cohort.cohortId} label={cohort.name} tone={cohort.cohortId === user.cohortId ? 'primary' : 'ghost'} onPress={() => void selectCohort(user.uid, cohort.cohortId)} />
+        <Btn key={cohort.cohortId} label={cohort.name} icon={cohort.cohortId === user.cohortId ? 'check-circle' : undefined} tone={cohort.cohortId === user.cohortId ? 'primary' : 'ghost'} onPress={() => void selectCohort(user.uid, cohort.cohortId)} />
       ))}
     </Card>
   );
 }
 
 export function MenuPage({ role }: { role: 'instructor' | 'admin' }) {
-  const base = role === 'admin' ? '/(admin)' : '/(instructor)';
-  const items = role === 'instructor'
-    ? [
-        ['이력서', `${base}/resumes`],
-        ['게시판', `${base}/board`],
-        ['공지 작성', `${base}/notice/new`],
-        ['평가', `${base}/exams`],
-        ['평가 만들기', `${base}/exams/new`],
-        ['커리큘럼', `${base}/curriculum`],
-        ['수업 저장소', `${base}/sources`],
-        ['복습 문제 (PC)', `${base}/desktop/practice`],
-        ['마이페이지', `${base}/mypage`],
-        ['설정', `${base}/settings`],
-      ]
-    : [
-        ['기수', `${base}/cohorts`],
-        ['학생', `${base}/students`],
-        ['강사', `${base}/instructors`],
-        ['상담', `${base}/counsel`],
-        ['퀘스트', `${base}/quests`],
-        ['출결', `${base}/attendance`],
-        ['자리 확인', `${base}/presence`],
-        ['좌석 편집 (PC)', `${base}/desktop/seating`],
-        ['평가', `${base}/exams`],
-        ['기록', `${base}/records`],
-        ['이력서 승인', `${base}/resumes`],
-        ['설문', `${base}/forms`],
-        ['학습실', `${base}/study`],
-        ['게시판', `${base}/board`],
-        ['예약 공지', `${base}/scheduled`],
-        ['알림 팝업', `${base}/alerts`],
-        ['마일리지', `${base}/mileage`],
-        ['LLMOps', `${base}/ai`],
-        ['AI 어시스턴트', `${base}/assistant`],
-        ['설정', `${base}/settings`],
-      ];
   return (
     <Screen title="메뉴">
-      {items.map(([title, href]) => <Row key={href} title={title ?? ''} onPress={() => push(href ?? '')} />)}
+      <StaffMenuList role={role} />
     </Screen>
   );
 }
@@ -163,7 +187,7 @@ export function CohortsPage() {
       {cohorts.map((cohort) => (
         <Card key={cohort.cohortId}>
           <Text>{cohort.name}</Text>
-          <Muted>{cohort.status}</Muted>
+          <Muted>{CohortStatusLabels[cohort.status] ?? cohort.status}</Muted>
           <Btn label={cohort.isActive ? '닫기' : '열기'} tone="ghost" onPress={() => void updateCohort(cohort.cohortId, { isActive: !cohort.isActive })} />
         </Card>
       ))}
@@ -201,6 +225,7 @@ export function AdminQuestsPage() {
   const submissions = useQuestSubmissions(user?.cohortId ?? '');
   const [title, setTitle] = useState('');
   const [reward, setReward] = useState('1000');
+  const [questComments, setQuestComments] = useState<Record<string, string>>({});
   return (
     <Screen title="마일리지 미션" loading={quests.isLoading} onRefresh={() => void quests.refetch()}>
       <Field label="제목" value={title} onChangeText={setTitle} />
@@ -210,36 +235,81 @@ export function AdminQuestsPage() {
         void saveQuest(user.cohortId, { title, description: title, reward: Number(reward), evidenceType: 'text', approval: 'manual', maxCompletions: 1, startOn: null, endOn: null, published: true, closed: false, open: true, createdAt: null });
       }} />
       {(quests.data?.quests ?? []).map((quest) => <Row key={quest.id} title={quest.title} subtitle={`${quest.reward}`} />)}
-      {(submissions.data ?? []).map((row) => (
-        <Card key={row.id}>
-          <Text>{row.studentName} · {row.questTitle}</Text>
-          <Muted>{row.text || row.link}</Muted>
-          <Btn label="승인" onPress={() => void reviewQuest(row.id, 'approved', '')} />
-          <Btn label="반려" tone="ghost" onPress={() => void reviewQuest(row.id, 'rejected', '')} />
-        </Card>
-      ))}
+      {(submissions.data ?? []).map((row) => {
+        const review = (decision: 'approve' | 'reject' | 'revoke') =>
+          void reviewQuest(row.id, decision, questComments[row.id] ?? '').catch((err: unknown) =>
+            Alert.alert('처리하지 못했습니다', err instanceof Error ? err.message : ''),
+          );
+        return (
+          <Card key={row.id} style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <T variant="subtitle" style={{ flex: 1 }}>{row.studentName} · {row.questTitle}</T>
+              <Badge label={QUEST_STATUS_LABEL[row.status]} tone={QUEST_STATUS_TONE[row.status]} />
+            </View>
+            {row.text ? <T>{row.text}</T> : null}
+            {row.link ? <T tone="primary" style={{ textDecorationLine: 'underline' }} onPress={() => void Linking.openURL(row.link)}>{row.link}</T> : null}
+            {row.files.map((file, index) =>
+              file.url ? (
+                <T key={file.key} tone="primary" onPress={() => void Linking.openURL(absoluteFileUrl(file.url!))}>첨부 {index + 1} 열기</T>
+              ) : null,
+            )}
+            {row.grantedAmount > 0 ? <Muted>{row.grantedAmount.toLocaleString('ko-KR')}M 지급</Muted> : null}
+            {row.status === 'pending' ? (
+              <>
+                <Field label="메모 (반려 사유)" value={questComments[row.id] ?? ''} onChangeText={(value) => setQuestComments((prev) => ({ ...prev, [row.id]: value }))} />
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flex: 1 }}><Btn label="반려" tone="ghost" onPress={() => review('reject')} /></View>
+                  <View style={{ flex: 1 }}><Btn label="승인" onPress={() => review('approve')} /></View>
+                </View>
+              </>
+            ) : row.status === 'approved' ? (
+              <Btn label="승인 취소" tone="ghost" icon="undo" onPress={() =>
+                Alert.alert('승인 취소', row.grantedAmount > 0 ? `지급한 ${row.grantedAmount.toLocaleString('ko-KR')}M 이 회수됩니다. 계속할까요?` : '승인을 취소할까요?', [
+                  { text: '닫기', style: 'cancel' },
+                  { text: '승인 취소', style: 'destructive', onPress: () => review('revoke') },
+                ])
+              } />
+            ) : row.reviewComment ? <Muted>사유: {row.reviewComment}</Muted> : null}
+          </Card>
+        );
+      })}
     </Screen>
   );
 }
 
 export function AttendanceAdminPage() {
-  const issues = useIssues();
-  const [comment, setComment] = useState('');
+  const issues = [...useIssues()].sort(
+    (a, b) => Number(b.status === 'submitted') - Number(a.status === 'submitted') || b.dateKey.localeCompare(a.dateKey),
+  );
+  const users = useDb()?.users ?? [];
+  const [comments, setComments] = useState<Record<string, string>>({});
   return (
-    <Screen title="출결">
-      {issues.map((issue) => (
-        <Card key={issue.id}>
-          <Text>{issue.label ?? `${issue.dateKey} ${issue.issueType}`}</Text>
-          <Muted>{issue.status} · {issue.reason}</Muted>
-          {issue.status === 'submitted' ? (
-            <>
-              <Field label="메모" value={comment} onChangeText={setComment} />
-              <Btn label="승인" onPress={() => void reviewAttendanceRequest([issue.id], 'approved', comment)} />
-              <Btn label="반려" tone="ghost" onPress={() => void reviewAttendanceRequest([issue.id], 'rejected', comment)} />
-            </>
-          ) : null}
-        </Card>
-      ))}
+    <Screen title={navLabel(RoutePaths.adminAttendance, '출석 관리')} empty={issues.length === 0} emptyText="출결 신청이 없습니다.">
+      {issues.map((issue) => {
+        const comment = comments[issue.id] ?? '';
+        return (
+          <Card key={issue.id} style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <T variant="subtitle">{users.find((row) => row.uid === issue.userId)?.displayName ?? '학생'}</T>
+              <T tone="secondary">{issue.dateKey}</T>
+              <Badge label={RequestStatusLabels[issue.status] ?? '확인 대기'} tone={RequestStatusTones[issue.status] ?? 'warning'} />
+            </View>
+            <T>{labelOf(issue)}</T>
+            {issue.reason ? <T tone="secondary">{issue.reason}</T> : null}
+            {issue.status === 'submitted' ? (
+              <>
+                <Field label="매니저 메모" value={comment} onChangeText={(value) => setComments((prev) => ({ ...prev, [issue.id]: value }))} />
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flex: 1 }}><Btn label="승인" onPress={() => void reviewAttendanceRequest([issue.id], 'approved', comment)} /></View>
+                  <View style={{ flex: 1 }}><Btn label="반려" tone="ghost" onPress={() => void reviewAttendanceRequest([issue.id], 'rejected', comment)} /></View>
+                </View>
+              </>
+            ) : issue.reviewComment ? (
+              <T variant="caption" tone="secondary">매니저 메모: {issue.reviewComment}</T>
+            ) : null}
+          </Card>
+        );
+      })}
     </Screen>
   );
 }
@@ -473,22 +543,6 @@ export function SourcesPage() {
   );
 }
 
-export function RecordsAdminPage() {
-  const rows = useRecords();
-  return (
-    <Screen title="기록실">
-      {rows.map((row) => (
-        <Card key={row.id}>
-          <Text>{row.userDisplayName} · {row.title}</Text>
-          <Muted>{row.status}</Muted>
-          <Btn label="승인" onPress={() => void reviewSubmission(row.id, 'approved')} />
-          <Btn label="반려" tone="ghost" onPress={() => void reviewSubmission(row.id, 'rejected', '반려')} />
-        </Card>
-      ))}
-    </Screen>
-  );
-}
-
 export function FormsAdminPage() {
   const tasks = useFormTasks();
   const responses = useFormResponses();
@@ -557,7 +611,7 @@ export function MileageAdminPage() {
       {products.map((product) => <Row key={product.id} title={product.name} subtitle={`${product.fixedPrice ?? 0}`} onPress={() => void deleteProduct(product.id)} />)}
       {purchases.map((row) => (
         <Card key={row.id}>
-          <Text>{row.userDisplayName} · {row.totalAmount} · {row.status}</Text>
+          <Text>{row.userDisplayName} · {row.totalAmount.toLocaleString('ko-KR')} P · {PurchaseRequestStatusLabels[row.status] ?? row.status}</Text>
           <Btn label="승인" onPress={() => void reviewPurchase(row.id, 'approved')} />
           <Btn label="반려" tone="ghost" onPress={() => void reviewPurchase(row.id, 'rejected')} />
         </Card>

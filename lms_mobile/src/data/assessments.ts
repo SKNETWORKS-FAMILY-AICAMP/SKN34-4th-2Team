@@ -1,6 +1,6 @@
 import type { Assessment, AssessmentQuestion, AssessmentSubmission, User } from '@web/domain/types';
 
-import { http } from './http';
+import { http, readApiError } from './http';
 import { runCommand, useDb } from './query';
 
 export function useAssessments(): Assessment[] {
@@ -13,13 +13,25 @@ export function useSubmissions(assessmentId?: string): AssessmentSubmission[] {
 }
 
 export async function fetchTake(assessmentId: string): Promise<AssessmentQuestion[]> {
-  const { data } = await http.get<{ questions: AssessmentQuestion[] }>(
-    `/assessments/${encodeURIComponent(assessmentId)}/take`,
-  );
-  return data.questions.map((question) => ({ ...question, acceptedAnswers: [] }));
+  try {
+    const { data } = await http.get<{ questions: AssessmentQuestion[] }>(
+      `/assessments/${encodeURIComponent(assessmentId)}/take`,
+    );
+    return data.questions.map((question) => ({ ...question, acceptedAnswers: [] }));
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
 }
 
 export async function fetchReview(assessmentId: string, user: User) {
+  try {
+    return await loadReview(assessmentId, user);
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
+}
+
+async function loadReview(assessmentId: string, user: User) {
   const { data } = await http.get<{
     questions: AssessmentQuestion[];
     submission: {

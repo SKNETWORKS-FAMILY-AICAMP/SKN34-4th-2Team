@@ -31,7 +31,13 @@
       "expo-router",
       "expo-secure-store",
       "expo-sharing",
-      "expo-image-picker",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "기록실 · 퀘스트 증빙 사진을 찍으려면 카메라 권한이 필요합니다.",
+          "photosPermission": "기록실 · 퀘스트 증빙 사진을 고르려면 사진 보관함 권한이 필요합니다."
+        }
+      ],
       "expo-document-picker",
       [
         "expo-build-properties",
@@ -41,7 +47,8 @@
           }
         }
       ],
-      "expo-font"
+      "expo-font",
+      "@react-native-community/datetimepicker"
     ]
   }
 }

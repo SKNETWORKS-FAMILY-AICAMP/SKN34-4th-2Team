@@ -2,7 +2,7 @@ import { QueryClient, useQuery, useQueryClient } from '@tanstack/react-query';
 import { mapBootstrap } from '@web/data/bootstrapMap';
 import type { Database } from '@web/data/database';
 
-import { http } from './http';
+import { http, readApiError } from './http';
 
 export const queryKeys = {
   bootstrap: ['bootstrap'] as const,
@@ -41,7 +41,12 @@ export function patchBootstrap(change: (current: Database) => Partial<Database>)
 }
 
 export async function runCommand(op: string, payload: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
-  const { data } = await http.post<Record<string, unknown>>('/command', { op, payload });
+  let data: Record<string, unknown>;
+  try {
+    ({ data } = await http.post<Record<string, unknown>>('/command', { op, payload }));
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
   await queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
   return data;
 }

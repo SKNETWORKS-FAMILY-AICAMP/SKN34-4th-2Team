@@ -8,6 +8,13 @@ export const REQUEST_TIMEOUT = 130_000;
 export const API_BASE = process.env.EXPO_PUBLIC_API_BASE || 'http://127.0.0.1:8000/api';
 export const WEB_URL = process.env.EXPO_PUBLIC_WEB_URL || 'http://127.0.0.1:5173';
 
+const API_ORIGIN = API_BASE.replace(/\/api\/?$/, '');
+
+/** 로컬 저장소는 `/api/files?t=…` 처럼 상대 주소를 준다 — 앱에서는 서버 주소를 붙여 연다 */
+export function absoluteFileUrl(url: string): string {
+  return url.startsWith('/') ? `${API_ORIGIN}${url}` : url;
+}
+
 export const http = axios.create({
   baseURL: API_BASE,
   timeout: REQUEST_TIMEOUT,

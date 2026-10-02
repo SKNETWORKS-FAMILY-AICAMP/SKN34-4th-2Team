@@ -29,7 +29,6 @@ import {
   PersonFormPage,
   PersonPage,
   PresencePage,
-  RecordsAdminPage,
   RoomsPage,
   SourcesPage,
   StudyAdminPage,
@@ -40,9 +39,6 @@ import {
   ChatPage,
   CoachPage,
   DesktopPage,
-  ExamResultPage,
-  ExamTakePage,
-  ExamsPage,
   FormFillPage,
   FormsPage,
   MyPage,
@@ -50,18 +46,15 @@ import {
   NotesPage,
   NoticePage,
   PostPage,
-  QualPage,
   QuestsPage,
-  RecordFormPage,
-  RecordNewPage,
-  RecordsPage,
   SeatingPage,
   SettingsPage,
-  ShopPage,
-  CartPage,
   TeamsPage,
-  WrongPage,
 } from './student';
+import { QualPage, WrongPage } from './learning';
+import { RecordDetailPage, RecordFormPage, RecordNewPage, RecordsBoard } from './records';
+import { CartPage, ShopPage } from './shop';
+import { ExamResultPage, ExamTakePage, ExamsPage } from './exams';
 
 const recordTypes = new Set(['certification', 'study', 'blog', 'studyCert', 'precourseQuiz']);
 
@@ -71,7 +64,8 @@ export function StudentRoute({ parts }: { parts: string[] }): ReactNode {
   if (a === 'post' && b) return <PostPage id={b} />;
   if (a === 'records' && b === 'new') return <RecordNewPage />;
   if (a === 'records' && b === 'form' && c && recordTypes.has(c)) return <RecordFormPage type={c as RecordType} />;
-  if (a === 'records') return <RecordsPage />;
+  if (a === 'records' && b === 'view' && c) return <RecordDetailPage id={decodeURIComponent(c)} reviewer={false} />;
+  if (a === 'records') return <RecordsBoard reviewer={false} />;
   if (a === 'forms' && b) return <FormFillPage id={b} />;
   if (a === 'forms') return <FormsPage />;
   if (a === 'qual') return <QualPage />;
@@ -137,7 +131,8 @@ export function AdminRoute({ parts }: { parts: string[] }): ReactNode {
   if (a === 'exams' && c === 'sub' && d) return <GradePage submissionId={d} readOnly />;
   if (a === 'exams' && b) return <ExamDetailPage id={b} readOnly />;
   if (a === 'exams') return <ExamsAdminPage readOnly />;
-  if (a === 'records') return <RecordsAdminPage />;
+  if (a === 'records' && b) return <RecordDetailPage id={decodeURIComponent(b)} reviewer />;
+  if (a === 'records') return <RecordsBoard reviewer />;
   if (a === 'resumes') return <ResumeListPage canApprove />;
   if (a === 'resume' && b) return <ResumeEditPage id={decodeURIComponent(b)} />;
   if (a === 'forms') return <FormsAdminPage />;

@@ -64,3 +64,23 @@ export const dark: Palette = {
 
 export const radius = 14;
 export const hit = 44;
+
+export const typography = {
+  hero: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4 },
+  title: { fontSize: 18, fontWeight: '700', letterSpacing: -0.2 },
+  subtitle: { fontSize: 16, fontWeight: '600' },
+  body: { fontSize: 15, fontWeight: '400' },
+  caption: { fontSize: 13, fontWeight: '400' },
+  label: { fontSize: 12, fontWeight: '600', letterSpacing: 0.2 },
+} as const;
+
+export type TypeVariant = keyof typeof typography;
+
+/** 웹 `.panel` 의 box-shadow 와 같은 느낌 — Android 는 elevation 으로 낸다. */
+export const elevation = {
+  shadowColor: '#0f172a',
+  shadowOpacity: 0.06,
+  shadowRadius: 10,
+  shadowOffset: { width: 0, height: 2 },
+  elevation: 2,
+} as const;

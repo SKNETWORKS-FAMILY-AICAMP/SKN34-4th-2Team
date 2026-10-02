@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import type { CounselNote, Quest, QuestSubmission } from '@web/domain/types';
 
-import { http } from './http';
-import { queryClient } from './query';
+import { http, readApiError } from './http';
+import { queryClient, queryKeys } from './query';
 
 export function useQuests(cohortId: string) {
   return useQuery({
@@ -43,15 +43,26 @@ export async function saveQuest(cohortId: string, draft: Partial<Quest> & { titl
 
 export async function submitQuest(
   id: string,
-  evidence: { text?: string; link?: string },
-): Promise<void> {
-  await http.post(`/quests/${id}/submit`, evidence);
-  await refreshQuests();
+  evidence: { text?: string; link?: string; fileKeys?: string[] },
+): Promise<QuestSubmission> {
+  try {
+    const { data } = await http.post<{ submission: QuestSubmission }>(`/quests/${id}/submit`, evidence);
+    await refreshQuests();
+    if (data.submission.grantedAmount > 0) await queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
+    return data.submission;
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
 }
 
-export async function reviewQuest(id: string, decision: 'approved' | 'rejected' | 'revoked', comment: string): Promise<void> {
-  await http.post(`/quest-submissions/${id}/review`, { decision, comment });
+export async function reviewQuest(id: string, decision: 'approve' | 'reject' | 'revoke', comment: string): Promise<void> {
+  try {
+    await http.post(`/quest-submissions/${id}/review`, { decision, comment });
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
   await refreshQuests();
+  await queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
 }
 
 export function useCounsel(cohortId: string, student?: string) {

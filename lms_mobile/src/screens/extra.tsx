@@ -3,16 +3,20 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Linking, Text } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { formatPostingText, type PostingBlock } from '@web/features/jobs/postingText';
 import { COMMON_QUESTIONS } from '@web/features/jobApply/companyQuestions';
+import { ResumeStatusLabels } from '@web/domain/constants';
 import type { Resume, ResumeContent } from '@web/domain/types';
 
 import { useSession } from '../auth/session';
 import { featuredPostings, fetchApplyLink, fetchPosting, type Posting } from '../data/jobs';
 import { requestReview, updateResume, useFeedbacks, useResumes, createResume, setBaseResume, deleteResume } from '../data/resumes';
 import { useAlerts, dismissAlertToday, markAlertRead } from '../data/notices';
-import { Btn, Card, Field, Muted, Row, Screen, todayKey } from '../ui/kit';
+import { Btn, Card, Field, Muted, Row, Screen, T, todayKey } from '../ui/kit';
+import { useTheme } from '../theme/Theme';
+import { elevation } from '../theme/tokens';
 
 function section(body: string) {
   return { subtitle: '', body };
@@ -51,7 +55,7 @@ export function ResumeListPage({ canApprove = false }: { canApprove?: boolean })
         <Row
           key={resume.id}
           title={resume.title}
-          subtitle={`${resume.userDisplayName ?? ''} · ${resume.status}`}
+          subtitle={`${resume.userDisplayName ?? ''} · ${ResumeStatusLabels[resume.status] ?? '작성 중'}`}
           onPress={() => router.push(`${canApprove ? '/(admin)/resume' : '/(student)/resume'}/${encodeURIComponent(resume.id)}` as never)}
         />
       ))}
@@ -200,19 +204,61 @@ function plain(text: string): string {
 
 export function AlertHost() {
   const { user } = useSession();
+  const { palette } = useTheme();
   const alerts = useAlerts().filter((popup) => popup.isActive);
   const [hidden, setHidden] = useState<string[]>([]);
-  const current = alerts.find((popup) => !hidden.includes(popup.id));
-  if (!current || !user) return null;
+  const queue = alerts.filter((popup) => !hidden.includes(popup.id));
+  const current = queue[0];
+  if (!user) return null;
+
+  const close = (dismissToday: boolean) => {
+    if (!current) return;
+    if (dismissToday) void dismissAlertToday(current.id, todayKey());
+    else markAlertRead(current.id);
+    setHidden((prev) => [...prev, current.id]);
+  };
+
   return (
-    <Card>
-      <Text style={{ fontWeight: '700' }}>{current.title}</Text>
-      <Text>{current.content}</Text>
-      <Btn label="확인" onPress={() => { markAlertRead(current.id); setHidden((prev) => [...prev, current.id]); }} />
-      <Btn label="오늘 하루 보지 않기" tone="ghost" onPress={() => {
-        void dismissAlertToday(current.id, todayKey());
-        setHidden((prev) => [...prev, current.id]);
-      }} />
-    </Card>
+    <Modal visible={Boolean(current)} transparent animationType="fade" statusBarTranslucent onRequestClose={() => close(false)}>
+      <View style={alertStyles.backdrop}>
+        <View style={[alertStyles.sheet, elevation, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          <View style={[alertStyles.icon, { backgroundColor: palette.primaryLight }]}>
+            <MaterialIcons name="campaign" size={30} color={palette.primary} />
+          </View>
+          {queue.length > 1 ? (
+            <T variant="label" tone="primary">알림 1 / {queue.length}</T>
+          ) : null}
+          <T variant="title" style={{ textAlign: 'center', fontSize: 19 }}>{current?.title}</T>
+          <ScrollView style={alertStyles.body} contentContainerStyle={{ paddingVertical: 2 }}>
+            <T tone="secondary" style={{ textAlign: 'center', lineHeight: 22 }}>{current?.content}</T>
+          </ScrollView>
+          <View style={alertStyles.actions}>
+            <Btn label="확인" onPress={() => close(false)} />
+            <Pressable accessibilityRole="button" onPress={() => close(true)} hitSlop={8} style={alertStyles.later}>
+              <T variant="caption" tone="secondary">오늘 하루 보지 않기</T>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
+
+const alertStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 28 },
+  sheet: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 22,
+    paddingTop: 26,
+    paddingBottom: 14,
+    alignItems: 'center',
+    gap: 12,
+  },
+  icon: { width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center' },
+  body: { maxHeight: 280, alignSelf: 'stretch' },
+  actions: { alignSelf: 'stretch', gap: 4, marginTop: 6 },
+  later: { alignItems: 'center', paddingVertical: 10 },
+});

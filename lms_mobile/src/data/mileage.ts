@@ -8,6 +8,7 @@ interface CartState {
   items: MileageCartItem[];
   add: (item: MileageCartItem) => void;
   remove: (productId: string) => void;
+  setQuantity: (productId: string, quantity: number) => void;
   clear: () => void;
 }
 
@@ -25,6 +26,8 @@ export const useCart = create<CartState>((set) => ({
       };
     }),
   remove: (productId) => set((state) => ({ items: state.items.filter((row) => row.productId !== productId) })),
+  setQuantity: (productId, quantity) =>
+    set((state) => ({ items: state.items.map((row) => (row.productId === productId ? { ...row, quantity } : row)) })),
   clear: () => set({ items: [] }),
 }));
 
