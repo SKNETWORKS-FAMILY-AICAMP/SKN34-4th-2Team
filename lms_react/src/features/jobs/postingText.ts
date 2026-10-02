@@ -57,7 +57,10 @@ const SECTION_WORDS = [
 ];
 
 /** 제목 앞 장식 기호(「◎ 근무조건」 「┃ 근무조건」 「■ 담당업무」). 목록 글머리표(ㆍ · • -)는 넣지 않는다 */
-const DECOR = /^[◎●○■□▪▫◆◇★☆▶►▷※┃│▣◈❖✔✓☑✅º#]+\s*/;
+// 「??」는 수집할 때 깨진 이모지다(「?? 우대사항」)
+const DECOR = /^(?:[◎●○■□▪▫◆◇★☆▶►▷※┃│▣◈❖✔✓☑✅º#]+|\?{2,})\s*/;
+/** 섹션 이름 앞에 붙는 한정어(「공통 자격요건」 「그 외 우대사항」) */
+const SECTION_PREFIXES = ['공통', '그외', '기타', '추가', '세부', '상세'];
 /** 섹션 이름 두 개를 「및」으로 묶은 제목(「지원자격 및 우대사항」) */
 const isJoinedSection = (key: string) => {
   const parts = key.split('및');
@@ -80,6 +83,7 @@ function isHeading(line: string): boolean {
   if (core === '' || core.length > 20) return false;
   const key = core.replace(/[\s·&]/g, '');
   if (SECTION_WORDS.includes(key) || isJoinedSection(key)) return true;
+  if (SECTION_PREFIXES.some((p) => key.startsWith(p) && SECTION_WORDS.includes(key.slice(p.length)))) return true;
   // 「[주요 업무]」처럼 괄호로 싼 짧은 줄, 이모지로 시작하는 짧은 줄도 소제목으로 본다
   return (
     (/^\s*[[【]/.test(line) && /[\]】]\s*$/.test(line)) || /^\p{Extended_Pictographic}/u.test(line.trim()) || isCapsHeading(core)
@@ -232,6 +236,8 @@ function markRoles(lines: string[]): string[] {
   for (const line of lines) {
     const prev = out[out.length - 1];
     const name = prev === undefined ? '' : normalize(prev);
+    // 잡코리아 빈 양식: 직무 이름 자리에 「포지션」 제목만 있고 인원이 따라온다. 인원만으로는 뜻이 없어 버린다
+    if (HEADCOUNT.test(normalize(line)) && name !== '' && isHeading(name)) continue;
     if (
       HEADCOUNT.test(normalize(line)) &&
       name !== '' &&
@@ -460,6 +466,16 @@ export function formatPostingText(raw: string): PostingBlock[] {
       close();
       open = { type: 'sub', text: line };
       continue;
+    }
+    // 영어 공고: 한국어 끝말(다 · 요 · 분)이 없어 항목이 끝났는지 모른다. 그대로 두면 뒤 글을 다 삼켰다(1,227자 항목).
+    // 영어 항목 뒤의 「Experience & Education:」 같은 머리말은 소제목, 한글 없는 긴 줄은 새 문단이다
+    if (open !== null && open.type === 'item' && open.text.trim() !== '' && !HANGUL.test(open.text) && !HANGUL.test(line)) {
+      if (/[:：]$/.test(line) && line.length <= 40) {
+        close();
+        blocks.push({ type: 'sub', text: line.replace(/\s*[:：]$/, '') });
+        continue;
+      }
+      if (line.length > 30) close();
     }
     // 끝난 목록 항목(「… 관심 있는 분」)에 뒤따르는 긴 줄은 새 문단이다. 이어 붙이면 뒤의 소개 · 복지 · 절차를
     // 통째로 삼켰다(로워드 공고의 마지막 우대사항). 짧은 조각 · 조사로 시작하는 줄만 잇는다(잡코리아 조각 글)
