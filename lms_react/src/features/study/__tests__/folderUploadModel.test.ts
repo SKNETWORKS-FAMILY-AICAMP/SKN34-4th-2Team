@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  NEW_FILE,
   batches,
   blockedReason,
+  dailyFolders,
+  dailyPending,
+  dailyPickedPath,
+  dailyUploads,
   dayNotice,
   initialDates,
   manifest,
@@ -12,6 +17,7 @@ import {
   uploadItems,
   withEstimates,
   withoutEstimates,
+  type DailyFile,
   type PlanCalendar,
   type PlanFile,
   type PlanSubject,
@@ -130,5 +136,45 @@ describe('올리기 — 100개씩, 지난 자료 먼저', () => {
   it('고른 파일 경로 — 과목 하나면 맨 위 폴더가 과목, 여러 과목이면 그 아래', () => {
     expect(pickedPathOf({ what: 'subject', root: 'python_basic' }, 'python_basic', '01/a.py')).toBe('python_basic/01/a.py');
     expect(pickedPathOf({ what: 'cohort', root: '34기' }, 'web_client', 'x/a.js')).toBe('34기/web_client/x/a.js');
+  });
+});
+
+describe('오늘 수업 올리기 — 파일마다 갈 곳', () => {
+  const daily = (path: string, extra: Partial<DailyFile>): DailyFile => ({ path, blob: 'b', size: 10, status: 'new', ...extra });
+  const files: DailyFile[] = [
+    daily('06_module/alias.py', { status: 'update', target: '06_module/alias.py' }),
+    daily('math_test.py', { status: 'same', target: '06_module/math_test.py' }),
+    daily('exercise.ipynb', { status: 'pick', options: ['01_variable/exercise.ipynb', '04_function/exercise.ipynb'] }),
+    daily('practice.py', { folder: '04_function', why: '코드가 비슷해요' }),
+    daily('team_management/leader.py', { folder: '07_package/team_management', why: '같은 폴더가 있어요' }),
+    daily('summary.py', { folder: '2026-10-01/', why: '큰 주제 여러 개' }),
+  ];
+
+  it('새 버전은 그 파일로, 같은 파일은 빼고, 새 파일은 고른 폴더 아래 이름으로', () => {
+    expect(dailyUploads(files, {}).map((u) => [u.from, u.to])).toEqual([
+      ['06_module/alias.py', '06_module/alias.py'],
+      ['practice.py', '04_function/practice.py'],
+      ['team_management/leader.py', '07_package/team_management/leader.py'],
+      ['summary.py', '2026-10-01/summary.py'],
+    ]);
+    expect(dailyPending(files, {})).toBe(1);
+  });
+
+  it('어느 파일인지 고르거나 새 파일로, 넣을 폴더도 바꾼다', () => {
+    const choices = { 'exercise.ipynb': { target: '04_function/exercise.ipynb' }, 'practice.py': { folder: '2026-10-01/' } };
+    const to = Object.fromEntries(dailyUploads(files, choices).map((u) => [u.from, u.to]));
+    expect(to['exercise.ipynb']).toBe('04_function/exercise.ipynb');
+    expect(to['practice.py']).toBe('2026-10-01/practice.py');
+    expect(dailyPending(files, choices)).toBe(0);
+    const asNew = dailyUploads([daily('exercise.ipynb', { status: 'pick', options: ['a/exercise.ipynb'] })], {
+      'exercise.ipynb': { target: NEW_FILE, folder: '2026-10-01/' },
+    });
+    expect(asNew[0].to).toBe('2026-10-01/exercise.ipynb');
+  });
+
+  it('폴더째 고르면 맨 위 폴더 이름을 뗀다', () => {
+    expect(dailyPickedPath('2026-06-22/05_class/exercise.ipynb', true)).toBe('05_class/exercise.ipynb');
+    expect(dailyPickedPath('practice.py', false)).toBe('practice.py');
+    expect(dailyFolders({ folders: ['01_variable', '04_function'], date: '2026-10-01' })).toEqual(['01_variable', '04_function', '2026-10-01/']);
   });
 });

@@ -565,7 +565,9 @@ def plan_daily(
         base = f.path.split("/")[-1]
         exact = [p for p in tree if p == f.path or p.endswith(f"/{f.path}")]
         by_name = [p for p in tree if p.split("/")[-1] == base]
-        matches = exact if "/" in f.path and exact else exact or by_name
+        # 폴더째 올린 파일(경로가 있음)은 그 경로로만 찾는다 — 없으면 그 폴더의 새 파일.
+        # 이름만 같은 다른 폴더 파일을 고르라고 하면 안 된다(04_function 첫날 exercise.ipynb 가 01_variable 것과 겹쳤다)
+        matches = exact if "/" in f.path else exact or by_name
         item: dict[str, Any] = {"path": f.path, "blob": f.blob, "size": f.size}
         if len(matches) == 1:
             item.update(status="same" if tree[matches[0]] == f.blob else "update", target=matches[0])
@@ -612,6 +614,11 @@ def suggest_folder(f: UpFile, tree: dict[str, str], texts: dict[str, str], day: 
         same = [d for d in _dirs(list(tree)) if d == folder or d.endswith(f"/{folder}")]
         if len(same) == 1:
             return {"folder": same[0], "why": "같은 폴더가 있어요"}
+        if not same:
+            # 폴더째 올렸는데 처음 보는 폴더(05_class 첫날 · 06_module/module_question) — 강사가 만든 구조 그대로.
+            # 깊이와 상관없이 — 안쪽 새 폴더를 키워드로 다른 큰 주제에 옮겼다가 GitHub 원본과 달라졌다(6/22 재현).
+            # 추천은 폴더 없이 올린 파일에만
+            return {"folder": folder, "why": "새 폴더로 넣어요"}
     mine = [k for k in _keyword_counts(f.text) if k not in WEAK_KEYWORDS]
     tops = sorted({p.split("/")[0] for p in tree if "/" in p and "_" in p.split("/")[0]}, key=_natural)
     used = {top: sum((_keyword_counts(t) for p, t in texts.items() if p.startswith(f"{top}/")), Counter()) for top in tops}

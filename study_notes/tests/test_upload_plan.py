@@ -198,6 +198,7 @@ class PlanDailyTests(unittest.TestCase):
             file_row("team_management/leader.py", b"class Leader: pass"),
             file_row("summary.py", b"class Shape:\n  def __init__(self): pass\nwith open('a.txt') as f:\n  import json\ntry:\n  pass\nexcept Exception:\n  raise"),
             file_row("notes.txt", b"not a lesson file"),
+            file_row("10_streamlit/app.py", b"import streamlit as st\nst.title('a')"),
         ])
         by = {x["path"]: x for x in plan["files"]}
         self.assertEqual(("update", "06_module/alias.py"), (by["06_module/alias.py"]["status"], by["06_module/alias.py"]["target"]))
@@ -210,7 +211,20 @@ class PlanDailyTests(unittest.TestCase):
         # 여러 주제를 섞은 정리 파일 — 한 주제에 넣지 않고 날짜 폴더
         self.assertEqual("2026-10-01/", by["summary.py"]["folder"])
         self.assertNotIn("notes.txt", by)
+        # 폴더째 올린 새 큰 주제는 그 폴더 그대로(키워드로 옮기지 않는다)
+        self.assertEqual(("10_streamlit", "새 폴더로 넣어요"), (by["10_streamlit/app.py"]["folder"], by["10_streamlit/app.py"]["why"]))
         self.assertEqual([], plan["warnings"])
+
+    def test_folder_upload_with_paths_is_new_in_its_folder_not_ambiguous(self) -> None:
+        # 폴더째 고른 6/19 — 04_function/exercise.ipynb 는 처음이다. 01_variable 의 같은 이름 파일과 고르게 하지 않는다
+        plan = self.plan([file_row("04_function/question.ipynb", b"{}"), file_row("01_variable/exercise.ipynb", b"x = 11")])
+        by = {x["path"]: x for x in plan["files"]}
+        self.assertEqual("new", by["04_function/question.ipynb"]["status"])
+        self.assertEqual("04_function", by["04_function/question.ipynb"]["folder"])
+        # 안쪽 새 폴더도 그대로 — 코드가 비슷한 다른 주제(05_class)로 옮기지 않는다(6/22 재현에서 달라졌던 것)
+        nested = self.plan([file_row("06_module/module_question/attendance_module.py", b"class Attendance:\n    def __init__(self): pass")])
+        self.assertEqual(("new", "06_module/module_question"), (nested["files"][0]["status"], nested["files"][0]["folder"]))
+        self.assertEqual(("update", "01_variable/exercise.ipynb"), (by["01_variable/exercise.ipynb"]["status"], by["01_variable/exercise.ipynb"]["target"]))
 
     def test_day_checks(self) -> None:
         one = [file_row("a.py", b"x = 1")]

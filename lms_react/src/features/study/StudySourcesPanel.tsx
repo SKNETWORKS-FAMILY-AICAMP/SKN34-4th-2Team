@@ -24,6 +24,7 @@ import {
 import { Icon } from '../../ui/Icon';
 import { Button, Row, Spacer, TextInput, Toggle } from '../../ui/components';
 import { formatRelative } from '../../utils/format';
+import { DailyUpload } from './DailyUpload';
 import { FolderImport } from './FolderImport';
 import { repoName } from './lessonDays';
 
@@ -46,6 +47,7 @@ export function StudySourcesPanel({ cohortId, canUpload = false }: { cohortId: s
   const sources = useStudySources().filter((s) => !s.cohortId || s.cohortId === cohortId);
   const [mode, setMode] = useState<'github' | 'folder'>('github');
   const [issues, setIssues] = useState<ScheduleIssue[]>([]);
+  const [daily, setDaily] = useState<{ id: string; title: string } | null>(null);
   const [owners, setOwners] = useState<GithubOwner[] | null>(null);
   const [owner, setOwner] = useState('');
   const [busy, setBusy] = useState(false);
@@ -242,7 +244,14 @@ export function StudySourcesPanel({ cohortId, canUpload = false }: { cohortId: s
                   {isUploaded(src.repoUrl) && <span className="study-sources__kind">폴더에서 올림</span>}
                 </strong>
                 {isUploaded(src.repoUrl) ? (
-                  <span className="hint">GitHub 없이 올린 과목 — 「오늘 수업 올리기」로 올린 날이 수업 날짜가 돼요</span>
+                  <span className="hint study-sources__upload">
+                    GitHub 없이 올린 과목 — 「오늘 수업 올리기」로 올린 날이 수업 날짜가 돼요
+                    {canUpload && (
+                      <Button size="sm" variant="outline" icon={<Icon name="upload" size={16} />} onClick={() => setDaily({ id: src.id, title: src.title })}>
+                        오늘 수업 올리기
+                      </Button>
+                    )}
+                  </span>
                 ) : (
                   <a className="media-row__repo" href={src.repoUrl} target="_blank" rel="noreferrer">
                     {src.repoUrl.replace(/^https?:\/\/github\.com\//, '')}
@@ -283,6 +292,7 @@ export function StudySourcesPanel({ cohortId, canUpload = false }: { cohortId: s
           </div>
         ))
       )}
+      {daily && <DailyUpload cohortId={cohortId} source={daily} onClose={() => setDaily(null)} />}
     </div>
   );
 }

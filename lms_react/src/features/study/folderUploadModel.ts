@@ -258,3 +258,52 @@ export interface DailyPlan {
   topic: string | null;
   topics: PlanTopic[];
 }
+
+/** 강사가 고친 것 — 같은 이름이 여럿일 때 어느 파일인지(target, '__new' 면 새 파일), 새 파일 넣을 폴더 */
+export interface DailyChoice {
+  target?: string;
+  folder?: string;
+}
+
+export const NEW_FILE = '__new';
+
+/** 그 파일이 저장소 어디로 가나 — null 이면 올리지 않는다(지난번과 같음 · 아직 못 고름) */
+export function dailyFinalPath(f: DailyFile, choice: DailyChoice | undefined): string | null {
+  if (f.status === 'same') return null;
+  if (f.status === 'update') return f.target ?? f.path;
+  const picked = choice?.target ?? '';
+  if (f.status === 'pick' && picked && picked !== NEW_FILE) return picked;
+  if (f.status === 'pick' && !picked) return null;
+  // 새 파일 — 고른(또는 추천) 폴더 아래에 파일 이름으로
+  const folder = (choice?.folder ?? f.folder ?? '').replace(/\/+$/, '');
+  const base = f.path.split('/').pop() ?? f.path;
+  return folder ? `${folder}/${base}` : base;
+}
+
+/** 아직 고르지 않은 줄(같은 이름이 여럿인데 어느 파일인지 안 고름) */
+export function dailyPending(files: DailyFile[], choices: Record<string, DailyChoice>): number {
+  return files.filter((f) => f.status === 'pick' && !choices[f.path]?.target).length;
+}
+
+/** 오늘 수업 올리기에서 올릴 것 — {올릴 파일 경로(고른 경로), 저장소 안 경로}. 같은 곳에 둘이 가면 뒤엣것은 뺀다 */
+export function dailyUploads(files: DailyFile[], choices: Record<string, DailyChoice>): { from: string; to: string; size: number }[] {
+  const seen = new Set<string>();
+  const out: { from: string; to: string; size: number }[] = [];
+  for (const f of files) {
+    const to = dailyFinalPath(f, choices[f.path]);
+    if (!to || seen.has(to)) continue;
+    seen.add(to);
+    out.push({ from: f.path, to, size: f.size });
+  }
+  return out;
+}
+
+/** 새 파일을 넣을 수 있는 폴더 — 저장소의 폴더 + 그날 날짜 폴더 */
+export function dailyFolders(plan: Pick<DailyPlan, 'folders' | 'date'>): string[] {
+  return [...plan.folders, `${plan.date}/`];
+}
+
+/** 폴더째 골랐으면 맨 위(고른 폴더 이름)를 뗀다 — 그 안의 구조가 저장소 안 경로 */
+export function dailyPickedPath(path: string, fromFolder: boolean): string {
+  return fromFolder && path.includes('/') ? path.slice(path.indexOf('/') + 1) : path;
+}

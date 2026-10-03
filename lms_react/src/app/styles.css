@@ -3098,8 +3098,46 @@ html {
   gap: 6px;
 }
 
+.study-sources__upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.fu__day {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.fu__daily {
+  grid-template-columns: 20px minmax(120px, 0.8fr) minmax(0, 1.6fr);
+}
+
+.fu__choose {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.fu__choose .input {
+  width: auto;
+  max-width: 100%;
+  font-size: 13px;
+}
+
+.fu__daily-hint {
+  margin-right: auto;
+}
+
 @media (max-width: 600px) {
-  .fu__row {
+  .fu__row,
+  .fu__daily {
     grid-template-columns: minmax(0, 1fr);
   }
 
