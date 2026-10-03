@@ -169,6 +169,28 @@ class StoreSearchTest(unittest.TestCase):
         )
         self.assertEqual("S2", self.find(roles=["서비스 기획"]).jobs[0].job_id)
 
+    def test_a_posting_on_both_sites_shows_once(self):
+        """사람인 · 잡코리아에 같이 올라온 공고(같은 group_key)는 한 번만, 글 본문이 있는 쪽으로.
+
+        회사 표기 · 경력 · 고용형태가 사이트마다 달라 회사 + 제목으로는 못 잡았다(2026-10-04 11.4%).
+        """
+        self._add(
+            self._job("G1", title="콘텐츠 기획 팀장 채용", company="(주)빈느", description="", body_is_image=True,
+                      tech_stack=[], keywords=["기획"], career_type="ANY", employment_type="미기재"),
+            self._job("G2", title="콘텐츠 기획 팀장 채용", company="㈜빈느", description="콘텐츠 기획을 맡습니다",
+                      tech_stack=[], keywords=["기획"], career_type="EXPERIENCED", min_career_years=5),
+            self._job("H1", title="콘텐츠 기획 담당", company="다른회사", tech_stack=[], keywords=["기획"]),
+        )
+        with SqliteJobStore(self.path) as store:
+            store.set_group_keys({"G1": "G1", "G2": "G1"})
+        found = [job.job_id for job in self.find(roles=["콘텐츠 기획"]).jobs]
+        self.assertEqual(1, len({"G1", "G2"} & set(found)), found)
+        self.assertIn("G2", found, "이미지뿐인 쪽 대신 글이 있는 쪽을 남긴다")
+        self.assertIn("H1", found, "묶이지 않은 다른 공고는 그대로")
+        # 「더 보기」로 넘겨도 짝이 따로 나오지 않는다
+        more = search(self.path, JobFilters(roles=["콘텐츠 기획"]), limit=10, as_of=NOW, exclude_ids=found)
+        self.assertNotIn("G1", [job.job_id for job in more.jobs])
+
     def test_korean_tool_names_find_english_titles(self):
         self._add(self._job("U1", title="Unity 클라이언트 개발자", company="가", description="모바일 게임"))
         self.assertIn("U1", {job.job_id for job in self.find(roles=["유니티 클라이언트"]).jobs})

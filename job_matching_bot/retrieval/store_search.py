@@ -758,14 +758,18 @@ def search(
     # 상수로 채우고, 해석은 상세와 같은 파서를 쓴다. 그래서 섞여도 결과가 안 어긋난다.
     #
     # `has_detail`이 0인 것은 늘 뒤에 세운다. 본문이 있는 쪽이 먼저 보여야 한다.
+    # `posting_group` · `image_only`는 사람인 · 잡코리아에 같이 올라온 공고를 하나로 줄일 때 쓴다(`_one_per_posting`).
+    # 묶음(`group_key`)은 상세가 있는 공고에만 있다. 목록 뷰에는 그 칸이 없어 빈 값으로 맞춘다.
     detail_part = (
         f"SELECT {_HIT_COLUMNS}, {relevance} AS relevance, {preferred} AS preferred, 1 AS has_detail, "
-        "keywords, first_seen_at FROM jobs WHERE " + " AND ".join(where)
+        "keywords, first_seen_at, group_key AS posting_group, COALESCE(body_is_image, false) AS image_only "
+        "FROM jobs WHERE " + " AND ".join(where)
     )
     listing_part = (
         # 목록에서만 본 공고는 늘 상세 뒤에 서므로 선호를 따지지 않는다(13만 건을 훑는 값을 아낀다)
         f"SELECT {_HIT_COLUMNS}, {relevance} AS relevance, 0 AS preferred, 0 AS has_detail, "
-        "keywords, first_seen_at FROM list_jobs_search WHERE " + " AND ".join(listing_where)
+        "keywords, first_seen_at, NULL::varchar AS posting_group, false AS image_only "
+        "FROM list_jobs_search WHERE " + " AND ".join(listing_where)
         # 상세를 받은 공고는 `jobs`에 있다. 같은 공고가 두 번 나오지 않게 뺀다.
         # 번호만으로 견주면 안 된다 — 사이트마다 따로 매긴 번호라, 사람인 상세가
         # 있다는 이유로 번호가 같은 잡코리아 목록이 통째로 사라진다.
@@ -843,10 +847,39 @@ def posting_key(row) -> tuple:
     )
 
 
+def _row_value(row, name: str):
+    try:
+        return row[name]
+    except (KeyError, IndexError):
+        return None
+
+
 def _one_per_posting(rows: list) -> list:
-    """같은 공고는 순서가 앞선 한 건만 남긴다. 순서가 늘 같아 "이거 말고"에도 같은 한 건이 남는다."""
-    kept, keys = [], set()
+    """같은 공고는 순서가 앞선 한 건만 남긴다. 순서가 늘 같아 "이거 말고"에도 같은 한 건이 남는다.
+
+    사람인 · 잡코리아에 같이 올라온 공고는 밤 배치가 같은 `group_key`로 묶어 둔다(regroup). 회사 이름
+    (「(주)빈느」 「㈜빈느」)과 경력 · 고용형태 표기가 사이트마다 달라 `posting_key`로는 못 잡아, 코치 검색에
+    같은 공고가 두 번 떴다(2026-10-04 열린 공고의 11.4%). 묶음에서는 앞선 자리에 **글 본문이 있는 쪽**을
+    남긴다 — 이미지뿐인 공고는 원문 · 첨삭에 쓸 글이 없다.
+    """
+    by_group: dict[str, list] = {}
     for row in rows:
+        group = _row_value(row, "posting_group")
+        if group:
+            by_group.setdefault(group, []).append(row)
+    chosen = {
+        group: next((r for r in members if not _row_value(r, "image_only")), members[0])
+        for group, members in by_group.items()
+    }
+
+    kept, keys, groups = [], set(), set()
+    for row in rows:
+        group = _row_value(row, "posting_group")
+        if group:
+            if group in groups:
+                continue
+            groups.add(group)
+            row = chosen[group]
         key = posting_key(row)
         if key in keys:
             continue
