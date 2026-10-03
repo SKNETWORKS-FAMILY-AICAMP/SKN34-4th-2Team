@@ -2949,6 +2949,165 @@ html {
   opacity: 1;
 }
 
+/* 폴더 올리기(GitHub 없이) — FolderImport · 수업 저장소 패널 */
+.study-sources__mode {
+  display: flex;
+  gap: 6px;
+}
+
+.study-sources__kind {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.study-sources__issues {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fu {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fu__pick .hint,
+.fu__tip {
+  margin: 0;
+}
+
+.fu__what {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fu__subject {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.fu__head,
+.fu__topic {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.fu__topic .input {
+  width: auto;
+  max-width: 100%;
+}
+
+.fu__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fu__row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 2px 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border-left: 3px solid color-mix(in srgb, var(--primary) 55%, transparent);
+  background: color-mix(in srgb, var(--primary) 4%, transparent);
+}
+
+.fu__row--past {
+  border-left-color: var(--border);
+  background: transparent;
+}
+
+.fu__row--check {
+  border-left-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+}
+
+.fu__date {
+  grid-row: span 2;
+  min-width: 0;
+}
+
+.fu__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 13px;
+}
+
+.fu__basis {
+  font-weight: 600;
+}
+
+.fu__notice {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.fu__files {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.fu__more {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fu__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fu__done {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.fu__done li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (max-width: 600px) {
+  .fu__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fu__date {
+    grid-row: auto;
+  }
+}
+
 /* 저장소 한 줄 아래 — 복습 문제 자동 출제 */
 .source-practice {
   display: flex;

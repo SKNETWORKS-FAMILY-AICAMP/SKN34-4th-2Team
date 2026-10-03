@@ -28,7 +28,7 @@ from study_notes.git_tools import (
     run_git,
     sanitize_path,
 )
-from study_notes.upload_plan import blob_id, read_texts
+from study_notes.upload_plan import blob_id, is_hidden, read_texts
 
 BRANCH = "main"
 LESSON_HOUR = "18:00:00"
@@ -103,7 +103,7 @@ def _clean(files: dict[str, bytes]) -> dict[str, bytes]:
         path = sanitize_path(raw_path)
         if path.startswith(".git/") or "/.git/" in path or path == ".git":
             raise GitToolError("파일 경로가 올바르지 않습니다.")
-        if not is_learning_file(path):
+        if not is_learning_file(path) or is_hidden(path):
             continue
         if len(body) > MAX_FILE_BYTES:
             raise GitToolError(f"{path} 가 너무 커요({MAX_FILE_BYTES // 1024 // 1024}MB 까지).")

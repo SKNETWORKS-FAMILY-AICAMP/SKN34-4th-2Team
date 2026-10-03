@@ -47,6 +47,11 @@ ALIASES = {"dl": "딥러닝", "ml": "머신러닝", "db": "database", "데이터
 WEEKDAY_OFF = {5: "토요일", 6: "일요일"}
 
 
+def is_hidden(path: str) -> bool:
+    """.ipynb_checkpoints · .git · __pycache__ 처럼 숨김 폴더 · 파일 — 수업 자료가 아니다(화면 folderFiles.isHiddenPath 와 같다)"""
+    return any(part.startswith(".") or part in ("__pycache__", "node_modules") for part in path.split("/"))
+
+
 def blob_id(body: bytes) -> str:
     """git 의 내용 지문(blob id) — 브라우저도 같은 식으로 계산한다: sha1("blob <길이>\\0" + 내용)"""
     return hashlib.sha1(b"blob %d\0" % len(body) + body).hexdigest()
@@ -152,6 +157,18 @@ class Calendar:
             out.append({"kind": "curriculum_unreadable", "count": self.unreadable,
                         "text": f"커리큘럼에서 날짜를 읽지 못한 줄이 {self.unreadable}개 있어요. 그 줄은 빼고 봤어요."})
         return out
+
+
+def calendar_view(cal: Calendar) -> dict[str, Any]:
+    """화면에 주는 달력 — 공휴일(기간 안), 기간, 오늘, 커리큘럼 수업일(공휴일은 뺀 것), 강사가 「수업 있었음」 한 날"""
+    return {
+        "today": cal.today,
+        "start": cal.start,
+        "end": cal.end,
+        "holidays": {d: n for d, n in cal.holidays.items() if cal.start <= d <= cal.end},
+        "classDays": cal.class_days() if cal.curriculum else [],
+        "extraDays": sorted(cal.extra_days),
+    }
 
 
 def calendar_from(raw: dict[str, Any]) -> Calendar:
@@ -326,7 +343,7 @@ def group(files: list[UpFile], what: str) -> tuple[str, dict[str, list[tuple[str
                 skipped += 1
                 continue
             name, rest = inner[0], "/".join(inner[1:])
-        if not rest or not is_learning_file(rest) or not f.blob:
+        if not rest or not is_learning_file(rest) or is_hidden(rest) or not f.blob:
             skipped += 1
             continue
         subjects.setdefault(name, []).append((rest, f))
@@ -480,6 +497,8 @@ def plan_import(
         "subjects": subjects,
         "topics": cal.topics(),
         "calendarWarnings": cal.warnings(),
+        # 확인 화면에서 날짜를 고치면 화면이 바로 「수업 없는 날」을 표시한다 — 공휴일 · 기간 · 커리큘럼 수업일
+        "calendar": calendar_view(cal),
     }
 
 
@@ -541,7 +560,7 @@ def plan_daily(
     ups = [UpFile.of(raw) for raw in files]
     items = []
     for f in ups:
-        if not is_learning_file(f.path) or not f.blob:
+        if not is_learning_file(f.path) or is_hidden(f.path) or not f.blob:
             continue
         base = f.path.split("/")[-1]
         exact = [p for p in tree if p == f.path or p.endswith(f"/{f.path}")]

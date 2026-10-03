@@ -115,10 +115,13 @@ class PlanImportTests(unittest.TestCase):
             row("34기/web_server/2026-09-30_Django/views.py"),
             row("34기/web_server/2일차_ORM/models.py"),
             row("34기/web_server/.DS_Store"),
+            row("34기/web_server/2일차_ORM/.ipynb_checkpoints/models-checkpoint.py"),
         ]
         plan = upload_plan.plan_import(files, calendar())
         self.assertEqual("cohort", plan["what"])
-        self.assertEqual(1, plan["skipped"])
+        self.assertEqual("추석", plan["calendar"]["holidays"]["2026-09-24"])
+        self.assertNotIn("2026-09-24", plan["calendar"]["classDays"])
+        self.assertEqual(2, plan["skipped"])
         by = {x["path"]: x for s in plan["subjects"] for x in s["files"]}
         self.assertEqual(("name", "2026-09-23"), (by["0923_HTML_CSS/index.html"]["basis"], by["0923_HTML_CSS/index.html"]["date"]))
         self.assertEqual(["2026-09-28", "2026-09-29"], by["0928_0929_JS심화.ipynb"]["dates"])
