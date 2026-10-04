@@ -112,14 +112,31 @@ def _natural(text: str) -> list:
     return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", text.lower())]
 
 
+# 같은 주제의 연습 · 문제 파일(numpy_exercise · numpy_question)은 한 주제로
+_STEM_TAIL = re.compile(r"(_(exercise|exericise|exercises|question|questions|practice|answer|solution|copy|\d+))+$", re.IGNORECASE)
+
+
+def _stem(path: str) -> str:
+    base = re.sub(r"\.[^.]+$", "", path.rsplit("/", 1)[-1])
+    return _STEM_TAIL.sub("", base) or base
+
+
+def _group(files: list[str], key) -> dict[str, Topic]:
+    out: dict[str, Topic] = {}
+    for path in files:
+        name = key(path)
+        out.setdefault(name, Topic(name)).files.append(path)
+    return out
+
+
 def subject_topics(cache: RepoCache, prefixes: list[str]) -> tuple[list[Topic], list[str], str]:
-    """(주제들, 수업 날짜 전부, 읽을 커밋). 주제 = 맨 위 폴더, 날짜 = 그 폴더 파일이 바뀐 수업 날짜"""
+    """(주제들 — 처음 배운 날 순, 수업 날짜 전부, 읽을 커밋). 날짜 = 그 주제 파일이 바뀐 수업 날짜(지난 자료는 없음).
+
+    주제 = 맨 위 폴더(01_variable …). 폴더 없이 파일만 있는 저장소(34기 DL · ML · data_analysis · database)는 맨 위 폴더로
+    나누면 「맨 위 파일」 하나뿐이라 파일 이름으로 나눈다 — numpy_exercise · numpy_question 은 한 주제(numpy)."""
     head = cache.sync()
     files = cache.list_tree(prefixes)[:MAX_SUBJECT_FILES]
-    by_topic: dict[str, Topic] = {}
-    for path in files:
-        name = path.split("/", 1)[0] if "/" in path else ROOT_TOPIC
-        by_topic.setdefault(name, Topic(name)).files.append(path)
+    file_dates: dict[str, set[str]] = {}
     dates: set[str] = set()
     for _sha, iso, changed in cache._log_with_files([]):  # 지난 자료 커밋은 여기서 빠진다(수업 날이 아니다)
         day = _day_of(iso)
@@ -127,12 +144,15 @@ def subject_topics(cache: RepoCache, prefixes: list[str]) -> tuple[list[Topic], 
             continue
         dates.add(day)
         for path in changed:
-            name = path.split("/", 1)[0] if "/" in path else ROOT_TOPIC
-            if name in by_topic and day not in by_topic[name].dates:
-                by_topic[name].dates.append(day)
-    topics = sorted(by_topic.values(), key=lambda t: (t.name == ROOT_TOPIC, _natural(t.name)))
-    for t in topics:
-        t.dates.sort()
+            file_dates.setdefault(path, set()).add(day)
+    by_topic = _group(files, lambda p: p.split("/", 1)[0] if "/" in p else ROOT_TOPIC)
+    if len(by_topic) == 1 and len(files) > 1:
+        only = next(iter(by_topic))
+        cut = 0 if only == ROOT_TOPIC else len(only) + 1
+        by_topic = _group(files, lambda p: p[cut:].split("/", 1)[0] if "/" in p[cut:] else _stem(p))
+    for t in by_topic.values():
+        t.dates = sorted(set().union(*(file_dates.get(p, set()) for p in t.files)))
+    topics = sorted(by_topic.values(), key=lambda t: (t.name == ROOT_TOPIC, t.dates[0] if t.dates else "9999", _natural(t.name)))
     return topics, sorted(dates), head
 
 
@@ -183,14 +203,20 @@ def topic_blocks(text: str, topics: list[Topic]) -> dict[str, str]:
     """모델 답 → {주제 소제목: 그 주제 글}. 정해진 소제목이 아닌 ### 는 먼저 ####로 내린다.
     「## 주제별 핵심 정리」 아래만 보지 않고 답 전체에서 찾는다 — 모델이 그 ## 줄을 빼먹고 바로 ### 주제부터 쓰면 주제가 통째로
     빠졌다(LLM파트 10_sllm_finetuning). 다른 ## 소제목을 만나면 주제 글이 끝난다."""
-    allowed = {t.heading for t in topics}
+    # 주제 소제목 글(「04_function · 6/19~6/23」) → 정해진 ### 줄. 모델이 ## 나 #### 로 써도 알아본다(NLP 02_preprocessing 을
+    # ## 로 써서 통째로 빠졌다). 그래서 ### 를 내리기 전에 먼저 본다
+    # 주제 이름으로 맞춘다 — 날짜를 빼거나 이름을 굵게(**) 써도
+    by_name = {t.name: t.heading for t in topics}
     blocks: dict[str, list[str]] = {}
     current = ""
-    for line in fix_topic_headings(text, topics).split("\n"):
-        if line.rstrip() in allowed:
-            current = line.rstrip()
+    for line in text.split("\n"):
+        heading = re.match(r"^#{1,4}\s+(.+?)\s*$", line)
+        name = re.sub(r"[*`]", "", heading.group(1)).split(" · ")[0].strip() if heading else ""
+        if name in by_name:
+            current = by_name[name]
             blocks.setdefault(current, [])
             continue
+        line = fix_topic_headings(line, topics)
         if line.startswith("## "):
             current = ""
             continue

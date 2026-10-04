@@ -35,6 +35,16 @@ class TopicBlocksTests(unittest.TestCase):
         self.assertEqual({"### 10_sllm · 9/8": "- 로라", "### 맨 위 파일 · 지난 자료": "- 연습"}, subject.topic_blocks(text, topics))
 
 
+    def test_topic_written_at_another_level_or_bold_is_still_found(self) -> None:
+        # 모델이 주제를 ## 로 썼다(NLP 02_preprocessing 이 통째로 빠졌던 까닭), 굵게 쓰거나 날짜를 빼기도 한다
+        topics = [Topic("02_preprocessing", ["2026-08-10"]), Topic("03_text", ["2026-08-11"]), Topic("04_seq", ["2026-08-12"])]
+        text = "## 02_preprocessing · 8/10\n- 토큰화\n### **03_text** · 8/11\n- 벡터\n#### 04_seq\n- RNN"
+        self.assertEqual(
+            {"### 02_preprocessing · 8/10": "- 토큰화", "### 03_text · 8/11": "- 벡터", "### 04_seq · 8/12": "- RNN"},
+            subject.topic_blocks(text, topics),
+        )
+
+
 class GenerateTests(unittest.TestCase):
     def setUp(self) -> None:
         self.topics = [Topic(f"0{i}_t", [f"2026-08-1{i}"], [f"0{i}_t/a.py"]) for i in range(1, 4)]
@@ -102,6 +112,20 @@ class SubjectTopicsTests(unittest.TestCase):
         self.assertEqual(
             [("01_variable", ["2026-06-18"]), ("04_function", ["2026-06-19", "2026-06-23"]), ("09_exception", []), ("맨 위 파일", [])],
             [(t.name, t.dates) for t in topics],
+        )
+
+    def test_flat_repo_is_split_by_file_name_and_pairs_go_together(self) -> None:
+        # 폴더 없이 파일만 있는 저장소(34기 data_analysis) — 「맨 위 파일」 하나가 아니라 파일 이름으로, 연습 · 문제는 한 주제
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        with mock.patch.dict("os.environ", {"STUDY_NOTES_CACHE_DIR": tmp.name}):
+            cache = RepoCache("c", "2", parse_repo_url("upload://c/data_analysis"), "main")
+            upload_repo.commit_day(cache, "2026-07-06", {"numpy_exercise.ipynb": b"{}", "numpy_question.ipynb": b"[]"})
+            upload_repo.commit_day(cache, "2026-07-07", {"pandas_exercise.ipynb": b"{}", "list_exercise.ipynb": b"[]"})
+            topics, _dates, _head = subject.subject_topics(cache, [])
+        self.assertEqual(
+            [("numpy", ["2026-07-06"], 2), ("list", ["2026-07-07"], 1), ("pandas", ["2026-07-07"], 1)],
+            [(t.name, t.dates, len(t.files)) for t in topics],
         )
 
 
