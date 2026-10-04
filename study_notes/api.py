@@ -253,6 +253,20 @@ def proxy_subject(request: ProxySubjectRequest) -> dict[str, Any]:
     return {"status": "ready", "reportMarkdown": report}
 
 
+@router.post("/proxy/subject-files")
+def proxy_subject_files(request: ProxyTreeRequest) -> dict[str, Any]:
+    """과목 전체 요약 — 수업 파일을 직접 읽어 주제(맨 위 폴더)별로(study_notes/subject.py). 몇 분 걸린다. LLM 1회 ~ 묶음 수 + 1회."""
+    source = service.source_from_payload(request.source.model_dump())
+    try:
+        return service.subject_from_files_for_lms(request.cohortId, source)
+    except GitToolError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=service.failure_message(exc)) from exc
+
+
 @router.post("/proxy/repos")
 def proxy_repos(request: ProxyReposRequest) -> dict[str, Any]:
     """GitHub 계정·조직의 수업 저장소 목록 — LMS 가 새 저장소를 공부방에 자동으로 올릴 때 쓴다."""
