@@ -102,6 +102,9 @@ PROBLEM_RULES = (
     "- hiddenTests는 prompt와 starterCode에 적힌 조건만 검사한다. 적히지 않은 형식 · 자료형 · 경계값을 몰래 검사하지 않는다\n"
     "- hiddenTests가 쓰는 모듈(math, numpy 등)은 hiddenTests 안에서 import 한다\n"
     "- starterCode의 docstring · 주석은 hiddenTests가 기대하는 반환값과 같게 쓴다\n"
+    "- 문제마다 다른 개념을 묻는다. 같은 함수 · 같은 코드를 종류만 바꿔(빈칸 → 버그 고치기 → 처음부터 짜기) 다시 내지 않는다\n"
+    "- 연습(exercise)과 문제(question) 파일이 같은 내용을 다루면 그 내용은 한 번만 낸다\n"
+    "- 테이블 이름 · 값만 바꾼 같은 틀의 문제를 되풀이하지 않는다\n"
 )
 
 SCHEMA = (

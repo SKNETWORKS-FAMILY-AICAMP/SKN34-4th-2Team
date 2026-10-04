@@ -21,7 +21,8 @@ from datetime import timedelta
 from typing import Any, Protocol
 
 from study_notes.git_tools import ChangedFile
-from study_notes.practice.build import BuildResult, KindStats, build_practice_set
+from study_notes.practice.blind import solve_blind
+from study_notes.practice.build import BuildResult, KindStats, build_practice_set, drop_overlaps, refill_overlaps
 from study_notes.practice.generate import Usage, practice_model_name
 from study_notes.practice.increments import DayPlan, FileCoverage, plan_day
 from study_notes.practice.runner import Runner
@@ -103,6 +104,18 @@ def build_day(day: str, plan: DayPlan, runner: Runner) -> BuildResult:
         merged.dropped += r.dropped
         for key in ("calls", "input_tokens", "output_tokens"):
             setattr(merged.usage, key, getattr(merged.usage, key) + getattr(r.usage, key))
+    # 묶음끼리 겹침 — 같은 주제의 exercise · question 이 다른 묶음에 들어가면 묶음 안에서는 못 찾는다.
+    # 뺀 문제는 그 문제를 낸 묶음의 자료로 다시 채운다.
+    owner = {id(p): i for i, r in enumerate(results) for p in r.problems}
+    overlapped = drop_overlaps(merged)
+    for i, part in enumerate(parts):
+        mine = [p for p in overlapped if owner.get(id(p)) == i]
+        if mine:
+            merged.overlapped = mine
+            refill_overlaps(
+                merged, scope_label=f"{day} 수업 — 새로 진행한 부분", materials=part.materials(), runner=runner,
+                focus_note=part.focus_note(), blind=True, solver=solve_blind,
+            )
     return merged
 
 

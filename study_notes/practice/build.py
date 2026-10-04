@@ -10,7 +10,9 @@ from typing import Any
 
 from study_notes.pipeline import Material
 from study_notes.practice.blind import Solver, blind_failures, solve_blind
+from study_notes.practice.dedupe import split_overlaps
 from study_notes.practice.generate import Usage, generate_drafts, repair_drafts
+from study_notes.practice.increments import kind_counts_text
 from study_notes.practice.models import KINDS, PracticeProblem
 from study_notes.practice.runner import Runner
 from study_notes.practice.verify import Verdict, verify_problems
@@ -23,6 +25,8 @@ class KindStats:
     passed_after_repair: int = 0
     converted: int = 0  # 고치다가 다른 종류(대개 concept)로 바뀌어 통과
     dropped: int = 0
+    overlapped: int = 0  # 통과했지만 앞 문제와 겹쳐 뺌(dedupe.py) — 그 자리는 채우기(refill)로
+    refilled: int = 0
 
 
 @dataclass
@@ -33,11 +37,12 @@ class BuildResult:
     malformed: list[str] = field(default_factory=list)
     llm_output_guesses: dict[str, int] = field(default_factory=lambda: {"right": 0, "wrong": 0})
     usage: Usage = field(default_factory=Usage)
+    overlapped: list[PracticeProblem] = field(default_factory=list)  # 겹쳐서 뺀 문제(채우기 몫)
 
     def to_json(self) -> dict[str, Any]:
         return {
             "problems": [p.to_json() for p in self.problems],
-            "stats": {k: vars(v) for k, v in self.stats.items() if v.drafted},
+            "stats": {k: vars(v) for k, v in self.stats.items() if v.drafted or v.refilled},
             "dropped": self.dropped,
             "malformed": self.malformed,
             "llmOutputGuesses": self.llm_output_guesses,
@@ -70,8 +75,9 @@ def _blind(verdicts: list[Verdict], runner: Runner, usage: Usage, solver: Solver
 
 def build_practice_set(
     *, scope_label: str, materials: list[Material], runner: Runner, repair: bool = True, focus_note: str = "", kind_counts: str = "",
-    blind: bool = True, solver: Solver = solve_blind,
+    blind: bool = True, solver: Solver = solve_blind, refill: bool = True,
 ) -> BuildResult:
+    """refill — 앞 문제와 겹쳐서 뺀 만큼 한 번 더 만든다(dedupe.py)."""
     usage = Usage()
     drafts = generate_drafts(scope_label=scope_label, materials=materials, usage=usage, focus_note=focus_note, kind_counts=kind_counts)
     result = BuildResult(problems=[], stats={k: KindStats() for k in KINDS}, usage=usage)
@@ -126,4 +132,56 @@ def build_practice_set(
         stats.dropped = max(
             0, stats.drafted - stats.passed_first - stats.passed_after_repair - stats.converted,
         )
+    drop_overlaps(result)
+    if refill:
+        refill_overlaps(result, scope_label=scope_label, materials=materials, runner=runner, focus_note=focus_note, blind=blind, solver=solver)
     return result
+
+
+REFILL_NOTE = (
+    "이번에는 위 파일별 개수 대신 아래 종류 · 개수만 더 냅니다.\n"
+    "이미 낸 문제(아래)와 겹치지 않게 — 같은 함수 · 같은 코드를 종류만 바꿔 다시 내지 말고, 아직 묻지 않은 개념으로 냅니다.\n"
+    "이미 낸 문제:\n{listing}"
+)
+
+
+def drop_overlaps(result: BuildResult) -> list[PracticeProblem]:
+    """앞 문제와 겹치는 문제를 뺀다. 뺀 문제를 돌려준다(종류 · 개수만큼 채우기에 쓴다)."""
+    result.problems, overlaps = split_overlaps(result.problems)
+    for problem, other, why in overlaps:
+        result.stats[problem.kind].overlapped += 1
+        result.dropped.append({"kind": problem.kind, "topic": problem.topic, "firstFailure": f"겹침: {why} — 「{other.topic}」"})
+    result.overlapped = [p for p, _, _ in overlaps]
+    return result.overlapped
+
+
+def refill_overlaps(
+    result: BuildResult, *, scope_label: str, materials: list[Material], runner: Runner, focus_note: str, blind: bool, solver: Solver,
+) -> None:
+    """겹쳐서 뺀 만큼 한 번 더 만든다 — 같은 수업 자료로, 이미 낸 문제 목록을 보여 주고. 고치기는 안 한다(한 번만)."""
+    if not result.overlapped or not materials:
+        return
+    mix: dict[str, int] = {}
+    for p in result.overlapped:
+        mix[p.kind] = mix.get(p.kind, 0) + 1
+    listing = "\n".join(f"- {p.topic} ({p.kind})" for p in result.problems)
+    note = "\n\n".join(x for x in (focus_note, REFILL_NOTE.format(listing=listing)) if x)
+    try:
+        drafts = generate_drafts(
+            scope_label=scope_label, materials=materials, usage=result.usage, focus_note=note, kind_counts=kind_counts_text(mix),
+        )
+    except Exception as exc:  # noqa: BLE001 — 채우기가 안 돼도 이미 만든 문제는 낸다
+        result.malformed.append(f"겹친 문제 채우기 실패: {type(exc).__name__}: {exc}")
+        return
+    result.malformed.extend(drafts.rejected)
+    verdicts = verify_problems(drafts.problems, runner)
+    verdicts = _blind(verdicts, runner, result.usage, solver) if blind else verdicts
+    fresh = [v.problem for v in verdicts if v.passed]
+    keep, again = split_overlaps(fresh, kept=result.problems)
+    keep = keep[: len(result.overlapped)]
+    for p in keep:
+        result.stats[p.kind].refilled += 1
+        _count_guess(result, Verdict(p, True, ""))
+    result.problems.extend(keep)
+    for problem, other, why in again:
+        result.dropped.append({"kind": problem.kind, "topic": problem.topic, "firstFailure": f"채운 문제도 겹침: {why} — 「{other.topic}」"})
