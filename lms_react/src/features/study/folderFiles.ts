@@ -47,7 +47,8 @@ export function isLessonFile(path: string): boolean {
 
 /** .git · .DS_Store · __pycache__ · .ipynb_checkpoints 처럼 숨김 폴더 · 파일은 수업 자료가 아니다 */
 export function isHiddenPath(path: string): boolean {
-  return path.split('/').some((part) => part.startsWith('.') || part === '__pycache__' || part === 'node_modules');
+  // .github 은 수업 자료다 — 협업 수업(workflow)이 이슈 · PR 템플릿을 .github/ISSUE_TEMPLATE 에 둔다(서버 is_hidden 과 같다)
+  return path.split('/').some((part) => (part.startsWith('.') && part !== '.github') || part === '__pycache__' || part === 'node_modules');
 }
 
 function firstChars(text: string, n: number): string {
@@ -113,6 +114,21 @@ export async function readBytes(file: Blob): Promise<Uint8Array> {
     reader.onerror = () => reject(reader.error);
     reader.readAsArrayBuffer(file);
   });
+}
+
+/**
+ * 노트북의 앞 셀 upto 개만 — 두 날에 나눌 때 앞 날짜 몫. 셀 번호는 notebookCells 와 같게 센다(셀이 아닌 항목은 빼고).
+ * 뒤 날짜엔 원래 파일을 통째로 올리므로, 노트 · 출제는 그날 새로 생긴 셀만 그날 수업으로 본다.
+ */
+export function partialNotebook(text: string, upto: number): string {
+  const data = JSON.parse(text) as { cells?: unknown };
+  const cells = Array.isArray(data.cells) ? data.cells.filter((c) => !!c && typeof c === 'object' && !Array.isArray(c)) : [];
+  return `${JSON.stringify({ ...data, cells: cells.slice(0, upto) }, null, 1)}\n`;
+}
+
+export async function partialNotebookFile(file: File, upto: number): Promise<File> {
+  const text = new TextDecoder('utf-8').decode(await readBytes(file));
+  return new File([partialNotebook(text, upto)], file.name, { type: 'application/x-ipynb+json', lastModified: file.lastModified });
 }
 
 /** 파일 고르기(폴더면 webkitRelativePath)의 경로 — 윈도 \ 를 / 로 */

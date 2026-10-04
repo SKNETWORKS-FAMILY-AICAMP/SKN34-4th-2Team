@@ -3098,6 +3098,76 @@ html {
   gap: 6px;
 }
 
+.fu__splits {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+
+.fu__splits-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.fu__splits-note {
+  margin: 0;
+}
+
+.fu__split {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--primary) 4%, transparent);
+}
+
+.fu__split--check {
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+}
+
+.fu__split-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.fu__split-opt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.fu__split-opt .input,
+.fu__part .input {
+  width: auto;
+  max-width: 100%;
+  font-size: 13px;
+}
+
+.fu__parts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.fu__part {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
 .study-sources__upload {
   display: flex;
   flex-wrap: wrap;

@@ -49,7 +49,8 @@ WEEKDAY_OFF = {5: "토요일", 6: "일요일"}
 
 def is_hidden(path: str) -> bool:
     """.ipynb_checkpoints · .git · __pycache__ 처럼 숨김 폴더 · 파일 — 수업 자료가 아니다(화면 folderFiles.isHiddenPath 와 같다)"""
-    return any(part.startswith(".") or part in ("__pycache__", "node_modules") for part in path.split("/"))
+    # .github 은 수업 자료다 — 협업 수업(workflow)이 이슈 · PR 템플릿을 .github/ISSUE_TEMPLATE 에 둔다(34기 9/21)
+    return any((part.startswith(".") and part != ".github") or part in ("__pycache__", "node_modules") for part in path.split("/"))
 
 
 def blob_id(body: bytes) -> str:
@@ -279,9 +280,28 @@ class UpFile:
 
 
 def headings_of(f: UpFile, cal: Calendar) -> list[dict[str, Any]]:
-    lines = [line for block in f.markdown() for line in block.split("\n")]
-    titles = [re.sub(r"^#+\s+", "", line).strip() for line in lines if _HEADING.match(line)]
-    return [{"title": t, "date": date_in(t, cal)} for t in titles]
+    """제목(#) 목록 — 노트북은 그 제목이 든 셀 번호도(나누는 지점을 셀로 정한다)"""
+    if f.cells:
+        blocks = [(i, c["source"]) for i, c in enumerate(f.cells) if c["type"] == "markdown"]
+    else:
+        blocks = [(None, b) for b in f.markdown()]
+    out = []
+    for cell, block in blocks:
+        for line in block.split("\n"):
+            if _HEADING.match(line):
+                title = re.sub(r"^#+\s+", "", line).strip()
+                out.append({"title": title, "date": date_in(title, cal), "cell": cell})
+    return out
+
+
+def _cut_cells(f: UpFile, starts: list[int | None]) -> list[int] | None:
+    """둘째 날부터 시작하는 셀 번호 — 노트북이고, 앞에서 뒤로 늘어나고, 첫 셀 · 셀 밖이 아닐 때만. 아니면 나눌 수 없다(한 날짜로만)"""
+    if not f.cells or len(f.cells) < 2 or any(c is None for c in starts):
+        return None
+    cuts = [int(c) for c in starts if c is not None]
+    if any(c <= 0 or c >= len(f.cells) for c in cuts) or cuts != sorted(set(cuts)):
+        return None
+    return cuts
 
 
 def lesson_date_in(f: UpFile, cal: Calendar) -> str | None:
@@ -299,12 +319,16 @@ def classify(rest: str, f: UpFile, cal: Calendar) -> dict[str, Any]:
     if len(in_name) >= 2:
         i2 = next((i for i, h in enumerate(heads) if h["date"] == in_name[1]), -1)
         cut = i2 if i2 > 0 else max(1, len(heads) // 2)
-        return {"basis": "split", "from": "name", "dates": in_name[:2], "heads": heads, "cuts": [0, cut], "date": None}
+        # 둘째 날이 시작하는 셀 — 그 날짜가 적힌 제목, 없으면 가운데 제목, 제목이 없으면 가운데 셀(화면에서 고친다)
+        start = heads[cut]["cell"] if cut < len(heads) else (len(f.cells) // 2 if f.cells else None)
+        return {"basis": "split", "from": "name", "dates": in_name[:2], "heads": heads, "cuts": [0, cut],
+                "cutCells": _cut_cells(f, [start]), "date": None}
     dated = [(i, h["date"]) for i, h in enumerate(heads) if h["date"]]
     distinct = [(i, d) for k, (i, d) in enumerate(dated) if all(d != x for _, x in dated[:k])]
     if len(distinct) >= 2:
         return {"basis": "split", "from": "content", "dates": [d for _, d in distinct], "heads": heads,
-                "cuts": [i for i, _ in distinct], "date": None}
+                "cuts": [i for i, _ in distinct], "cutCells": _cut_cells(f, [heads[i]["cell"] for i, _ in distinct[1:]]),
+                "date": None}
     for part in reversed(rest.split("/")):
         if day := date_in(part, cal):
             return {"basis": "name", "date": day}
@@ -321,7 +345,11 @@ def classify(rest: str, f: UpFile, cal: Calendar) -> dict[str, Any]:
 
 
 def detect_what(paths: list[str]) -> str:
-    """폴더 하나를 과목 하나로 볼지, 과목 여럿이 든 기수 폴더로 볼지 — 안쪽 폴더가 01_ · 02_ 번호 순서면 과목 하나"""
+    """폴더 하나를 과목 하나로 볼지, 과목 여럿이 든 기수 폴더로 볼지 — 안쪽 폴더가 01_ · 02_ 번호 순서면 과목 하나.
+    맨 위에 바로 수업 파일이 있어도 과목 하나다 — 기수 폴더엔 과목 폴더만 있다(34기 실측). 그렇지 않으면 번호 없는 안쪽 폴더
+    하나(plain/)만 보고 기수 폴더로 여겨 맨 위 노트북을 다 빼 버렸다."""
+    if any(len(p.split("/")) == 2 and is_learning_file(p) for p in paths):
+        return "subject"
     first = {p.split("/")[1] for p in paths if len(p.split("/")) > 2}
     if not first:
         return "subject"

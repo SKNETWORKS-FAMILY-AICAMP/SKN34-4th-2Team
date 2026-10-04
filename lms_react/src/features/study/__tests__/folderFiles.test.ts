@@ -77,6 +77,7 @@ describe('어떤 파일을 읽나', () => {
     expect(isHiddenPath('04_function/.ipynb_checkpoints/exercise-checkpoint.ipynb')).toBe(true);
     expect(isHiddenPath('app/__pycache__/views.py')).toBe(true);
     expect(isHiddenPath('01_variable/a.py')).toBe(false);
+    expect(isHiddenPath('workflow/.github/ISSUE_TEMPLATE/feature_request.md')).toBe(false);
   });
 
   it('고른 폴더를 읽고 건너뛴 이유를 남긴다', async () => {

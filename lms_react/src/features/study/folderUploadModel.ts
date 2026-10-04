@@ -19,6 +19,55 @@ export interface PlanFile {
   dates?: string[];
   estimate?: string;
   status: FileStatus;
+  /** 노트북 셀마다 첫 줄 — 나누는 지점을 고를 때 보인다 */
+  cells?: string[];
+  /** 두 날에 걸친 파일 — 날짜 근거와 둘째 날부터 시작하는 셀(노트북이 아니면 null: 한 날짜로만) */
+  from?: 'name' | 'content';
+  cutCells?: number[] | null;
+}
+
+/** 두 날에 걸친 파일을 어떻게 넣나 — 나눠 넣기(날짜마다 앞 셀들) · 한 날짜로(통째로) */
+export interface SplitChoice {
+  mode: 'split' | 'single';
+  dates: string[];
+  /** cuts[k] = dates[k + 1] 이 시작하는 셀 번호 */
+  cuts: number[];
+  /** 강사가 「두 날에 나누기」로 직접 나눈 노트북 */
+  manual?: boolean;
+}
+
+export type SplitState = Record<string, SplitChoice>;
+
+/** 셀로 나눌 수 있나 — 셀이 둘 이상인 노트북 */
+export function canSplit(f: PlanFile): boolean {
+  return f.path.toLowerCase().endsWith('.ipynb') && (f.cells?.length ?? 0) >= 2;
+}
+
+/** 서버가 찾은 두 날 파일 — 셀로 나눌 수 있으면 나눠 넣기가 기본, 아니면 첫 날짜로 통째로 */
+export function initialSplits(subject: PlanSubject): SplitState {
+  const out: SplitState = {};
+  for (const f of subject.files) {
+    if (f.basis !== 'split' || !f.dates?.length || f.status === 'same') continue;
+    out[f.path] = f.cutCells?.length
+      ? { mode: 'split', dates: [...f.dates], cuts: [...f.cutCells] }
+      : { mode: 'single', dates: [...f.dates], cuts: [] };
+  }
+  return out;
+}
+
+/** 「두 날에 나누기(셀로)」 — 첫날은 지금 날짜, 둘째 날은 비워 두고 가운데 셀에서 나눈다 */
+export function manualSplit(f: PlanFile, firstDate: string): SplitChoice {
+  return { mode: 'split', dates: [firstDate, ''], cuts: [Math.max(1, Math.floor((f.cells?.length ?? 2) / 2))], manual: true };
+}
+
+/** 나누기가 올릴 수 있는 상태인가 — 날짜가 다 있고 앞에서 뒤로, 셀도 앞에서 뒤로 */
+export function splitProblem(choice: SplitChoice, cal: PlanCalendar, cellCount: number): string {
+  if (choice.mode === 'single') return '';
+  if (choice.dates.some((d) => !d)) return '두 날에 나눈 파일의 날짜를 골라 주세요.';
+  if (choice.dates.some((d, i) => i > 0 && d <= choice.dates[i - 1])) return '두 날에 나눈 파일은 앞 날짜가 먼저여야 해요.';
+  if (choice.dates.some((d) => d > cal.today)) return '앞으로 올 날짜가 있어요.';
+  if (choice.cuts.some((c, i) => c <= 0 || c >= cellCount || (i > 0 && c <= choice.cuts[i - 1]))) return '나누는 셀을 앞에서 뒤로 골라 주세요.';
+  return '';
 }
 
 export interface PlanWarning {
@@ -114,6 +163,8 @@ export interface ReviewRow {
   estimated: boolean;
   /** 펼치면 생기는 안쪽 칸 수 */
   inner: number;
+  /** 두 날에 나눈 파일의 그날 몫 — 날짜는 「두 날에 걸친 파일」 칸에서 고친다 */
+  part?: boolean;
 }
 
 /** 지난 자료를 묶을 칸 — 펼치지 않은 가장 바깥 폴더(큰 주제 → 안쪽 폴더 → 파일) */
@@ -126,10 +177,21 @@ function pastKey(path: string, expanded: Set<string>): { folder: string | null; 
   return { folder: null, depth: parts.length };
 }
 
-export function reviewRows(subject: PlanSubject, dates: DateChoice, expanded: Set<string>): ReviewRow[] {
+export function reviewRows(subject: PlanSubject, dates: DateChoice, expanded: Set<string>, splits: SplitState = {}): ReviewRow[] {
   const rows = new Map<string, ReviewRow>();
   for (const f of subject.files) {
     if (f.status === 'same') continue;
+    const split = splits[f.path];
+    if (split?.mode === 'split') {
+      // 나눠 넣는 파일 — 날짜마다 그 날 몫으로(날짜는 아래 「두 날에 걸친 파일」에서 고친다)
+      for (const day of split.dates) {
+        const key = `d|${day}|part`;
+        const row = rows.get(key) ?? { key, kind: 'date' as const, date: day, folder: null, depth: 0, basis: 'split' as const, part: true, files: [], mixed: false, estimated: false, inner: 0 };
+        row.files.push(f);
+        rows.set(key, row);
+      }
+      continue;
+    }
     const date = dates[f.path] ?? null;
     let key: string;
     let base: Omit<ReviewRow, 'files' | 'mixed' | 'estimated' | 'inner'>;
@@ -180,18 +242,31 @@ export function dayNotice(date: string, cal: PlanCalendar): string {
   return '';
 }
 
-/** 올릴 파일 하나 — 과목 안 경로 · 날짜(null = 지난 자료) · 크기 */
+/** 올릴 파일 하나 — 과목 안 경로 · 날짜(null = 지난 자료) · 크기. upto 가 있으면 노트북의 앞 셀 upto 개만(두 날 나누기) */
 export interface UploadItem {
   path: string;
   date: string | null;
   size: number;
+  upto?: number;
 }
 
-/** 올릴 것 — 지난번과 같은 파일은 빼고. 지난 자료 먼저, 그다음 날짜 순(서버도 그 순서로 커밋한다) */
-export function uploadItems(subject: PlanSubject, dates: DateChoice): UploadItem[] {
-  const items = subject.files
-    .filter((f) => f.status !== 'same')
-    .map((f) => ({ path: f.path, date: dates[f.path] ?? null, size: f.size }));
+/** 올릴 것 — 지난번과 같은 파일은 빼고. 지난 자료 먼저, 그다음 날짜 순(서버도 그 순서로 커밋한다).
+ *  나눠 넣는 노트북은 날짜마다 한 번씩 — 앞 날짜엔 그날까지의 셀만, 마지막 날짜엔 전체. 그래서 노트 · 출제가
+ *  날마다 「새로 생긴 셀」만 그날 수업으로 본다(이어 쓴 노트북을 매일 올린 것과 같다). */
+export function uploadItems(subject: PlanSubject, dates: DateChoice, splits: SplitState = {}): UploadItem[] {
+  const items: UploadItem[] = [];
+  for (const f of subject.files) {
+    if (f.status === 'same') continue;
+    const split = splits[f.path];
+    if (split?.mode === 'split') {
+      split.dates.forEach((day, k) => {
+        const last = k === split.dates.length - 1;
+        items.push({ path: f.path, date: day, size: f.size, ...(last ? {} : { upto: split.cuts[k] }) });
+      });
+      continue;
+    }
+    items.push({ path: f.path, date: dates[f.path] ?? null, size: f.size });
+  }
   return items.sort((a, b) => (a.date ?? '').localeCompare(b.date ?? '') || natural.compare(a.path, b.path));
 }
 
@@ -230,9 +305,14 @@ export function pickedPathOf(plan: Pick<ImportPlan, 'what' | 'root'>, subject: s
 }
 
 /** 이 과목을 올릴 수 있나 — GitHub 과목과 이름이 같으면 서버가 막는다(폴더 이름을 바꿔 다시) */
-export function blockedReason(subject: PlanSubject, dates: DateChoice, cal: PlanCalendar): string {
+export function blockedReason(subject: PlanSubject, dates: DateChoice, cal: PlanCalendar, splits: SplitState = {}): string {
   if (subject.source?.kind === 'github') return 'GitHub로 연결된 과목과 이름이 같아요. 폴더 이름을 바꿔 다시 골라 주세요.';
   if (Object.values(dates).some((d) => d && d > cal.today)) return '앞으로 올 날짜가 있어요.';
+  for (const f of subject.files) {
+    const split = splits[f.path];
+    const problem = split ? splitProblem(split, cal, f.cells?.length ?? 0) : '';
+    if (problem) return `${f.path}: ${problem}`;
+  }
   return '';
 }
 

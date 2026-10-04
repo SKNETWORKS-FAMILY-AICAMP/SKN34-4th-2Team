@@ -4,13 +4,16 @@ import { readApiError } from '../../data/http';
 import { commitFolderUpload, planFolderUpload, refreshAfterFolderUpload } from '../../data/repository';
 import { Icon } from '../../ui/Icon';
 import { Badge, Button, ProgressBar, Row, Select } from '../../ui/components';
-import { readPicked, type PickedFile } from './folderFiles';
+import { partialNotebookFile, readPicked, type PickedFile } from './folderFiles';
 import {
   batches,
   blockedReason,
+  canSplit,
   dayNotice,
   initialDates,
+  initialSplits,
   manifest,
+  manualSplit,
   pickedPathOf,
   reviewRows,
   setRowDate,
@@ -20,9 +23,13 @@ import {
   type Basis,
   type DateChoice,
   type ImportPlan,
+  type PlanFile,
   type PlanSubject,
   type ReviewRow,
+  type SplitChoice,
+  type SplitState,
 } from './folderUploadModel';
+import { SplitCards } from './SplitCards';
 
 /**
  * 폴더 올리기 — 처음 가져오기(GitHub 없이). 폴더 고르기 → 브라우저에서 읽기(지문 · 앞부분 글) → 서버 계획 → 확인 → 100개씩 올리기.
@@ -40,7 +47,7 @@ const BASIS_LABEL: Record<Basis, string> = {
   round: '회차로 셈',
   time: '수정 날짜 · 확인',
   pick: '',
-  split: '두 날에 걸친 파일 · 첫 날짜로',
+  split: '두 날에 걸친 파일',
 };
 
 const short = (d: string) => (d ? `${Number(d.slice(5, 7))}/${Number(d.slice(8))}` : '-');
@@ -48,6 +55,7 @@ const short = (d: string) => (d ? `${Number(d.slice(5, 7))}/${Number(d.slice(8))
 interface SubjectState {
   dates: DateChoice;
   expanded: Set<string>;
+  splits: SplitState;
 }
 
 interface Uploaded {
@@ -85,7 +93,11 @@ export function FolderImport({ cohortId, onDone }: { cohortId: string; onDone():
       setPlan(next);
       setState((cur) =>
         Object.fromEntries(
-          next.subjects.map((s) => [s.name, { dates: initialDates(s), expanded: cur[s.name]?.expanded ?? new Set<string>() }]),
+          next.subjects.map((s) => {
+            // 다시 계획해도(커리큘럼 과목 바꾸기) 직접 나눈 노트북은 그대로
+            const manual = Object.fromEntries(Object.entries(cur[s.name]?.splits ?? {}).filter(([, c]) => c.manual));
+            return [s.name, { dates: initialDates(s), expanded: cur[s.name]?.expanded ?? new Set<string>(), splits: { ...initialSplits(s), ...manual } }];
+          }),
         ),
       );
       setStage('review');
@@ -118,12 +130,14 @@ export function FolderImport({ cohortId, onDone }: { cohortId: string; onDone():
   const update = (name: string, change: (s: SubjectState) => SubjectState) =>
     setState((cur) => ({ ...cur, [name]: change(cur[name]) }));
 
-  const blocked = plan ? plan.subjects.map((s) => blockedReason(s, state[s.name]?.dates ?? {}, plan.calendar)).filter(Boolean) : [];
+  const blocked = plan
+    ? plan.subjects.map((s) => blockedReason(s, state[s.name]?.dates ?? {}, plan.calendar, state[s.name]?.splits)).filter(Boolean)
+    : [];
 
   const upload = async () => {
     if (!plan) return;
     const byPath = new Map(picked.map((p) => [p.path, p.file]));
-    const work = plan.subjects.map((s) => ({ s, parts: batches(uploadItems(s, state[s.name].dates)) }));
+    const work = plan.subjects.map((s) => ({ s, parts: batches(uploadItems(s, state[s.name].dates, state[s.name].splits)) }));
     const total = work.reduce((n, w) => n + w.parts.reduce((m, p) => m + p.length, 0), 0);
     setStage('uploading');
     setError('');
@@ -138,11 +152,14 @@ export function FolderImport({ cohortId, onDone }: { cohortId: string; onDone():
         let past = 0;
         for (const part of parts) {
           setProgress({ done: sent, total, label: s.name });
-          const files = part.map((item) => {
-            const file = byPath.get(pickedPathOf(plan, s.name, item.path));
-            if (!file) throw new Error(`${item.path} 파일을 다시 읽지 못했어요. 폴더를 다시 골라 주세요.`);
-            return file;
-          });
+          const files = await Promise.all(
+            part.map((item) => {
+              const file = byPath.get(pickedPathOf(plan, s.name, item.path));
+              if (!file) throw new Error(`${item.path} 파일을 다시 읽지 못했어요. 폴더를 다시 골라 주세요.`);
+              // 두 날에 나눈 노트북의 앞 날짜 몫 — 그날까지의 셀만
+              return item.upto === undefined ? file : partialNotebookFile(file, item.upto);
+            }),
+          );
           const result = await commitFolderUpload({ cohortId, sourceId, name: s.name, manifest: manifest(part), files });
           sourceId = result.source.id;
           created = created || result.source.created;
@@ -260,6 +277,16 @@ export function FolderImport({ cohortId, onDone }: { cohortId: string; onDone():
               disabled={stage === 'uploading'}
               onDates={(dates) => update(s.name, (cur) => ({ ...cur, dates }))}
               onExpand={(folder) => update(s.name, (cur) => ({ ...cur, expanded: new Set([...cur.expanded, folder]) }))}
+              onSplit={(path, choice) =>
+                update(s.name, (cur) => {
+                  const splits = { ...cur.splits };
+                  if (choice) splits[path] = choice;
+                  else delete splits[path];
+                  // 한 날짜로 두기 — 그 날짜를 파일 날짜로
+                  const dates = choice?.mode === 'single' ? { ...cur.dates, [path]: choice.dates[0] || null } : cur.dates;
+                  return { ...cur, splits, dates };
+                })
+              }
               onTopic={(topic) => {
                 const next = { ...topics, [s.name]: topic };
                 setTopics(next);
@@ -299,6 +326,7 @@ function SubjectReview({
   onDates,
   onExpand,
   onTopic,
+  onSplit,
 }: {
   plan: ImportPlan;
   subject: PlanSubject;
@@ -307,9 +335,10 @@ function SubjectReview({
   onDates(dates: DateChoice): void;
   onExpand(folder: string): void;
   onTopic(topic: string): void;
+  onSplit(path: string, choice: SplitChoice | null): void;
 }) {
   if (!state) return null;
-  const rows = reviewRows(s, state.dates, state.expanded);
+  const rows = reviewRows(s, state.dates, state.expanded, state.splits);
   const topic = plan.topics.find((t) => t.id === s.topic);
   const estimable = s.files.some((f) => f.estimate && state.dates[f.path] == null);
   const estimated = s.files.some((f) => f.estimate && f.date == null && state.dates[f.path] === f.estimate);
@@ -358,9 +387,29 @@ function SubjectReview({
       )}
       <ul className="fu__rows">
         {rows.map((row) => (
-          <RowLine key={row.key} row={row} plan={plan} disabled={disabled} onDate={(d) => onDates(setRowDate(state.dates, row, d))} onExpand={onExpand} />
+          <RowLine
+            key={row.key}
+            row={row}
+            plan={plan}
+            disabled={disabled}
+            onDate={(d) => onDates(setRowDate(state.dates, row, d))}
+            onExpand={onExpand}
+            onSplit={
+              // 노트북 하나짜리 줄 — 「두 날에 나누기(셀로)」
+              row.files.length === 1 && row.basis !== 'split' && canSplit(row.files[0]) && !state.splits[row.files[0].path]
+                ? (f: PlanFile) => onSplit(f.path, manualSplit(f, state.dates[f.path] ?? ''))
+                : undefined
+            }
+          />
         ))}
       </ul>
+      <SplitCards
+        files={s.files.filter((f) => state.splits[f.path])}
+        splits={state.splits}
+        calendar={plan.calendar}
+        disabled={disabled}
+        onChange={onSplit}
+      />
     </section>
   );
 }
@@ -371,19 +420,23 @@ function RowLine({
   disabled,
   onDate,
   onExpand,
+  onSplit,
 }: {
   row: ReviewRow;
   plan: ImportPlan;
   disabled: boolean;
   onDate(date: string): void;
   onExpand(folder: string): void;
+  onSplit?: (file: PlanFile) => void;
 }) {
   const notice = dayNotice(row.date, plan.calendar);
   const past = row.kind === 'past';
   const where = past ? (row.folder ? `${row.depth === 1 ? '큰 주제' : '안쪽 폴더'} ${row.folder}` : `파일 ${row.files[0].path}`) : '';
-  const state = past
-    ? row.mixed ? '날짜가 섞였어요' : row.estimated ? '커리큘럼 추정 · 확인' : row.date ? '직접 고름' : '날짜 없음 · 지난 자료'
-    : BASIS_LABEL[row.basis];
+  const state = row.part
+    ? '두 날에 걸친 파일 · 그날 몫(날짜는 아래에서)'
+    : past
+      ? row.mixed ? '날짜가 섞였어요' : row.estimated ? '커리큘럼 추정 · 확인' : row.date ? '직접 고름' : '날짜 없음 · 지난 자료'
+      : BASIS_LABEL[row.basis];
   const tone = notice || row.estimated || row.basis === 'time' ? ' fu__row--check' : past && !row.date ? ' fu__row--past' : '';
   return (
     <li className={`fu__row${tone}`}>
@@ -393,7 +446,7 @@ function RowLine({
         value={row.date}
         min={plan.calendar.start}
         max={plan.calendar.today}
-        disabled={disabled}
+        disabled={disabled || row.part}
         aria-label={`${where || row.files[0].path} 수업 날짜`}
         onChange={(e) => onDate(e.target.value)}
       />
@@ -407,6 +460,11 @@ function RowLine({
         {past && row.folder && row.files.length > 1 && (
           <button type="button" className="fu__more" disabled={disabled} onClick={() => onExpand(row.folder!)}>
             펼치기 — {row.inner > 1 ? `안쪽 ${row.inner}개` : '파일마다'}
+          </button>
+        )}
+        {onSplit && (
+          <button type="button" className="fu__more" disabled={disabled} onClick={() => onSplit(row.files[0])}>
+            두 날에 나누기(셀로)
           </button>
         )}
       </span>

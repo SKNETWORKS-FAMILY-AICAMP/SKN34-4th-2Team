@@ -125,6 +125,8 @@ class PlanImportTests(unittest.TestCase):
         by = {x["path"]: x for s in plan["subjects"] for x in s["files"]}
         self.assertEqual(("name", "2026-09-23"), (by["0923_HTML_CSS/index.html"]["basis"], by["0923_HTML_CSS/index.html"]["date"]))
         self.assertEqual(["2026-09-28", "2026-09-29"], by["0928_0929_JS심화.ipynb"]["dates"])
+        # 둘째 날이 시작하는 셀 — 날짜 적힌 제목이 없으면 가운데 제목이 든 셀(화면에서 고친다)
+        self.assertEqual([2], by["0928_0929_JS심화.ipynb"]["cutCells"])
         self.assertEqual(("content", "2026-09-29"), (by["DOM실습/dom_basic.html"]["basis"], by["DOM실습/dom_basic.html"]["date"]))
         # 예제 데이터의 날짜(2024-01-15)는 수업 날짜가 아니다 — 수정 시각으로
         self.assertEqual("time", by["예제/data.py"]["basis"])
@@ -133,6 +135,24 @@ class PlanImportTests(unittest.TestCase):
         self.assertEqual("dates", web["topicBy"])
         # 2일차 = Django Framework 둘째 수업일
         self.assertEqual("2026-10-01", by["2일차_ORM/models.py"]["date"])
+
+    def test_lesson_files_right_under_the_folder_mean_one_subject(self) -> None:
+        paths = ["web_client/0928_0929_JS.ipynb", "web_client/plain/practice.ipynb"]
+        self.assertEqual("subject", upload_plan.detect_what(paths))
+        self.assertEqual("cohort", upload_plan.detect_what(["34기/web_client/a.js", "34기/web_server/b.py"]))
+        self.assertEqual("subject", upload_plan.detect_what(["python_basic/01_variable/a.py", "python_basic/02_type/b.py"]))
+
+    def test_dated_headings_split_at_their_cells(self) -> None:
+        cells = [{"type": "markdown", "source": "# 9월 28일 JS 기초"}, {"type": "code", "source": "let a = 1;"},
+                 {"type": "code", "source": "a += 1;"}, {"type": "markdown", "source": "## 9월 29일 DOM"},
+                 {"type": "code", "source": "document.body"}]
+        md = row("web_client/notes.ipynb", cells=cells)
+        md.pop("head", None)
+        x = upload_plan.plan_import([md], calendar(), what="subject")["subjects"][0]["files"][0]
+        self.assertEqual(("split", ["2026-09-28", "2026-09-29"], [3]), (x["basis"], x["dates"], x["cutCells"]))
+        # 노트북이 아니면 셀로 나눌 수 없다 — 한 날짜로만
+        py = upload_plan.plan_import([row("web_client/0928_0929_a.py")], calendar(), what="subject")["subjects"][0]["files"][0]
+        self.assertIsNone(py["cutCells"])
 
     def test_copied_subject_folder_becomes_past_material_with_curriculum_estimate(self) -> None:
         # 압축 풀기로 수정 시각이 전부 오늘 — 날짜 단서가 없다
