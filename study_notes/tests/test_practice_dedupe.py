@@ -48,6 +48,24 @@ class OverlapTests(unittest.TestCase):
         b = problem("code_write", "테이블의 특정 행 조회", "SELECT pk, col1 FROM tb6 WHERE fk = 30;")
         self.assertEqual("정답 코드가 거의 같음", overlap_reason(b, a))
 
+    def test_sql_with_same_skeleton_overlaps_even_with_other_names(self) -> None:
+        # database 06-25 다시 출제 — 테이블 · 열 · 값이 다 다른 「X에서 Y가 N인 행 조회」 일곱 개
+        a = PracticeProblem(kind="sql_query", prompt="p", topic="NOT NULL 테이블 조회", reference_solution="SELECT user_name, phone FROM user_notnull WHERE user_id = 'user03';")
+        b = PracticeProblem(kind="sql_query", prompt="p", topic="회원 등급 조회", reference_solution="SELECT grade_name FROM user_grade WHERE grade_code = 20")
+        c = PracticeProblem(kind="sql_query", prompt="p", topic="분류별 개수", reference_solution="SELECT category, COUNT(*) FROM menu GROUP BY category")
+        self.assertEqual("SQL 뼈대가 같음(테이블 · 값만 바뀜)", overlap_reason(b, a))
+        self.assertEqual("", overlap_reason(c, a))
+
+    def test_table_making_overlaps_only_with_the_same_constraints(self) -> None:
+        # database 06-25 다시 출제 — DEFAULT · UNIQUE 를 묻는 두 문제를 「주제 + 코드 닮음」으로 잘못 뺐다
+        def ddl(topic: str, body: str) -> PracticeProblem:
+            return PracticeProblem(kind="sql_query", prompt="p", topic=f"{topic} 제약 조건", check_sql="SELECT 1;",
+                                   reference_solution=f"CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT {body});")
+        unique, default = ddl("UNIQUE", "UNIQUE"), ddl("DEFAULT", "DEFAULT 'Y'")
+        check_a, check_b = ddl("CHECK", "CHECK (v <> '')"), ddl("기본 키와 CHECK", "CHECK (length(v) > 1)")
+        self.assertEqual("", overlap_reason(default, unique))
+        self.assertEqual("같은 제약 조건을 다시 물음", overlap_reason(check_b, check_a))
+
     def test_same_instruction_but_different_code_is_not_overlap(self) -> None:
         ask = "다음 코드의 출력 결과를 순서대로 적으세요."
         a = problem("code_output", "다차원 배열 인덱싱", "import numpy as np\na = np.arange(6).reshape(2, 3)\nprint(a[1, 2])", prompt=ask)

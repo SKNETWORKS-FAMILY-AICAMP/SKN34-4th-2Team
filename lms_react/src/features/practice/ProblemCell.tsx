@@ -34,6 +34,9 @@ const KIND_HINT: Partial<Record<PracticeKind, string>> = {
   sql_query: '예제 테이블에 조회문을 쓰고 채점하세요. 결과의 값·열 순서가 기대 결과와 같으면 정답이에요(열 이름은 안 봐요). 수업의 MySQL 문법 그대로 써도 돼요.',
   web_task: 'HTML · CSS 를 요구대로 고치고 채점하세요. 오른쪽 미리보기는 고칠 때마다 바뀌어요. 채점은 서버가 검사 항목마다 봐요.',
 };
+// sql_query 중 테이블 만들기(기대 결과에 확인 문장이 있는 것)
+const DDL_HINT =
+  '`CREATE TABLE` 문을 쓰고 채점하세요. 아래 확인 문장을 돌린 결과가 기대 결과와 같으면 정답이에요 — 제약을 어긴 행은 빠져야 해요. 수업의 MySQL 문법 그대로 써도 돼요.';
 
 /** 이만큼 틀리면 모범답안을 볼 수 있게 한다 */
 const REVEAL_AFTER_TRIES = 2;
@@ -122,6 +125,8 @@ export function ProblemCell({
     isSql;
   const setupSql = problem.setupSql ?? '';
   const expected = isSql ? parseExpected(problem.expectedStdout) : null;
+  // 테이블 만들기 문제 — 학생 CREATE TABLE 뒤에 확인 문장을 돌린다(sqlGrading.ts)
+  const checkSql = expected?.after ?? '';
   const isWeb = problem.kind === 'web_task';
   // JS 코드 문제 — 파이썬과 같은 종류, 브라우저 Web Worker 에서 돈다(jsRunner.ts)
   const isJs = problem.packages?.length === 1 && problem.packages[0] === 'js';
@@ -181,12 +186,15 @@ export function ProblemCell({
   /** SQL 문제 실행 — 예제 테이블을 다시 만들고 조회문을 돌려 표를 보인다 */
   const runSqlProblem = async () => {
     if (!runSql) return;
-    const { steps, notes } = sqlProblemSteps(setupSql, code);
+    const { steps, notes } = sqlProblemSteps(setupSql, code, checkSql);
     const r = await runSql(steps);
     const out: Line[] = notes.length ? [{ kind: 'sys', text: `MySQL 문법을 SQLite 에 맞췄어요 — ${notes.join(' · ')}` }] : [];
     if (r.stdout) out.push({ kind: 'out', text: r.stdout.replace(/\n$/, '') });
     if (r.timedOut) out.push({ kind: 'err', text: '시간 제한에 걸려 멈췄어요.' });
-    else if (r.error) out.push({ kind: 'err', text: `${r.error.step === 0 ? '예제 테이블 · ' : ''}${r.error.type}: ${r.error.message}` });
+    else if (r.error) {
+      const where = r.error.step === 0 ? '예제 테이블 · ' : checkSql && r.error.step === 2 ? '확인 문장 · ' : '';
+      out.push({ kind: 'err', text: `${where}${r.error.type}: ${r.error.message}` });
+    }
     setLines(out);
     setTable(r.table);
     setWorking(null);
@@ -197,7 +205,7 @@ export function ProblemCell({
     if (isSql) {
       if (!gradeSqlSteps || !expected) return;
       setWorking('grade');
-      const r = await gradeSqlSteps(sqlProblemSteps(setupSql, code).steps);
+      const r = await gradeSqlSteps(sqlProblemSteps(setupSql, code, checkSql).steps);
       const verdict = gradeSql(expected, r);
       setReport({ passed: verdict.passed, statuses: [], headline: verdict.headline, detail: verdict.detail });
       setTable(r.table);
@@ -300,7 +308,11 @@ export function ProblemCell({
 
       <div className="pb__prompt">
         <NotebookMarkdown source={problem.prompt} />
-        {KIND_HINT[problem.kind] && <p className="pb__hint">{inlineHint(KIND_HINT[problem.kind]!)}</p>}
+        {checkSql ? (
+          <p className="pb__hint">{inlineHint(DDL_HINT)}</p>
+        ) : (
+          KIND_HINT[problem.kind] && <p className="pb__hint">{inlineHint(KIND_HINT[problem.kind]!)}</p>
+        )}
         {isJs && <p className="pb__hint">JavaScript 로 풀어요. 「실행」하면 `console.log` 출력이 아래에 보여요.</p>}
         {isWebJs && <p className="pb__hint">미리보기에서 버튼을 눌러 보며 스크립트를 확인할 수 있어요. 채점은 이 브라우저에서 해요.</p>}
       </div>
@@ -582,26 +594,43 @@ export function ProblemCell({
   );
 }
 
-/** SQL 문제 — 예제 테이블 이름 · 열, 펼쳐 보는 스크립트, 기대 결과 표 */
+/** SQL 문제 — 예제 테이블 이름 · 열, 펼쳐 보는 스크립트, (테이블 만들기면) 확인 문장, 기대 결과 표 */
 function SqlProblemInfo({ number, setupSql, expected }: { number: number; setupSql: string; expected: ExpectedTable | null }) {
   const [open, setOpen] = useState(false);
   const tables = Object.entries(sqlSchema([setupSql]));
+  const after = expected?.after ?? '';
   return (
     <div className="pb__sql">
-      <p className="pb__sql-tables">
-        <Icon name="database" size={15} />
-        <span>예제 테이블</span>
-        {tables.map(([name, cols]) => (
-          <code key={name}>
-            {name}({cols.join(', ')})
-          </code>
-        ))}
-        <button type="button" className="btn btn--text btn--sm" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-          {open ? '스크립트 숨기기' : '스크립트 보기'}
-        </button>
-      </p>
+      {tables.length > 0 && (
+        <p className="pb__sql-tables">
+          <Icon name="database" size={15} />
+          <span>{after ? '미리 있는 테이블' : '예제 테이블'}</span>
+          {tables.map(([name, cols]) => (
+            <code key={name}>
+              {name}({cols.join(', ')})
+            </code>
+          ))}
+          <button type="button" className="btn btn--text btn--sm" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+            {open ? '스크립트 숨기기' : '스크립트 보기'}
+          </button>
+        </p>
+      )}
       {open && <CodeEditor value={setupSql} readOnly minLines={2} label={`문제 ${number} 예제 테이블`} language="sql" />}
-      {expected && <OutputTable table={expectedAsTable(expected)} label={expected.ordered ? '기대 결과 (순서도 같아야 해요)' : '기대 결과'} />}
+      {after && (
+        <>
+          <p className="pb__sql-tables">
+            <Icon name="fact_check" size={15} />
+            <span>채점할 때 내 테이블에 이 문장을 돌려요</span>
+          </p>
+          <CodeEditor value={after} readOnly minLines={2} label={`문제 ${number} 확인 문장`} language="sql" />
+        </>
+      )}
+      {expected && (
+        <OutputTable
+          table={expectedAsTable(expected)}
+          label={after ? '확인 문장의 결과가 이렇게 나와야 해요' : expected.ordered ? '기대 결과 (순서도 같아야 해요)' : '기대 결과'}
+        />
+      )}
     </div>
   );
 }

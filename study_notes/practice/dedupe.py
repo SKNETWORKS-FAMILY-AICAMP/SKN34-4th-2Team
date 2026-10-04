@@ -72,10 +72,52 @@ def answer_pieces(p: PracticeProblem) -> list[str]:
     return [c for c in (_compact(_COMMENT.sub("", x)) for x in pieces) if len(c) >= MIN_ANSWER]
 
 
+_SQL_WORDS = {
+    "select", "from", "where", "and", "or", "not", "in", "is", "null", "like", "between", "group", "by", "having", "order",
+    "asc", "desc", "join", "left", "right", "inner", "outer", "cross", "on", "as", "distinct", "limit", "offset", "union", "all",
+    "exists", "case", "when", "then", "else", "end", "with", "count", "sum", "avg", "min", "max", "round", "create", "table",
+    "primary", "key", "foreign", "references", "unique", "check", "default", "constraint", "delete", "update", "cascade", "set",
+}
+
+
+def sql_skeleton(sql: str) -> str:
+    """테이블 · 열 이름과 값을 지운 SQL 뼈대 — 「tb2에서 fk가 20인 행」 · 「user_check에서 age가 25인 행」 은 같은 뼈대.
+    database 06-25 다시 출제에서 이름이 다 달라 글자 비교로는 못 잡았다(2026-10-06)."""
+    text = re.sub(r"'(?:[^']|'')*'|\b\d+(\.\d+)?\b", " v ", _COMMENT.sub("", sql)).strip().rstrip(";")
+    tokens = re.findall(r"[A-Za-z_]\w*|[^\sA-Za-z_]", text)
+    words = [w if w.lower() in _SQL_WORDS or w == "v" or not (w[0].isalpha() or w[0] == "_") else "x" for w in tokens]
+    skeleton = " ".join(w.lower() for w in words)
+    return re.sub(r"\b(x|v)( , (x|v))+", r"\1", re.sub(r"x \. x", "x", skeleton))
+
+
+_CONSTRAINTS = {
+    "NOT NULL": r"\bNOT\s+NULL\b", "UNIQUE": r"\bUNIQUE\b", "CHECK": r"\bCHECK\s*\(", "DEFAULT": r"\bDEFAULT\b",
+    "FOREIGN KEY": r"\bREFERENCES\b", "ON DELETE": r"\bON\s+DELETE\b", "ON UPDATE": r"\bON\s+UPDATE\b",
+}
+
+
+def constraint_set(ddl: str) -> frozenset[str]:
+    """CREATE TABLE 이 거는 제약 종류(기본 키는 늘 있어서 뺀다)"""
+    return frozenset(name for name, pattern in _CONSTRAINTS.items() if re.search(pattern, ddl, re.I))
+
+
+def _sql_overlap(a: PracticeProblem, b: PracticeProblem) -> str:
+    """SQL 문제끼리 — 글자 비교는 안 맞는다. 테이블 만들기는 짧은 CREATE TABLE 이 늘 닮고 주제에 「제약 조건」이 늘 들어가
+    DEFAULT 와 UNIQUE 를 묻는 두 문제를 겹친다고 봤다(database 06-25, 2026-10-06). 그래서 거는 제약 종류로 본다."""
+    if bool(a.check_sql) != bool(b.check_sql):
+        return ""
+    if a.check_sql:
+        same = constraint_set(a.reference_solution) == constraint_set(b.reference_solution)
+        return "같은 제약 조건을 다시 물음" if same else ""
+    return "SQL 뼈대가 같음(테이블 · 값만 바뀜)" if sql_skeleton(a.reference_solution) == sql_skeleton(b.reference_solution) else ""
+
+
 def overlap_reason(a: PracticeProblem, b: PracticeProblem) -> str:
     """겹치면 그 까닭, 아니면 ''."""
     if " ".join(a.topic.split()) and " ".join(a.topic.split()) == " ".join(b.topic.split()):
         return "주제가 같음"
+    if a.kind == b.kind == "sql_query":
+        return _sql_overlap(a, b)
     code_a, code_b = problem_code(a), problem_code(b)
     if not (code_a and code_b):
         return ""

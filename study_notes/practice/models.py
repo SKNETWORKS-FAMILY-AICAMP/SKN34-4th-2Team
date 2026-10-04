@@ -52,6 +52,9 @@ class PracticeProblem:
     blank_answers: list[str] = field(default_factory=list)
     # sql_query — 예제 테이블을 만드는 스크립트(CREATE TABLE · INSERT). 학생 조회문보다 먼저 돈다
     setup_sql: str = ""
+    # sql_query 중 테이블 만들기 — 학생 CREATE TABLE 뒤에 돌리는 확인 문장(INSERT OR IGNORE … · 끝은 SELECT).
+    # 검증을 통과하면 기대 결과 JSON 의 after 로 들어간다(sql_problem.py)
+    check_sql: str = ""
     # 검증기가 채운다
     expected_stdout: str = ""
     llm_guessed_stdout: str = ""
@@ -114,9 +117,12 @@ def parse_draft(raw: Any) -> tuple[PracticeProblem | None, str]:
     if kind == "sql_query":
         problem.setup_sql = _text(raw.get("setupSql"))
         problem.reference_solution = _text(raw.get("referenceSolution"))
+        problem.check_sql = _text(raw.get("checkSql"))
         # 시작 칸은 비워 두어도 된다 — 주석 한 줄로 채운다
-        problem.starter_code = _text(raw.get("starterCode")) or "-- 여기에 조회문을 쓰세요\n"
-        if not problem.setup_sql.strip():
+        problem.starter_code = _text(raw.get("starterCode")) or (
+            "-- 여기에 CREATE TABLE 문을 쓰세요\n" if problem.check_sql.strip() else "-- 여기에 조회문을 쓰세요\n"
+        )
+        if not problem.setup_sql.strip() and not problem.check_sql.strip():
             return None, "준비 스크립트(setupSql)가 비어 있음"
         if not problem.reference_solution.strip():
             return None, "모범 조회문이 비어 있음"

@@ -439,6 +439,23 @@ def _file_tag(f: FileIncrement) -> str:
         return " (HTML + JavaScript — web_task 에 <script> 를 써서 페이지를 다루는 문제로)"
     if not f.has_code and not is_sql_file(f.path):
         return " (코드 없음 — concept 문제만)"
+    if is_sql_file(f.path):
+        return _sql_tag(" ".join(c.text for c in f.new_cells))
+    return ""
+
+
+def _sql_tag(text: str) -> str:
+    """SQL 파일이 테이블 만들기(DDL) 수업인지 — 「출제 지시에 수업대로 고르라」만 적었더니 제약 조건 수업(database 06-25)에서도
+    조회 문제만 냈다(2026-10-06). 새 부분의 CREATE TABLE · SELECT 수로 정해 파일 지시에 적는다."""
+    creates = len(re.findall(r"\bCREATE\s+TABLE\b", text, re.I))
+    # 만든 테이블을 들여다보기만 하는 SELECT * FROM t; 는 조회 수업이 아니다(제약 조건 수업에 넣을 때마다 나온다)
+    selects = len(re.findall(r"\bSELECT\b", text, re.I)) - len(re.findall(r"\bSELECT\s+\*\s+FROM\s+`?\w+`?\s*;", text, re.I))
+    if creates == 0:
+        return ""
+    if creates >= selects:
+        return " (테이블 만들기 · 제약 조건 수업 — sql_query 는 모두 테이블 만들기 문제(checkSql 있음)로)"
+    if creates >= 2 and creates * 2 >= selects:
+        return " (조회와 테이블 만들기가 섞인 수업 — sql_query 를 조회 문제와 테이블 만들기 문제(checkSql 있음)로 나눠서)"
     return ""
 
 
