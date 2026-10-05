@@ -1,5 +1,6 @@
 import { dateKeyOf } from '../../data/seed';
 import type { Attendance, AttendanceIssue, SpotCheck, User } from '../../domain/types';
+import type { ExportTable } from '../export/tableExport';
 
 /**
  * 학생 빠른 필터 — 지정 알림의 대상 고르기와 AI 어시스턴트가 같은 기준을 쓴다.
@@ -68,27 +69,23 @@ export function matchStudents(
   );
 }
 
-// ── 불시 점검 CSV ──────────────────────────────────────
+// ── 불시 점검 내려받기 ─────────────────────────────────
 
 export const SpotCheckPeriodLabels = { am: '오전', pm: '오후' } as const;
-
-function csvCell(value: string): string {
-  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
 
 function clock(at: Date): string {
   return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
 }
 
 /**
- * 점검 기록을 한 줄에 학생 한 명씩 펼친다. 엑셀이 한글을 깨뜨리지 않게 BOM 을 붙인다.
+ * 점검 기록을 한 줄에 학생 한 명씩 펼친다.
  * 점검 뒤에 들어온 학생처럼 기록이 없는 학생은 「미확인」으로 적는다.
  */
-export function spotChecksToCsv(
+export function spotChecksTable(
   checks: SpotCheck[],
   students: User[],
   seatLabelOf: (uid: string) => string,
-): string {
+): ExportTable {
   const header = ['점검일', '점검시각', '구분', '점검자', '이름', '좌석', '상태', '사유', '메모'];
   const byName = [...students].sort((a, b) => a.displayName.localeCompare(b.displayName, 'ko'));
   const rows: string[][] = [];
@@ -113,16 +110,5 @@ export function spotChecksToCsv(
       ]);
     }
   }
-  return `\uFEFF${[header, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
-}
-
-export function downloadText(filename: string, text: string, type = 'text/csv;charset=utf-8'): void {
-  const url = URL.createObjectURL(new Blob([text], { type }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  return { title: '불시 점검', header, rows };
 }

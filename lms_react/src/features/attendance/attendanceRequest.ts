@@ -5,6 +5,7 @@ import type {
   AttendanceStatusCode,
   OfficialLeaveType,
 } from '../../domain/types';
+import { toCsv, type ExportTable } from '../export/tableExport';
 
 /**
  * 출결 신청 — 예전 구글폼(예외 출결) 문항을 그대로 옮겼다. 서버 규칙은 lms_api/lms/attendance_requests.py 와 같다.
@@ -139,34 +140,30 @@ export function resultingStatus(requests: AttendanceIssue[]): AttendanceStatusCo
   return best as AttendanceStatusCode | undefined;
 }
 
-function csvCell(value: string): string {
-  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
 function stamp(at: Date | undefined): string {
   if (at === undefined) return '';
   return at.toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 16);
 }
 
+export function requestsTable(rows: AttendanceIssue[], nameOf: (uid: string) => string): ExportTable {
+  const header = ['발생일', '이름', '유형', '시각', '공가', '사유', '증빙', '상태', '처리 메모', '제출 시각', '처리 시각'];
+  const lines = rows.map((r) => [
+    r.dateKey,
+    nameOf(r.userId),
+    IssueTypeLabels[r.issueType as AttendanceIssueType] ?? r.issueType,
+    r.timeFrom && r.timeTo ? `${r.timeFrom}~${r.timeTo}` : (r.timeFrom ?? ''),
+    r.officialLeaveUsed ? leaveName(r.officialLeaveType, r.officialLeaveOther) : '',
+    r.reason ?? '',
+    r.evidenceName ?? '',
+    RequestStatusLabels[r.status],
+    r.reviewComment ?? '',
+    stamp(r.submittedAt),
+    stamp(r.reviewedAt),
+  ]);
+  return { title: '출결 신청', header, rows: lines };
+}
+
 /** 엑셀에서 바로 열리게 BOM 을 붙인다 */
 export function requestsToCsv(rows: AttendanceIssue[], nameOf: (uid: string) => string): string {
-  const header = ['발생일', '이름', '유형', '시각', '공가', '사유', '증빙', '상태', '처리 메모', '제출 시각', '처리 시각'];
-  const lines = rows.map((r) =>
-    [
-      r.dateKey,
-      nameOf(r.userId),
-      IssueTypeLabels[r.issueType as AttendanceIssueType] ?? r.issueType,
-      r.timeFrom && r.timeTo ? `${r.timeFrom}~${r.timeTo}` : (r.timeFrom ?? ''),
-      r.officialLeaveUsed ? leaveName(r.officialLeaveType, r.officialLeaveOther) : '',
-      r.reason ?? '',
-      r.evidenceName ?? '',
-      RequestStatusLabels[r.status],
-      r.reviewComment ?? '',
-      stamp(r.submittedAt),
-      stamp(r.reviewedAt),
-    ]
-      .map(csvCell)
-      .join(','),
-  );
-  return `\uFEFF${[header.join(','), ...lines].join('\r\n')}`;
+  return toCsv(requestsTable(rows, nameOf));
 }
