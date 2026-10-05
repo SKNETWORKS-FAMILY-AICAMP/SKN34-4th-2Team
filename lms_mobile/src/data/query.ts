@@ -10,7 +10,7 @@ export const queryKeys = {
 
 export const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { staleTime: 30_000, retry: 1 },
+    queries: { staleTime: 60_000, retry: 1 },
   },
 });
 
@@ -28,6 +28,11 @@ export function useBootstrap() {
 
 export function useDb(): Database | undefined {
   return useBootstrap().data;
+}
+
+/** 당겨서 새로고침 — Screen 이 끝날 때까지 스피너를 돌린다 */
+export function refreshBootstrap(): Promise<void> {
+  return queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
 }
 
 export function useInvalidateBootstrap() {

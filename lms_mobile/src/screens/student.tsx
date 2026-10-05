@@ -38,10 +38,11 @@ import type {
 import { useSession } from '../auth/session';
 import { useIssues, submitAttendanceRequest, cancelAttendanceRequest } from '../data/attendance';
 import { useFormResponses, useFormTasks, markFormResponded, submitFormResponse } from '../data/forms';
-import { askChatbot, askCoach } from '../data/jobs';
+import { WEB_URL } from '../data/http';
+import { askCoach, chatHistory, streamChatbot } from '../data/jobs';
 import { useTransactions } from '../data/mileage';
 import { addComment, addPost, likePost, useComments, useNotices, usePosts } from '../data/notices';
-import { useDb } from '../data/query';
+import { refreshBootstrap, useBootstrap, useDb } from '../data/query';
 import { useQuests, submitQuest } from '../data/quests';
 import { uploadEvidence } from '../data/records';
 import { useRooms, useTeams } from '../data/seating';
@@ -77,15 +78,14 @@ import {
 import { useTheme } from '../theme/Theme';
 import { AlertHost } from './extra';
 import { EvidencePicker, type PickedFile } from './records';
-import { queryClient, queryKeys } from '../data/query';
-
 function go(path: string) {
   router.push(path as never);
 }
 
 export function DashboardPage() {
   const { user } = useSession();
-  const db = useDb();
+  const boot = useBootstrap();
+  const db = boot.data;
   const { palette } = useTheme();
   const notices = useNotices().slice(0, 5);
   const tasks = useFormTasks();
@@ -130,7 +130,9 @@ export function DashboardPage() {
           <Text style={{ color: palette.primary, fontSize: 14, fontWeight: '600' }}>{attendanceLabel}</Text>
         </Pressable>
       }
-      onRefresh={() => void queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap })}
+      loading={boot.isLoading}
+      error={boot.isError && !db ? '대시보드를 불러오지 못했습니다.' : null}
+      onRefresh={refreshBootstrap}
       footer={<Fab icon="smart-toy" label="챗봇" onPress={() => go('/(student)/chat')} />}
     >
       <AlertHost />
@@ -229,7 +231,7 @@ export function BoardPage() {
   const [tab, setTab] = useState<'notice' | 'free'>('notice');
   const [content, setContent] = useState('');
   return (
-    <Screen title="게시판" back={false} onRefresh={() => void queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap })}>
+    <Screen title="게시판" back={false} onRefresh={refreshBootstrap}>
       <Segmented
         options={[
           { key: 'notice', label: `공지 ${notices.length}` },
@@ -448,7 +450,7 @@ export function SeatingPage() {
   const mySeat = room?.cells.find((cell) => cell.seatId === mySeatId);
 
   return (
-    <Screen title="자리 배치" onRefresh={() => void queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap })}>
+    <Screen title="자리 배치" onRefresh={refreshBootstrap}>
       <T tone="secondary">{where === '' ? '확정된 강의실 자리를 확인하세요.' : `${where} · 내 자리는 파랗게 표시됩니다.`}</T>
       {room === undefined ? (
         <Card><EmptyState icon="event-seat" text="좌석 배치가 아직 준비되지 않았습니다." /></Card>
@@ -887,7 +889,7 @@ export function StudyPage() {
   const { palette } = useTheme();
   const days = lessonDays(sets, notes).slice(0, 14);
   return (
-    <Screen title="학습실" back={false} onRefresh={() => void queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap })}>
+    <Screen title="학습실" back={false} onRefresh={refreshBootstrap}>
       <View style={{ flexDirection: 'row', gap: 12 }}>
         <StatTile icon="menu-book" label="공부 노트" value={`${notes.length}개`} tone="primary" onPress={() => go('/(student)/notes')} />
         <StatTile icon="replay" label="오답 · 복습" value="다시 풀기" tone="error" onPress={() => go('/(student)/wrong')} />
@@ -968,7 +970,7 @@ export function MileagePage() {
   const earned = tx.filter((row) => row.amount > 0).reduce((sum, row) => sum + row.amount, 0);
   const spent = tx.filter((row) => row.amount < 0).reduce((sum, row) => sum - row.amount, 0);
   return (
-    <Screen title="마일리지" back={false} onRefresh={() => void queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap })}>
+    <Screen title="마일리지" back={false} onRefresh={refreshBootstrap}>
       <View style={{ borderRadius: 18, padding: 20, gap: 14, backgroundColor: palette.primary }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <MaterialIcons name="savings" size={20} color="rgba(255,255,255,0.9)" />
@@ -1083,7 +1085,7 @@ export function QuestsPage() {
   };
 
   return (
-    <Screen title="추가 마일리지 미션" loading={query.isLoading} error={query.error instanceof Error ? query.error.message : null} onRefresh={() => void query.refetch()} refreshing={query.isRefetching}>
+    <Screen title="추가 마일리지 미션" loading={query.isLoading} error={query.error instanceof Error ? query.error.message : null} onRefresh={() => query.refetch()}>
       <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
         <MaterialIcons name="flag" size={24} color={palette.primary} />
         <View style={{ flex: 1 }}>
@@ -1242,30 +1244,66 @@ function ChatScreen({
   botName: string;
   intro: string;
   suggestions: string[];
-  ask: (message: string) => Promise<string>;
+  /** onToken 을 부르면 지금까지 받은 답변 전체로 말풍선을 갈아 끼운다 */
+  ask: (message: string, onToken: (text: string) => void) => Promise<string>;
 }) {
+  const { palette } = useTheme();
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
-  const [log, setLog] = useState<ChatLine[]>([{ role: 'bot', text: intro }]);
+  const [streaming, setStreaming] = useState(false);
+  const [log, setLog] = useState<ChatLine[]>(() => chatHistory.get(title) ?? [{ role: 'bot', text: intro }]);
+  const update = (next: (prev: ChatLine[]) => ChatLine[]) =>
+    setLog((prev) => {
+      const value = next(prev);
+      chatHistory.set(title, value);
+      return value;
+    });
   const send = (raw: string) => {
     const message = raw.trim();
     if (!message || busy) return;
     setText('');
     setBusy(true);
-    setLog((prev) => [...prev, { role: 'me', text: message }]);
-    void ask(message)
-      .then((answer) => setLog((prev) => [...prev, { role: 'bot', text: answer }]))
-      .catch((error: unknown) =>
-        setLog((prev) => [...prev, { role: 'bot', text: error instanceof Error ? error.message : '답변을 받지 못했습니다.' }]),
-      )
-      .finally(() => setBusy(false));
+    setStreaming(false);
+    update((prev) => [...prev, { role: 'me', text: message }]);
+    const replace = (answer: string) =>
+      update((prev) => (prev[prev.length - 1]?.role === 'bot' ? [...prev.slice(0, -1), { role: 'bot', text: answer }] : [...prev, { role: 'bot', text: answer }]));
+    let received = '';
+    void ask(message, (partial) => {
+      received = partial;
+      setStreaming(true);
+      replace(partial);
+    })
+      .then((answer) => replace(answer))
+      .catch((error: unknown) => {
+        const reason = error instanceof Error ? error.message : '답변을 받지 못했습니다.';
+        replace(received ? `${received}\n\n${reason}` : reason);
+      })
+      .finally(() => {
+        setBusy(false);
+        setStreaming(false);
+      });
+  };
+  const reset = () => {
+    chatHistory.delete(title);
+    setLog([{ role: 'bot', text: intro }]);
   };
   return (
-    <Screen title={title} footer={<Composer value={text} onChangeText={setText} onSend={() => send(text)} busy={busy} />}>
+    <Screen
+      title={title}
+      stickToBottom
+      right={
+        log.length > 1 && !busy ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="새 대화" hitSlop={8} onPress={reset}>
+            <MaterialIcons name="refresh" size={22} color={palette.textSecondary} />
+          </Pressable>
+        ) : null
+      }
+      footer={<Composer value={text} onChangeText={setText} onSend={() => send(text)} busy={busy} />}
+    >
       {log.map((line, index) => (
         <ChatBubble key={`${line.role}-${index}`} line={line} botName={botName} />
       ))}
-      {busy ? <T variant="caption" tone="hint" style={{ marginLeft: 38 }}>답변을 쓰는 중…</T> : null}
+      {busy && !streaming ? <T variant="caption" tone="hint" style={{ marginLeft: 38 }}>답변을 쓰는 중…</T> : null}
       {log.length === 1 ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginLeft: 38 }}>
           {suggestions.map((item) => (
@@ -1286,7 +1324,7 @@ export function ChatPage() {
       botName="학습 도우미"
       intro="안녕하세요! 수업 내용이나 LMS 사용법에 대해 무엇이든 물어보세요."
       suggestions={['오늘 수업 요약해줘', '출결 신청은 어떻게 해?', '마일리지는 어디에 써?']}
-      ask={askChatbot}
+      ask={streamChatbot}
     />
   );
 }
@@ -1380,12 +1418,17 @@ export function MyPage() {
   );
 }
 
+function topicParticle(word: string): string {
+  const code = word.charCodeAt(word.length - 1);
+  return code >= 0xac00 && code <= 0xd7a3 && (code - 0xac00) % 28 !== 0 ? '은' : '는';
+}
+
 export function DesktopPage({ feature }: { feature: string }) {
   return (
     <Screen title="PC에서 이용해 주세요">
       <Card style={{ alignItems: 'center', gap: 12, paddingVertical: 32 }}>
-        <EmptyState icon="computer" text={`${feature}은 코드 편집기와 실행기가 필요해 앱에 넣지 않았습니다.\nPC 웹에서 이어서 이용해 주세요.`} />
-        <Btn label="웹으로 열기" icon="open-in-new" onPress={() => void Linking.openURL(process.env.EXPO_PUBLIC_WEB_URL || 'http://127.0.0.1:5173')} />
+        <EmptyState icon="computer" text={`${feature}${topicParticle(feature)} 넓은 화면과 편집 도구가 필요해 앱에 넣지 않았습니다.\nPC 웹에서 이어서 이용해 주세요.`} />
+        <Btn label="웹으로 열기" icon="open-in-new" onPress={() => void Linking.openURL(WEB_URL)} />
       </Card>
     </Screen>
   );

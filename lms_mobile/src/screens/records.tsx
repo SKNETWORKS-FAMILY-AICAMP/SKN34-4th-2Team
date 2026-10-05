@@ -15,7 +15,7 @@ import { useCohorts } from '../data/people';
 import { queryClient, queryKeys } from '../data/query';
 import { createSubmission, reviewSubmission, uploadEvidence, useSubmissions } from '../data/records';
 import { useTheme } from '../theme/Theme';
-import { Badge, Btn, Callout, Card, Chip, EmptyState, Field, ListGroup, ListItem, Screen, T, fmt, todayKey, type IconName, type Tone } from '../ui/kit';
+import { Badge, Btn, Callout, Card, Chip, EmptyState, Field, ListGroup, ListItem, Screen, T, fmt, goBack, todayKey, type IconName, type Tone } from '../ui/kit';
 
 const EVIDENCE_LIMIT = 5;
 const EVIDENCE_MAX_BYTES = 10 * 1024 * 1024;
@@ -47,7 +47,7 @@ function statusTone(status: string): Tone {
 }
 
 function refresh() {
-  void queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
+  return queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
 }
 
 function go(path: string) {
@@ -260,7 +260,7 @@ export function RecordDetailPage({ id, reviewer }: { id: string; reviewer: boole
       status === 'rejected' ? comment.trim() || undefined : undefined,
       status === 'approved' && manualDefault !== undefined ? granted : undefined,
     )
-      .then(() => router.back())
+      .then(goBack)
       .catch((err: unknown) => setError(err instanceof Error ? err.message : '처리하지 못했습니다.'))
       .finally(() => setBusy(false));
   };

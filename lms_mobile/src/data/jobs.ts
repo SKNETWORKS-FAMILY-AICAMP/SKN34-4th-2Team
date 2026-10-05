@@ -1,4 +1,7 @@
-import { http } from './http';
+import { fetch as expoFetch } from 'expo/fetch';
+
+import { API_BASE, http, refreshAccess } from './http';
+import { useSessionStore } from './sessionStore';
 
 export interface Posting {
   jobId: string;
@@ -59,6 +62,76 @@ export async function askCoach(message: string, resumeId: string | null): Promis
 export async function askChatbot(message: string): Promise<string> {
   const { data } = await http.post<{ answer?: string }>('/chat', { message });
   return data.answer ?? '';
+}
+
+/** 화면을 나갔다 와도 대화가 남게 메모리에만 둔다 — 로그아웃하면 비운다 */
+export const chatHistory = new Map<string, { role: 'me' | 'bot'; text: string }[]>();
+
+async function openChatStream(message: string, retried = false): Promise<Response | null> {
+  const access = useSessionStore.getState().access;
+  let response: Response;
+  try {
+    response = (await expoFetch(`${API_BASE}/chat/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/x-ndjson',
+        ...(access ? { Authorization: `Bearer ${access}` } : {}),
+      },
+      body: JSON.stringify({ message }),
+    })) as unknown as Response;
+  } catch {
+    return null;
+  }
+  if (response.status === 401 && !retried) {
+    try {
+      await refreshAccess();
+    } catch {
+      return null;
+    }
+    return openChatStream(message, true);
+  }
+  const ndjson = response.headers.get('content-type')?.includes('application/x-ndjson');
+  return response.ok && ndjson && response.body ? response : null;
+}
+
+/** 웹 ChatbotHost 와 같은 NDJSON 스트림 — 열리지 않으면 `/chat` 한 번에 받기로 물러난다 */
+export async function streamChatbot(message: string, onToken: (text: string) => void): Promise<string> {
+  const response = await openChatStream(message);
+  if (!response?.body) {
+    const answer = (await askChatbot(message)) || '답변을 받지 못했습니다.';
+    onToken(answer);
+    return answer;
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let text = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let event: { type: string; content?: string; message?: string };
+      try {
+        event = JSON.parse(line) as typeof event;
+      } catch {
+        throw new Error('답변을 읽지 못했습니다.');
+      }
+      if (event.type === 'token' && event.content) {
+        text += event.content;
+        onToken(text);
+      }
+      if (event.type === 'error') throw new Error(event.message || '답변 생성 중 오류가 발생했습니다.');
+      if (event.type === 'done') return text || '답변을 받지 못했습니다.';
+    }
+    if (done) {
+      if (!text) throw new Error('답변 전송이 중단됐습니다.');
+      return text;
+    }
+  }
 }
 
 export interface AssistantAction {

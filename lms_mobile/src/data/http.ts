@@ -68,11 +68,18 @@ http.interceptors.response.use(
       original.headers.Authorization = `Bearer ${access}`;
       return http(original);
     } catch (refreshError) {
-      useSessionStore.getState().clear();
+      if (isAuthRejection(refreshError)) useSessionStore.getState().clear();
       throw refreshError;
     }
   },
 );
+
+/** 서버가 토큰을 거절했는지 — 응답이 없는 네트워크 오류는 로그아웃 사유가 아니다 */
+export function isAuthRejection(error: unknown): boolean {
+  if (error instanceof Error && error.message === 'no refresh token') return true;
+  const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+  return status === 400 || status === 401 || status === 403;
+}
 
 export async function readApiError(error: unknown): Promise<string> {
   if (axios.isAxiosError(error)) {

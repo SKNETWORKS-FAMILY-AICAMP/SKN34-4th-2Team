@@ -13,7 +13,7 @@ import { useTheme } from '../theme/Theme';
 import { Badge, Callout, Card, EmptyState, Screen, T } from '../ui/kit';
 
 function refresh() {
-  void queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
+  return queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
 }
 
 const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];

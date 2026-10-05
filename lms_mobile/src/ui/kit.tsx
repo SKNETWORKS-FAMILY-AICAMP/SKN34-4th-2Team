@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Children, Fragment, isValidElement, type ComponentProps, type ReactNode } from 'react';
+import { Children, Fragment, isValidElement, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -75,6 +75,12 @@ export function T({
   );
 }
 
+/** 딥링크로 바로 열린 화면은 돌아갈 곳이 없다 — 루트로 보내면 Gate 가 역할별 홈으로 옮긴다 */
+export function goBack() {
+  if (router.canGoBack()) router.back();
+  else router.replace('/');
+}
+
 export function Screen({
   title,
   loading,
@@ -88,14 +94,18 @@ export function Screen({
   back = true,
   left,
   right,
+  stickToBottom,
 }: {
   title: string;
+  /** 채팅처럼 내용이 늘면 맨 아래를 따라간다 */
+  stickToBottom?: boolean;
   loading?: boolean;
   error?: string | null;
   empty?: boolean;
   emptyText?: string;
   refreshing?: boolean;
-  onRefresh?: () => void;
+  /** Promise 를 돌려주면 끝날 때까지 새로고침 스피너를 보인다 */
+  onRefresh?: () => void | Promise<unknown>;
   children?: ReactNode;
   footer?: ReactNode;
   back?: boolean;
@@ -103,11 +113,21 @@ export function Screen({
   right?: ReactNode;
 }) {
   const { palette } = useTheme();
+  const scrollRef = useRef<ScrollView>(null);
+  const [pulling, setPulling] = useState(false);
+  const pull = onRefresh
+    ? () => {
+        const pending = onRefresh();
+        if (!pending) return;
+        setPulling(true);
+        void pending.catch(() => undefined).finally(() => setPulling(false));
+      }
+    : undefined;
   return (
     <SafeAreaView style={[styles.fill, { backgroundColor: palette.background }]} edges={['top', 'left', 'right']}>
       {back ? (
         <View style={[styles.bar, { borderBottomColor: palette.border, backgroundColor: palette.surface }]}>
-          <Pressable accessibilityLabel="뒤로" onPress={() => router.back()} style={styles.hit}>
+          <Pressable accessibilityLabel="뒤로" onPress={goBack} style={styles.hit}>
             <MaterialIcons name="arrow-back" size={24} color={palette.text} />
           </Pressable>
           <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>
@@ -138,11 +158,13 @@ export function Screen({
           </View>
         ) : (
           <ScrollView
+            ref={scrollRef}
+            onContentSizeChange={stickToBottom ? () => scrollRef.current?.scrollToEnd({ animated: true }) : undefined}
             contentContainerStyle={styles.body}
             keyboardShouldPersistTaps="handled"
             refreshControl={
-              onRefresh ? (
-                <RefreshControl refreshing={Boolean(refreshing)} onRefresh={onRefresh} tintColor={palette.primary} colors={[palette.primary]} />
+              pull ? (
+                <RefreshControl refreshing={Boolean(refreshing) || pulling} onRefresh={pull} tintColor={palette.primary} colors={[palette.primary]} />
               ) : undefined
             }
           >

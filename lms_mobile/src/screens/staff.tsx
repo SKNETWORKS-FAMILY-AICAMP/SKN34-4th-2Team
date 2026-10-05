@@ -26,7 +26,7 @@ import { addGithub, listGithub, removeGithub, setSourceActive, syncSources, useN
 import { MenuButton } from '../nav/StaffDrawer';
 import { appNav, navLabel } from '../nav/webNav';
 import { useTheme } from '../theme/Theme';
-import { Avatar, Badge, Btn, Card, Field, ListGroup, ListItem, Muted, Row, Screen, StatTile, T, fmt, todayKey } from '../ui/kit';
+import { Avatar, Badge, Btn, Card, Field, ListGroup, ListItem, Muted, Row, Screen, StatTile, T, fmt, goBack, todayKey } from '../ui/kit';
 import { SettingsPage } from './student';
 import { ResumeListPage } from './extra';
 
@@ -202,7 +202,7 @@ export function CounselPage() {
   const [uid, setUid] = useState('');
   const [content, setContent] = useState('');
   return (
-    <Screen title="상담" loading={query.isLoading} error={query.error instanceof Error ? query.error.message : null} onRefresh={() => void query.refetch()}>
+    <Screen title="상담" loading={query.isLoading} error={query.error instanceof Error ? query.error.message : null} onRefresh={() => query.refetch()}>
       {students.slice(0, 30).map((student) => (
         <Btn key={student.uid} label={student.displayName} tone={uid === student.uid ? 'primary' : 'ghost'} onPress={() => setUid(student.uid)} />
       ))}
@@ -227,7 +227,7 @@ export function AdminQuestsPage() {
   const [reward, setReward] = useState('1000');
   const [questComments, setQuestComments] = useState<Record<string, string>>({});
   return (
-    <Screen title="마일리지 미션" loading={quests.isLoading} onRefresh={() => void quests.refetch()}>
+    <Screen title="마일리지 미션" loading={quests.isLoading} onRefresh={() => quests.refetch()}>
       <Field label="제목" value={title} onChangeText={setTitle} />
       <Field label="보상" value={reward} onChangeText={setReward} keyboard="numeric" />
       <Btn label="미션 만들기" onPress={() => {
@@ -458,7 +458,7 @@ export function ExamEditPage({ id }: { id?: string }) {
       {exam ? (
         <>
           <Btn label={exam.published ? '비공개' : '공개'} tone="ghost" onPress={() => void setPublished(exam.id, !exam.published)} />
-          <Btn label="삭제" tone="danger" onPress={() => void deleteAssessment(exam.id).then(() => router.back())} />
+          <Btn label="삭제" tone="danger" onPress={() => void deleteAssessment(exam.id).then(goBack)} />
         </>
       ) : null}
     </Screen>

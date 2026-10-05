@@ -20,7 +20,7 @@ import { Badge, Btn, Callout, Card, Chip, EmptyState, Field, SectionHeader, Scre
 const won = (value: number) => `${value.toLocaleString('ko-KR')}M`;
 
 function refresh() {
-  void queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
+  return queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
 }
 
 interface CategoryUsage {

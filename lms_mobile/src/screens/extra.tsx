@@ -14,7 +14,7 @@ import { useSession } from '../auth/session';
 import { featuredPostings, fetchApplyLink, fetchPosting, type Posting } from '../data/jobs';
 import { requestReview, updateResume, useFeedbacks, useResumes, createResume, setBaseResume, deleteResume } from '../data/resumes';
 import { useAlerts, dismissAlertToday, markAlertRead } from '../data/notices';
-import { Btn, Card, Field, Muted, Row, Screen, T, todayKey } from '../ui/kit';
+import { Btn, Card, Field, Muted, Row, Screen, T, goBack, todayKey } from '../ui/kit';
 import { useTheme } from '../theme/Theme';
 import { elevation } from '../theme/tokens';
 
@@ -111,7 +111,7 @@ export function ResumeEditPage({ id }: { id: string }) {
               setReview(result.summary ?? (lines || '제안이 없습니다.'));
             }).catch((error: unknown) => setReview(error instanceof Error ? error.message : '첨삭에 실패했습니다.'));
           }} />
-          <Btn label="삭제" tone="danger" onPress={() => void deleteResume(existing.id).then(() => router.back())} />
+          <Btn label="삭제" tone="danger" onPress={() => void deleteResume(existing.id).then(goBack)} />
         </>
       ) : null}
       {review ? <Card><Text>{review}</Text></Card> : null}

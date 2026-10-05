@@ -9,7 +9,7 @@ import { useSession } from '../auth/session';
 import { fetchReview, fetchTake, submitAssessment, useAssessments, useSubmissions } from '../data/assessments';
 import { queryClient, queryKeys } from '../data/query';
 import { useTheme } from '../theme/Theme';
-import { Badge, Btn, Callout, Card, EmptyState, Field, Screen, StatTile, T, fmt } from '../ui/kit';
+import { Badge, Btn, Callout, Card, EmptyState, Field, Screen, StatTile, T, fmt, goBack } from '../ui/kit';
 
 type WindowState = 'before' | 'open' | 'closed';
 
@@ -21,7 +21,7 @@ function windowState(assessment: Assessment): WindowState {
 }
 
 function refresh() {
-  void queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
+  return queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
 }
 
 function go(path: string, replace = false) {
@@ -148,7 +148,7 @@ export function ExamTakePage({ id }: { id: string }) {
       <Screen title={exam.title}>
         <Card style={{ alignItems: 'center' }}>
           <EmptyState icon="schedule" text={message} />
-          <Btn label="목록으로" tone="ghost" onPress={() => router.back()} />
+          <Btn label="목록으로" tone="ghost" onPress={goBack} />
         </Card>
       </Screen>
     );
