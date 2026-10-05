@@ -77,6 +77,78 @@ beforeEach(() => {
 });
 
 describe('공고 맞춤 첨삭 흐름 — job_resume_review_dialog.dart', () => {
+  it('B 초기 content READY 후보를 일괄 표시하고 원래 응답 index로 선택 적용한다', async () => {
+    api.review.mockResolvedValueOnce({ ...firstReview, sentence_reviews: [
+      sentence(0, 'content', { validation_status: 'READY' }),
+      sentence(1, 'clarity', { validation_status: 'REJECTED' }),
+      sentence(2, 'content', { validation_status: 'READY' }),
+    ] });
+    const { session } = makeSession();
+    await session.review();
+    const bundle = session.messages.find((m) => m.type === 'identity');
+    expect(bundle).toMatchObject({ payload: { _kind: 'polish', _indices: [0, 2] } });
+    expect(session.messages.filter((m) => m.type === 'suggestion')).toHaveLength(0);
+    expect(JSON.stringify(session.messages)).not.toContain('고친 문장 1');
+    api.apply.mockResolvedValue({ content: {}, input_hash: 'h2' });
+    await session.applySuggestion([2]);
+    expect(api.apply).toHaveBeenCalledTimes(1);
+    expect(api.apply.mock.calls[0][1]).toMatchObject({ selected_indices: [2] });
+  });
+
+  it('B 답변 후 READY 수정안은 초기 묶음이 아니라 해당 수정안으로 표시한다', async () => {
+    api.review.mockResolvedValueOnce({ ...firstReview, sentence_reviews: [] });
+    const { session } = makeSession();
+    await session.review();
+    api.review.mockResolvedValueOnce({ ...firstReview, sentence_reviews: [
+      sentence(0, 'content', { validation_status: 'READY' }),
+    ], questions: [] });
+    session.setAnswer('API를 직접 구현했습니다.');
+    await session.submitAnswer(session.view().activeQuestion!);
+    expect(session.messages.filter((m) => m.type === 'suggestion')).toHaveLength(1);
+    expect(session.messages.filter((m) => m.type === 'identity')).toHaveLength(0);
+  });
+
+  it.each([
+    ['REJECTED', '검증을 통과한 수정안을 만들지 못해'],
+    ['UNCHANGED', '현재 문장을 바꿀 필요가 없어'],
+    ['NEEDS_EVIDENCE', '수정안에 필요한 정보를 조금 더'],
+  ])('동일한 본문도 소유 ID로 답변하고 %s 결과를 구분한다', async (outcome, notice) => {
+    const questions = ['KKBOX', '자동차 정비소', 'AI LMS'].map((title, i) => ({
+      question_id: `question-${i}`, experience_id: `projects:p${i}`, experience_title: title,
+      field_path: `projects[${i}].description`, target_slot: 'actions', topic: 'other', stage: 3,
+      question: '이 프로젝트에서 본인이 직접 수행한 작업은 무엇인가요?',
+    }));
+    api.review.mockResolvedValueOnce({ ...firstReview, sentence_reviews: [], questions });
+    const { session } = makeSession();
+    await session.review();
+    expect(session.view().remainingQuestionCount).toBe(3);
+    expect(session.view().activeQuestion).toMatchObject({ experience_id: 'projects:p0' });
+    api.review.mockResolvedValueOnce({ ...firstReview, review_id: 'rev-2',
+      sentence_reviews: [sentence(0, 'content', { suggested_revision: null, validation_status: outcome })],
+      questions: questions.slice(1) });
+    session.setAnswer('직접 API를 구현했습니다.');
+    await session.submitAnswer(session.view().activeQuestion!);
+    expect(api.review.mock.calls[1][1]).toMatchObject({ answers: [{
+      question_id: 'question-0', experience_id: 'projects:p0', field_path: 'projects[0].description',
+      answer: '직접 API를 구현했습니다.',
+    }] });
+    expect(session.view().activeQuestion).toMatchObject({ experience_id: 'projects:p1' });
+    expect(JSON.stringify(session.messages)).toContain(notice);
+    expect(JSON.stringify(session.messages)).not.toContain('확인했어요. 다음으로 넘어갈게요.');
+    expect(session.messages.filter((m) => m.type === 'suggestion')).toHaveLength(0);
+  });
+  it('B의 동일 field/topic에서 서로 다른 gap 질문을 모두 유지한다', async () => {
+    const questions = ['1111111111111111', '2222222222222222', '3333333333333333'].map((key, i) => ({
+      question_id: `request:v2gap:${key}`, field_path: 'projects[0].description',
+      topic: 'other', question: `gap ${i}`, stage: 3,
+    }));
+    api.review.mockResolvedValue({ ...firstReview, sentence_reviews: [], questions });
+    const { session } = makeSession();
+    await session.review();
+    expect(session.view().remainingQuestionCount).toBe(3);
+    expect(session.view().activeQuestion).toMatchObject({ question_id: questions[0].question_id });
+  });
+
   it('첫 첨삭: 사본을 뜨고, 공고 hash 를 실어 부르고, 요약 · 문장 다듬기 묶음부터 보여 준다', async () => {
     const { session } = makeSession();
     await session.review();

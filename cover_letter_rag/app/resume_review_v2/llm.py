@@ -4,10 +4,40 @@ import json
 import time
 
 from .models import (
-    AnalystOutput, Evidence, FactVerification, ReviewInput, RevisionPlan,
-    Usage, ValidationIssue, WriterOutput,
+    ExtractionOutput, Evidence, FactVerification, ReviewInput, RevisionPlan,
+    Usage, ValidationIssue, WriterOutput, WriterDraft,
 )
 from .prompts import ANALYST_SYSTEM_PROMPT, VERIFY_SYSTEM_PROMPT, WRITER_SYSTEM_PROMPT
+from .writing_policy import target_section
+from .policy import SECTION_RULES, SOURCE_POLICY, TARGET_POLICY, POLICY_VERSION
+from .section_semantics import section_contract, editorial_brief
+
+
+def scoped_evidence(request, evidence):
+    """Resolve field scope from an available owning source, not a paraphrase."""
+    owner = request.experience.experience_id
+    sources = {s.source_id: s.text for s in request.resume_sources}
+    rows = []
+    for fact in evidence:
+        row = fact.model_dump(mode='json')
+        context = None
+        if fact.experience_id == owner and fact.source_type == 'resume_text':
+            field = None
+            if fact.source_id == owner:
+                source, field = request.experience.current_text, request.experience.field_path
+            elif fact.source_id.startswith(owner + ':') and fact.source_id in sources:
+                source, field = sources[fact.source_id], fact.source_id[len(owner) + 1:]
+            if field and fact.evidence_quote in source:
+                context = dict(experience_id=owner, experience_title=request.experience.title,
+                    field=field, scope='owning_experience', quote=fact.evidence_quote)
+        elif (fact.experience_id == owner and fact.source_type == 'user_answer'
+              and fact.evidence_quote in request.answer):
+            # The adapter routes this history using the issued question's owner.
+            context = dict(experience_id=owner, experience_title=request.experience.title,
+                field='user_answer', scope='owning_experience', quote=fact.evidence_quote)
+        row['source_context'] = context
+        rows.append(row)
+    return rows
 
 
 class LangChainReviewLLM:
@@ -46,44 +76,79 @@ class LangChainReviewLLM:
             raise RuntimeError(f"{schema.__name__} structured output failed")
         return response["parsed"], usage
 
-    def analyze(self, request: ReviewInput) -> tuple[AnalystOutput, Usage]:
+    def analyze(self, request: ReviewInput) -> tuple[ExtractionOutput, Usage]:
         return self._call(ANALYST_SYSTEM_PROMPT, {
+            "policy_version": POLICY_VERSION,
+            "target_section": target_section(request.experience),
+            "section_writing_rules": SECTION_RULES[target_section(request.experience)],
+            "section_contract": section_contract(target_section(request.experience)).model_dump(mode='json'),
             "experience": request.experience.model_dump(mode="json"),
+            "resume_sources": [item.model_dump(mode='json') for item in request.resume_sources],
             "question": request.question,
             "user_answer": request.answer,
             "answer_source_id": request.answer_source_id,
-            "job_requirements": [item.model_dump(mode="json") for item in request.job_requirements],
+            "existing_intents": [c.model_dump(mode='json') for c in request.existing_intents],
+            "previous_semantic_units": [u.model_dump(mode='json') for u in request.previous_semantic_units],
+            "question_history": request.question_history,
             "previous_question_keys": request.previous_question_keys,
-            "source_rule": "resume_text source_id is experience_id; user_answer source_id is answer_source_id",
-        }, AnalystOutput)
+            "unavailable_slots": [s.value for s in request.unavailable_slots],
+            "target_context": [r.model_dump(mode='json') for r in request.job_requirements],
+            "source_rule": SOURCE_POLICY,
+        }, ExtractionOutput)
 
     def write(self, request: ReviewInput, plan: RevisionPlan, evidence: list[Evidence],
               issues: list[ValidationIssue] | None = None,
               previous_text: str = "") -> tuple[WriterOutput, Usage]:
         # Neither request.answer nor request.question enters the Writer prompt.
-        return self._call(WRITER_SYSTEM_PROMPT, {
+        result = self._call(WRITER_SYSTEM_PROMPT, {
+            "policy_version": POLICY_VERSION,
+            "target_section": target_section(request.experience),
+            "section_writing_rules": SECTION_RULES[target_section(request.experience)],
             "experience": {
                 "experience_id": request.experience.experience_id,
                 "kind": request.experience.kind,
                 "title": request.experience.title,
-                "current_text": request.experience.current_text,
             },
-            "approved_evidence": [item.model_dump(mode="json") for item in evidence],
-            "revision_plan": plan.model_dump(mode="json"),
+            "approved_evidence": scoped_evidence(request, evidence),
+            "approved_intents": [item.model_dump(mode='json') for item in request.approved_intents],
+            "editorial_brief": editorial_brief(request),
+            "original_for_editing": request.experience.current_text,
             "job_requirements": [item.model_dump(mode="json") for item in request.job_requirements],
             "previous_draft_to_fix": previous_text,
             "validation_issues_to_fix": [item.model_dump(mode="json") for item in (issues or [])],
-            "target_rule": "original_quote must equal current_text in this offline phase",
-        }, WriterOutput)
+        }, WriterDraft)
+        if result is None:  # Batch collector captures the call without executing it.
+            return None
+        draft, usage = result
+        return WriterOutput(experience_id=draft.experience_id, operation='replace_field',
+            original_quote=request.experience.current_text, sentences=draft.sentences), usage
 
     def verify(self, request: ReviewInput, candidate: WriterOutput,
                evidence: list[Evidence], core_ids: list[str],
-               superseded: list[Evidence]) -> tuple[FactVerification, Usage]:
+               superseded: list[Evidence], preserved_ids: list[str] | None = None,
+               previous_attempt: dict | None = None) -> tuple[FactVerification, Usage]:
+        from .writing_policy import quality_candidates
         return self._call(VERIFY_SYSTEM_PROMPT, {
+            "policy_version": POLICY_VERSION,
+            "target_section": target_section(request.experience),
+            "section_writing_rules": SECTION_RULES[target_section(request.experience)],
+            "editorial_brief": editorial_brief(request),
+            "approved_intents": [item.model_dump(mode='json') for item in request.approved_intents],
+            "allowed_target_context": [item.model_dump(mode='json') for item in request.job_requirements],
             "original_experience_text": request.experience.current_text,
+            "previous_attempt": previous_attempt,
             "suggested_text": candidate.suggested_text,
             "sentences": [item.model_dump(mode="json") for item in candidate.sentences],
-            "approved_evidence": [item.model_dump(mode="json") for item in evidence],
-            "core_evidence_ids": core_ids,
+            "style_hints_not_failures": [i.model_dump() for i in quality_candidates(
+                request.experience, candidate, {e.evidence_id: e for e in evidence})],
+            "approved_evidence": scoped_evidence(request, evidence),
+            # Live Writer and Verifier share editorial_brief. Do not reintroduce
+            # a parallel include-all obligation through diagnostic legacy IDs.
+            **({} if request.section_profile else {
+                "core_evidence_ids": core_ids,
+                "preserved_evidence_ids": preserved_ids or [],
+            }),
             "superseded_original_evidence": [item.model_dump(mode="json") for item in superseded],
+            "inactive_intents": [c.model_dump(mode='json') for c in request.existing_intents
+                if c.id not in {i.id for i in request.approved_intents}],
         }, FactVerification)

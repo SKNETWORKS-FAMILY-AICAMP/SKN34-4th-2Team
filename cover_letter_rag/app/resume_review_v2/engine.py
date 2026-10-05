@@ -3,15 +3,16 @@
 from typing import Protocol
 
 from .models import (
-    AnalystOutput, AssertionState, Evidence, FactVerification, OmittedEvidence, ReviewInput, ReviewResult,
+    ExtractionOutput, AssertionState, Evidence, FactVerification, ReviewInput, ReviewResult,
     RevisionCandidate, RevisionPlan, Usage, ValidationIssue, ValidationResult,
     WriterOutput,
 )
-from .validation import ContractError, validate_analysis, validate_candidate
+from .validation import validate_candidate
+from .project_planning import prepare_review
 
 
 class ReviewLLM(Protocol):
-    def analyze(self, request: ReviewInput) -> tuple[AnalystOutput, Usage]: ...
+    def analyze(self, request: ReviewInput) -> tuple[ExtractionOutput, Usage]: ...
 
     def write(self, request: ReviewInput, plan: RevisionPlan, evidence: list[Evidence],
               issues: list[ValidationIssue] | None = None,
@@ -19,7 +20,8 @@ class ReviewLLM(Protocol):
 
     def verify(self, request: ReviewInput, candidate: WriterOutput,
                evidence: list[Evidence], core_ids: list[str],
-               superseded: list[Evidence]) -> tuple[FactVerification, Usage]: ...
+               superseded: list[Evidence], preserved_ids: list[str] | None = None,
+               previous_attempt: dict | None = None) -> tuple[FactVerification, Usage]: ...
 
 
 def _add_usage(total: Usage, added: Usage) -> None:
@@ -39,9 +41,15 @@ class ReviewEngineV2:
 
     def run(self, request: ReviewInput) -> ReviewResult:
         usage = Usage()
-        analysis, step_usage = self.llm.analyze(request)
+        extraction, step_usage = self.llm.analyze(request)
         _add_usage(usage, step_usage)
-        evidence, plan = validate_analysis(request, analysis)
+        prepared = prepare_review(request, extraction)
+        analysis, evidence, plan = prepared.analysis, prepared.evidence, prepared.analysis.plan
+        request = prepared.request.model_copy(update={'previous_facets': prepared.facets})
+        planning = dict(project_profile=prepared.profile, evidence_facets=prepared.facets,
+            evidence_gaps=prepared.gaps, gap_questions=prepared.questions,
+            unavailable_slots=request.unavailable_slots, intent_claims=prepared.intents,
+            section_profile=prepared.section_profile, sentence_plan=prepared.sentence_plan)
         extracted = [evidence[item.evidence_id] for item in analysis.extracted_evidence]
         selected = [evidence[eid] for eid in [*plan.core_evidence_ids, *plan.supporting_evidence_ids]]
         permitted = [evidence[eid] for eid in dict.fromkeys(
@@ -56,25 +64,23 @@ class ReviewEngineV2:
                 omitted_evidence=plan.omitted_evidence, plan=plan,
                 proposed_question=analysis.question, candidate=None, validation=validation,
                 usage=usage,
+                debug_trace=trace_review(request, evidence, plan, None, validation),
+                **planning,
             )
 
         writer, validation = self._draft_and_validate(request, plan, evidence, permitted, usage)
+        attempts = [{'writer': writer.model_dump(mode='json'), 'validation': validation.model_dump(mode='json')}]
         for _ in range(self.MAX_REWRITES):
             if validation.status != "REWRITE":
                 break
-            issues = [*validation.factual_issues, *validation.quality_issues]
-            if any(issue.code == "procedure_overload" for issue in issues) and plan.supporting_evidence_ids:
-                removed = set(plan.supporting_evidence_ids)
-                plan.omitted_evidence.extend(
-                    OmittedEvidence(evidence_id=eid, reason="절차 나열을 줄이기 위해 재작성에서 제외")
-                    for eid in plan.supporting_evidence_ids
-                )
-                plan.supporting_evidence_ids = []
-                permitted = [item for item in permitted if item.evidence_id not in removed]
+            issues = validation.all_issues
+            # Repair prose using the same approved sources. A style defect must
+            # not delete evidence or desynchronize the source and meaning plans.
             previous_text = writer.suggested_text
             writer, step_usage = self.llm.write(request, plan, permitted, issues, previous_text)
             _add_usage(usage, step_usage)
-            validation = self._validate(request, writer, plan, evidence, permitted, usage)
+            validation = self._validate(request, writer, plan, evidence, permitted, usage, attempts[-1])
+            attempts.append({'writer': writer.model_dump(mode='json'), 'validation': validation.model_dump(mode='json')})
         if validation.status == "REWRITE":
             validation.status = "REJECTED"  # Never expose an uncorrected draft as apply-ready.
 
@@ -94,6 +100,8 @@ class ReviewEngineV2:
             omitted_evidence=plan.omitted_evidence, plan=plan,
             proposed_question=analysis.question, candidate=candidate,
             validation=validation, usage=usage,
+            debug_trace=trace_review(request, evidence, plan, writer, validation, attempts),
+            **planning,
         )
 
     def _draft_and_validate(self, request, plan, evidence, permitted, usage):
@@ -102,20 +110,20 @@ class ReviewEngineV2:
         validation = self._validate(request, writer, plan, evidence, permitted, usage)
         return writer, validation
 
-    def _validate(self, request, writer, plan, evidence, permitted, usage):
+    def _validate(self, request, writer, plan, evidence, permitted, usage, previous_attempt=None):
         deterministic = validate_candidate(request, writer, plan, evidence)
-        if deterministic.factual_issues:
+        if deterministic.factual_issues or deterministic.intent_issues:
             # Do not pay for semantic verification of an already-invalid contract.
             return deterministic
         try:
             superseded = [item for item in evidence.values()
                           if item.assertion_state == AssertionState.SUPERSEDED]
             used_ids = {eid for sentence in writer.sentences for eid in sentence.evidence_ids}
-            verifier_evidence = [item for item in permitted if
-                                 item.evidence_id in used_ids or
-                                 item.evidence_id in plan.preserved_evidence_ids]
+            from .section_semantics import verification_sources
+            verifier_evidence = verification_sources(request, plan, permitted, used_ids)
             verification, step_usage = self.llm.verify(
-                request, writer, verifier_evidence, plan.core_evidence_ids, superseded,
+                request, writer, verifier_evidence, plan.core_evidence_ids, superseded, plan.preserved_evidence_ids,
+                previous_attempt,
             )
             _add_usage(usage, step_usage)
         except Exception as exc:
@@ -125,3 +133,20 @@ class ReviewEngineV2:
                 quality_issues=deterministic.quality_issues,
             )
         return validate_candidate(request, writer, plan, evidence, verification)
+
+
+def trace_review(request, evidence, plan, writer, validation, attempts=()):
+    """Internal offline/local result only; production endpoints do not expose v2."""
+    from .section_semantics import section_contract
+    from .writing_policy import target_section
+    return dict(target_section=target_section(request.experience),
+        evidence_claims=[e.model_dump(mode='json') for e in evidence.values()],
+        intent_claims=[c.model_dump(mode='json') for c in request.approved_intents],
+        selected_claims=dict(evidence_ids=plan.core_evidence_ids + plan.supporting_evidence_ids,
+                             intent_ids=[c.id for c in request.approved_intents]),
+        section_contract=section_contract(target_section(request.experience)).model_dump(mode='json'),
+        section_profile=request.section_profile.model_dump(mode='json') if request.section_profile else None,
+        sentence_plan=request.sentence_plan.model_dump(mode='json') if request.sentence_plan else None,
+        writer_output=writer.model_dump(mode='json') if writer else None,
+        validation=validation.model_dump(mode='json'), attempts=list(attempts),
+        rewrite_reason=[a['validation'] for a in attempts[:-1]])

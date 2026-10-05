@@ -1,13 +1,14 @@
 """Deterministic evidence, claim and writing-quality gates for v2."""
 
 import re
-from difflib import SequenceMatcher
 
 from .models import (
     AnalystOutput, AssertionState, Evidence, Experience, FactType, OmittedEvidence,
     FactVerification, ReviewInput, RevisionPlan, ValidationIssue,
-    ValidationResult, WriterOutput, RevisionCandidate,
+    ValidationResult, WriterOutput, RevisionCandidate, ClaimType,
 )
+from .policy import (REPRESENTATIVE_COLLECTION_MIN,
+                     REPRESENTATIVE_SIGNAL_MIN)
 
 
 class ContractError(ValueError):
@@ -15,17 +16,17 @@ class ContractError(ValueError):
 
 
 ALLOWED_STATES = {AssertionState.RESUME_STATED, AssertionState.USER_ASSERTED}
+# Compatibility for the separate application-writing engine. Resume Review v2
+# treats these connectors as reviewer hints, never a standalone rejection rule.
+PROCEDURE_PATTERN = re.compile(r"(?:한 뒤|하고 나서|그다음|이후|했으며|하였으며|하면서)")
 NUMBER_PATTERN = re.compile(r"(?<![\w])\d+(?:[.,]\d+)*(?:\s*(?:%|초|분|시간|건|명|회|배|개월|년|ms))?")
 TECH_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_])(?:Pinecone|Redis|PostgreSQL|Django|FastAPI|Python|React|"
     r"Docker|Kubernetes|AWS|S3|RDS|Spring Boot|Java|TypeScript|"
     r"JavaScript|LangChain|PyTorch|TensorFlow|OpenAI|GitHub Actions|"
-    r"RecursiveCharacterTextSplitter)(?![A-Za-z0-9_])", re.IGNORECASE,
+    r"RecursiveCharacterTextSplitter|Haversine|MySQL|CSV|Logistic Regression|"
+    r"Random Forest|XGBoost|LightGBM|CatBoost|Scikit-learn|Pandas|Streamlit|SQL|F1|PR-AUC)(?![A-Za-z0-9_])", re.IGNORECASE,
 )
-PROCEDURE_PATTERN = re.compile(r"(?:한 뒤|하고 나서|그다음|이후|했으며|하였으며|하면서)")
-COPY_THRESHOLD = 0.83
-DUPLICATION_THRESHOLD = 0.91
-VERBOSITY_RATIO = 1.8
 
 
 def _normalized(text: str) -> str:
@@ -65,8 +66,12 @@ def validate_analysis(request: ReviewInput, analysis: AnalystOutput) -> tuple[di
             raise ContractError(f"duplicate evidence_id: {fact.evidence_id}")
         if fact.evidence_id in extracted_ids:
             if fact.source_type == "resume_text":
-                source = experience.current_text
-                if fact.source_id != experience.experience_id:
+                sources = {item.source_id: item.text for item in request.resume_sources}
+                if len(sources) != len(request.resume_sources) or experience.experience_id in sources:
+                    raise ContractError('duplicate resume source_id')
+                sources[experience.experience_id] = experience.current_text
+                source = sources.get(fact.source_id)
+                if source is None:
                     raise ContractError("resume source_id mismatch")
             elif fact.source_type == "user_answer":
                 source = request.answer
@@ -78,6 +83,10 @@ def validate_analysis(request: ReviewInput, analysis: AnalystOutput) -> tuple[di
             if exact_quote is None:
                 raise ContractError(f"evidence quote absent from source: {fact.evidence_id}")
             fact.evidence_quote = exact_quote
+            if fact.fact_type in {FactType.ACTION, FactType.IMPLEMENTATION, FactType.ROLE,
+                    FactType.TECHNICAL_DECISION, FactType.RESULT, FactType.VERIFICATION} and re.search(
+                    r'하고 싶|계획입니다|예정입니다|기여하겠|성장하겠', exact_quote):
+                raise ContractError('applicant intent cannot be a performed factual claim')
         evidence[fact.evidence_id] = fact
 
     # Only an explicit, certain user correction can supersede an atomic resume fact.
@@ -143,7 +152,7 @@ def validate_analysis(request: ReviewInput, analysis: AnalystOutput) -> tuple[di
             evidence_id=evidence_id,
             reason="이번 수정안의 작성 근거로 선택되지 않음",
         ))
-    if plan.operation == "replace_field" and not core:
+    if plan.operation == "replace_field" and not core and not request.section_profile:
         raise ContractError("a revision requires core evidence")
     if analysis.question and analysis.question.dedupe_key in request.previous_question_keys:
         raise ContractError("repeated question")
@@ -160,6 +169,8 @@ def validate_candidate(
     """Hard factual blockers and separate, explainable writing-quality flags."""
     factual: list[ValidationIssue] = []
     quality: list[ValidationIssue] = []
+    intent: list[ValidationIssue] = []
+    section: list[ValidationIssue] = []
     experience = request.experience
     if writer.experience_id != experience.experience_id:
         factual.append(ValidationIssue(code="wrong_experience", detail="Writer targeted another experience"))
@@ -170,6 +181,11 @@ def validate_candidate(
 
     allowed_ids = set(plan.core_evidence_ids) | set(plan.supporting_evidence_ids) | set(plan.preserved_evidence_ids)
     mapped_ids: set[str] = set()
+    intents = {c.id: c for c in request.approved_intents}
+    targets = {r.requirement_id: r for r in request.job_requirements if r.posting_quote.strip()}
+    from .section_semantics import agency_issues, ACTIVE
+    units = {u.id: u for u in request.section_profile.original_semantic_units} if request.section_profile else {}
+    covered = set()
     for sentence in writer.sentences:
         if not sentence.text.strip():
             factual.append(ValidationIssue(code="empty_sentence", detail="Writer returned a blank sentence"))
@@ -186,6 +202,48 @@ def validate_candidate(
             f"{evidence[eid].normalized_fact} {evidence[eid].evidence_quote}"
             for eid in sentence_ids
         )
+        factual.extend(agency_issues(sentence, evidence, request.approved_intents))
+        typed_sources = {evidence[eid].fact_type for eid in sentence_ids}
+        requires_fact = {
+            ClaimType.ACTION: {FactType.ACTION, FactType.IMPLEMENTATION},
+            ClaimType.VALIDATION: {FactType.VERIFICATION},
+            ClaimType.OUTCOME: {FactType.RESULT}, ClaimType.SCALE: {FactType.SCOPE, FactType.DURATION},
+        }
+        for typ in sentence.claim_types:
+            # Fact labels are not an entailment oracle: context may describe
+            # participation/learning, and implementation may describe a result.
+            # Only the unambiguous tool-only escalation is a mechanical blocker.
+            if not request.section_profile and typ in requires_fact and typed_sources == {FactType.TECHNOLOGY}:
+                factual.append(ValidationIssue(code='unsupported_typed_claim', detail=typ.value))
+        if not sentence.evidence_ids and not sentence.intent_ids and not sentence.target_context_ids:
+            factual.append(ValidationIssue(code='unclaimed_factual_content', detail=sentence.text))
+        for cid in sentence.intent_ids:
+            if cid not in intents or intents[cid].state not in ACTIVE:
+                intent.append(ValidationIssue(code='unapproved_intent', detail=cid))
+            else:
+                source_text += ' ' + intents[cid].text + ' ' + intents[cid].evidence_quote
+        for rid in sentence.target_context_ids:
+            if rid not in targets:
+                factual.append(ValidationIssue(code='unapproved_target_context', detail=rid))
+            else:
+                source_text += ' ' + targets[rid].posting_quote
+        supplied = {('applicant_evidence', eid) for eid in sentence_ids} | {
+            ('applicant_intent', cid) for cid in sentence.intent_ids if cid in intents} | {
+            ('target_context', rid) for rid in sentence.target_context_ids if rid in targets}
+        for uid in sentence.semantic_unit_ids:
+            unit = units.get(uid)
+            # Optional examples may be represented by a subset of their sources.
+            # Required meanings still need the complete citation basis.
+            refs = {(r.type, r.id) for r in unit.source_refs} if unit else set()
+            optional = unit and request.section_profile and uid in request.section_profile.optional_semantics
+            if unit is None or (not (refs & supplied) if optional else not refs <= supplied):
+                section.append(ValidationIssue(code='unapproved_semantic_coverage', detail=uid))
+            else:
+                covered.add(uid)
+        # Legacy/project factual provenance remains valid without copying unit IDs.
+        if request.section_profile and request.section_profile.section_type == 'project':
+            covered.update(uid for uid, unit in units.items() if all((r.type, r.id) in supplied for r in unit.source_refs))
+        intent.extend(validate_intent_sentence(sentence, intents))
         for number in sorted(_numbers(sentence.text) - _numbers(source_text)):
             factual.append(ValidationIssue(code="unsupported_number", detail=number))
         for tech in sorted(_technologies(sentence.text) - _technologies(source_text)):
@@ -199,50 +257,66 @@ def validate_candidate(
             factual.append(ValidationIssue(code="weakened_original_fact", detail=text))
         for text in verification.critical_technical_signal_loss:
             quality.append(ValidationIssue(code="critical_technical_signal_loss", detail=text))
+        quality.extend(verification.quality_issues)
+        intent.extend(ValidationIssue(code='unsupported_intent', detail=t) for t in verification.unsupported_intents)
+        section.extend(ValidationIssue(code='SECTION_MEANING_LOSS', detail=t) for t in verification.section_meaning_loss)
 
-    core_unused = set(plan.core_evidence_ids) - mapped_ids
+    section.extend(validate_section_coverage(request.section_profile, covered))
+
+    # The live section profile is the meaning contract, not a second per-fact
+    # checklist. Legacy offline requests without it retain their ID-based gate.
+    core_unused = set(plan.core_evidence_ids) - mapped_ids if not request.section_profile else set()
     if core_unused:
         quality.append(ValidationIssue(code="core_fact_unused", detail=", ".join(sorted(core_unused))))
-    tech_ids = [eid for eid in plan.core_evidence_ids if evidence[eid].fact_type in
+    tech_ids = [eid for eid in plan.core_evidence_ids if not request.section_profile and evidence[eid].fact_type in
                 {FactType.TECHNOLOGY, FactType.IMPLEMENTATION, FactType.TECHNICAL_DECISION}]
     for eid in tech_ids:
         expected_technologies = _technologies(
             f"{evidence[eid].normalized_fact} {evidence[eid].evidence_quote}"
         )
-        if eid not in mapped_ids or expected_technologies - _technologies(writer.suggested_text):
+        present = _technologies(writer.suggested_text)
+        missing = expected_technologies - present
+        # A technology collection can retain representative signal without naming
+        # every member. Atomic implementation/decision facts still retain their
+        # specific technology, and relevant posting keywords cannot disappear.
+        job_technologies = _technologies(' '.join(
+            f'{r.text} {r.posting_quote}' for r in request.job_requirements))
+        representative_list = (evidence[eid].fact_type == FactType.TECHNOLOGY
+            and len(expected_technologies) >= REPRESENTATIVE_COLLECTION_MIN
+            and len(expected_technologies & present) >= REPRESENTATIVE_SIGNAL_MIN
+            and '등' in writer.suggested_text
+            and not (expected_technologies & job_technologies) - present)
+        if eid not in mapped_ids or (missing and not representative_list):
             quality.append(ValidationIssue(code="critical_technical_signal_loss", detail=eid))
-    if len(writer.suggested_text) >= 25 and request.answer:
-        similarity = SequenceMatcher(None, _normalized(request.answer), _normalized(writer.suggested_text)).ratio()
-        if similarity >= COPY_THRESHOLD:
-            quality.append(ValidationIssue(code="answer_copying", detail=f"similarity={similarity:.2f}"))
-    if len(writer.suggested_text) >= 40:
-        similarity = SequenceMatcher(None, _normalized(experience.current_text), _normalized(writer.suggested_text)).ratio()
-        if similarity >= DUPLICATION_THRESHOLD:
-            quality.append(ValidationIssue(code="duplication", detail=f"similarity={similarity:.2f}"))
-    if len(PROCEDURE_PATTERN.findall(writer.suggested_text)) >= 3:
-        quality.append(ValidationIssue(code="procedure_overload", detail="three or more sequential connectors"))
-    procedural_ids = [eid for eid in mapped_ids if evidence[eid].fact_type in
-                      {FactType.ACTION, FactType.IMPLEMENTATION, FactType.TECHNOLOGY}]
-    high_value_ids = [eid for eid in mapped_ids if evidence[eid].fact_type in
-                      {FactType.TECHNICAL_DECISION, FactType.RESULT, FactType.VERIFICATION}]
-    if (len(procedural_ids) >= 4 and not high_value_ids
-            and (len(writer.sentences) >= 4 or len(writer.suggested_text) >= 110)):
-        quality.append(ValidationIssue(
-            code="procedure_overload", detail="four procedural facts expanded into a long revision",
-        ))
-    if (len(procedural_ids) >= 3 and not high_value_ids
-            and len(writer.suggested_text) >= 75
-            and writer.suggested_text.count(".") >= 2):
-        quality.append(ValidationIssue(
-            code="procedure_overload",
-            detail="long multi-sentence account of implementation steps without a higher-level contribution",
-        ))
-    if len(writer.suggested_text) > max(180, len(experience.current_text) * VERBOSITY_RATIO):
-        quality.append(ValidationIssue(code="verbosity", detail="large increase over original experience"))
+    # Lexical style signals are hints to the semantic reviewer, not blockers.
+    # Similarity to a good original is not a reason to force another paraphrase.
+    status = "REWRITE" if factual or intent or section or quality else "READY"
+    if verification is not None and status == 'READY' and (
+            verification.revision_quality != 'improved'
+            or _normalized(writer.suggested_text) == _normalized(experience.current_text)):
+        status = 'UNCHANGED'
+        quality.append(ValidationIssue(code='no_clear_improvement',
+            detail=verification.comparison_reason or '원문보다 명확한 개선이 없어 원문을 유지합니다.'))
+    return ValidationResult(status=status, factual_issues=factual, intent_issues=intent,
+                            section_issues=section, quality_issues=quality)
 
-    # A flagged candidate is never silently presented as apply-ready. One rewrite is allowed.
-    status = "REWRITE" if factual or quality else "READY"
-    return ValidationResult(status=status, factual_issues=factual, quality_issues=quality)
+
+def validate_intent_sentence(sentence, intents):
+    """Intent presence/state gate; novel semantic goals use verifier findings."""
+    from .section_semantics import ACTIVE
+    is_intent = bool(re.search(r'싶|계획|목표|성장하|기여하겠|이해하겠|하고자|지원하', sentence.text)) or bool(
+        set(sentence.claim_types) & {ClaimType.MOTIVATION, ClaimType.PLAN})
+    if is_intent and not any(cid in intents and intents[cid].state in ACTIVE for cid in sentence.intent_ids):
+        return [ValidationIssue(code='unsupported_intent', detail=sentence.text)]
+    return []
+
+
+def validate_section_coverage(profile, covered):
+    """Source-backed unit coverage; verifier checks actual paraphrased meaning."""
+    if not profile:
+        return []
+    code = 'TECHNICAL_SIGNAL_LOSS' if profile.section_type == 'project' else 'SECTION_MEANING_LOSS'
+    return [ValidationIssue(code=code, detail=uid) for uid in sorted(set(profile.required_semantics) - covered)]
 
 
 def validate_apply_snapshot(candidate: RevisionCandidate, current: Experience) -> None:

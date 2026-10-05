@@ -544,6 +544,9 @@ export class ReviewSession {
         ? (review.job_source as Json)
         : { company: this.opts.jobCompany, title: this.opts.jobTitle };
     let displayedSuggestions = 0;
+    let validationFailed = false;
+    let unchangedOutcome = false;
+    let collectingEvidence = false;
     const identitySuggestions: Json[] = [];
     const polishSuggestions: Json[] = [];
     // 서버는 「어느 항목에서 했나요?」 질문의 답을 답에 적힌 항목으로 옮긴다. 수정안은 옮겨진 항목에 생기므로
@@ -568,6 +571,12 @@ export class ReviewSession {
         (newItem !== null && typeof newItem === 'object' && newItem.question_id === answeredQuestionId) ||
         scopePaths.has(String(sentence.field_path));
       if (resolvedFieldPath !== null && sentence.field_path !== resolvedFieldPath && !fromThisAnswer) continue;
+      if (sentence.validation_status === 'REJECTED') validationFailed = true;
+      if (sentence.validation_status === 'UNCHANGED') unchangedOutcome = true;
+      if (sentence.validation_status === 'NEEDS_EVIDENCE') collectingEvidence = true;
+      // 명시적인 검증 상태가 있는 B 응답은 READY 후보만 적용 대상으로 노출한다.
+      // 상태가 없는 기존 develop 응답의 표시 계약은 유지한다.
+      if (sentence.validation_status != null && sentence.validation_status !== 'READY') continue;
       const revision = str(sentence.suggested_revision);
       if (revision !== null && revision.trim() !== '') {
         sentence._index = index;
@@ -575,8 +584,9 @@ export class ReviewSession {
           sentence._company = job.company ?? this.opts.jobCompany;
           sentence._title = job.role_title ?? job.title ?? this.opts.jobTitle;
           identitySuggestions.push(sentence);
-        } else if (isFirstReview && ['spelling', 'tone', 'clarity'].includes(String(sentence.edit_type))) {
-          // 새 사실 없이 표현만 고친 수정안. 하나씩 넘기지 않고 한 카드에서 골라 한 번에 적용한다
+        } else if (isFirstReview && (sentence.validation_status === 'READY' || ['spelling', 'tone', 'clarity'].includes(String(sentence.edit_type)))) {
+          // 초기 검증 완료 B 수정안도 기존 선택 적용 묶음을 재사용한다.
+          // 답변 이후 수정안은 isFirstReview=false이므로 개별 확인한다.
           polishSuggestions.push(sentence);
         } else {
           this.suggestionQueue.push(suggestionMessage(sentence));
@@ -610,12 +620,20 @@ export class ReviewSession {
       this.focusPreviewField(fieldPathOf(queued));
     }
     const answeredNone = ((review.telemetry as Json | undefined) ?? {}).model_skipped === 'none_answer';
-    if (!isFirstReview && !isGapAudit && answeredNone) {
+    if (validationFailed) {
+      this.messages.push(assistant(!isFirstReview && !isGapAudit
+        ? '답변은 저장했지만, 검증을 통과한 수정안을 만들지 못해 해당 항목의 원문을 유지했어요.'
+        : '일부 항목은 수정안이 검증을 통과하지 못해 원문을 유지했어요.'));
+    } else if (!isFirstReview && !isGapAudit && answeredNone) {
       // 「없음」 카드. 수정안을 만들려다 실패한 게 아니라 고칠 사실이 없는 것이다
       const label = this.requirementRows.find((row) => row.id === answeredRequirementId)?.label;
       this.messages.push(
         assistant(label !== undefined ? '알겠어요. 이력서에는 넣지 않을게요.' : '알겠어요. 다음 질문으로 넘어갈게요.'),
       );
+    } else if (!isFirstReview && !isGapAudit && displayedSuggestions === 0 && unchangedOutcome) {
+      this.messages.push(assistant('답변을 확인했어요. 현재 문장을 바꿀 필요가 없어 원문을 유지했어요.'));
+    } else if (!isFirstReview && !isGapAudit && displayedSuggestions === 0 && collectingEvidence) {
+      this.messages.push(assistant('답변은 저장했어요. 수정안에 필요한 정보를 조금 더 확인할게요.'));
     } else if (!isFirstReview && !isGapAudit && displayedSuggestions === 0) {
       const warnings = (Array.isArray(review.grounding_warnings) ? review.grounding_warnings : []).filter(
         (w): w is string => typeof w === 'string',
@@ -1093,7 +1111,8 @@ export class ReviewSession {
         previous_review_id: previous.review_id,
         expected_input_hash: previous.input_hash,
         answers: [
-          { question_id: question.question_id, field_path: question.field_path, question: question.question, answer: '없음' },
+          { question_id: question.question_id, field_path: question.field_path, question: question.question, answer: '없음',
+            ...(str(question.experience_id) ? { experience_id: question.experience_id } : {}) },
         ],
       });
       if (this.disposed) return;
@@ -1145,7 +1164,8 @@ export class ReviewSession {
           previous_review_id: previous.review_id,
           expected_input_hash: previous.input_hash,
           answers: [
-            { question_id: question.question_id, field_path: question.field_path, question: question.question, answer },
+            { question_id: question.question_id, field_path: question.field_path, question: question.question, answer,
+              ...(str(question.experience_id) ? { experience_id: question.experience_id } : {}) },
           ],
         });
       } catch (err) {
@@ -1313,6 +1333,12 @@ function fieldPathOf(message: ChatMessage): string | null {
 
 /** 재첨삭은 질문마다 새 question_id 를 준다. 같은 것을 두 번 묻지 않게 대상과 의도로 거른다 */
 function questionKey(question: Json): string {
+  // B preserves the public response shape. Its request-independent gap identity
+  // is embedded in question_id; v1 retains its existing field/topic semantics.
+  const planned = /:v2gap:([a-f0-9]{16})$/.exec(str(question.question_id) ?? '');
+  if (planned !== null) return `${str(question.experience_id) ?? String(question.field_path)}|v2gap|${planned[1]}`;
+  const experience = str(question.experience_id);
+  if (experience) return `experience|${experience}|${str(question.target_slot) ?? String(question.topic)}`;
   // 공고 요건 질문은 요건마다 하나다
   const requirementId = str(question.requirement_id);
   if (requirementId !== null && requirementId !== '') return `requirement|${requirementId}`;

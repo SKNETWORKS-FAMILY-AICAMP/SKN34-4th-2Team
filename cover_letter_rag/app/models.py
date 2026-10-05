@@ -18,6 +18,7 @@ class RequirementStatus(StrEnum):
 
 class ConfirmationAnswer(StrictModel):
     question_id: str | None = None
+    experience_id: str | None = None
     field_path: str = Field(min_length=1, max_length=300)
     question: str = Field(min_length=1, max_length=1000)
     answer: str = Field(min_length=1, max_length=3000)
@@ -58,6 +59,8 @@ class SentenceReview(StrictModel):
     evidence_sources: list[str] = Field(default_factory=list)
     edit_type: Literal['none', 'spelling', 'tone', 'clarity', 'content'] = 'content'
     validation_issues: list[str] = Field(default_factory=list)
+    # Server outcome, independent of legacy presentation status and LLM schema.
+    validation_status: SkipJsonSchema[Literal['READY', 'UNCHANGED', 'NEEDS_EVIDENCE', 'REJECTED'] | None] = None
     # Server-derived evidence anchors. The model must not decide which facts are protected.
     fact_anchors: list[str] = Field(default_factory=list)
     change_rate: float | None = Field(default=None, ge=0, le=1)
@@ -233,6 +236,10 @@ class StarJudgementOut(StrictModel):
 
 class ReviewQuestion(StrictModel):
     question_id: str = ''
+    experience_id: str | None = None
+    experience_title: str | None = None
+    target_slot: str | None = None
+    evidence_basis: list[str] = Field(default_factory=list)
     field_path: str
     topic: Literal['situation', 'task', 'action', 'result', 'scope', 'other']
     question: str

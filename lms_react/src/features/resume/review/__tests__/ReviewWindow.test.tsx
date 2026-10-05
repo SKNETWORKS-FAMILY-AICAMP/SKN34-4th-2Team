@@ -51,7 +51,7 @@ const review: Json = {
   star_checks: [],
 };
 
-function Opener() {
+function Opener({ saved }: { saved?: Json } = {}) {
   const { openReview } = useReviewDock();
   useEffect(() => {
     openReview('job-review-r1-JOB-1', {
@@ -60,6 +60,7 @@ function Opener() {
       jobId: 'JOB-1',
       jobCompany: '㈜유니포유',
       jobTitle: 'Python AI LLM 개발자',
+      ...(saved ? { tailoredResumeId: 'tailored_1', initialReviewSession: saved } : {}),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -99,6 +100,59 @@ const button = (label: string) =>
 const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
 
 describe('첨삭 창', () => {
+  it('B 초기 content 수정안을 기존 체크박스 묶음에 동시에 표시한다', async () => {
+    api.review.mockResolvedValue({ ...review, sentence_reviews: review.sentence_reviews.map((item: Json, i: number) => ({
+      ...item, edit_type: 'content', validation_status: i === 2 ? 'REJECTED' : 'READY',
+    })) });
+    act(() => root.render(<MemoryRouter><ReviewDockHost><Opener /></ReviewDockHost></MemoryRouter>));
+    await settle();
+    await act(async () => button('첨삭 시작')!.click());
+    await settle();
+    expect(text()).toContain('문장 다듬기 2개');
+    expect(text()).toContain('데이터를 정제해 분석했습니다');
+    expect(text()).toContain('분류 모델을 만들었습니다');
+    expect(text()).not.toContain('Git 으로 협업했습니다');
+    expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(2);
+    expect(api.apply).not.toHaveBeenCalled();
+  });
+  it.each([false, true])('교육 질문은 과거 내부 ID label도 현재 교육명으로 표시한다 (legacy=%s)', async (legacy) => {
+    const question = { question_id: 'training-q', experience_id: 'trainingExperience:tr-one',
+      experience_title: legacy ? 'trainingExperience:tr-one' : 'SK Networks Family AI Camp 34th', field_path: 'trainingExperience[0].description',
+      topic: 'other', question: '실습에서 확인한 점은 무엇인가요?' };
+    api.context.mockResolvedValue({ content: { trainingExperience: [
+      { id: 'other', course: '다른 과정' }, { id: 'tr-one', course: 'SK Networks Family AI Camp 34th' },
+    ] }, input_hash: 'h1', job_source: { snapshot_hash: 'job-h' } });
+    api.tailored.mockResolvedValue({ content: { trainingExperience: [
+      { id: 'other', course: '다른 과정' }, { id: 'tr-one', course: 'SK Networks Family AI Camp 34th' },
+    ] }, review_session: {} });
+    const saved: Json = { version: 1, resume_id: 'r1', job_id: 'JOB-1',
+      result: { review_id: 'review-1', input_hash: 'h1', questions: [question] },
+      messages: [{ type: 'question', text: '', payload: question }], question_queue: [], pending_question: null };
+    act(() => root.render(<MemoryRouter><ReviewDockHost><Opener saved={saved} /></ReviewDockHost></MemoryRouter>));
+    await settle();
+    expect(document.querySelector('.rv-question-experience')?.textContent).toBe('경험 · SK Networks Family AI Camp 34th');
+    expect(text()).not.toContain('trainingExperience:tr-one');
+    expect(api.review).not.toHaveBeenCalled();
+  });
+  it('같은 질문 본문에도 각 프로젝트 label을 대화 카드에 표시한다', async () => {
+    const names = ['KKBOX 사용자 이탈 예측', '위치 기반 자동차 정비소 검색', 'AI LMS'];
+    const questions = names.map((name, i) => ({
+      question_id: `q-${i}`, experience_id: `projects:p${i}`, experience_title: name,
+      field_path: `projects[${i}].description`, target_slot: 'actions', topic: 'other',
+      question: '이 프로젝트에서 본인이 직접 수행한 작업은 무엇인가요?', evidence_basis: [],
+    }));
+    const saved: Json = {
+      version: 1, resume_id: 'r1', job_id: 'JOB-1',
+      result: { review_id: 'review-1', input_hash: 'h1', questions },
+      messages: questions.map(payload => ({ type: 'question', text: '', payload })),
+      question_queue: [], pending_question: null,
+    };
+    act(() => root.render(<MemoryRouter><ReviewDockHost><Opener saved={saved} /></ReviewDockHost></MemoryRouter>));
+    await settle();
+    const labels = [...document.querySelectorAll('.rv-question-experience')].map(el => el.textContent);
+    expect(labels).toEqual(names.map(name => `프로젝트 · ${name}`));
+    expect(api.review).not.toHaveBeenCalled();
+  });
   it('열면 머리줄 · 미리보기 · 첨삭 시작이 보이고, 첨삭하면 요건 줄 · 단계 · 다듬기 카드가 뜬다', async () => {
     let finish!: (value: Json) => void;
     api.review.mockReturnValue(new Promise((resolve) => (finish = resolve)));

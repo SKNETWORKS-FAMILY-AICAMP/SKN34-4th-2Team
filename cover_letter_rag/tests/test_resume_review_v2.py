@@ -7,7 +7,7 @@ from app.resume_review_v2.engine import ReviewEngineV2
 from app.resume_review_v2.models import (
     AnalystOutput, AssertionState, RevisionSentence, Evidence, Experience,
     FactVerification, OmittedEvidence, QuestionProposal, ReviewInput,
-    RevisionPlan, Usage, WriterOutput,
+    RevisionPlan, Usage, WriterOutput, ExtractionOutput, EvidenceFacet, ValidationIssue,
 )
 from app.resume_review_v2.validation import (
     ContractError, validate_analysis, validate_apply_snapshot, validate_candidate,
@@ -61,6 +61,15 @@ def analysis(fact=None, operation="replace_field", question=None):
             ],
         ), question=question,
     )
+
+
+def extraction(draft):
+    """Adapt archived test evidence, not its old model-owned plan/questions."""
+    approved = set(draft.plan.core_evidence_ids + draft.plan.supporting_evidence_ids + draft.plan.preserved_evidence_ids)
+    return ExtractionOutput(experience_id=draft.experience_id, extracted_evidence=draft.extracted_evidence,
+        facets=[EvidenceFacet(evidence_id=e.evidence_id,
+            slots=['overview'] if e.evidence_id in draft.plan.preserved_evidence_ids else ['actions', 'personal_role'],
+            material=e.evidence_id in approved) for e in draft.extracted_evidence])
 
 
 def writer(text="Pinecone 검색용 메타데이터를 구성해 문서 검색 기능을 개발했습니다.", ids=None):
@@ -124,13 +133,12 @@ def test_core_original_fact_may_also_be_preserved():
     assert facts["ev-resume"].assertion_state == AssertionState.RESUME_STATED
 
 
-def test_plan_caps_core_and_supporting_for_one_revision():
-    with pytest.raises(ValidationError):
-        RevisionPlan(objective="too much", operation="replace_field",
-                     core_evidence_ids=["a", "b", "c"])
-    with pytest.raises(ValidationError):
-        RevisionPlan(objective="too much", operation="replace_field",
-                     core_evidence_ids=["a"], supporting_evidence_ids=["b", "c", "d"])
+def test_plan_accepts_more_than_two_distinct_core_meanings():
+    plan = RevisionPlan(objective='문제·판단·행동·검증', operation='replace_field',
+        core_evidence_ids=['problem', 'decision', 'action', 'validation'],
+        supporting_evidence_ids=['tool', 'data', 'flow'])
+    assert len(plan.core_evidence_ids) == 4
+    assert len(plan.supporting_evidence_ids) == 3
 
 
 def test_original_document_is_editing_context_not_evidence():
@@ -171,22 +179,22 @@ def test_verifier_does_not_receive_unused_optional_supporting_fact():
 
     class OptionalSupportLLM(FakeLLM):
         def analyze(self, request):
-            return draft, Usage(calls=1)
+            return extraction(draft), Usage(calls=1)
 
         def write(self, request, plan, facts, issues=None, previous_text=""):
             assert "ev-support" in {item.evidence_id for item in facts}
             self.writes += 1
             return self.drafts.pop(0), Usage(calls=1)
 
-        def verify(self, request, candidate, facts, core_ids, superseded):
+        def verify(self, request, candidate, facts, core_ids, superseded, preserved_ids=None, previous_attempt=None):
             assert "ev-support" not in {item.evidence_id for item in facts}
-            return super().verify(request, candidate, facts, core_ids, superseded)
+            return super().verify(request, candidate, facts, core_ids, superseded, preserved_ids)
 
     result = ReviewEngineV2(OptionalSupportLLM([writer()])).run(request())
     assert result.validation.status == "READY"
 
 
-def test_procedure_rewrite_drops_optional_support_but_keeps_core_and_preserved():
+def test_procedure_rewrite_keeps_sources_and_repairs_expression():
     support = Evidence(
         evidence_id="ev-support", experience_id="experience-1", fact_type="action",
         normalized_fact="PDF를 전처리했다", evidence_quote="PDF를 전처리하고",
@@ -200,7 +208,7 @@ def test_procedure_rewrite_drops_optional_support_but_keeps_core_and_preserved()
 
     class ProcedureLLM(FakeLLM):
         def analyze(self, request):
-            return draft, Usage(calls=1)
+            return extraction(draft), Usage(calls=1)
 
         def write(self, request, plan, facts, issues=None, previous_text=""):
             self.writes += 1
@@ -208,16 +216,21 @@ def test_procedure_rewrite_drops_optional_support_but_keeps_core_and_preserved()
             if self.writes == 1:
                 assert ids == {"ev-1", "ev-resume", "ev-support"}
                 return writer(long_text, list(ids)), Usage(calls=1)
-            assert ids == {"ev-1", "ev-resume"}
+            assert ids == {"ev-1", "ev-resume", "ev-support"}
             return writer(), Usage(calls=1)
+
+        def verify(self, *args, **kwargs):
+            return FactVerification(quality_issues=[ValidationIssue(code='procedure_overload',
+                detail='Repeated procedural steps obscure contribution')] if self.writes == 1 else []), Usage(calls=1)
 
     fake = ProcedureLLM([])
     result = ReviewEngineV2(fake).run(request())
     assert fake.writes == 2
     assert result.validation.status == "READY"
-    assert result.plan.supporting_evidence_ids == []
-    assert "ev-support" in {item.evidence_id for item in result.omitted_evidence}
-    assert "ev-support" not in {item.evidence_id for item in result.selected_evidence}
+    assert set(result.plan.supporting_evidence_ids) == {'ev-resume', 'ev-support'}
+    assert result.plan.preserved_evidence_ids == ['ev-resume']
+    assert "ev-support" not in {item.evidence_id for item in result.omitted_evidence}
+    assert "ev-support" in {item.evidence_id for item in result.selected_evidence}
 
 
 def test_omitted_evidence_never_reaches_writer():
@@ -231,7 +244,7 @@ def test_omitted_evidence_never_reaches_writer():
     draft.extracted_evidence.append(extra)
     class OmitLLM(FakeLLM):
         def analyze(self, request):
-            return draft, Usage(calls=1)
+            return extraction(draft), Usage(calls=1)
 
         def write(self, request, plan, evidence, issues=None, previous_text=""):
             assert "ev-omitted" not in {item.evidence_id for item in evidence}
@@ -272,7 +285,7 @@ def test_clear_correction_supersedes_atomic_resume_fact():
 
     class CorrectionLLM(FakeLLM):
         def analyze(self, request):
-            return draft, Usage(calls=1)
+            return extraction(draft), Usage(calls=1)
 
         def write(self, request, plan, evidence, issues=None, previous_text=""):
             assert [item.evidence_id for item in evidence] == ["new"]
@@ -383,14 +396,14 @@ def test_claim_mapping_number_technology_and_target_are_hard_failures():
     assert result.status == "REWRITE"
 
 
-def test_quality_can_fail_when_fact_is_grounded():
+def test_similarity_to_answer_does_not_force_cosmetic_rewrite():
     req = request()
     facts, plan = validate_analysis(req, analysis())
     copied = writer("PDF를 전처리하고 Pinecone 검색용 메타데이터를 구성했어요.")
     result = validate_candidate(req, copied, plan, facts)
-    assert "answer_copying" in codes(result)
+    assert "answer_copying" not in codes(result)
     assert not result.factual_issues
-    assert result.status == "REWRITE"
+    assert result.status == "READY"
 
 
 def test_long_procedural_paragraph_is_not_apply_ready_even_when_grounded():
@@ -410,7 +423,8 @@ def test_long_procedural_paragraph_is_not_apply_ready_even_when_grounded():
     draft = WriterOutput(experience_id="experience-1", operation="replace_field",
                          original_quote=ORIGINAL,
                          sentences=[RevisionSentence(text=text, evidence_ids=list(facts))])
-    result = validate_candidate(req, draft, plan, facts)
+    result = validate_candidate(req, draft, plan, facts, FactVerification(quality_issues=[
+        ValidationIssue(code='procedure_overload', detail='Repeated indexing adds no useful information')]))
     assert "procedure_overload" in codes(result)
     assert result.status == "REWRITE"
 
@@ -438,14 +452,14 @@ class FakeLLM:
         self.verifications = 0
 
     def analyze(self, req):
-        return analysis(), Usage(calls=1, input_tokens=10, output_tokens=10, latency_ms=1)
+        return extraction(analysis()), Usage(calls=1, input_tokens=10, output_tokens=10, latency_ms=1)
 
     def write(self, req, plan, facts, issues=None, previous_text=""):
         assert {fact.evidence_id for fact in facts} == {"ev-1", "ev-resume"}
         self.writes += 1
         return self.drafts.pop(0), Usage(calls=1, input_tokens=10, output_tokens=10, latency_ms=1)
 
-    def verify(self, req, candidate, facts, core_ids, superseded):
+    def verify(self, req, candidate, facts, core_ids, superseded, preserved_ids=None, previous_attempt=None):
         self.verifications += 1
         return FactVerification(), Usage(calls=1, input_tokens=10, output_tokens=10, latency_ms=1)
 
@@ -472,19 +486,31 @@ def test_apply_precondition_rejects_stale_hash_or_text():
 
 def test_quality_rewrite_is_at_most_once_then_rejected():
     copied = writer("PDF를 전처리하고 Pinecone 검색용 메타데이터를 구성했어요.")
-    fake = FakeLLM([copied, copied])
+    class PoorQuality(FakeLLM):
+        def verify(self, *args, **kwargs):
+            prior = args[6]
+            if prior is None:
+                return FactVerification(quality_issues=[ValidationIssue(code='redundancy',
+                    detail='Repeated meaning still dominates the section')]), Usage(calls=1)
+            assert prior['validation']['quality_issues'][0]['code'] == 'redundancy'
+            # A newly discovered genuine error must still reject an unchanged draft.
+            return FactVerification(unsupported_claims=['previously missed unsupported scope']), Usage(calls=1)
+    fake = PoorQuality([copied, copied])
     result = ReviewEngineV2(fake).run(request())
     assert fake.writes == 2
     assert result.validation.status == "REJECTED"
     assert result.candidate.validation.status == "REJECTED"
+    assert result.validation.factual_issues[0].code == 'semantic_unsupported_claim'
 
 
-def test_no_change_needs_no_writer():
+def test_no_supported_action_needs_no_writer():
     class NoChange(FakeLLM):
         def analyze(self, req):
-            ask = QuestionProposal(question="어떻게 확인했나요?", missing_fact_type="verification",
-                                   improvement_hypothesis="검증 근거", dedupe_key="verify")
-            return analysis(operation="no_change", question=ask), Usage(calls=1)
+            from app.resume_review_v2.models import GapQuestion
+            ask = GapQuestion(experience_id=req.experience.experience_id,
+                question="직접 수행한 작업이 있다면 무엇인가요?", target_slot='personal_role',
+                gap_type='missing', priority='HIGH', why_needed='직접 기여 근거가 있어야 작성할 수 있습니다.', dedupe_key='contribution')
+            return ExtractionOutput(experience_id=req.experience.experience_id, extracted_evidence=[], question=ask), Usage(calls=1)
 
     fake = NoChange([])
     result = ReviewEngineV2(fake).run(request())

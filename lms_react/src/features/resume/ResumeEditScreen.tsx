@@ -36,6 +36,7 @@ import { ResumePrintDoc } from './ResumePrintDoc';
 import { reviewWorkCopy } from './resumeGroups';
 import { SectionBody } from './ResumeSections';
 import { RobotHead } from '../../ui/RobotHead';
+import { useResumeDraft } from './useResumeDraft';
 
 /** 코치 열림 상태를 남긴다 — Flutter의 SharedPreferences 자리 */
 const COACH_VISIBILITY_KEY = 'resume_edit_coach_visible';
@@ -170,7 +171,8 @@ function useCoachVisible(wide: boolean): [boolean, (visible: boolean) => void] {
 export function ResumeEditScreen() {
   const { resumeId } = useParams<{ resumeId: string }>();
   const [search] = useSearchParams();
-  const resume = useResume(resumeId);
+  const serverResume = useResume(resumeId);
+  const { resume, edit, saveVersion, finishSave } = useResumeDraft(serverResume);
   const feedbacks = useResumeFeedbacks(resumeId ?? '');
   const user = useCurrentUser();
   const reviewer = user.role !== 'student';
@@ -216,14 +218,22 @@ export function ResumeEditScreen() {
   const filled = ResumeSectionKeys.filter((k) => done[k]).length;
   const patch = (change: Partial<ResumeContent>) => {
     setSaveState('idle');
+    edit({ content: { ...resume.content, ...change } });
     void updateResume(resume.id, {
       content: { ...resume.content, ...change },
     }).catch(() => setSaveState('error'));
   };
   const saveResume = async () => {
+    const version = saveVersion();
     setSaveState('saving');
     try {
-      await updateResume(resume.id, { revisionCount: resume.revisionCount + 1 });
+      await updateResume(resume.id, {
+        title: resume.title,
+        content: resume.content,
+        revisionCount: resume.revisionCount + 1,
+      });
+      // updateResume waits for the command's bootstrap invalidation/refetch.
+      finishSave(version);
       setSaveState('saved');
     } catch {
       setSaveState('error');
@@ -428,6 +438,7 @@ export function ResumeEditScreen() {
                   maxLength={100}
                   onChange={(e) => {
                     setSaveState('idle');
+                    edit({ title: e.target.value });
                     void updateResume(resume.id, { title: e.target.value }).catch(() => setSaveState('error'));
                   }}
                 />

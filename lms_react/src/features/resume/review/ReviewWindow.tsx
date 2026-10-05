@@ -564,6 +564,7 @@ function ReviewChatPane({
           <ChatBubble
             key={i}
             message={message}
+            resumeContent={session.preview}
             requirementRows={requirementRows}
             starChecks={session.starChecks}
             appliedSuggestionIndices={session.appliedSuggestionIndices}
@@ -810,6 +811,7 @@ function AppliedNotice({ text, onUndo }: { text: string; onUndo?(): void }) {
 
 function ChatBubble({
   message,
+  resumeContent,
   requirementRows,
   starChecks,
   appliedSuggestionIndices,
@@ -818,6 +820,7 @@ function ChatBubble({
   onUndo,
 }: {
   message: ChatMessage;
+  resumeContent: Json | null;
   requirementRows: RequirementRow[];
   starChecks: Record<string, StarCheck>;
   appliedSuggestionIndices: Set<number>;
@@ -934,12 +937,33 @@ function ChatBubble({
 
   const isUser = message.type === 'user';
   const body = message.type === 'question' ? String(message.payload.question ?? '') : message.text;
+  const experienceLabel = message.type === 'question' ? questionExperienceLabel(message.payload, resumeContent) : '';
   return (
     <div className={`rv-bubble${isUser ? ' is-user' : ''}`}>
       {message.type === 'question' && tagFor(message.payload, requirementRows, starChecks)}
+      {message.type === 'question' && experienceLabel !== '' && (
+          <strong className="rv-question-experience">
+            {String(message.payload.field_path ?? '').startsWith('projects[') ? '프로젝트' : '경험'} · {experienceLabel}
+          </strong>
+        )}
       <p>{body}</p>
     </div>
   );
+}
+
+function questionExperienceLabel(question: Json, content: Json | null): string {
+  const title = typeof question.experience_title === 'string' ? question.experience_title.trim() : '';
+  const owner = String(question.experience_id ?? '');
+  // Older persisted B conversations can contain the internal training identity
+  // as their title. Resolve by stable item ID, never by array position or name.
+  const trainingId = owner.startsWith('trainingExperience:') ? owner.slice('trainingExperience:'.length) : '';
+  if (trainingId && (!title || title === owner)) {
+    const rows = Array.isArray(content?.trainingExperience) ? content.trainingExperience : [];
+    const item = rows.find((row): row is Json => row !== null && typeof row === 'object' &&
+      !Array.isArray(row) && (row as Json).id === trainingId);
+    return typeof item?.course === 'string' && item.course.trim() ? item.course.trim() : '교육 경험';
+  }
+  return title;
 }
 
 /** 답변이 이력서에 없는 별도 경험일 때. 기존 칸을 고치지 않고 프로젝트 목록 끝에 하나 더한다 */
