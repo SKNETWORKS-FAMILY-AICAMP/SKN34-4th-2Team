@@ -3,13 +3,18 @@ import type { User, UserRole } from '@web/domain/types';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { useSelectedCohort } from '../data/cohort';
-import { http, readApiError, refreshAccess } from '../data/http';
+import { http, isAuthRejection, readApiError, refreshAccess } from '../data/http';
+import { chatHistory } from '../data/jobs';
+import { unregisterPush } from '../push/notifications';
 import { fetchBootstrap, queryClient, queryKeys, useDb } from '../data/query';
 import { useSessionStore } from '../data/sessionStore';
 
 export interface Session {
   user: User | null;
   loading: boolean;
+  /** 저장된 로그인은 있지만 서버에 닿지 못했다 — 로그아웃시키지 않고 다시 시도하게 한다 */
+  offline: boolean;
+  retry(): void;
   signIn(
     email: string,
     password: string,
@@ -32,14 +37,26 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const ready = useSessionStore((s) => s.ready);
   const [uid, setUid] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [offline, setOffline] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [mustChange, setMustChange] = useState(false);
   const [liveUser, setLiveUser] = useState<User | null>(null);
   const db = useDb();
   const selected = useSelectedCohort(uid ?? undefined);
+  const refreshToken = useSessionStore((s) => s.refresh);
 
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    if (!ready || refreshToken !== null || uid === null) return;
+    setUid(null);
+    setMustChange(false);
+    setLiveUser(null);
+    chatHistory.clear();
+    queryClient.clear();
+  }, [ready, refreshToken, uid]);
 
   useEffect(() => {
     if (!ready) return;
@@ -50,6 +67,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setLoading(false);
         return;
       }
+      setLoading(true);
+      setOffline(false);
       try {
         if (!useSessionStore.getState().access) await refreshAccess();
         const me = await http.get<Record<string, unknown>>('/me');
@@ -63,9 +82,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           found ??
             mapUser({ ...me.data, uid: me.data.uid ?? nextUid, firebase_uid: me.data.uid ?? nextUid }),
         );
-      } catch {
-        useSessionStore.getState().clear();
-        queryClient.clear();
+      } catch (error) {
+        if (cancelled) return;
+        if (isAuthRejection(error)) {
+          useSessionStore.getState().clear();
+          queryClient.clear();
+        } else {
+          setOffline(true);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -73,7 +97,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [ready]);
+  }, [ready, attempt]);
+
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
   const signIn = useCallback(async (email: string, password: string) => {
     try {
@@ -99,9 +125,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    await unregisterPush();
+    setOffline(false);
     setUid(null);
     setMustChange(false);
     setLiveUser(null);
+    chatHistory.clear();
     useSessionStore.getState().clear();
     setTimeout(() => queryClient.clear(), 0);
     void http.post('/logout').catch(() => undefined);
@@ -139,8 +168,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [uid, mustChange, liveUser, db, selected]);
 
   const value = useMemo(
-    () => ({ user, loading, signIn, signOut, changePassword, skipPasswordChange }),
-    [user, loading, signIn, signOut, changePassword, skipPasswordChange],
+    () => ({ user, loading, offline, retry, signIn, signOut, changePassword, skipPasswordChange }),
+    [user, loading, offline, retry, signIn, signOut, changePassword, skipPasswordChange],
   );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

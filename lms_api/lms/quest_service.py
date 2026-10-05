@@ -370,4 +370,13 @@ def review_submission(cur, user: dict, pk: int, data: dict) -> dict:
            WHERE id = %s""",
         [new_status, granted, comment, user["id"], pk],
     )
+    from lms.push import notify_users
+
+    verdict = {"approved": f"승인됐습니다 (+{granted:,}P)", "rejected": "반려됐습니다", "revoked": "승인이 취소됐습니다"}[new_status]
+    notify_users(
+        [submission["user_id"]],
+        "마일리지 미션",
+        f"「{quest['title']}」 제출이 {verdict}. {comment}",
+        "/(student)/quests",
+    )
     return _submission_json(_rows(cur, f"{_SUBMISSIONS} WHERE s.id = %s", [pk])[0])
