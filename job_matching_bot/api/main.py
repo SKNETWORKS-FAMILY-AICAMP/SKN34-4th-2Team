@@ -74,7 +74,11 @@ async def _lifespan(_: FastAPI):
     든다. 그냥 두면 그 3.5초를 **처음 추천을 누른 사람**이 기다린다.
 
     실패해도 서버는 뜬다. 준비를 못 했을 뿐이고 요청이 오면 그때 다시 시도한다.
+
+    마감 확인 세션은 뜨는 것을 기다리지 않고 따로 연다. 여는 데 3~5초를 일부러 쉬기 때문이다.
     """
+    for service in (_service, _chat):
+        threading.Thread(target=service.liveness.warm, daemon=True).start()
     try:
         from langchain_openai import OpenAIEmbeddings
 

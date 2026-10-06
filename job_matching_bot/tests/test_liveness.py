@@ -205,6 +205,19 @@ class LivenessTest(unittest.TestCase):
         self.assertIsNone(self.liveness(source="SARAMIN").verify(self.ids[0]))
         self.assertEqual(self.calls, [])
 
+    def test_warm_opens_the_session_once_and_survives_failure(self) -> None:
+        opened: list[object] = []
+        live = self.liveness(session_factory=lambda: opened.append(object()) or opened[-1])
+        live.warm()
+        live.warm()
+        live.alive(self.ids[:1])
+        self.assertEqual(len(opened), 1)
+
+        def broken():
+            raise BlockedByTargetSiteError("차단")
+
+        self.liveness(session_factory=broken).warm()  # 던지지 않는다
+
 
 if __name__ == "__main__":
     unittest.main()
