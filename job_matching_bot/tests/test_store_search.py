@@ -676,3 +676,63 @@ class CareerYearsSummaryTest(unittest.TestCase):
 
     def test_a_year_alone_is_not_an_empty_filter(self):
         self.assertFalse(JobFilters(career_years=3).is_empty)
+
+
+class ListingNameDedupTest(unittest.TestCase):
+    """목록에서만 본 공고는 묶음이 없어 회사 · 제목 정규화로 같은 공고를 알아본다(DB 없이 거르기만 본다).
+
+    2026-10-04: 목록 전용 21만 건 중 2,625건이 상세 공고와, 22,642건이 다른 사이트 목록 공고와 같은 공고였다.
+    회사 표기(「(주)」 「㈜」)가 사이트마다 달라 `posting_key` 로는 못 잡았다.
+    """
+
+    @staticmethod
+    def row(job_id, company, title, *, detail=True, group=None, image=False, career="ENTRY"):
+        return {"job_id": job_id, "company": company, "title": title, "has_detail": 1 if detail else 0,
+                "posting_group": group, "image_only": image, "career_type": career,
+                "min_career_years": None, "employment_type": "정규직"}
+
+    def kept(self, *rows):
+        from job_matching_bot.retrieval.store_search import _one_per_posting
+
+        return [r["job_id"] for r in _one_per_posting(list(rows))]
+
+    def test_a_listing_twin_of_a_detailed_posting_is_dropped(self):
+        self.assertEqual(["S-1"], self.kept(
+            self.row("S-1", "(주)빈느", "백엔드 개발자 채용"),
+            self.row("J-9", "㈜빈느", "백엔드 개발자 채용", detail=False),
+        ))
+
+    def test_the_detailed_one_stays_even_if_the_listing_comes_first(self):
+        """순서는 제목 직접 일치가 먼저라 목록 공고가 앞설 수 있다. 그래도 상세 쪽을 그 자리에 둔다."""
+        self.assertEqual(["S-1", "X-1"], self.kept(
+            self.row("J-9", "㈜빈느", "백엔드 개발자", detail=False),
+            self.row("X-1", "다른회사", "프론트엔드 개발자"),
+            self.row("S-1", "(주)빈느", "백엔드 개발자"),
+        ))
+
+    def test_listing_twins_across_sites_show_once(self):
+        self.assertEqual(["S-2"], self.kept(
+            self.row("S-2", "주식회사 목록회사", "[부산] 영업관리", detail=False),
+            self.row("J-2", "목록회사(주)", "[부산] 영업관리", detail=False),
+        ))
+
+    def test_a_branch_in_brackets_is_a_different_posting(self):
+        """대괄호 안의 지점은 남긴다 — 묶는 규칙과 같다."""
+        self.assertEqual(["S-3", "J-3"], self.kept(
+            self.row("S-3", "목록회사", "[부산] 영업관리", detail=False),
+            self.row("J-3", "목록회사", "[대구] 영업관리 담당", detail=False, career="EXPERIENCED"),
+        ))
+
+    def test_detailed_postings_alone_follow_regroup_not_names(self):
+        """상세 공고끼리는 이름이 같아도 묶음(regroup)이 가른 대로 둔다."""
+        self.assertEqual(["S-4", "S-5"], self.kept(
+            self.row("S-4", "회사", "데이터 엔지니어", group="g1"),
+            self.row("S-5", "회사", "데이터 엔지니어", group="g2", career="EXPERIENCED"),
+        ))
+
+    def test_a_listing_twin_brings_the_text_body_member_of_the_group(self):
+        self.assertEqual(["S-6"], self.kept(
+            self.row("J-6", "㈜회사", "QA 엔지니어", detail=False),
+            self.row("J-7", "㈜회사", "QA 엔지니어", group="g", image=True),
+            self.row("S-6", "(주)회사", "QA 엔지니어 모집", group="g"),
+        ))

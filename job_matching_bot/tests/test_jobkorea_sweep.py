@@ -137,3 +137,33 @@ class CompanyTypeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExternalPostingRowTest(unittest.TestCase):
+    """워크넷(고용24) 연계 공고 — 번호만으로 열면 404라 원래 링크를 두고 상세를 받지 않는다(모듈 설명 7).
+
+    2026-10-04 확인: 매일 밤 잡코리아 상세 실패 400건대가 전부 이 공고였다. 내려간 공고가 아니다.
+    """
+
+    @staticmethod
+    def parse(href: str):
+        from bs4 import BeautifulSoup
+
+        html = (
+            '<table><tr class="devloopArea"><td class="tplCo"><a class="link">투에스(2S) 주식회사</a></td>'
+            f'<td class="tplTit"><a class="link" href="{href}" title="웹디자이너 모집">웹디자이너 모집</a>'
+            '<p class="etc"><span class="cell">경력무관</span><span class="cell">경남 창원시</span></p></td>'
+            '<td class="odd"><span class="date">~10/15</span><span class="time">1 일 전 등록</span></td></tr></table>'
+        )
+        return jobkorea.parse_row(BeautifulSoup(html, "html.parser").select_one("tr"))
+
+    def test_a_worknet_row_keeps_its_own_link(self):
+        row = self.parse("/Recruit/GI_Read/5658974/Ext?siteCode=WN&sc=")
+        self.assertEqual("5658974", row["source_job_id"])
+        self.assertEqual("WN", row["external_site"])
+        self.assertEqual("https://www.jobkorea.co.kr/Recruit/GI_Read/5658974/Ext?siteCode=WN&sc=", row["source_url"])
+
+    def test_an_ordinary_row_is_unchanged(self):
+        row = self.parse("/Recruit/GI_Read/50104907?Oem_Code=C1&logpath=1")
+        self.assertEqual("", row["external_site"])
+        self.assertEqual("https://www.jobkorea.co.kr/Recruit/GI_Read/50104907", row["source_url"])

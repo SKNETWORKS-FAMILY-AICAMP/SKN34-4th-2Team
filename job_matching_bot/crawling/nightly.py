@@ -441,9 +441,13 @@ def record_jobkorea_list(store: Any, list_path: Path, at: datetime) -> dict[str,
         }
 
     # 상세를 받는 대분류의 공고는 `jobs` 로 들어오므로 목록 표에 담지 않는다. 저장소의
-    # skip 판정은 `cat_mcls` 를 보므로 여기서 미리 거른다.
+    # skip 판정은 `cat_mcls` 를 보므로 여기서 미리 거른다. 워크넷 연계 공고(`external_site`)는
+    # 상세를 받지 않으므로(jobkorea 모듈 설명 7) 대분류와 상관없이 목록 표에 담는다.
     skip = set(jobkorea.DETAIL_CATEGORIES)
-    detailed = {r["source_job_id"] for r in rows if skip.intersection(r.get("categories") or [])}
+    detailed = {
+        r["source_job_id"] for r in rows
+        if skip.intersection(r.get("categories") or []) and not r.get("external_site")
+    }
     keep = [r for r in rows if r["source_job_id"] not in detailed]
 
     store.record_list_seen(dict(seen), complete, at, source=JOBKOREA_SOURCE)

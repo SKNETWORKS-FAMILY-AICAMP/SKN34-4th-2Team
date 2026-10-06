@@ -242,6 +242,23 @@ class JobkoreaObservationTest(unittest.TestCase):
         self.assertEqual({"a"}, observed)
         self.assertEqual({"seen_today": 1, "input": 1, "observed": 1}, info["observation"])
 
+    def test_worknet_postings_go_to_the_listing_table(self):
+        """워크넷 연계 공고는 상세를 받지 않으므로 상세 대분류여도 목록 표(챗봇 검색)에 담는다(jobkorea 모듈 설명 7)."""
+        payload = {
+            "list": [
+                {"source_job_id": "a", "categories": self.cats, "title": "백엔드", "condition_text": "서울 신입 · 정규직"},
+                {"source_job_id": "5658974", "categories": self.cats, "external_site": "WN", "title": "웹디자이너",
+                 "source_url": "https://www.jobkorea.co.kr/Recruit/GI_Read/5658974/Ext?siteCode=WN&sc=",
+                 "condition_text": "경력무관 경남 창원시 정규직"},
+            ],
+            "swept": {c: True for c in self.cats},
+        }
+        self._run(payload)
+        rows = self.store.conn.execute(
+            "SELECT source_job_id, source_url FROM list_jobs WHERE source = 'JOBKOREA_POC'").fetchall()
+        self.assertEqual({"5658974": "https://www.jobkorea.co.kr/Recruit/GI_Read/5658974/Ext?siteCode=WN&sc="},
+                         {r["source_job_id"]: r["source_url"] for r in rows})
+
     def test_cut_off_sweep_changes_nothing(self):
         # 사이트는 5건이라는데 1건만 받았다 — 도중에 끊긴 훑기
         info, detail_input, args = self._run(self._payload({c: 5 for c in self.cats}))

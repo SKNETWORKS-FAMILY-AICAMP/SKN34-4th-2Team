@@ -25,6 +25,7 @@ from typing import Collection
 from job_matching_bot import config
 from job_matching_bot.matching.hard_filter import ENTRY_ONLY_MAX_YEARS
 from job_matching_bot.matching.skill_normalize import canonical_skill
+from job_matching_bot.retrieval.grouping import normalize_company, normalize_title
 from job_matching_bot.retrieval.training import sql_exclusion as training_exclusion
 
 KST = timezone(timedelta(hours=9))
@@ -847,6 +848,13 @@ def posting_key(row) -> tuple:
     )
 
 
+def _name_key(row) -> tuple | None:
+    """묶는 규칙(retrieval/grouping)과 같게 정규화한 회사 · 제목. 둘 중 하나라도 비면 None — 견주지 않는다."""
+    company = normalize_company(_row_value(row, "company") or "")
+    title = normalize_title(_row_value(row, "title") or "")
+    return (company, title) if company and title else None
+
+
 def _row_value(row, name: str):
     try:
         return row[name]
@@ -861,6 +869,11 @@ def _one_per_posting(rows: list) -> list:
     (「(주)빈느」 「㈜빈느」)과 경력 · 고용형태 표기가 사이트마다 달라 `posting_key`로는 못 잡아, 코치 검색에
     같은 공고가 두 번 떴다(2026-10-04 열린 공고의 11.4%). 묶음에서는 앞선 자리에 **글 본문이 있는 쪽**을
     남긴다 — 이미지뿐인 공고는 원문 · 첨삭에 쓸 글이 없다.
+
+    목록에서만 본 공고(`has_detail` 0)에는 묶음이 없다. 그래서 묶는 규칙과 같은 정규화(회사 · 제목,
+    retrieval/grouping)로 같은 공고를 알아본다 — 목록 전용 21만 건 중 2,625건이 상세 공고와, 22,642건이
+    다른 사이트 목록 공고와 같은 공고였다(2026-10-04). 목록 공고가 낀 이름에만 쓴다. 상세 공고끼리는
+    regroup 이 본문까지 보고 가른 것을 따른다. 겹치면 상세 쪽(그중 글 본문)을 남긴다.
     """
     by_group: dict[str, list] = {}
     for row in rows:
@@ -872,8 +885,28 @@ def _one_per_posting(rows: list) -> list:
         for group, members in by_group.items()
     }
 
-    kept, keys, groups = [], set(), set()
-    for row in rows:
+    names = [_name_key(row) for row in rows]
+    listed = {name for row, name in zip(rows, names) if name is not None and _row_value(row, "has_detail") == 0}
+    by_name: dict[tuple, list] = {}
+    for row, name in zip(rows, names):
+        if name in listed:
+            by_name.setdefault(name, []).append(row)
+    detailed = lambda r: _row_value(r, "has_detail") != 0  # noqa: E731
+    chosen_by_name = {
+        name: next(
+            (r for r in members if detailed(r) and not _row_value(r, "image_only")),
+            next((r for r in members if detailed(r)), members[0]),
+        )
+        for name, members in by_name.items()
+    }
+
+    kept, keys, groups, seen_names = [], set(), set(), set()
+    for row, name in zip(rows, names):
+        if name in chosen_by_name:
+            if name in seen_names:
+                continue
+            seen_names.add(name)
+            row = chosen_by_name[name]
         group = _row_value(row, "posting_group")
         if group:
             if group in groups:
