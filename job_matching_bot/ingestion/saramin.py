@@ -147,6 +147,12 @@ def parse_tech_stack(description: str) -> tuple[list[str], dict[str, Any]]:
     }
 
 
+def deadline_is_open(support_text: str) -> bool:
+    """상시채용 · 채용시 마감 — 마감일이 없는 것이지 못 읽은 것이 아니다(`parse_deadline`은 둘 다 None)."""
+    text = _clean(support_text)
+    return "상시" in text or "채용시" in text
+
+
 def parse_deadline(support_text: str, as_of: datetime | None = None) -> tuple[str | None, str]:
     """지원 마감일. 사람인은 상대 표기를 섞어 쓴다.
 
@@ -156,7 +162,7 @@ def parse_deadline(support_text: str, as_of: datetime | None = None) -> tuple[st
     text = _clean(support_text)
     if not text:
         return None, "미기재"
-    if "상시" in text or "채용시" in text:
+    if deadline_is_open(text):
         return None, text
 
     absolute = re.search(r"~\s*(\d{1,2})\.(\d{1,2})", text)

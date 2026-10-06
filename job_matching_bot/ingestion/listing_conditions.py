@@ -149,8 +149,15 @@ _TOMORROW = re.compile(r"내일\s*마감")
 # 잡코리아만 쓰는 표기. 사람인 목록에는 없어서 처음에 빠졌고, 그동안 3,261건이
 # 마감일 없이 들어갔다.
 _DAY_AFTER = re.compile(r"모레\s*마감")
+# 남은 날수. 사람인이 마감 일주일 안쪽을 `D-7`로 적는다. 못 읽어 마감일 없는 공고로 들어갔다(2026-10-06).
+_DAYS_LEFT = re.compile(r"D\s*-\s*(\d{1,3})")
 # 끝이 정해지지 않은 것. 마감일로 거르면 안 된다.
 _OPEN_ENDED = re.compile(r"상시\s*채용|채용\s*시\s*마감|수시\s*채용")
+
+
+def deadline_is_open(support_text: str) -> bool:
+    """상시채용 · 수시채용 · 채용시 마감. `deadline_from_listing`이 None을 주는 두 경우(못 읽음 · 끝이 없음)를 가른다."""
+    return bool(_OPEN_ENDED.search(support_text or ""))
 
 
 def deadline_from_listing(support_text: str, today: date | None = None) -> str | None:
@@ -176,6 +183,9 @@ def deadline_from_listing(support_text: str, today: date | None = None) -> str |
         return f"{(now + timedelta(days=1)).isoformat()}T23:59:59+09:00"
     if _DAY_AFTER.search(text):
         return f"{(now + timedelta(days=2)).isoformat()}T23:59:59+09:00"
+    days_left = _DAYS_LEFT.search(text)
+    if days_left and not _DEADLINE_DATE.search(text):
+        return f"{(now + timedelta(days=int(days_left.group(1)))).isoformat()}T23:59:59+09:00"
     hit = _DEADLINE_DATE.search(text)
     if not hit:
         return None

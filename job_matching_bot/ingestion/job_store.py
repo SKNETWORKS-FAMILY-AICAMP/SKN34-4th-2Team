@@ -20,7 +20,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable
 
@@ -40,11 +40,11 @@ from job_matching_bot.schemas.job_record import (
 REQUIRED_FIELDS = ("company", "title", "source_url")
 
 
-def _is_expired(job: Job, as_of: datetime) -> bool:
-    if not job.deadline:
+def _deadline_passed(deadline: str | None, as_of: datetime) -> bool:
+    if not deadline:
         return False
     try:
-        parsed = datetime.fromisoformat(job.deadline)
+        parsed = datetime.fromisoformat(deadline)
     except ValueError:
         return False
     if parsed.tzinfo is None:
@@ -52,11 +52,57 @@ def _is_expired(job: Job, as_of: datetime) -> bool:
     return parsed < as_of
 
 
+def _is_expired(job: Job, as_of: datetime) -> bool:
+    return _deadline_passed(job.deadline, as_of)
+
+
 def resolve_status(job: Job, as_of: datetime) -> str:
     """관측된 공고의 상태. 소스가 마감이라고 하면 그 말을 따른다."""
     if job.status == STATUS_CLOSED:
         return STATUS_CLOSED
     return STATUS_EXPIRED if _is_expired(job, as_of) else STATUS_OPEN
+
+
+def listing_deadline_change(
+    stored: str | None, status: str, listed: str | None, open_ended: bool, as_of: datetime
+) -> tuple[str | None, str] | None:
+    """오늘 목록에 보인 공고의 마감일을 목록 값으로 고칠지. 고치면 (새 마감, 새 상태), 아니면 None.
+
+    상세는 한 번 받으면 다시 받지 않는다. 그래서 회사가 마감일을 늘려도 저장소는 처음 마감일로
+    공고를 마감(EXPIRED)했고, 되살릴 길은 학생이 그 링크를 가져올 때뿐이었다. 목록에는 늘린
+    마감일(`~10.31`, `D-7`, `상시채용`)이 그대로 보인다. 2026-10-06 최근 사흘 목록에 보인 마감 공고
+    2,010건 — 페이지로 표본을 열어 보니 목록에 계속 보인 것은 다 살아 있었다.
+
+    - OPEN · EXPIRED만 고친다. CLOSED는 페이지가 내려갔다고 본 것이고, REMOVED는 목록 관측이 되살린다.
+    - 목록 마감을 못 읽었으면(`listed` None, 상시도 아님) 두지 않는다. 모르는 것을 지우지 않는다.
+    - 하루 안쪽 차이면 저장된 값을 지킨다. `D-2` · `내일마감`은 목록을 받은 시각에 대한 말인데 밤 수집이
+      자정을 넘기므로 같은 마감이 하루씩 어긋나 보인다(10/5 목록으로 대 보니 열린 공고 5,594건이 하루 차이).
+      상세 페이지에서 읽은 시각(18:00 마감 등)도 지킨다.
+    - 상시채용으로 바뀌었으면 마감일을 비운다 — 끝이 정해지지 않은 것이지 지난 것이 아니다.
+    - 상태는 새 마감일로 다시 정한다. 줄인 마감이 이미 지났으면 EXPIRED가 된다.
+    """
+    if status not in (STATUS_OPEN, STATUS_EXPIRED):
+        return None
+    if listed is None and not open_ended:
+        return None
+    if open_ended:
+        new = None
+        if not stored:
+            return None
+    else:
+        new = listed
+        if stored and _days_apart(stored, listed) <= 1:
+            return None
+    new_status = STATUS_EXPIRED if _deadline_passed(new, as_of) else STATUS_OPEN
+    return new, new_status
+
+
+def _days_apart(a: str, b: str) -> int:
+    """두 마감일의 날짜 차이. 못 읽으면 크게 — 다른 값으로 본다."""
+    try:
+        return abs((date.fromisoformat(a[:10]) - date.fromisoformat(b[:10])).days)
+    except ValueError:
+        return 9999
 
 
 def keep_listing_fields(job: Job, company: str | None, title: str | None, deadline: str | None) -> Job:
