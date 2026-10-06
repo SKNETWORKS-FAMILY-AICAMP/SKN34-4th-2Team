@@ -685,6 +685,21 @@ def run_index(store_path: Path, as_of: datetime, work_dir: Path) -> int:
     return subprocess.run(command, cwd=str(REPO_ROOT)).returncode
 
 
+def run_prune(store_path: Path, as_of: datetime, work_dir: Path) -> dict[str, Any]:
+    """닫힌 지 15일 지난 공고를 백업하고 지운다(job_matching_bot.prune). 첨삭 중인 공고는 남긴다."""
+    report = work_dir / f"{run_stamp(as_of)}_prune.json"
+    command = [
+        sys.executable, "-m", "job_matching_bot.prune",
+        "--store", str(store_path), "--report", str(report), "--apply",
+    ]
+    print("[정리] " + " ".join(command[2:]), flush=True)
+    code = subprocess.run(command, cwd=str(REPO_ROOT)).returncode
+    try:
+        return {"exit_code": code, **json.loads(report.read_text(encoding="utf-8"))}
+    except (OSError, ValueError):
+        return {"exit_code": code}
+
+
 def share_store_file(store_path: Path) -> dict[str, Any]:
     """공유 파일 업로드 생략 초안. 크롤링 담당자 확인 후 운영 방식을 확정한다."""
     # TODO(크롤링 담당자 확인): 모든 소비자가 jobs 스키마를 직접 읽는지 검증하고
@@ -890,6 +905,9 @@ def main() -> int:
         # 5e. 요건 채우기 — 인덱스 전에. 채운 연차가 검색 조건에도 실리게
         summary["requirements"] = run_fill_requirements(args.store, now, NIGHTLY_DIR)
         summary["index_exit_code"] = run_index(args.store, now, NIGHTLY_DIR)
+        # 5f. 닫힌 지 15일 지난 공고를 지운다. 인덱스가 벡터를 먼저 지운 뒤라야 한다(prune 은 인덱스에
+        #     남은 행을 건너뛴다). 표 파일은 줄이지 않는다 — 지운 자리는 새 공고가 다시 쓴다.
+        summary["prune"] = run_prune(args.store, now, NIGHTLY_DIR)
 
         # 6. PostgreSQL 직접 공유 초안. 담당자 검토 전에는 이 배치 변경을 배포하지 않는다.
         if not args.no_share:
