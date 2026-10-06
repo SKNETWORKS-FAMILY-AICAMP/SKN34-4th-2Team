@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from django.db import connection, transaction
 from django.utils import timezone
 
+from lms.push import notify_new_notice
 from lms.services import schedule_notice_vector
 
 
@@ -124,6 +125,7 @@ def publish_scheduled_notices(*, ids: list | None = None, now: datetime | None =
                     ],
                 )
                 notice_id = cur.fetchone()[0]
+                notify_new_notice(cur, row["cohort_id"], notice_id, row.get("title") or "", row.get("content") or "", None)
                 kind = (row.get("repeat_type") or "once").lower()
                 if kind in ("daily", "weekly"):
                     nxt = compute_next_publish_at(

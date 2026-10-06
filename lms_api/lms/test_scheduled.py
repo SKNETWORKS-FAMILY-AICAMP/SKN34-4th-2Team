@@ -59,7 +59,9 @@ class ScheduledPublisherTests(TestCase):
         cursor = _ScheduleCursor()
         with patch("lms.publish.connection.cursor", return_value=cursor), \
              patch("lms.publish.transaction.atomic", return_value=nullcontext()), \
-             patch("lms.publish.schedule_notice_vector"):
+             patch("lms.publish.schedule_notice_vector"), \
+             patch("lms.publish.notify_new_notice") as notify:
             self.assertEqual(publish_scheduled_notices(ids=[7]), 1)
             self.assertEqual(publish_scheduled_notices(ids=[7]), 0)
         self.assertEqual(cursor.notices, 1)
+        notify.assert_called_once()

@@ -25,7 +25,7 @@ import {
 } from '../../ui/components';
 import { formatDate, formatDateTime } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
-import { downloadText } from '../manager/studentFilters';
+import { ExportMenu } from '../export/ExportMenu';
 import {
   QuestionTypeIcons,
   QuestionTypeLabels,
@@ -34,7 +34,7 @@ import {
   formatAnswer,
   newQuestion,
   questionsError,
-  responsesToCsv,
+  responsesTable,
   summarize,
   tidyQuestions,
 } from './formSurvey';
@@ -147,10 +147,7 @@ function FormResultsDialog({
   const nameOf = (uid: string) => students.find((s) => s.uid === uid)?.displayName ?? byUser.get(uid)?.userDisplayName ?? uid;
   const missing = students.filter((s) => !byUser.has(s.uid)).length;
 
-  const exportCsv = () => {
-    const day = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
-    downloadText(`${task.title}_${day}.csv`, responsesToCsv(task, responses, students));
-  };
+  const day = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
 
   return (
     <Dialog
@@ -159,9 +156,7 @@ function FormResultsDialog({
       onClose={onClose}
       actions={
         <>
-          <Button variant="outline" icon={<Icon name="download" size={16} />} onClick={exportCsv}>
-            CSV 내보내기
-          </Button>
+          <ExportMenu size="md" label="결과 내려받기" fileName={`${task.title}_${day}`} build={() => responsesTable(task, responses, students)} />
           <Spacer />
           <Button onClick={onClose}>닫기</Button>
         </>

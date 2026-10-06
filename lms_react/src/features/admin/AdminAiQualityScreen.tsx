@@ -11,45 +11,74 @@ import { useCurrentUser } from '../auth/session';
  * LLMOps — features/admin/presentation/admin_ai_quality_screen.dart
  *
  * 관측 지표(성공률·지연·비용), 평가 결과, 프롬프트 버전별 채택률을 본다.
- * 프로토타입의 로그는 seed에서 만들어진 값이다.
+ * 서버는 기수의 최근 로그 500건과 최근 평가 50건만 내려 준다.
  */
-const TYPE_FILTERS: [string, string][] = [
-  ['all', '전체'],
-  ['assessment', '문제생성'],
-  ['job_chat', '공고챗봇'],
-  ['job_recommend', '추천'],
-  ['resume_review', '첨삭'],
-  ['student_chatbot', '학생챗봇'],
-];
+const TYPE_LABELS: Record<string, string> = {
+  assessment: '문제생성',
+  job_chat: '공고챗봇',
+  job_recommend: '추천',
+  resume_review: '첨삭',
+  student_chatbot: '학생챗봇',
+  admin_assistant: '관리자 도우미',
+};
+
+const LOG_PAGE = 50;
+const EVAL_SHOWN = 5;
+
+function typeLabel(type: string): string {
+  return TYPE_LABELS[type] ?? (type || '기타');
+}
+
+function timeOf(date: Date | undefined): number {
+  return date?.getTime() ?? 0;
+}
 
 export function AdminAiQualityScreen() {
   const user = useCurrentUser();
-  const logs = useDb((db) => db.aiLogs);
-  const evals = useDb((db) => db.aiEvals);
+  const rawLogs = useDb((db) => db.aiLogs);
+  const rawEvals = useDb((db) => db.aiEvals);
   const [type, setType] = useState('all');
+  const [shown, setShown] = useState(LOG_PAGE);
 
-  const filtered = type === 'all' ? logs : logs.filter((l) => l.type === type);
+  const logs = useMemo(() => [...rawLogs].sort((a, b) => timeOf(b.createdAt) - timeOf(a.createdAt)), [rawLogs]);
+  const evals = useMemo(() => [...rawEvals].sort((a, b) => timeOf(b.ranAt) - timeOf(a.ranAt)), [rawEvals]);
+  const typeFilters = useMemo<[string, string][]>(() => {
+    const present = new Set(logs.map((l) => l.type));
+    const known = Object.keys(TYPE_LABELS);
+    const extra = [...present].filter((t) => !known.includes(t)).sort();
+    return [['all', '전체'], ...[...known, ...extra].map((t): [string, string] => [t, typeLabel(t)])];
+  }, [logs]);
+
+  const filtered = useMemo(() => (type === 'all' ? logs : logs.filter((l) => l.type === type)), [logs, type]);
   const stats = useMemo(() => summarize(filtered), [filtered]);
-  const latestEval = [...evals].sort(
-    (a, b) => (b.ranAt?.getTime() ?? 0) - (a.ranAt?.getTime() ?? 0),
-  )[0];
 
-  // 프롬프트 버전별 묶음 — 원본의 byPromptVersion
-  const versions = Array.from(new Set(logs.map((l) => l.promptVersion)));
+  // 프롬프트 버전별 묶음 — 원본의 byPromptVersion. 고른 유형 안에서만 묶는다
+  const versions = useMemo(() => {
+    const groups = new Map<string, AiGenerationLog[]>();
+    for (const log of filtered) {
+      const key = log.promptVersion.trim();
+      groups.set(key, [...(groups.get(key) ?? []), log]);
+    }
+    return [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+  }, [filtered]);
 
   const showAssessment = type === 'all' || type === 'assessment';
+  const chooseType = (id: string) => {
+    setType(id);
+    setShown(LOG_PAGE);
+  };
 
   return (
     <div className="admin-page admin-page--wide llmops">
       <PageHeader title="AI 품질 (LLMOps)" description={`${user.cohortName} · 관측 · 평가 · 피드백 · 프롬프트 버전`} />
 
       <div className="mchips">
-        {TYPE_FILTERS.map(([id, label]) => (
+        {typeFilters.map(([id, label]) => (
           <button
             key={id}
             type="button"
             className={`mchip${type === id ? ' mchip--on' : ''}`}
-            onClick={() => setType(id)}
+            onClick={() => chooseType(id)}
           >
             {type === id && <Icon name="check" size={14} />}
             {label}
@@ -78,36 +107,39 @@ export function AdminAiQualityScreen() {
       </div>
 
       <h2 className="llmops__title">최근 평가 실행</h2>
-      {latestEval === undefined ? (
+      {evals.length === 0 ? (
         <p className="hint">아직 평가 실행 기록이 없습니다.</p>
       ) : (
-        <div className="panel llmops__card">
-          <strong className="llmops__card-title">
-            {latestEval.promptVersion} · {latestEval.model ?? 'gpt-5.6-luna'}
-          </strong>
-          <span className="hint">
-            source={latestEval.suite} · 사례 {latestEval.caseCount} · 통과{' '}
-            {Math.round(latestEval.caseCount * latestEval.passRate)} · 정답률{' '}
-            {(latestEval.passRate * 100).toFixed(1)}% · 평균 {latestEval.avgLatencyMs ?? 0}ms ·{' '}
-            {formatDateTime(latestEval.ranAt)}
-          </span>
-        </div>
+        evals.slice(0, EVAL_SHOWN).map((run) => (
+          <div key={run.id} className="panel llmops__card">
+            <strong className="llmops__card-title">
+              {run.promptVersion || '버전 없음'}
+              {run.model ? ` · ${run.model}` : ''}
+            </strong>
+            <span className="hint">
+              source={run.suite || '-'} · 사례 {run.caseCount} · 통과 {Math.round(run.caseCount * run.passRate)} · 정답률{' '}
+              {(run.passRate * 100).toFixed(1)}%
+              {run.avgLatencyMs !== undefined ? ` · 평균 ${run.avgLatencyMs}ms` : ''} · {formatDateTime(run.ranAt)}
+            </span>
+          </div>
+        ))
       )}
 
       <h2 className="llmops__title">프롬프트 버전별</h2>
       {versions.length === 0 ? (
         <p className="hint">아직 버전별 데이터가 없습니다.</p>
       ) : (
-        versions.map((version) => {
-          const rows = logs.filter((l) => l.promptVersion === version);
+        versions.map(([version, rows]) => {
           const stat = summarize(rows);
           return (
-            <div key={version} className="panel llmops__card">
-              <strong className="llmops__card-title">{version}</strong>
+            <div key={version || '-'} className="panel llmops__card">
+              <strong className="llmops__card-title">{version || '버전 없음'}</strong>
               <span className="hint">
-                생성 {stat.generated} · 채택+수정 {stat.adopted} ·{' '}
-                {stat.generated > 0 ? `채택률 ${stat.adoptionRate.toFixed(1)}% · ` : ''}유용 피드백{' '}
-                {stat.useful}
+                요청 {stat.total} · 성공률 {stat.successRate.toFixed(1)}% · 평균 {stat.avgLatency}ms
+                {stat.generated > 0
+                  ? ` · 생성 ${stat.generated} · 채택+수정 ${stat.adopted} · 채택률 ${stat.adoptionRate.toFixed(1)}%`
+                  : ''}
+                {stat.useful > 0 ? ` · 유용 피드백 ${stat.useful}` : ''}
               </span>
             </div>
           );
@@ -122,28 +154,40 @@ export function AdminAiQualityScreen() {
           문제 생성 · 취업 코치 · 학생 챗봇을 실행해 보세요.
         </p>
       ) : (
-        filtered.map((log) => (
-          <div key={log.id} className="panel llmops__log">
-            <header className="llmops__log-head">
-              <span className="llmops__tag">
-                {TYPE_FILTERS.find(([id]) => id === log.type)?.[1] ?? log.type}
-              </span>
-              <Badge tone={log.status === 'success' ? 'success' : 'error'}>{log.status}</Badge>
-              <strong>{formatDateTime(log.createdAt)}</strong>
-              <span className="spacer" />
-              <span className="hint">{log.latencyMs}ms</span>
-            </header>
-            <p className="llmops__log-body">
-              {log.promptVersion} · {log.model}
-              {log.generatedCount > 0 && ` · 생성 ${log.generatedCount}`}
-              {log.tokenIn !== undefined &&
-                ` · 토큰 ${(log.tokenIn ?? 0).toLocaleString()}/${(log.tokenOut ?? 0).toLocaleString()}`}
-            </p>
-            {log.errorMessage !== undefined && (
-              <p className="llmops__log-error">{log.errorMessage}</p>
-            )}
-          </div>
-        ))
+        <>
+          {filtered.slice(0, shown).map((log) => (
+            <div key={log.id} className="panel llmops__log">
+              <header className="llmops__log-head">
+                <span className="llmops__tag">{typeLabel(log.type)}</span>
+                <Badge tone={log.status === 'success' ? 'success' : 'error'}>
+                  {log.status === 'success' ? '성공' : '실패'}
+                </Badge>
+                <strong>{log.createdAt ? formatDateTime(log.createdAt) : '-'}</strong>
+                {log.createdByName && <span className="hint">{log.createdByName}</span>}
+                <span className="spacer" />
+                <span className="hint">{log.latencyMs.toLocaleString()}ms</span>
+              </header>
+              <p className="llmops__log-body">
+                {[
+                  log.promptVersion || '버전 없음',
+                  log.model || '모델 미기록',
+                  log.generatedCount > 0 ? `생성 ${log.generatedCount}` : '',
+                  log.tokenIn !== undefined || log.tokenOut !== undefined
+                    ? `토큰 ${(log.tokenIn ?? 0).toLocaleString()}/${(log.tokenOut ?? 0).toLocaleString()}`
+                    : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </p>
+              {log.errorMessage && <p className="llmops__log-error">{log.errorMessage}</p>}
+            </div>
+          ))}
+          {filtered.length > shown && (
+            <button type="button" className="btn btn--outline btn--md" onClick={() => setShown((n) => n + LOG_PAGE)}>
+              더 보기 ({filtered.length - shown}건 남음)
+            </button>
+          )}
+        </>
       )}
     </div>
   );
