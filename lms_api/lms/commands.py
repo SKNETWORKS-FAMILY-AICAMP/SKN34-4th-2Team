@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth.hashers import make_password
 from django.db import connection, transaction
@@ -10,6 +11,8 @@ from django.db import connection, transaction
 from lms.permissions import can_access_cohort
 from lms.practice_service import PRACTICE_OPS
 from lms.services import schedule_notice_vector
+
+KST = ZoneInfo("Asia/Seoul")
 
 
 def _one(cur):
@@ -791,10 +794,11 @@ def op_create_cohort(cur, user, p):
     code = p.get("cohortId") or p.get("code")
     if not code:
         raise ValueError("cohort code required")
+    start, end = _cohort_period(p)
     cur.execute(
         """INSERT INTO cohorts (code, name, description, status, is_active, term_number,
-               classroom_name, created_at)
-           VALUES (%s,%s,%s,%s,%s,%s,%s, now()) RETURNING id""",
+               classroom_name, start_date, end_date, created_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s, now()) RETURNING id""",
         [
             code,
             p.get("name") or code,
@@ -803,6 +807,8 @@ def op_create_cohort(cur, user, p):
             bool(p.get("isActive", True)),
             p.get("termNumber"),
             p.get("classroomName"),
+            start,
+            end,
         ],
     )
     pk = cur.fetchone()[0]
@@ -812,7 +818,7 @@ def op_create_cohort(cur, user, p):
 def op_update_cohort(cur, user, p):
     _require_admin(user)
     code = p.get("cohortId") or p.get("code")
-    cur.execute("SELECT id FROM cohorts WHERE code = %s", [code])
+    cur.execute("SELECT id, start_date FROM cohorts WHERE code = %s", [code])
     row = cur.fetchone()
     if not row:
         raise KeyError("cohort")
@@ -830,11 +836,40 @@ def op_update_cohort(cur, user, p):
         if src in p:
             fields.append(f"{col} = %s")
             args.append(p[src])
+    # 기간은 관리자 화면 「기수 관리」에서 고친다. 학생 대시보드 D-day · 챗봇의 과정 기간이 이 값을 읽는다.
+    # 예전에는 화면이 보낸 날짜를 버려서 새로고침하면 옛 날짜로 돌아갔다
+    start, end = _cohort_period(p)
+    # 개강한 기수는 시작일을 못 바꾼다. 출석 단위기간이 시작일부터 한 달씩 나뉘어, 바꾸면 지난 기간 출석률이 다시 계산된다.
+    # 종료일은 마지막 기간만 바뀌어 연다. 화면은 저장할 때 같은 시작일을 그대로 보내므로 같은 값이면 통과
+    current_start = row[1]
+    if "startDate" in p and current_start and current_start <= datetime.now(KST).date() and start != current_start:
+        raise ValueError("개강한 기수는 시작일을 바꿀 수 없습니다.")
+    for src, col, value in (("startDate", "start_date", start), ("endDate", "end_date", end)):
+        if src in p:
+            fields.append(f"{col} = %s")
+            args.append(value)
     if not fields:
         return {"ok": True}
     args.append(row[0])
     cur.execute(f"UPDATE cohorts SET {', '.join(fields)} WHERE id = %s", args)
     return {"ok": True}
+
+
+def _cohort_period(p) -> tuple[date | None, date | None]:
+    """화면이 보낸 시작일 · 종료일(「2026-12-14」 또는 「2026-12-14T00:00:00.000Z」)을 날짜로. 종료가 시작보다 앞이면 거절."""
+
+    def day(value) -> date | None:
+        if value in (None, ""):
+            return None
+        try:
+            return date.fromisoformat(str(value)[:10])
+        except ValueError as error:
+            raise ValueError(f"날짜 형식이 아닙니다: {value}") from error
+
+    start, end = day(p.get("startDate")), day(p.get("endDate"))
+    if start and end and end < start:
+        raise ValueError("종료일이 시작일보다 앞입니다.")
+    return start, end
 
 
 def _hhmm(value) -> str | None:
