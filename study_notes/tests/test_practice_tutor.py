@@ -37,6 +37,19 @@ class AskTests(unittest.TestCase):
         self.system, self.human = fake.call_args.args
         return out
 
+    def test_recent_struggles_reach_problem_prompt_only(self) -> None:
+        """최근 막힌 문제는 주제 · 날짜 · 결과만 문제 셀 프롬프트에 — 일반 셀에는 안 넣는다"""
+        struggles = [{"topic": "반복문 범위", "date": "2026-10-02", "passed": True, "tries": 4},
+                     {"topic": "딕셔너리 get", "passed": False, "tries": 2}]
+        self.ask({"mode": "problem", "question": "왜 틀려요?", "code": "x", "problem": PROBLEM, "struggles": struggles},
+                 {"type": "hint", "reply": "방향을 떠올려 볼까요?", "lines": []})
+        self.assertIn("- 10/02 · 반복문 범위 · 4번 만에 통과", self.human)
+        self.assertIn("- 딕셔너리 get · 아직 못 풀었음", self.human)
+        self.assertIn("같은 개념", self.system)
+        self.ask({"mode": "cell", "question": "이 코드 설명해 줘", "code": "x = 1", "struggles": struggles},
+                 {"type": "explain", "reply": "x 에 1 을 넣어요.", "lines": []})
+        self.assertNotIn("반복문 범위", self.human)
+
     def test_problem_mode_sends_level_and_hidden_context(self) -> None:
         out = self.ask(
             {"mode": "problem", "hintLevel": 2, "problem": PROBLEM, "code": "def f(w):\n    return min(w)",

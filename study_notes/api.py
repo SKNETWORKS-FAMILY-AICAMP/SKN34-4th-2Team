@@ -113,6 +113,8 @@ class ProxyTutorRequest(BaseModel):
     hintLevel: int = Field(default=1, ge=1, le=3)
     problem: dict[str, Any] | None = None
     history: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    # 이 학생이 최근 막힌 다른 문제(주제 · 날짜 · 결과) — 같은 개념이면 튜터가 이어 짚는다
+    struggles: list[dict[str, Any]] = Field(default_factory=list, max_length=10)
 class InternalTreeRequest(TreeRequest):
     userPk: int = Field(gt=0)
 

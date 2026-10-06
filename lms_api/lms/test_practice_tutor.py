@@ -1,8 +1,11 @@
 """연습장 튜터 — 「정답 알려 줘」 안내가 문제 셀에 실제로 있는 길을 가리키는지, 잡담 차단 중에도 공부 질문은 받는지."""
 
+from datetime import date
+from unittest.mock import Mock
+
 from django.test import SimpleTestCase
 
-from lms.practice_tutor import ON_TOPIC, _problem_payload, _thread_key, locked_reply
+from lms.practice_tutor import ON_TOPIC, STRUGGLE_LIMIT, _problem_payload, _struggles, _thread_key, locked_reply
 
 
 def row(kind: str, packages: str = "[]", tries: int = 0, passed: bool = False) -> dict:
@@ -57,3 +60,36 @@ class TutorPayloadTests(SimpleTestCase):
         for q in ["태그가 안 보여요", "querySelector 가 뭐예요", "이벤트가 안 걸려요", "const 랑 let 차이"]:
             self.assertTrue(ON_TOPIC.search(q), q)
         self.assertFalse(ON_TOPIC.search("오늘 점심 뭐 먹지"))
+
+
+class StruggleTests(SimpleTestCase):
+    """튜터가 이어 짚을 「최근 막힌 문제」 — 주제 · 날짜 · 결과만, 주제가 겹치면 한 번, 최대 STRUGGLE_LIMIT 개."""
+
+    COLUMNS = ("topic", "kind", "packages", "passed", "tries", "lesson_date")
+
+    def _rows(self, rows):
+        cur = Mock()
+        cur.description = [(c,) for c in self.COLUMNS]
+        cur.fetchall.return_value = rows
+        return cur
+
+    def test_dedupes_topics_and_keeps_only_safe_fields(self):
+        cur = self._rows([
+            ("반복문 범위", "code_fix", "[]", True, 4, date(2026, 10, 2)),
+            ("반복문 범위", "code_blank", "[]", False, 2, date(2026, 10, 1)),
+            ("GROUP BY", "code_write", '["sqlite3"]', False, 3, date(2026, 9, 30)),
+        ])
+        got = _struggles(cur, 7, 99)
+        self.assertEqual(["반복문 범위", "GROUP BY"], [s["topic"] for s in got], "같은 주제는 가장 최근 한 번만")
+        self.assertEqual({"topic", "kind", "passed", "tries", "date"}, set(got[0]), "코드 · 답은 보내지 않는다")
+        self.assertEqual("sql_query", got[1]["kind"], "code_write + sqlite3 는 SQL 조회 문제로 되돌린다")
+        self.assertEqual("2026-10-02", got[0]["date"])
+        sql, args = cur.execute.call_args.args
+        self.assertIn("a.problem_id <> %s", sql, "지금 문제는 빼고")
+        self.assertEqual([7, 99], args[:2])
+
+    def test_limit(self):
+        cur = self._rows([(f"주제 {i}", "code_fix", "[]", False, 1, None) for i in range(STRUGGLE_LIMIT + 3)])
+        got = _struggles(cur, 7, 1)
+        self.assertEqual(STRUGGLE_LIMIT, len(got))
+        self.assertEqual("", got[0]["date"], "수업 날짜가 없으면 빈 칸")

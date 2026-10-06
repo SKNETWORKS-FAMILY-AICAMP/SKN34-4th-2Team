@@ -65,6 +65,9 @@ PROBLEM_RULES = """지금은 채점이 있는 복습 문제를 돕는다. 정답
 틀린 곳이 여러 곳이면 한 번에 한 곳만 다룬다 — 먼저 걸린 테스트의 원인(모르겠으면 코드 위쪽)을 골라 그곳만 말하고
 2 · 3단계면 lines 에도 그 한 줄만 넣는다(1단계는 여전히 lines 를 비우고 줄을 말하지 않는다). 다른 곳은 설명하지 말고 「이걸 고치고 다시 채점하면 다음 것이 보여요」처럼 한 문장만 덧붙인다.
 모범답안은 [문제]에 있지만 학생에게 보여 주지 않는다.
+[최근 막힌 문제]에 지금 문제와 같은 개념(같은 문법 · 함수 · 절 · 같은 종류의 실수)이 있으면 한 문장만 이어 짚는다 — 「지난번 ○○ 문제에서도
+  비슷한 데서 막혔죠」처럼. 개념이 다르면 꺼내지 않는다(억지로 잇지 않는다). 몇 번 틀렸는지 들추거나 탓하지 않고, 그 문제의 답도 말하지 않는다.
+  이 한 문장도 지금 힌트 단계를 넘지 않는다.
 예외 — [문제]에 「정답 공개됨」이 있으면 학생 화면에 이미 정답과 해설이 떠 있다. 위의 단계 · 답 숨기기 규칙 없이 해설한다(type "explain"):
   정답이 왜 맞는지, 학생 답이 왜 틀렸는지, 원리 · 더 나은 방법을 [문제]의 해설과 어긋나지 않게. 모범답안 코드 전체를 그대로 옮기지는 않는다."""
 
@@ -90,6 +93,9 @@ HUMAN = """[문제]
 
 [지금까지 대화 — 오래된 것부터]
 {history}
+
+[최근 막힌 문제 — 이 학생이 다른 문제에서]
+{struggles}
 
 [학생 질문]
 {question}"""
@@ -174,6 +180,19 @@ def _problem_text(problem: dict[str, Any] | None) -> str:
     return "\n".join(parts)
 
 
+def _struggle_lines(struggles: list[dict[str, Any]] | None) -> str:
+    """「- 10/02 · 반복문 범위 · 4번 만에 통과」 — 주제 · 날짜 · 결과만. 코드 · 답은 Django 가 보내지 않는다"""
+    lines = []
+    for s in (struggles or [])[:5]:
+        topic = str(s.get("topic") or "").strip()[:60]
+        if not topic:
+            continue
+        date = str(s.get("date") or "")[5:10].replace("-", "/")
+        result = f"{int(s.get('tries') or 0)}번 만에 통과" if s.get("passed") else "아직 못 풀었음"
+        lines.append(f"- {date + ' · ' if date else ''}{topic} · {result}")
+    return "\n".join(lines) or "(없음)"
+
+
 def ask(payload: dict[str, Any]) -> dict[str, Any]:
     """{type, reply, lines, llm}. llm=False 면 LLM 을 부르지 않고 답했다."""
     question = str(payload.get("question") or "").strip()[:1000]
@@ -195,6 +214,7 @@ def ask(payload: dict[str, Any]) -> dict[str, Any]:
         grade=str(payload.get("grade") or "(채점 없음)")[:2000],
         history="\n".join(f"{'학생' if h.get('role') == 'user' else '튜터'}: {str(h.get('text', ''))[:600]}" for h in history[-6:])
         or "(없음)",
+        struggles=_struggle_lines(payload.get("struggles") if mode == "problem" else None),
         question=question,
     )
     raw = _invoke(system, human, tags=[mode, f"hint{level}"] if mode == "problem" else [mode])

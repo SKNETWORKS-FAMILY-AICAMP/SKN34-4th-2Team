@@ -23,6 +23,10 @@ from lms.study_source_service import StudySourceError
 
 TIMEOUT = 90
 HISTORY = 6
+# 튜터가 이어 짚을 「최근 막힌 문제」 — 이 기간 · 이 개수까지. 못 풀었거나 이만큼 넘게 시도해 통과한 문제
+STRUGGLE_DAYS = 21
+STRUGGLE_LIMIT = 5
+STRUGGLE_TRIES = 3
 REVEAL_AFTER_TRIES = 2  # 화면(ProblemCell)의 REVEAL_AFTER_TRIES 와 같다
 OFFTOPIC_STREAK = 3
 OFFTOPIC_WINDOW = timedelta(minutes=10)
@@ -106,6 +110,32 @@ def _problem_payload(p: dict) -> dict:
 def answer_revealed(p: dict) -> bool:
     """학생 화면에 정답과 해설이 이미 떠 있는지(ProblemCell — 개념 · 출력 예상은 내면 바로, 코드는 통과해야 해설)"""
     return bool(p["passed"]) or (stored_kind(p) in ANSWER_ON_SUBMIT and p["tries"] >= 1)
+
+
+def _struggles(cur, user_id: int, problem_id: int | None) -> list[dict]:
+    """이 학생이 최근 막혔던 다른 문제 — 주제 · 날짜 · 결과만(코드 · 답은 안 보낸다).
+    튜터는 지금 문제와 같은 개념일 때만 한 문장으로 이어 짚는다(「지난번 ○○에서도 비슷한 데서 막혔죠」)."""
+    cur.execute(
+        """SELECT p.topic, p.kind, p.packages, a.passed, a.tries, s.lesson_date
+           FROM practice_attempts a
+           JOIN practice_problems p ON p.id = a.problem_id
+           JOIN practice_sets s ON s.id = p.problem_set_id
+           WHERE a.user_id = %s AND a.problem_id <> %s AND p.topic <> ''
+             AND (NOT a.passed OR a.tries >= %s) AND a.answered_at >= now() - %s
+           ORDER BY a.answered_at DESC LIMIT %s""",
+        [user_id, problem_id or 0, STRUGGLE_TRIES, timedelta(days=STRUGGLE_DAYS), STRUGGLE_LIMIT * 3],
+    )
+    seen, out = set(), []
+    for r in _dicts(cur):
+        if r["topic"] in seen:
+            continue
+        seen.add(r["topic"])
+        out.append({
+            "topic": r["topic"], "kind": stored_kind(r),
+            "passed": bool(r["passed"]), "tries": int(r["tries"]),
+            "date": r["lesson_date"].isoformat() if r["lesson_date"] else "",
+        })
+    return out[:STRUGGLE_LIMIT]
 
 
 def _turns(cur, user_id: int, key: str, limit: int) -> list[dict]:
@@ -206,6 +236,7 @@ def ask(user: dict, body: dict) -> dict:
         _ready(cur)
         problem = _problem(cur, user, set_key, index) if mode == "problem" else None
         history = _turns(cur, user["id"], key, HISTORY)
+        struggles = _struggles(cur, user["id"], problem["id"]) if problem else []
         current = max([t["hintLevel"] or 0 for t in history] or [0])
         level = None
         if problem:
@@ -227,6 +258,8 @@ def ask(user: dict, body: dict) -> dict:
             # 오답노트면 튜터가 「전에 틀린 문제를 다시 푸는 중」인 줄 안다
             "problem": {**_problem_payload(problem), "retry": retry} if problem else None,
             "history": [{"role": t["role"], "text": t["text"]} for t in history],
+            # 최근 막힌 다른 문제 — 같은 개념이면 튜터가 이어 짚는다
+            "struggles": struggles,
         }
         try:
             answer = _call("/proxy/tutor", payload, TIMEOUT)
