@@ -226,7 +226,7 @@ ANSWER_PROMPT = """
 
 BLOCKED_ANSWER = "저는 LMS 정책, FAQ, 가이드, 공지 또는 전 기수 프로젝트와 관련된 질문만 답변할 수 있어요."
 GREETING_ANSWER = "안녕하세요! 저는 플레이데이터 LMS 학생 챗봇이에요. LMS 정책, 공지, FAQ와 전 기수 프로젝트 정보를 도와드릴 수 있어요."
-COHORT_ANSWER = "공지 확인에 필요한 학생 기수 정보가 없습니다. 내 정보의 기수 등록 상태를 확인해 주세요."
+COHORT_ANSWER = "기수별 정책과 공지 검색에 필요한 학생 기수 정보가 없습니다. 내 정보의 기수 등록 상태를 확인해 주세요."
 
 
 class SupervisorTask(BaseModel):
@@ -662,7 +662,10 @@ class LmsStudentChatbot:
             answer = GREETING_ANSWER
         elif decision.route == "blocked":
             answer = BLOCKED_ANSWER
-        elif "notice" in namespaces and not state.get("cohort"):
+        elif (
+            any(namespace in namespaces for namespace in ("policy", "notice"))
+            and not state.get("cohort")
+        ):
             answer = COHORT_ANSWER
         else:
             answer = ""
@@ -683,7 +686,10 @@ class LmsStudentChatbot:
     def _next_node(
         self, state: ChatState,
     ) -> Literal["student_tools", "policy_notice_retrieve", "project_retrieve", END]:
-        if state["route"] != "lms" or ("notice" in state["namespaces"] and not state.get("cohort")):
+        if state["route"] != "lms" or (
+            any(namespace in state["namespaces"] for namespace in ("policy", "notice"))
+            and not state.get("cohort")
+        ):
             return END
         if state.get("student_scopes"):
             return "student_tools"
@@ -752,12 +758,19 @@ class LmsStudentChatbot:
         default_k: int | None = None,
         on_query: Callable[[int, int], None] | None = None,
     ) -> Any:
+        required_filter: dict[str, Any] = {}
+        if namespace in ("notice", "policy"):
+            cohort = cohort.strip()
+            if not re.fullmatch(r"cohort_\d{1,3}", cohort):
+                raise ValueError("기수별 검색에 사용할 학생 기수 형식이 올바르지 않습니다")
+            required_filter = {"cohort": {"$eq": cohort}}
+
         store = ScopedPineconeVectorStore(
             index=self.index,
             embedding=self.embeddings,
             text_key="page_content",
             namespace=namespace,
-            required_filter={"cohort": {"$eq": cohort}} if namespace == "notice" else {},
+            required_filter=required_filter,
             on_query=on_query,
         )
         search_kwargs: dict[str, Any] = {"k": _requested_k(query, default_k or self.k)}
