@@ -9614,13 +9614,16 @@ a.coach-ask__card-title:hover {
 .today-review__eyebrow {
   display: flex;
   align-items: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  word-break: keep-all;
   font-size: 12.5px;
   color: var(--text-secondary);
 }
 
 .today-review__eyebrow strong {
   color: var(--primary);
+  white-space: nowrap;
 }
 
 .today-review--done .today-review__eyebrow strong,
@@ -9637,12 +9640,8 @@ a.coach-ask__card-title:hover {
   font-size: 17px;
   font-weight: 700;
   line-height: 1.4;
-}
-
-.today-review__meta {
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--text-secondary);
+  /* 줄이 넘치면 단어째 넘긴다 — 「프 / 로젝트」처럼 낱말 중간에서 끊지 않는다 */
+  word-break: keep-all;
 }
 
 .today-review__continue {
@@ -9687,32 +9686,33 @@ a.coach-ask__card-title:hover {
   text-decoration: underline;
 }
 
-.today-review__side {
-  flex: 0 1 260px;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-}
-
+/* 진행 막대와 「18문제 · 약 40분」을 제목 아래 한 줄로 */
 .today-review__progress {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
   font-size: 12.5px;
   color: var(--text-secondary);
 }
 
 .today-review__bar {
   display: flex;
+  flex: 0 1 280px;
+  min-width: 60px;
   gap: 4px;
 }
 
+.today-review__progress > span:last-child {
+  white-space: nowrap;
+}
+
+/* 카드 배경이 옅게 물들어 있어 --divider 로는 칸이 안 보였다 */
 .today-review__bar i {
   flex: 1;
   height: 6px;
   border-radius: 3px;
-  background: var(--divider);
+  background: color-mix(in srgb, var(--text-secondary) 22%, transparent);
 }
 
 .today-review__bar i.ok {
@@ -9723,12 +9723,14 @@ a.coach-ask__card-title:hover {
   background: var(--warning);
 }
 
-.today-review__side .btn {
+/* 버튼은 글자만큼만. 예전에는 오른쪽 260px 칸을 꽉 채워 제목이 두 줄로 밀렸다 */
+.today-review__go {
+  flex: none;
   justify-content: center;
 }
 
 @media (max-width: 560px) {
-  .today-review__side {
+  .today-review__go {
     flex-basis: 100%;
   }
 }
