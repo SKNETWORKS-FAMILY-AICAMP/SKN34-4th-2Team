@@ -7814,6 +7814,8 @@ body:has(.resume-edit__body--stack > .resume-panel:not([hidden])) .chatbot-launc
   display: flex;
   align-items: center;
   gap: 10px;
+  /* 격자 칸은 기본으로 내용보다 좁아지지 않는다 — 긴 주소가 옆 칸으로 넘쳐 겹쳤다 */
+  min-width: 0;
 }
 
 .contact-field__icon {
@@ -7837,6 +7839,21 @@ body:has(.resume-edit__body--stack > .resume-panel:not([hidden])) .chatbot-launc
   background: transparent;
   padding-left: 0;
   padding-right: 0;
+}
+
+/* 끊을 곳이 없는 주소 · 이메일도 칸 안에서 줄을 바꾼다 */
+.contact-field__box--read strong {
+  overflow-wrap: anywhere;
+}
+
+.contact-field__box--read a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.contact-field__box--read a:hover {
+  color: var(--primary);
+  text-decoration: underline;
 }
 
 .contact-field__label {

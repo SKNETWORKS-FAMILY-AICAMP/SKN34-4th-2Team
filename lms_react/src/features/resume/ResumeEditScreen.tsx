@@ -598,6 +598,10 @@ function printResume(resume: Resume) {
   window.print();
 }
 
+const isUrlField = (key: string) => key === 'githubUrl' || key === 'blogUrl';
+const shortUrl = (url: string) => url.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+const fullUrl = (url: string) => (/^https?:\/\//.test(url.trim()) ? url.trim() : `https://${url.trim()}`);
+
 function BasicInfo({
   resume,
   patch,
@@ -629,7 +633,16 @@ function BasicInfo({
             <span className="contact-field__label">{label}</span>
             {readOnly ? (
               <strong className={info[key].trim() === '' ? 'doc-read__empty' : undefined}>
-                {info[key].trim() === '' ? '미작성' : info[key]}
+                {info[key].trim() === '' ? (
+                  '미작성'
+                ) : isUrlField(key) ? (
+                  // 주소는 https:// · 끝 / 를 떼어 짧게(PDF 와 같다). 누르면 새 탭으로 연다
+                  <a href={fullUrl(info[key])} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+                    {shortUrl(info[key])}
+                  </a>
+                ) : (
+                  info[key]
+                )}
               </strong>
             ) : (
               <input
