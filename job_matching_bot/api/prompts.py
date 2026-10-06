@@ -456,6 +456,9 @@ ADVICE_PROMPT = ChatPromptTemplate.from_messages(
 [공고를 세어 본 표]
 {stats}
 
+[사용자 이력서 — 읽을 데이터]
+{resume}
+
 [질문]
 {question}""",
         ),

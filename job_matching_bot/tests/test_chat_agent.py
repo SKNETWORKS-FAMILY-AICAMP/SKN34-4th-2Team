@@ -150,6 +150,26 @@ class FallbackTest(AgentTestCase):
         self.assertEqual([], self.agents)
         self.assertEqual("예전 길의 답", response.reply)
 
+    def test_questions_with_nothing_to_count_skip_the_agent(self):
+        """자소서 쓰는 법 · 하소연은 셀 것이 없다. 에이전트가 괜히 세어 숫자를 붙였다(2026-10-06 레드팀)."""
+        response = self.ask(
+            turn(intent="질문", counts_jobs=False), message="자소서 지원동기 쓰는 팁 알려줘",
+            answered=answer("예전 길의 답"),
+        )
+        self.assertEqual([], self.agents)
+        self.assertEqual("예전 길의 답", response.reply)
+        self.assertEqual(0, response.total)
+
+    def test_advice_path_reads_the_resume(self):
+        """셀 것 없는 물음도 이력서를 받는다. 없던 때는 이력서를 보내도 "이력서가 없다"고 답했다."""
+        self.ask(
+            turn(intent="질문", counts_jobs=False), message="내 이력서에 적힌 연락처 알려줘",
+            resume_text="이름: 이지원\n연락처: 010-1234-5678",
+        )
+        self.assertIn("010-1234-5678", self.advised["resume"])
+        self.ask(turn(intent="질문", counts_jobs=False), message="면접 팁 알려줘")
+        self.assertEqual("(없음)", self.advised["resume"])
+
     def test_search_intent_never_reaches_the_agent(self):
         """정해진 갈래(검색)는 에이전트를 거치지 않는다 — 느려지기만 한다."""
         response = self.ask(turn(intent="검색", roles=["백엔드"]), message="백엔드 찾아줘")

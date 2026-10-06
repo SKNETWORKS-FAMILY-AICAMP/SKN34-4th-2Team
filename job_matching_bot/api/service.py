@@ -1441,7 +1441,10 @@ class ChatService(_LivenessMixin):
         """열린 질문. 에이전트가 도구를 골라 답하고(`chat_agent`), 못 하면 한 번 세고 쓰는 길로."""
         from job_matching_bot.api import chat_agent
 
-        if chat_agent.enabled():
+        # 셀 것이 없는 물음(자소서 쓰는 법, 면접 태도, 하소연)은 에이전트에 보내지 않는다. 보내 봤더니
+        # 도구가 필요 없는데도 공고를 세어 3~7초를 쓰고, 하소연 답에 "신입 공고 비중 4%"를 붙였다
+        # (2026-10-06 레드팀). 라우터가 이미 가른 `counts_jobs`를 따른다.
+        if chat_agent.enabled() and turn.counts_jobs:
             try:
                 return chat_agent.answer(self, request, turn, clock, agent_factory=self._agent_factory)
             except chat_agent.AgentFailed as error:
@@ -1472,6 +1475,9 @@ class ChatService(_LivenessMixin):
             {
                 "condition": filters.summary(),
                 "stats": stats.to_prompt() if grounded else "(이 물음은 공고를 세어 답할 것이 아니다)",
+                # 이력서를 받았으면 넘긴다. 없던 때는 이력서를 보내고 물어도 "이 대화에는 이력서가 없다"고
+                # 답했다(2026-10-06 이력서 검증). 공고 묻기 · 비교와 같은 자리다.
+                "resume": (request.resume_text or "").strip()[:4000] or "(없음)",
                 "question": request.message,
             },
             clock,
