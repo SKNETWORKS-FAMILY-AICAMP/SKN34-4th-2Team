@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { MileageCartItem, MileageProduct, MileageSettings, MileageTransaction, PurchaseRequest } from '@web/domain/types';
 
-import { http } from './http';
+import { http, readApiError } from './http';
 import { runCommand, useDb } from './query';
 
 interface CartState {
@@ -83,7 +83,11 @@ export async function reviewPurchase(id: string, status: PurchaseRequest['status
 }
 
 export async function adjustMileage(uid: string, amount: number, reason: string): Promise<void> {
-  await http.post('/mileage/adjust', { uid, amount, reason });
+  try {
+    await http.post('/mileage/adjust', { uid, amount, reason });
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
   const { queryClient, queryKeys } = await import('./query');
   await queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
 }

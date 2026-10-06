@@ -7,7 +7,7 @@ export interface GithubOwner {
   lastError: string;
 }
 
-import { http } from './http';
+import { http, readApiError } from './http';
 import { useDb } from './query';
 
 export function useSources(): StudySource[] {
@@ -16,6 +16,19 @@ export function useSources(): StudySource[] {
 
 export function useNotes(): StudyNote[] {
   return useDb()?.studyNotes ?? [];
+}
+
+async function call<T>(request: () => Promise<T>): Promise<T> {
+  try {
+    return await request();
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
+}
+
+async function refresh(): Promise<void> {
+  const { queryClient, queryKeys } = await import('./query');
+  await queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
 }
 
 export async function fetchNote(id: string): Promise<StudyNote> {
@@ -31,31 +44,28 @@ export async function createNote(sourceId: string, scopeType: string, scopeValue
 
 export async function deleteNote(id: string): Promise<void> {
   await http.delete(`/study-notes/${encodeURIComponent(id)}`);
-  const { queryClient, queryKeys } = await import('./query');
-  await queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
+  await refresh();
 }
 
 export async function listGithub(cohortId: string): Promise<GithubOwner[]> {
-  const { data } = await http.get<{ owners: GithubOwner[] }>('/study-sources/github', { params: { cohortId } });
-  return data.owners;
+  const { data } = await call(() => http.get<{ owners: GithubOwner[] }>('/study-sources/github', { params: { cohortId } }));
+  return data.owners ?? [];
 }
 
 export async function addGithub(cohortId: string, owner: string): Promise<void> {
-  await http.post('/study-sources/github', { cohortId, owner });
+  await call(() => http.post('/study-sources/github', { cohortId, owner }));
 }
 
 export async function removeGithub(id: string): Promise<void> {
-  await http.delete(`/study-sources/github/${encodeURIComponent(id)}`);
+  await call(() => http.delete(`/study-sources/github/${encodeURIComponent(id)}`));
 }
 
 export async function syncSources(cohortId: string): Promise<void> {
-  await http.post('/study-sources/sync', { cohortId, force: true });
-  const { queryClient, queryKeys } = await import('./query');
-  await queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
+  await call(() => http.post('/study-sources/sync', { cohortId, force: true }));
+  await refresh();
 }
 
 export async function setSourceActive(sourceId: string, isActive: boolean): Promise<void> {
-  await http.patch(`/study-sources/${encodeURIComponent(sourceId)}`, { isActive });
-  const { queryClient, queryKeys } = await import('./query');
-  await queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
+  await call(() => http.patch(`/study-sources/${encodeURIComponent(sourceId)}`, { isActive }));
+  await refresh();
 }

@@ -35,9 +35,16 @@ async function refreshQuests(): Promise<void> {
   await queryClient.invalidateQueries({ queryKey: ['quest-submissions'] });
 }
 
+async function call(request: () => Promise<unknown>): Promise<void> {
+  try {
+    await request();
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
+}
+
 export async function saveQuest(cohortId: string, draft: Partial<Quest> & { title: string }, id?: string): Promise<void> {
-  if (id) await http.patch(`/quests/${id}`, draft);
-  else await http.post('/quests', { cohortId, ...draft });
+  await call(() => (id ? http.patch(`/quests/${id}`, draft) : http.post('/quests', { cohortId, ...draft })));
   await refreshQuests();
 }
 
@@ -79,12 +86,11 @@ export function useCounsel(cohortId: string, student?: string) {
 }
 
 export async function saveCounsel(uid: string, draft: Partial<CounselNote>, id?: string): Promise<void> {
-  if (id) await http.patch(`/counsel-notes/${id}`, draft);
-  else await http.post('/counsel-notes', { uid, ...draft });
+  await call(() => (id ? http.patch(`/counsel-notes/${id}`, draft) : http.post('/counsel-notes', { uid, ...draft })));
   await queryClient.invalidateQueries({ queryKey: ['counsel'] });
 }
 
 export async function deleteCounsel(id: string): Promise<void> {
-  await http.delete(`/counsel-notes/${id}`);
+  await call(() => http.delete(`/counsel-notes/${id}`));
   await queryClient.invalidateQueries({ queryKey: ['counsel'] });
 }

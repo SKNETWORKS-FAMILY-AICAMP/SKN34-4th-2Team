@@ -23,8 +23,12 @@ export async function updateProfile(uid: string, patch: Partial<User>): Promise<
   await runCommand('updateProfile', { uid, ...patch });
 }
 
-export async function createUser(user: Partial<User> & { email: string; role: User['role']; cohortId: string }): Promise<void> {
-  await runCommand('createUser', { ...user });
+/** 서버가 만든 로그인 이메일과 임시 비밀번호를 한 번만 돌려준다 */
+export async function createUser(
+  user: Partial<User> & { email: string; role: User['role']; cohortId: string },
+): Promise<{ email: string; password: string }> {
+  const data = await runCommand('createUser', { ...user });
+  return { email: String(data.email ?? user.email), password: String(data.password ?? '') };
 }
 
 export async function resetPassword(uid: string): Promise<Record<string, unknown>> {

@@ -390,50 +390,117 @@ export function FormFillPage({ id }: { id: string }) {
   const { user } = useSession();
   const responses = useFormResponses(id);
   const mine = responses.find((row) => row.userId === user?.uid);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [message, setMessage] = useState('');
+  const [answers, setAnswers] = useState<Record<string, FormAnswer>>({});
+  const [notice, setNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
   if (!task) return <Screen title="설문" empty emptyText="설문을 찾지 못했습니다." />;
+  const closed = task.dueAt ? new Date(task.dueAt).getTime() < Date.now() : false;
+
+  function missingTitle(): string | null {
+    if (!task || task.mode !== 'builtin') return null;
+    for (const question of task.questions) {
+      if (!question.required) continue;
+      const value = answers[question.id];
+      const empty = value === undefined || (Array.isArray(value) ? value.length === 0 : String(value).trim() === '');
+      if (empty) return question.title;
+    }
+    return null;
+  }
+
   async function send() {
-    if (!user || !task) return;
+    if (!user || !task || busy) return;
+    const missing = missingTitle();
+    if (missing) {
+      setNotice({ tone: 'error', text: `필수 문항을 입력해 주세요: ${missing}` });
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
     try {
       if (task.mode === 'external') {
         if (task.formUrl) await Linking.openURL(task.formUrl);
         await markFormResponded(task.id, user.uid);
       } else {
         const payload: Record<string, FormAnswer> = {};
-        for (const question of task.questions) payload[question.id] = answers[question.id] ?? '';
+        for (const question of task.questions) {
+          const value = answers[question.id];
+          payload[question.id] = value ?? (question.type === 'multi' ? [] : '');
+        }
         await submitFormResponse(task.id, payload);
       }
-      setMessage('제출했습니다.');
+      setNotice({ tone: 'success', text: task.mode === 'external' ? '응답 완료로 표시했습니다.' : '제출했습니다.' });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '제출에 실패했습니다.');
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : '제출에 실패했습니다.' });
+    } finally {
+      setBusy(false);
     }
   }
   return (
     <Screen title={task.title}>
-      <Muted>{task.description}</Muted>
-      {mine ? <Muted>이미 제출했습니다. 마감 전이면 다시 낼 수 있습니다.</Muted> : null}
+      {task.description ? <Muted>{task.description}</Muted> : null}
+      {task.dueAt ? <T variant="caption" tone={closed ? 'error' : 'secondary'}>마감 {fmt(task.dueAt)}{closed ? ' · 마감됨' : ''}</T> : null}
+      {mine ? <Callout tone="info"><T>이미 제출했습니다. 마감 전이면 다시 낼 수 있습니다.</T></Callout> : null}
       {task.mode === 'builtin' ? task.questions.map((question) => (
-        <QuestionField key={question.id} question={question} value={answers[question.id] ?? ''} onChange={(value) => setAnswers((prev) => ({ ...prev, [question.id]: value }))} />
-      )) : <Muted>외부 설문입니다. 열기를 누르면 브라우저로 이동합니다.</Muted>}
-      {message ? <Text>{message}</Text> : null}
-      <Btn label="제출" onPress={() => void send()} />
+        <QuestionField key={question.id} question={question} value={answers[question.id]} onChange={(value) => setAnswers((prev) => ({ ...prev, [question.id]: value }))} />
+      )) : <Muted>외부 설문입니다. 버튼을 누르면 브라우저로 이동하고 응답 완료로 표시됩니다.</Muted>}
+      {notice ? <Callout tone={notice.tone}><T tone={notice.tone === 'error' ? 'error' : undefined}>{notice.text}</T></Callout> : null}
+      <Btn
+        label={busy ? '제출 중…' : task.mode === 'external' ? '설문 열기' : '제출'}
+        disabled={busy || closed}
+        onPress={() => void send()}
+      />
     </Screen>
   );
 }
 
-function QuestionField({ question, value, onChange }: { question: FormQuestion; value: string; onChange: (value: string) => void }) {
+function QuestionField({ question, value, onChange }: { question: FormQuestion; value: FormAnswer | undefined; onChange: (value: FormAnswer) => void }) {
+  const title = `${question.title}${question.required ? ' *' : ''}`;
   if (question.type === 'single' || question.type === 'multi') {
+    const picked = Array.isArray(value) ? value : typeof value === 'string' && value ? [value] : [];
+    const toggle = (option: string) => {
+      if (question.type === 'single') return onChange(option);
+      onChange(picked.includes(option) ? picked.filter((row) => row !== option) : [...picked, option]);
+    };
     return (
-      <Card>
-        <Text>{question.title}</Text>
+      <Card style={{ gap: 8 }}>
+        <T variant="subtitle">{title}</T>
+        {question.description ? <T variant="caption" tone="secondary">{question.description}</T> : null}
+        {question.type === 'multi' ? <T variant="caption" tone="secondary">여러 개 고를 수 있습니다.</T> : null}
         {(question.options ?? []).map((option) => (
-          <Btn key={option} label={option} tone={value === option ? 'primary' : 'ghost'} onPress={() => onChange(option)} />
+          <Btn key={option} label={option} tone={picked.includes(option) ? 'primary' : 'ghost'} onPress={() => toggle(option)} />
         ))}
       </Card>
     );
   }
-  return <Field label={question.title} value={value} onChangeText={onChange} multiline={question.type === 'long'} keyboard={question.type === 'scale' ? 'numeric' : 'default'} />;
+  if (question.type === 'scale') {
+    const max = Math.max(2, question.scaleMax ?? 5);
+    return (
+      <Card style={{ gap: 8 }}>
+        <T variant="subtitle">{title}</T>
+        {question.description ? <T variant="caption" tone="secondary">{question.description}</T> : null}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          {Array.from({ length: max }, (_, i) => i + 1).map((score) => (
+            <Chip key={score} label={String(score)} selected={Number(value) === score} onPress={() => onChange(score)} />
+          ))}
+        </View>
+        {question.minLabel || question.maxLabel ? (
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <T variant="caption" tone="secondary">{question.minLabel ? `1 = ${question.minLabel}` : ''}</T>
+            <T variant="caption" tone="secondary">{question.maxLabel ? `${max} = ${question.maxLabel}` : ''}</T>
+          </View>
+        ) : null}
+      </Card>
+    );
+  }
+  return (
+    <Field
+      label={title}
+      value={typeof value === 'string' ? value : value === undefined ? '' : String(value)}
+      onChangeText={onChange}
+      multiline={question.type === 'long'}
+      placeholder={question.type === 'date' ? 'YYYY-MM-DD' : question.description}
+    />
+  );
 }
 
 export function SeatingPage() {

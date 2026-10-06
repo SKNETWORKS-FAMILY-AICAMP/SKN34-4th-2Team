@@ -7,6 +7,12 @@ export function useAssessments(): Assessment[] {
   return useDb()?.assessments ?? [];
 }
 
+export function useQuestions(assessmentId: string | undefined): AssessmentQuestion[] {
+  const rows = useDb()?.assessmentQuestions;
+  if (!assessmentId || !rows) return [];
+  return [...(rows[assessmentId] ?? [])].sort((a, b) => a.order - b.order);
+}
+
 export function useSubmissions(assessmentId?: string): AssessmentSubmission[] {
   const rows = useDb()?.assessmentSubmissions ?? [];
   return assessmentId === undefined ? rows : rows.filter((row) => row.assessmentId === assessmentId);
@@ -64,9 +70,10 @@ export async function submitAssessment(
   return runCommand('submitAssessment', { assessmentId, answers });
 }
 
+/** questions 가 null 이면 문항은 건드리지 않는다 — 서버는 받은 문항으로 통째로 갈아 끼운다 */
 export async function saveAssessment(
   assessment: Assessment,
-  questions: AssessmentQuestion[],
+  questions: AssessmentQuestion[] | null,
   cohortId: string,
 ): Promise<void> {
   await runCommand('saveAssessment', {
@@ -78,7 +85,7 @@ export async function saveAssessment(
     startAt: assessment.startAt?.toISOString(),
     endAt: assessment.endAt?.toISOString(),
     published: assessment.published,
-    questions,
+    ...(questions === null ? {} : { questions }),
   });
 }
 

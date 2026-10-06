@@ -99,7 +99,7 @@ export function InstructorRoute({ parts }: { parts: string[] }): ReactNode {
   const [a, b, c, d] = parts;
   if (a === 'menu') return <MenuPage role="instructor" />;
   if (a === 'resumes') return <ResumeListPage />;
-  if (a === 'board' || a === 'notice') return <NoticeAdminPage />;
+  if (a === 'board' || a === 'notice') return <NoticeAdminPage allowScheduled={false} />;
   if (a === 'exams' && b === 'new') return <ExamEditPage />;
   if (a === 'exams' && c === 'edit') return <ExamEditPage id={b} />;
   if (a === 'exams' && c === 'sub' && d) return <GradePage submissionId={d} />;
@@ -122,7 +122,7 @@ export function AdminRoute({ parts }: { parts: string[] }): ReactNode {
   if (a === 'instructors') return <PeoplePage role="instructor" />;
   if (a === 'people' && b === 'new' && c) return <PersonFormPage role={c as UserRole} />;
   if (a === 'people' && b) return <PersonPage uid={b} />;
-  if (a === 'counsel') return <CounselPage />;
+  if (a === 'counsel') return <CounselPage studentId={b} />;
   if (a === 'quests') return <AdminQuestsPage />;
   if (a === 'attendance') return <AttendanceAdminPage />;
   if (a === 'presence') return <PresencePage />;

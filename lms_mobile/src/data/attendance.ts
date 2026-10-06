@@ -1,7 +1,7 @@
 import type { Attendance, AttendanceIssue, SeatPresence, SeatPresenceState, SpotCheck } from '@web/domain/types';
 
 import { readApiError } from './http';
-import { runCommand, useDb } from './query';
+import { patchBootstrap, refreshBootstrap, runCommand, useDb } from './query';
 
 export function useAttendance(): Attendance[] {
   return useDb()?.attendances ?? [];
@@ -41,7 +41,18 @@ export async function setSeatPresence(
   userId: string,
   state: SeatPresenceState,
 ): Promise<void> {
-  await runCommand('setSeatPresence', { dateKey, period, userId, state });
+  patchBootstrap((db) => ({
+    seatPresence: [
+      ...db.seatPresence.filter((row) => !(row.dateKey === dateKey && row.period === period && row.userId === userId)),
+      { dateKey, period, userId, state },
+    ],
+  }));
+  try {
+    await runCommand('setSeatPresence', { dateKey, period, userId, state });
+  } catch (error) {
+    void refreshBootstrap();
+    throw error;
+  }
 }
 
 export async function savePresenceCheck(payload: Record<string, unknown>): Promise<void> {

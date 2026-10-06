@@ -66,31 +66,34 @@ export async function saveScheduled(
     weekday: notice.weekday ?? 1,
     isActive: notice.isActive ?? true,
   };
-  if (notice.id) await http.patch(`/scheduled-notices/${notice.id}`, body);
-  else await http.post('/scheduled-notices', body);
-  await refresh();
+  await call(() => (notice.id ? http.patch(`/scheduled-notices/${notice.id}`, body) : http.post('/scheduled-notices', body)));
 }
 
 export async function removeScheduled(id: string): Promise<void> {
-  await http.delete(`/scheduled-notices/${id}`);
-  await refresh();
+  await call(() => http.delete(`/scheduled-notices/${id}`));
 }
 
 export async function publishScheduled(id: string): Promise<void> {
-  await http.post('/scheduled-notices/publish', { ids: [id] });
-  await refresh();
+  await call(() => http.post('/scheduled-notices/publish', { ids: [id] }));
 }
 
 export async function saveAlert(
   popup: Partial<AlertPopup> & { title: string; content: string; cohortId: string },
 ): Promise<void> {
-  if (popup.id) await http.patch(`/alert-popups/${popup.id}`, popup);
-  else await http.post('/alert-popups', popup);
-  await refresh();
+  await call(() => (popup.id ? http.patch(`/alert-popups/${popup.id}`, popup) : http.post('/alert-popups', popup)));
 }
 
 export async function removeAlert(id: string): Promise<void> {
-  await http.delete(`/alert-popups/${id}`);
+  await call(() => http.delete(`/alert-popups/${id}`));
+}
+
+/** 서버의 오류 문장을 그대로 화면에 올린다 */
+async function call(request: () => Promise<unknown>): Promise<void> {
+  try {
+    await request();
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
   await refresh();
 }
 

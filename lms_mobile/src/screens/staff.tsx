@@ -1,34 +1,39 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Linking, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
 import { RoutePaths } from '@web/app/routePaths';
-import { CohortStatusLabels, PurchaseRequestStatusLabels } from '@web/domain/constants';
+import { ClassPeriods, currentPeriod, nearestPeriod } from '@web/domain/constants';
 import { RequestStatusLabels, RequestStatusTones, labelOf } from '@web/features/attendance/attendanceRequest';
-import { STATUS_LABEL as QUEST_STATUS_LABEL, STATUS_TONE as QUEST_STATUS_TONE } from '@web/features/quests/questLabels';
-import type { AssessmentQuestion, UserRole } from '@web/domain/types';
+import {
+  APPROVAL_LABEL,
+  EVIDENCE_LABEL,
+  STATUS_LABEL as QUEST_STATUS_LABEL,
+  STATUS_TONE as QUEST_STATUS_TONE,
+  periodLabel,
+} from '@web/features/quests/questLabels';
+import type { Quest, QuestApproval, QuestEvidenceType, SeatPresenceState, User } from '@web/domain/types';
 
 import { useSession } from '../auth/session';
-import { deleteAssessment, gradeAnswer, saveAssessment, setPublished, useAssessments, useSubmissions } from '../data/assessments';
 import { reviewAttendanceRequest, setSeatPresence, useAttendance, useIssues, usePresence, useSpotChecks } from '../data/attendance';
 import { selectCohort } from '../data/cohort';
-import { deleteFormTask, saveFormTask, useFormResponses, useFormTasks } from '../data/forms';
-import { askAssistant, executeAssistant, type AssistantAction } from '../data/jobs';
-import { adjustMileage, deleteProduct, reviewPurchase, saveMileageSettings, saveProduct, useMileageSettings, useProducts, usePurchases, useTransactions } from '../data/mileage';
-import { publishScheduled, removeAlert, removeNotice, removeScheduled, saveAlert, saveNotice, saveScheduled, useAlerts, useNotices, useScheduled } from '../data/notices';
 import { absoluteFileUrl } from '../data/http';
-import { useDb } from '../data/query';
-import { createCohort, createUser, deletePackage, replaceCurriculum, resetPassword, saveIntake, savePackage, syncQualExams, updateCohort, useCohorts, useCurriculum, usePackages, useUsers } from '../data/people';
-import { deleteCounsel, reviewQuest, saveCounsel, saveQuest, useCounsel, useQuestSubmissions, useQuests } from '../data/quests';
-import { useResumes } from '../data/resumes';
-import { replaceTeams, useRooms, useTeams } from '../data/seating';
-import { addGithub, listGithub, removeGithub, setSourceActive, syncSources, useNotes, useSources, type GithubOwner } from '../data/study';
+import { refreshBootstrap, useDb } from '../data/query';
+import { useCohorts, useUsers } from '../data/people';
+import { reviewQuest, saveQuest, useQuestSubmissions, useQuests } from '../data/quests';
 import { MenuButton } from '../nav/StaffDrawer';
 import { appNav, navLabel } from '../nav/webNav';
 import { useTheme } from '../theme/Theme';
-import { Avatar, Badge, Btn, Card, Field, ListGroup, ListItem, Muted, Row, Screen, StatTile, T, fmt, goBack, todayKey } from '../ui/kit';
+import { ChipRow, JobNotice, SectionLabel, ToggleRow, confirmAction, isDateKey, useJob } from '../ui/form';
+import { SeatGrid } from '../ui/SeatGrid';
+import { Avatar, Badge, Btn, Callout, Card, Chip, EmptyState, Field, ListGroup, ListItem, Muted, Screen, Segmented, StatTile, T, fmt, todayKey } from '../ui/kit';
 import { SettingsPage } from './student';
 import { ResumeListPage } from './extra';
+
+export { CohortsPage, CounselPage, PeoplePage, PersonFormPage, PersonPage } from './staffPeople';
+export { AlertsAdminPage, CurriculumPage, FormsAdminPage, NoticeAdminPage, SourcesPage, StudyAdminPage } from './staffBoard';
+export { ExamDetailPage, ExamEditPage, ExamsAdminPage, GradePage } from './staffExams';
+export { AiPage, AssistantPage, MileageAdminPage, RoomsPage, TeamEditPage } from './staffOps';
 
 function push(path: string) {
   router.push(path as never);
@@ -41,7 +46,7 @@ export function StaffHome({ role }: { role: 'instructor' | 'admin' }) {
   const issues = useIssues().filter((row) => row.status === 'submitted');
   const home = role === 'admin' ? RoutePaths.admin : RoutePaths.instructor;
   return (
-    <Screen title={navLabel(home, role === 'admin' ? '대시보드' : '자리 확인')} back={false} left={<MenuButton />}>
+    <Screen title={navLabel(home, role === 'admin' ? '대시보드' : '자리 확인')} back={false} left={<MenuButton />} onRefresh={refreshBootstrap}>
       <Card>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
           <Avatar name={user?.displayName} />
@@ -103,14 +108,17 @@ function StaffMenuList({ role }: { role: 'instructor' | 'admin' }) {
 
 function CohortPicker() {
   const { user } = useSession();
-  const cohorts = useCohorts();
-  if (!user) return null;
+  const cohorts = useCohorts().filter((cohort) => cohort.isActive || cohort.cohortId === user?.cohortId);
+  if (!user || cohorts.length === 0) return null;
   return (
     <Card style={{ gap: 8 }}>
-      <T variant="label" tone="secondary">기수 선택</T>
-      {cohorts.map((cohort) => (
-        <Btn key={cohort.cohortId} label={cohort.name} icon={cohort.cohortId === user.cohortId ? 'check-circle' : undefined} tone={cohort.cohortId === user.cohortId ? 'primary' : 'ghost'} onPress={() => void selectCohort(user.uid, cohort.cohortId)} />
-      ))}
+      <ChipRow
+        label="보고 있는 기수"
+        options={cohorts.map((cohort) => ({ key: cohort.cohortId, label: cohort.name }))}
+        value={user.cohortId}
+        onChange={(cohortId) => void selectCohort(user.uid, cohortId)}
+      />
+      <T variant="caption" tone="secondary">학생 · 출결 · 자리 확인 등 모든 메뉴가 고른 기수 기준으로 보입니다.</T>
     </Card>
   );
 }
@@ -123,168 +131,230 @@ export function MenuPage({ role }: { role: 'instructor' | 'admin' }) {
   );
 }
 
-export function PeoplePage({ role }: { role: UserRole }) {
-  const { user } = useSession();
-  const people = useUsers().filter((row) => row.role === role && (!user?.cohortId || row.cohortId === user.cohortId || role === 'instructor'));
-  const base = '/(admin)';
-  return (
-    <Screen title={role === 'student' ? '학생' : '강사'}>
-      <Btn label="추가" onPress={() => push(`${base}/people/new/${role}`)} />
-      {people.map((person) => (
-        <Row key={person.uid} title={person.displayName} subtitle={person.email} onPress={() => push(`${base}/people/${person.uid}`)} />
-      ))}
-    </Screen>
-  );
-}
-
-export function PersonPage({ uid }: { uid: string }) {
-  const person = useUsers().find((row) => row.uid === uid);
-  const [message, setMessage] = useState('');
-  const [major, setMajor] = useState('');
-  if (!person) return <Screen title="사용자" empty />;
-  return (
-    <Screen title={person.displayName}>
-      <Muted>{person.email} · {person.role} · 마일리지 {person.mileageBalance}</Muted>
-      {person.role === 'student' ? <Field label="학력 / 전공" value={major} onChangeText={setMajor} /> : null}
-      {message ? <Text>{message}</Text> : null}
-      <Btn label="비밀번호 재설정" onPress={() => void resetPassword(uid).then((result) => setMessage(String(result.password ?? '재설정했습니다.')))} />
-      {person.role === 'student' ? <Btn label="상담 내용 저장" tone="ghost" onPress={() => void saveIntake(uid, {
-        educationMajor: major, currentStatus: '', weeklyStudyHours: '', programmingLevel: '', collaborationTools: '',
-        aiLlmExperience: '', motivation: '', desiredRole: '', postCompletionGoal: '', awards: '', projectLinks: '',
-        teamRole: '', selfLearningStyle: '', slumpOvercomeExperience: '',
-      }).then(() => setMessage('저장했습니다.'))} /> : null}
-    </Screen>
-  );
-}
-
-export function PersonFormPage({ role }: { role: UserRole }) {
-  const { user } = useSession();
-  const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
-  const [message, setMessage] = useState('');
-  return (
-    <Screen title={role === 'student' ? '학생 추가' : '강사 추가'}>
-      <Field label="이메일" value={email} onChangeText={setEmail} keyboard="email-address" />
-      <Field label="이름" value={name} onChangeText={setName} />
-      {message ? <Text>{message}</Text> : null}
-      <Btn label="만들기" onPress={() => {
-        if (!user) return;
-        void createUser({ email, displayName: name, role, cohortId: user.cohortId, isActive: true, skills: [], socialLinks: {}, jobPreferences: { targetRoles: [], regions: [], employmentTypes: [] }, mileageBalance: 0, mustChangePassword: true })
-          .then(() => setMessage('만들었습니다.'))
-          .catch((error: unknown) => setMessage(error instanceof Error ? error.message : '실패'));
-      }} />
-    </Screen>
-  );
-}
-
-export function CohortsPage() {
-  const cohorts = useCohorts();
-  const [name, setName] = useState('');
-  return (
-    <Screen title="기수">
-      <Field label="새 기수 이름" value={name} onChangeText={setName} />
-      <Btn label="추가" onPress={() => void createCohort({ cohortId: '', name, isActive: true, status: 'planned', studentCount: 0 })} />
-      {cohorts.map((cohort) => (
-        <Card key={cohort.cohortId}>
-          <Text>{cohort.name}</Text>
-          <Muted>{CohortStatusLabels[cohort.status] ?? cohort.status}</Muted>
-          <Btn label={cohort.isActive ? '닫기' : '열기'} tone="ghost" onPress={() => void updateCohort(cohort.cohortId, { isActive: !cohort.isActive })} />
-        </Card>
-      ))}
-    </Screen>
-  );
-}
-
-export function CounselPage() {
-  const { user } = useSession();
-  const query = useCounsel(user?.cohortId ?? '');
-  const students = useUsers().filter((row) => row.role === 'student');
-  const [uid, setUid] = useState('');
-  const [content, setContent] = useState('');
-  return (
-    <Screen title="상담" loading={query.isLoading} error={query.error instanceof Error ? query.error.message : null} onRefresh={() => query.refetch()}>
-      {students.slice(0, 30).map((student) => (
-        <Btn key={student.uid} label={student.displayName} tone={uid === student.uid ? 'primary' : 'ghost'} onPress={() => setUid(student.uid)} />
-      ))}
-      <Field label="내용" value={content} onChangeText={setContent} multiline />
-      <Btn label="기록" disabled={!uid} onPress={() => void saveCounsel(uid, { content, category: 'adhoc', round: 1, counseledOn: todayKey(), followUp: '', followUpDone: false })} />
-      {(query.data ?? []).map((note) => (
-        <Card key={note.id}>
-          <Text>{note.counselorName} · {note.counseledOn}</Text>
-          <Muted>{note.content ?? note.followUp}</Muted>
-          <Btn label="삭제" tone="danger" onPress={() => void deleteCounsel(note.id)} />
-        </Card>
-      ))}
-    </Screen>
-  );
-}
+// ── 마일리지 미션 ──────────────────────────────────────
 
 export function AdminQuestsPage() {
   const { user } = useSession();
-  const quests = useQuests(user?.cohortId ?? '');
-  const submissions = useQuestSubmissions(user?.cohortId ?? '');
-  const [title, setTitle] = useState('');
-  const [reward, setReward] = useState('1000');
-  const [questComments, setQuestComments] = useState<Record<string, string>>({});
+  const cohortId = user?.cohortId ?? '';
+  const quests = useQuests(cohortId);
+  const submissions = useQuestSubmissions(cohortId);
+  const [tab, setTab] = useState<'review' | 'quests'>('review');
+  const pending = (submissions.data ?? []).filter((row) => row.status === 'pending').length;
   return (
-    <Screen title="마일리지 미션" loading={quests.isLoading} onRefresh={() => quests.refetch()}>
-      <Field label="제목" value={title} onChangeText={setTitle} />
-      <Field label="보상" value={reward} onChangeText={setReward} keyboard="numeric" />
-      <Btn label="미션 만들기" onPress={() => {
-        if (!user) return;
-        void saveQuest(user.cohortId, { title, description: title, reward: Number(reward), evidenceType: 'text', approval: 'manual', maxCompletions: 1, startOn: null, endOn: null, published: true, closed: false, open: true, createdAt: null });
-      }} />
-      {(quests.data?.quests ?? []).map((quest) => <Row key={quest.id} title={quest.title} subtitle={`${quest.reward}`} />)}
-      {(submissions.data ?? []).map((row) => {
-        const review = (decision: 'approve' | 'reject' | 'revoke') =>
-          void reviewQuest(row.id, decision, questComments[row.id] ?? '').catch((err: unknown) =>
-            Alert.alert('처리하지 못했습니다', err instanceof Error ? err.message : ''),
-          );
-        return (
-          <Card key={row.id} style={{ gap: 8 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <T variant="subtitle" style={{ flex: 1 }}>{row.studentName} · {row.questTitle}</T>
-              <Badge label={QUEST_STATUS_LABEL[row.status]} tone={QUEST_STATUS_TONE[row.status]} />
-            </View>
-            {row.text ? <T>{row.text}</T> : null}
-            {row.link ? <T tone="primary" style={{ textDecorationLine: 'underline' }} onPress={() => void Linking.openURL(row.link)}>{row.link}</T> : null}
-            {row.files.map((file, index) =>
-              file.url ? (
-                <T key={file.key} tone="primary" onPress={() => void Linking.openURL(absoluteFileUrl(file.url!))}>첨부 {index + 1} 열기</T>
-              ) : null,
-            )}
-            {row.grantedAmount > 0 ? <Muted>{row.grantedAmount.toLocaleString('ko-KR')}M 지급</Muted> : null}
-            {row.status === 'pending' ? (
-              <>
-                <Field label="메모 (반려 사유)" value={questComments[row.id] ?? ''} onChangeText={(value) => setQuestComments((prev) => ({ ...prev, [row.id]: value }))} />
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <View style={{ flex: 1 }}><Btn label="반려" tone="ghost" onPress={() => review('reject')} /></View>
-                  <View style={{ flex: 1 }}><Btn label="승인" onPress={() => review('approve')} /></View>
-                </View>
-              </>
-            ) : row.status === 'approved' ? (
-              <Btn label="승인 취소" tone="ghost" icon="undo" onPress={() =>
-                Alert.alert('승인 취소', row.grantedAmount > 0 ? `지급한 ${row.grantedAmount.toLocaleString('ko-KR')}M 이 회수됩니다. 계속할까요?` : '승인을 취소할까요?', [
-                  { text: '닫기', style: 'cancel' },
-                  { text: '승인 취소', style: 'destructive', onPress: () => review('revoke') },
-                ])
-              } />
-            ) : row.reviewComment ? <Muted>사유: {row.reviewComment}</Muted> : null}
-          </Card>
-        );
-      })}
+    <Screen
+      title={navLabel(RoutePaths.adminQuests, '마일리지 미션')}
+      loading={quests.isLoading && cohortId !== ''}
+      error={quests.error instanceof Error ? quests.error.message : null}
+      onRefresh={() => Promise.all([quests.refetch(), submissions.refetch()])}
+    >
+      {!cohortId ? <Card><EmptyState icon="emoji-events" text="대시보드에서 기수를 먼저 선택해 주세요." /></Card> : null}
+      <Segmented
+        options={[
+          { key: 'review', label: pending > 0 ? `제출 검토 ${pending}` : '제출 검토' },
+          { key: 'quests', label: `미션 ${(quests.data?.quests ?? []).length}` },
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
+      {tab === 'review' ? <QuestReview rows={submissions.data ?? []} loading={submissions.isLoading} /> : <QuestList quests={quests.data?.quests ?? []} />}
     </Screen>
   );
 }
+
+function QuestReview({ rows, loading }: { rows: NonNullable<ReturnType<typeof useQuestSubmissions>['data']>; loading: boolean }) {
+  const job = useJob();
+  const [comments, setComments] = useState<Record<string, string>>({});
+  const sorted = [...rows].sort((a, b) => Number(b.status === 'pending') - Number(a.status === 'pending') || (b.submittedAt ?? '').localeCompare(a.submittedAt ?? ''));
+  const review = (id: string, decision: 'approve' | 'reject' | 'revoke') => {
+    const comment = comments[id]?.trim() ?? '';
+    if (decision === 'reject' && !comment) return job.fail('반려 사유를 메모에 적어 주세요.');
+    void job.run(() => reviewQuest(id, decision, comment), decision === 'approve' ? '승인했습니다.' : decision === 'reject' ? '반려했습니다.' : '승인을 취소했습니다.');
+  };
+  if (loading) return <Muted>불러오는 중…</Muted>;
+  return (
+    <>
+      <JobNotice notice={job.notice} />
+      {sorted.length === 0 ? <Card><EmptyState icon="inbox" text="제출된 미션이 없습니다." /></Card> : null}
+      {sorted.map((row) => (
+        <Card key={row.id} style={{ gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <T variant="subtitle" style={{ flex: 1 }}>{row.studentName} · {row.questTitle}</T>
+            <Badge label={QUEST_STATUS_LABEL[row.status]} tone={QUEST_STATUS_TONE[row.status]} />
+          </View>
+          {row.submittedAt ? <T variant="caption" tone="secondary">{fmt(row.submittedAt)}</T> : null}
+          {row.text ? <T>{row.text}</T> : null}
+          {row.link ? <T tone="primary" style={{ textDecorationLine: 'underline' }} onPress={() => void Linking.openURL(row.link)}>{row.link}</T> : null}
+          {row.files.map((file, index) =>
+            file.url ? (
+              <T key={file.key} tone="primary" onPress={() => void Linking.openURL(absoluteFileUrl(file.url!))}>첨부 {index + 1} 열기</T>
+            ) : null,
+          )}
+          {row.grantedAmount > 0 ? <Muted>{row.grantedAmount.toLocaleString('ko-KR')}M 지급</Muted> : null}
+          {row.status === 'pending' ? (
+            <>
+              <Field label="메모 (반려 시 필수)" value={comments[row.id] ?? ''} onChangeText={(value) => setComments((prev) => ({ ...prev, [row.id]: value }))} />
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <View style={{ flex: 1 }}><Btn label="반려" tone="ghost" disabled={job.busy} onPress={() => review(row.id, 'reject')} /></View>
+                <View style={{ flex: 1 }}><Btn label="승인" disabled={job.busy} onPress={() => review(row.id, 'approve')} /></View>
+              </View>
+            </>
+          ) : row.status === 'approved' ? (
+            <Btn
+              label="승인 취소"
+              tone="ghost"
+              icon="undo"
+              disabled={job.busy}
+              onPress={() =>
+                confirmAction(
+                  '승인 취소',
+                  row.grantedAmount > 0 ? `지급한 ${row.grantedAmount.toLocaleString('ko-KR')}M 이 회수됩니다. 계속할까요?` : '승인을 취소할까요?',
+                  () => review(row.id, 'revoke'),
+                  '승인 취소',
+                )
+              }
+            />
+          ) : row.reviewComment ? <Muted>사유: {row.reviewComment}</Muted> : null}
+        </Card>
+      ))}
+    </>
+  );
+}
+
+function QuestList({ quests }: { quests: Quest[] }) {
+  const { user } = useSession();
+  const job = useJob();
+  const [editing, setEditing] = useState<Quest | 'new' | null>(null);
+  const cohortId = user?.cohortId ?? '';
+  return (
+    <>
+      {editing === null ? <Btn label="미션 만들기" icon="add" disabled={!cohortId} onPress={() => setEditing('new')} /> : null}
+      {editing !== null ? <QuestForm key={editing === 'new' ? 'new' : editing.id} quest={editing === 'new' ? undefined : editing} onDone={() => setEditing(null)} /> : null}
+      <JobNotice notice={job.notice} />
+      {quests.length === 0 ? <Card><EmptyState icon="emoji-events" text="등록된 미션이 없습니다." /></Card> : null}
+      {quests.map((quest) => (
+        <Card key={quest.id} style={{ gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <T variant="subtitle" style={{ flexShrink: 1 }}>{quest.title}</T>
+            <Badge label={`${quest.reward.toLocaleString('ko-KR')}M`} tone="primary" />
+            {quest.closed ? <Badge label="마감" tone="neutral" /> : quest.open ? <Badge label="진행 중" tone="success" /> : null}
+          </View>
+          {quest.description && quest.description !== quest.title ? <T tone="secondary" numberOfLines={3}>{quest.description}</T> : null}
+          <T variant="caption" tone="secondary">
+            {EVIDENCE_LABEL[quest.evidenceType]} · {APPROVAL_LABEL[quest.approval]} · {periodLabel(quest)} · 1인 {quest.maxCompletions}회
+          </T>
+          {quest.counts ? (
+            <T variant="caption" tone="secondary">
+              검토 중 {quest.counts.pending ?? 0} · 완료 {quest.counts.approved ?? 0} · 반려 {quest.counts.rejected ?? 0}
+            </T>
+          ) : null}
+          <ToggleRow
+            label="학생에게 공개"
+            value={quest.published}
+            disabled={job.busy}
+            onChange={(value) => void job.run(() => saveQuest(cohortId, { title: quest.title, published: value }, quest.id))}
+          />
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={{ flex: 1 }}><Btn label="수정" tone="ghost" onPress={() => setEditing(quest)} /></View>
+            <View style={{ flex: 1 }}>
+              <Btn
+                label={quest.closed ? '다시 열기' : '마감'}
+                tone="soft"
+                disabled={job.busy}
+                onPress={() => void job.run(() => saveQuest(cohortId, { title: quest.title, closed: !quest.closed }, quest.id), quest.closed ? '다시 열었습니다.' : '마감했습니다.')}
+              />
+            </View>
+          </View>
+        </Card>
+      ))}
+    </>
+  );
+}
+
+function QuestForm({ quest, onDone }: { quest?: Quest; onDone: () => void }) {
+  const { user } = useSession();
+  const job = useJob();
+  const [title, setTitle] = useState(quest?.title ?? '');
+  const [description, setDescription] = useState(quest?.description ?? '');
+  const [reward, setReward] = useState(String(quest?.reward ?? 1000));
+  const [evidenceType, setEvidenceType] = useState<QuestEvidenceType>(quest?.evidenceType ?? 'text');
+  const [approval, setApproval] = useState<QuestApproval>(quest?.approval ?? 'manual');
+  const [maxCompletions, setMaxCompletions] = useState(String(quest?.maxCompletions ?? 1));
+  const [startOn, setStartOn] = useState(quest?.startOn ?? '');
+  const [endOn, setEndOn] = useState(quest?.endOn ?? '');
+  const [published, setPublished] = useState(quest?.published ?? true);
+
+  const save = () => {
+    if (!user) return;
+    const rewardNo = Number(reward);
+    const maxNo = Number(maxCompletions);
+    if (!title.trim()) return job.fail('미션 제목을 입력해 주세요.');
+    if (!Number.isInteger(rewardNo) || rewardNo <= 0) return job.fail('보상은 1 이상의 숫자로 입력해 주세요.');
+    if (!Number.isInteger(maxNo) || maxNo < 1) return job.fail('1인 최대 횟수는 1 이상의 숫자로 입력해 주세요.');
+    if (startOn.trim() && !isDateKey(startOn.trim())) return job.fail('시작일을 YYYY-MM-DD 형식으로 입력해 주세요.');
+    if (endOn.trim() && !isDateKey(endOn.trim())) return job.fail('종료일을 YYYY-MM-DD 형식으로 입력해 주세요.');
+    if (startOn.trim() && endOn.trim() && endOn.trim() < startOn.trim()) return job.fail('종료일이 시작일보다 빠릅니다.');
+    void job.run(async () => {
+      await saveQuest(
+        user.cohortId,
+        {
+          title: title.trim(),
+          description: description.trim(),
+          reward: rewardNo,
+          evidenceType,
+          approval,
+          maxCompletions: maxNo,
+          startOn: startOn.trim() || null,
+          endOn: endOn.trim() || null,
+          published,
+        },
+        quest?.id,
+      );
+      onDone();
+    });
+  };
+
+  return (
+    <Card style={{ gap: 12 }}>
+      <T variant="subtitle">{quest ? '미션 수정' : '미션 만들기'}</T>
+      <Field label="제목 *" value={title} onChangeText={setTitle} />
+      <Field label="설명" value={description} onChangeText={setDescription} multiline placeholder="학생에게 보일 안내" />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flex: 1 }}><Field label="보상 (M)" value={reward} onChangeText={setReward} keyboard="numeric" /></View>
+        <View style={{ flex: 1 }}><Field label="1인 최대 횟수" value={maxCompletions} onChangeText={setMaxCompletions} keyboard="numeric" /></View>
+      </View>
+      <ChipRow label="인증 방식" options={(Object.keys(EVIDENCE_LABEL) as QuestEvidenceType[]).map((key) => ({ key, label: EVIDENCE_LABEL[key] }))} value={evidenceType} onChange={setEvidenceType} />
+      <ChipRow label="지급" options={(Object.keys(APPROVAL_LABEL) as QuestApproval[]).map((key) => ({ key, label: APPROVAL_LABEL[key] }))} value={approval} onChange={setApproval} />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flex: 1 }}><Field label="시작일" value={startOn} onChangeText={setStartOn} placeholder="YYYY-MM-DD" /></View>
+        <View style={{ flex: 1 }}><Field label="종료일" value={endOn} onChangeText={setEndOn} placeholder="YYYY-MM-DD" /></View>
+      </View>
+      <ToggleRow label="학생에게 공개" value={published} onChange={setPublished} />
+      <JobNotice notice={job.notice} />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flex: 1 }}><Btn label="취소" tone="ghost" onPress={onDone} /></View>
+        <View style={{ flex: 1 }}><Btn label={job.busy ? '저장 중…' : '저장'} disabled={job.busy} onPress={save} /></View>
+      </View>
+    </Card>
+  );
+}
+
+// ── 출석 관리 ──────────────────────────────────────────
 
 export function AttendanceAdminPage() {
   const issues = [...useIssues()].sort(
     (a, b) => Number(b.status === 'submitted') - Number(a.status === 'submitted') || b.dateKey.localeCompare(a.dateKey),
   );
   const users = useDb()?.users ?? [];
+  const job = useJob();
   const [comments, setComments] = useState<Record<string, string>>({});
+  const decide = (id: string, decision: 'approved' | 'rejected') => {
+    const comment = comments[id]?.trim() ?? '';
+    if (decision === 'rejected' && !comment) return job.fail('반려 사유를 매니저 메모에 적어 주세요.');
+    void job.run(() => reviewAttendanceRequest([id], decision, comment), decision === 'approved' ? '승인했습니다.' : '반려했습니다.');
+  };
   return (
-    <Screen title={navLabel(RoutePaths.adminAttendance, '출석 관리')} empty={issues.length === 0} emptyText="출결 신청이 없습니다.">
+    <Screen title={navLabel(RoutePaths.adminAttendance, '출석 관리')} empty={issues.length === 0} emptyText="출결 신청이 없습니다." onRefresh={refreshBootstrap}>
+      <JobNotice notice={job.notice} />
       {issues.map((issue) => {
         const comment = comments[issue.id] ?? '';
         return (
@@ -298,10 +368,10 @@ export function AttendanceAdminPage() {
             {issue.reason ? <T tone="secondary">{issue.reason}</T> : null}
             {issue.status === 'submitted' ? (
               <>
-                <Field label="매니저 메모" value={comment} onChangeText={(value) => setComments((prev) => ({ ...prev, [issue.id]: value }))} />
+                <Field label="매니저 메모 (반려 시 필수)" value={comment} onChangeText={(value) => setComments((prev) => ({ ...prev, [issue.id]: value }))} />
                 <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <View style={{ flex: 1 }}><Btn label="승인" onPress={() => void reviewAttendanceRequest([issue.id], 'approved', comment)} /></View>
-                  <View style={{ flex: 1 }}><Btn label="반려" tone="ghost" onPress={() => void reviewAttendanceRequest([issue.id], 'rejected', comment)} /></View>
+                  <View style={{ flex: 1 }}><Btn label="승인" disabled={job.busy} onPress={() => decide(issue.id, 'approved')} /></View>
+                  <View style={{ flex: 1 }}><Btn label="반려" tone="ghost" disabled={job.busy} onPress={() => decide(issue.id, 'rejected')} /></View>
                 </View>
               </>
             ) : issue.reviewComment ? (
@@ -314,368 +384,190 @@ export function AttendanceAdminPage() {
   );
 }
 
-export function PresencePage() {
-  const { user } = useSession();
-  const students = useUsers().filter((row) => row.role === 'student' && row.cohortId === user?.cohortId);
-  const dateKey = todayKey();
-  const presence = usePresence().filter((row) => row.dateKey === dateKey);
-  const checks = useSpotChecks();
-  return (
-    <Screen title="자리 확인">
-      {students.map((student) => {
-        const state = presence.find((row) => row.userId === student.uid)?.state ?? 'unknown';
-        return (
-          <Card key={student.uid}>
-            <Text>{student.displayName} · {state}</Text>
-            <Btn label="확인" onPress={() => void setSeatPresence(dateKey, 1, student.uid, 'confirmed')} />
-            <Btn label="보류" tone="ghost" onPress={() => void setSeatPresence(dateKey, 1, student.uid, 'held')} />
-          </Card>
-        );
-      })}
-      {checks.slice(0, 5).map((check) => <Row key={check.id} title={fmt(check.checkedAt)} subtitle={`${check.items.length}명`} />)}
-    </Screen>
-  );
+// ── 자리 확인 ──────────────────────────────────────────
+
+function shiftDay(dateKey: string, days: number): string {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  return todayKey(new Date(y, m - 1, d + days));
 }
 
-export function TeamEditPage() {
+/** 웹 `InstructorAttendanceScreen` — 강사 첫 화면이자 관리자의 자리 확인. 출석 상태는 건드리지 않는다. */
+export function PresencePage({ home = false }: { home?: boolean }) {
   const { user } = useSession();
-  const teams = useTeams().filter((team) => team.cohortId === user?.cohortId);
-  const students = useUsers().filter((row) => row.role === 'student' && row.cohortId === user?.cohortId);
-  const [picked, setPicked] = useState<string | null>(null);
-  const [name, setName] = useState('새 팀');
-  return (
-    <Screen title="팀 편성">
-      <Muted>학생을 누른 뒤 팀을 고릅니다. 드래그 대신 탭으로 옮깁니다.</Muted>
-      <Field label="팀 이름" value={name} onChangeText={setName} />
-      {students.map((student) => (
-        <Btn key={student.uid} label={student.displayName} tone={picked === student.uid ? 'primary' : 'ghost'} onPress={() => setPicked(student.uid)} />
-      ))}
-      {teams.map((team) => (
-        <Btn key={team.id} label={`${team.name}에 넣기`} onPress={() => {
-          if (!user || !picked) return;
-          const next = teams.map((row) => row.id === team.id ? { ...row, memberIds: [...new Set([...row.memberIds, picked])] } : { ...row, memberIds: row.memberIds.filter((id) => id !== picked) });
-          void replaceTeams(user.cohortId, next, []);
-        }} />
-      ))}
-      <Btn label="팀 만들기" tone="ghost" onPress={() => {
-        if (!user) return;
-        void replaceTeams(user.cohortId, [...teams, { name, memberIds: picked ? [picked] : [], sortOrder: teams.length, colorIndex: 0 }], []);
-      }} />
-    </Screen>
-  );
-}
+  const db = useDb();
+  const { palette } = useTheme();
+  const { width } = useWindowDimensions();
+  const students = useUsers().filter((row) => row.role === 'student' && row.isActive !== false && row.cohortId === user?.cohortId);
+  const [dateKey, setDateKey] = useState(() => todayKey());
+  const [periodId, setPeriodId] = useState(() => nearestPeriod().id);
+  const [index, setIndex] = useState(0);
+  const [markError, setMarkError] = useState(false);
+  const period = Number(periodId);
+  const presence = usePresence().filter((row) => row.dateKey === dateKey && row.period === period);
+  const checks = useSpotChecks().filter((row) => row.cohortId === user?.cohortId);
+  const running = currentPeriod();
 
-export function NoticeAdminPage({ scheduled = false }: { scheduled?: boolean }) {
-  const notices = useNotices();
-  const planned = useScheduled();
-  const { user } = useSession();
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
+  const roomId = user?.cohortId ? db?.seatingMeta?.[user.cohortId]?.publishedRoomId : undefined;
+  const room = (db?.seatingRooms ?? []).find((row) => row.id === roomId);
+  const assignment = (db?.seatingAssignments ?? []).find((row) => row.roomId === roomId);
+  const published = room !== undefined && assignment?.status === 'published';
+
+  const stateOf = (uid: string): SeatPresenceState => presence.find((row) => row.userId === uid)?.state ?? 'unknown';
+  // 호명은 이름 차례대로. 좌석 순서로 부르면 옆자리가 비었을 때 헷갈린다.
+  const roll = [...students].sort((a, b) => a.displayName.localeCompare(b.displayName, 'ko'));
+  const current = roll[Math.min(index, roll.length - 1)];
+  const confirmed = roll.filter((row) => stateOf(row.uid) === 'confirmed');
+  const held = roll.filter((row) => stateOf(row.uid) === 'held');
+
+  const seatLabelOf = (uid: string | undefined) => {
+    const seatId = Object.entries(assignment?.assignments ?? {}).find(([, owner]) => owner === uid)?.[0];
+    if (seatId === undefined) return '좌석 없음';
+    return `${room?.cells.find((cell) => cell.seatId === seatId)?.label ?? seatId}번`;
+  };
+
+  const mark = (student: User, state: SeatPresenceState, advance = true) => {
+    setMarkError(false);
+    if (advance) setIndex((value) => Math.min(value + 1, roll.length - 1));
+    setSeatPresence(dateKey, period, student.uid, state).catch(() => setMarkError(true));
+  };
+
+  const title = home ? navLabel(RoutePaths.instructor, '자리 확인') : navLabel(RoutePaths.adminSeatPresence, '자리 확인');
+
   return (
-    <Screen title={scheduled ? '예약 공지' : '게시판'}>
-      <Field label="제목" value={title} onChangeText={setTitle} />
-      <Field label="내용" value={content} onChangeText={setContent} multiline />
-      <Btn label="저장" onPress={() => {
-        if (!user) return;
-        const job = scheduled
-          ? saveScheduled({ title, content, cohortId: user.cohortId })
-          : saveNotice({ title, content, isFavorite: false, cohortId: user.cohortId });
-        void job.then(() => { setTitle(''); setContent(''); });
-      }} />
-      {(scheduled ? planned : notices).map((row) => (
-        <Card key={row.id}>
-          <Text>{row.title}</Text>
-          {'repeatType' in row ? <Btn label="지금 발행" onPress={() => void publishScheduled(row.id)} /> : null}
-          <Btn label="삭제" tone="danger" onPress={() => void ('repeatType' in row ? removeScheduled(row.id) : removeNotice(row.id))} />
+    <Screen title={title} back={!home} left={home ? <MenuButton /> : undefined} onRefresh={refreshBootstrap}>
+      <T tone="secondary">
+        {user?.cohortName || '기수 없음'} · 진행 중: {running === null ? '쉬는 시간' : `${running.label} 교시`}
+      </T>
+
+      <Card style={{ gap: 12 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Pressable accessibilityLabel="이전 날" hitSlop={8} onPress={() => setDateKey((value) => shiftDay(value, -1))}>
+            <MaterialIcons name="chevron-left" size={26} color={palette.text} />
+          </Pressable>
+          <T variant="subtitle" style={{ flex: 1, textAlign: 'center' }}>{dateKey}</T>
+          <Pressable accessibilityLabel="다음 날" hitSlop={8} onPress={() => setDateKey((value) => shiftDay(value, 1))}>
+            <MaterialIcons name="chevron-right" size={26} color={palette.text} />
+          </Pressable>
+          <Chip label="오늘" selected={dateKey === todayKey()} onPress={() => setDateKey(todayKey())} />
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+          {ClassPeriods.map((row) => (
+            <Chip key={row.id} label={row.label} selected={row.id === periodId} onPress={() => setPeriodId(row.id)} />
+          ))}
+        </ScrollView>
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          <Badge label={`확인 ${confirmed.length} / ${roll.length}`} tone="success" />
+          <Badge label={`보류 ${held.length}`} tone="warning" />
+        </View>
+      </Card>
+
+      {markError ? (
+        <Callout tone="error">
+          <T tone="error">자리 확인을 저장하지 못했습니다. 다시 시도해 주세요.</T>
+        </Callout>
+      ) : null}
+
+      {roll.length === 0 ? (
+        <Card><EmptyState icon="groups" text={user?.cohortId ? '이 기수에 학생이 없습니다.' : '대시보드에서 기수를 먼저 선택해 주세요.'} /></Card>
+      ) : (
+        <Card style={{ gap: 14, borderColor: palette.primary, borderWidth: 1.5 }}>
+          <View style={{ alignItems: 'center', gap: 2 }}>
+            <T variant="caption" tone="secondary">{Math.min(index, roll.length - 1) + 1} / {roll.length}</T>
+            <T variant="hero">{current?.displayName ?? '—'}</T>
+            <T tone="primary" style={{ fontWeight: '600' }}>{seatLabelOf(current?.uid)}</T>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Pressable accessibilityLabel="이전 학생" hitSlop={8} onPress={() => setIndex((value) => Math.max(0, value - 1))}>
+              <MaterialIcons name="chevron-left" size={30} color={palette.textSecondary} />
+            </Pressable>
+            <View style={{ flex: 1 }}>
+              <Btn label="확인" icon="check" disabled={current === undefined} onPress={() => current && mark(current, 'confirmed')} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Btn label="보류" icon="pause" tone="ghost" disabled={current === undefined} onPress={() => current && mark(current, 'held')} />
+            </View>
+            <Pressable accessibilityLabel="다음 학생" hitSlop={8} onPress={() => setIndex((value) => Math.min(roll.length - 1, value + 1))}>
+              <MaterialIcons name="chevron-right" size={30} color={palette.textSecondary} />
+            </Pressable>
+          </View>
         </Card>
-      ))}
-    </Screen>
-  );
-}
+      )}
 
-export function AlertsAdminPage() {
-  const alerts = useAlerts();
-  const { user } = useSession();
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
-  return (
-    <Screen title="알림 팝업">
-      <Field label="제목" value={title} onChangeText={setTitle} />
-      <Field label="내용" value={content} onChangeText={setContent} multiline />
-      <Btn label="만들기" onPress={() => { if (user) void saveAlert({ title, content, cohortId: user.cohortId, isActive: true }); }} />
-      {alerts.map((popup) => (
-        <Card key={popup.id}>
-          <Text>{popup.title}</Text>
-          <Btn label="삭제" tone="danger" onPress={() => void removeAlert(popup.id)} />
+      <SectionLabel title="좌석 배치" />
+      {!published || assignment === undefined ? (
+        <Card><EmptyState icon="event-seat" text="확정된 좌석 배치가 없습니다." /></Card>
+      ) : (
+        <Card style={{ paddingHorizontal: 8, paddingVertical: 16 }}>
+          <SeatGrid
+            grid={room}
+            seatUserIds={assignment.assignments}
+            seatNames={assignment.seatNames}
+            highlightUserId={current?.uid}
+            highlightCaption="지금"
+            markOf={stateOf}
+            width={width - 32 - 16 - 2}
+          />
         </Card>
-      ))}
-    </Screen>
-  );
-}
+      )}
 
-export function ExamsAdminPage({ readOnly = false }: { readOnly?: boolean }) {
-  const exams = useAssessments();
-  const base = readOnly ? '/(admin)' : '/(instructor)';
-  return (
-    <Screen title="성취도 평가">
-      {!readOnly ? <Btn label="새 평가" onPress={() => push(`${base}/exams/new`)} /> : null}
-      {exams.map((exam) => (
-        <Row key={exam.id} title={exam.title} subtitle={exam.published ? '공개' : '비공개'} onPress={() => push(`${base}/exams/${exam.id}`)} />
-      ))}
-    </Screen>
-  );
-}
-
-export function ExamEditPage({ id }: { id?: string }) {
-  const exam = useAssessments().find((row) => row.id === id);
-  const { user } = useSession();
-  const [title, setTitle] = useState(exam?.title ?? '');
-  const [prompt, setPrompt] = useState('');
-  const [message, setMessage] = useState('');
-  return (
-    <Screen title={id ? '평가 수정' : '평가 만들기'}>
-      <Field label="제목" value={title} onChangeText={setTitle} />
-      <Field label="객관식 문항" value={prompt} onChangeText={setPrompt} multiline />
-      {message ? <Text>{message}</Text> : null}
-      <Btn label="저장" onPress={() => {
-        if (!user) return;
-        const questions: AssessmentQuestion[] = prompt.trim()
-          ? [{ id: 'q1', order: 1, type: 'shortAnswer', prompt, points: 10, choices: [], acceptedAnswers: [], origin: 'manual' }]
-          : [];
-        const start = exam?.startAt ?? new Date();
-        const end = exam?.endAt ?? new Date(Date.now() + 7 * 86400000);
-        void saveAssessment({
-          id: exam?.id ?? '',
-          title,
-          tags: [],
-          questionCount: questions.length,
-          maxScore: 10,
-          startAt: start,
-          endAt: end,
-          published: exam?.published ?? false,
-        }, questions, user.cohortId).then(() => setMessage('저장했습니다.')).catch((error: unknown) => setMessage(error instanceof Error ? error.message : '실패'));
-      }} />
-      {exam ? (
+      {held.length > 0 ? (
         <>
-          <Btn label={exam.published ? '비공개' : '공개'} tone="ghost" onPress={() => void setPublished(exam.id, !exam.published)} />
-          <Btn label="삭제" tone="danger" onPress={() => void deleteAssessment(exam.id).then(goBack)} />
+          <SectionLabel title={`보류 ${held.length}명`} />
+          <ListGroup>
+            {held.map((student) => (
+              <ListItem
+                key={student.uid}
+                title={student.displayName}
+                subtitle={seatLabelOf(student.uid)}
+                left={<MaterialIcons name="pause-circle" size={20} color={palette.warning} />}
+                right={<Chip label="확인으로" onPress={() => mark(student, 'confirmed', false)} />}
+              />
+            ))}
+          </ListGroup>
         </>
       ) : null}
-    </Screen>
-  );
-}
 
-export function ExamDetailPage({ id, readOnly = false }: { id: string; readOnly?: boolean }) {
-  const exam = useAssessments().find((row) => row.id === id);
-  const submissions = useSubmissions(id);
-  const base = readOnly ? '/(admin)' : '/(instructor)';
-  return (
-    <Screen title={exam?.title ?? '평가'} empty={!exam}>
-      {!readOnly && exam ? <Btn label="수정" onPress={() => push(`${base}/exams/${exam.id}/edit`)} /> : null}
-      {submissions.map((row) => (
-        <Row key={row.id} title={row.userDisplayName} subtitle={`${row.totalScore}점`} onPress={() => push(`${base}/exams/${id}/sub/${row.id}`)} />
-      ))}
-    </Screen>
-  );
-}
+      {roll.length > 0 ? (
+        <>
+          <SectionLabel title="호명 순서" />
+          <ListGroup>
+            {roll.map((student, i) => {
+              const state = stateOf(student.uid);
+              return (
+                <ListItem
+                  key={student.uid}
+                  title={`${i + 1}. ${student.displayName}`}
+                  subtitle={seatLabelOf(student.uid)}
+                  onPress={() => setIndex(i)}
+                  left={
+                    <MaterialIcons
+                      name={state === 'confirmed' ? 'check-circle' : state === 'held' ? 'pause-circle' : 'radio-button-unchecked'}
+                      size={20}
+                      color={state === 'confirmed' ? palette.success : state === 'held' ? palette.warning : palette.textHint}
+                    />
+                  }
+                  right={i === Math.min(index, roll.length - 1) ? <Badge label="지금" /> : undefined}
+                />
+              );
+            })}
+          </ListGroup>
+        </>
+      ) : null}
 
-export function GradePage({ submissionId, readOnly = false }: { submissionId: string; readOnly?: boolean }) {
-  const submission = useSubmissions().find((row) => row.id === submissionId);
-  const [score, setScore] = useState('0');
-  if (!submission) return <Screen title="채점" empty />;
-  const entries = Object.entries(submission.answers);
-  return (
-    <Screen title={submission.userDisplayName}>
-      <Muted>총점 {submission.totalScore}</Muted>
-      {entries.map(([questionId, answer]) => (
-        <Card key={questionId}>
-          <Text>{String(answer.value ?? '')}</Text>
-          {!readOnly ? <Btn label="이 점수 저장" onPress={() => void gradeAnswer(submission.id, questionId, Number(score))} /> : null}
-        </Card>
-      ))}
-      {!readOnly ? <Field label="점수" value={score} onChangeText={setScore} keyboard="numeric" /> : null}
-    </Screen>
-  );
-}
-
-export function CurriculumPage() {
-  const sheets = useCurriculum();
-  const { user } = useSession();
-  const [title, setTitle] = useState('커리큘럼');
-  const [topic, setTopic] = useState('');
-  return (
-    <Screen title="커리큘럼">
-      <Field label="주제" value={topic} onChangeText={setTopic} />
-      <Btn label="한 줄 올리기" onPress={() => {
-        if (!user) return;
-        void replaceCurriculum({ id: '', title, fileName: 'mobile', rows: [{ dayIndex: 1, dateLabel: todayKey(), subject: title, topic, detail: '', order: 1 }] }, user.cohortId);
-      }} />
-      {sheets.map((sheet) => (
-        <Card key={sheet.id}>
-          <Text style={{ fontWeight: '700' }}>{sheet.title}</Text>
-          {sheet.rows.slice(0, 8).map((row) => <Muted key={`${row.order}`}>{row.dateLabel} {row.topic}</Muted>)}
-        </Card>
-      ))}
-    </Screen>
-  );
-}
-
-export function SourcesPage() {
-  const sources = useSources();
-  const notes = useNotes();
-  const { user } = useSession();
-  const [owner, setOwner] = useState('');
-  const [owners, setOwners] = useState<GithubOwner[]>([]);
-  return (
-    <Screen title="수업 저장소">
-      <Field label="GitHub 조직" value={owner} onChangeText={setOwner} />
-      <Btn label="연결" onPress={() => { if (user) void addGithub(user.cohortId, owner).then(() => listGithub(user.cohortId).then(setOwners)); }} />
-      <Btn label="동기화" tone="ghost" onPress={() => { if (user) void syncSources(user.cohortId); }} />
-      {owners.map((row) => <Row key={row.id} title={row.owner} subtitle={row.lastError || '연결됨'} onPress={() => void removeGithub(row.id)} />)}
-      {sources.map((source) => (
-        <Card key={source.id}>
-          <Text>{source.title}</Text>
-          <Muted>{notes.filter((note) => note.sourceId === source.id).length}개 노트 · {source.isActive ? '공개' : '숨김'}</Muted>
-          <Btn label={source.isActive ? '숨기기' : '공개'} tone="ghost" onPress={() => void setSourceActive(source.id, !source.isActive)} />
-        </Card>
-      ))}
-    </Screen>
-  );
-}
-
-export function FormsAdminPage() {
-  const tasks = useFormTasks();
-  const responses = useFormResponses();
-  const { user } = useSession();
-  const [title, setTitle] = useState('');
-  return (
-    <Screen title="설문 관리">
-      <Field label="제목" value={title} onChangeText={setTitle} />
-      <Btn label="외부 설문 만들기" onPress={() => {
-        if (!user) return;
-        void saveFormTask({
-          id: '', title, description: '', mode: 'external', formUrl: '', questions: [], dueAt: new Date(Date.now() + 7 * 86400000), published: true, responseCount: 0,
-        }, user.cohortId, false);
-      }} />
-      {tasks.map((task) => (
-        <Card key={task.id}>
-          <Text>{task.title}</Text>
-          <Muted>응답 {responses.filter((row) => row.taskId === task.id).length}</Muted>
-          <Btn label="삭제" tone="danger" onPress={() => void deleteFormTask(task.id)} />
-        </Card>
-      ))}
-    </Screen>
-  );
-}
-
-export function StudyAdminPage() {
-  const packs = usePackages();
-  const { user } = useSession();
-  const [title, setTitle] = useState('');
-  return (
-    <Screen title="학습실">
-      <Field label="패키지 제목" value={title} onChangeText={setTitle} />
-      <Btn label="추가" onPress={() => {
-        if (!user) return;
-        void savePackage({ id: '', title, subject: title, type: 'review', units: [], courses: [], isPublished: true, sortOrder: 0 }, user.cohortId);
-      }} />
-      {packs.map((pack) => (
-        <Card key={pack.id}>
-          <Text>{pack.title}</Text>
-          <Btn label="삭제" tone="danger" onPress={() => void deletePackage(pack.id)} />
-        </Card>
-      ))}
-    </Screen>
-  );
-}
-
-export function MileageAdminPage() {
-  const products = useProducts();
-  const purchases = usePurchases();
-  const tx = useTransactions();
-  const settings = useMileageSettings();
-  const { user } = useSession();
-  const [name, setName] = useState('');
-  const [price, setPrice] = useState('1000');
-  const [uid, setUid] = useState('');
-  const [amount, setAmount] = useState('0');
-  const [reason, setReason] = useState('조정');
-  return (
-    <Screen title="마일리지">
-      <Field label="상품" value={name} onChangeText={setName} />
-      <Field label="가격" value={price} onChangeText={setPrice} keyboard="numeric" />
-      <Btn label="상품 추가" onPress={() => {
-        if (!user) return;
-        void saveProduct({ id: '', name, description: '', category: 'etc', pricingType: 'fixed', fixedPrice: Number(price), isActive: true, sortOrder: 0 }, user.cohortId);
-      }} />
-      {products.map((product) => <Row key={product.id} title={product.name} subtitle={`${product.fixedPrice ?? 0}`} onPress={() => void deleteProduct(product.id)} />)}
-      {purchases.map((row) => (
-        <Card key={row.id}>
-          <Text>{row.userDisplayName} · {row.totalAmount.toLocaleString('ko-KR')} P · {PurchaseRequestStatusLabels[row.status] ?? row.status}</Text>
-          <Btn label="승인" onPress={() => void reviewPurchase(row.id, 'approved')} />
-          <Btn label="반려" tone="ghost" onPress={() => void reviewPurchase(row.id, 'rejected')} />
-        </Card>
-      ))}
-      <Field label="학생 uid" value={uid} onChangeText={setUid} />
-      <Field label="금액" value={amount} onChangeText={setAmount} keyboard="numeric" />
-      <Field label="사유" value={reason} onChangeText={setReason} />
-      <Btn label="잔액 조정" onPress={() => void adjustMileage(uid, Number(amount), reason)} />
-      <Btn label="설정 저장" tone="ghost" onPress={() => { if (user) void saveMileageSettings(settings, user.cohortId); }} />
-      {tx.slice(0, 10).map((row) => <Row key={row.id} title={row.reason} subtitle={String(row.amount)} />)}
-    </Screen>
-  );
-}
-
-export function AiPage() {
-  const logs = useDb()?.aiLogs ?? [];
-  const evals = useDb()?.aiEvals ?? [];
-  return (
-    <Screen title="LLMOps">
-      <Btn label="자격 일정 동기화" onPress={() => void syncQualExams()} />
-      {logs.slice(0, 30).map((log) => <Row key={log.id} title={log.type} subtitle={`${log.model} · ${log.status} · ${log.latencyMs}ms`} />)}
-      {evals.slice(0, 10).map((row) => <Row key={row.id} title={row.suite} subtitle={`${Math.round(row.passRate * 100)}% · ${fmt(row.ranAt)}`} />)}
-    </Screen>
-  );
-}
-
-export function AssistantPage() {
-  const { user } = useSession();
-  const [text, setText] = useState('');
-  const [context, setContext] = useState('');
-  const [log, setLog] = useState<string[]>([]);
-  const [actions, setActions] = useState<AssistantAction[]>([]);
-  return (
-    <Screen title="AI 어시스턴트">
-      {log.map((line, index) => <Card key={index}><Text>{line}</Text></Card>)}
-      {actions.map((action) => (
-        <Btn key={action.id} label={`실행 · ${action.type}`} onPress={() => { if (user) void executeAssistant(action, user.cohortId); }} />
-      ))}
-      <Field label="요청" value={text} onChangeText={setText} multiline />
-      <Btn label="보내기" onPress={() => {
-        if (!user || !text.trim()) return;
-        const messages = [{ role: 'user' as const, content: text.trim() }];
-        void askAssistant(messages, context, user.cohortId).then((result) => {
-          setLog((prev) => [...prev, text.trim(), result.reply]);
-          setContext(result.context);
-          setActions(result.actions);
-          setText('');
-        });
-      }} />
-    </Screen>
-  );
-}
-
-export function RoomsPage() {
-  const rooms = useRooms();
-  return (
-    <Screen title="착석 현황">
-      {rooms.map((room) => (
-        <Card key={room.id}>
-          <Text>{room.roomNumber ?? room.id}</Text>
-          <Muted>좌석 {room.cells.filter((cell) => cell.type === 'seat').length}</Muted>
-        </Card>
-      ))}
-      <Btn label="배치 편집은 PC" tone="ghost" onPress={() => push('/(admin)/desktop/seating')} />
+      {checks.length > 0 ? (
+        <>
+          <SectionLabel title="최근 불시 점검" />
+          <ListGroup>
+            {checks.slice(0, 5).map((check) => (
+              <ListItem
+                key={check.id}
+                title={`${fmt(check.checkedAt)} · ${check.period === 'am' ? '오전' : '오후'}`}
+                subtitle={`유 ${check.items.filter((item) => item.state === 'present').length} · 무 ${check.items.filter((item) => item.state === 'absent').length}${check.checkedByName ? ` · ${check.checkedByName}` : ''}`}
+              />
+            ))}
+          </ListGroup>
+        </>
+      ) : null}
     </Screen>
   );
 }

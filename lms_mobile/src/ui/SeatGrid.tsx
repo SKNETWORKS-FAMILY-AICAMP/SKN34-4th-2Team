@@ -6,6 +6,8 @@ import { ScrollView, Text, View, type ViewStyle } from 'react-native';
 import { useTheme } from '../theme/Theme';
 
 /** 웹 `.seatmap` 치수 — 폭이 모자라면 칸을 줄이고, 최소 폭보다 좁으면 가로로 민다 */
+export type SeatMark = 'unknown' | 'confirmed' | 'held';
+
 const SEAT_W = 76;
 const SEAT_H = 68;
 const MIN_SEAT_W = 44;
@@ -22,12 +24,17 @@ export function SeatGrid({
   seatUserIds,
   seatNames,
   highlightUserId,
+  highlightCaption = '내 자리',
+  markOf,
   width,
 }: {
   grid: SeatingGrid;
   seatUserIds: Record<string, string>;
   seatNames: Record<string, string>;
   highlightUserId?: string;
+  highlightCaption?: string;
+  /** 자리 확인 화면 — 학생별 확인 · 보류 표시 */
+  markOf?: (userId: string) => SeatMark;
   /** 배치도가 쓸 수 있는 폭 */
   width: number;
 }) {
@@ -56,6 +63,8 @@ export function SeatGrid({
                 name={cell.type === 'seat' ? seatNames[cell.seatId] : undefined}
                 occupied={userId !== undefined}
                 mine={userId !== undefined && userId === highlightUserId}
+                caption={highlightCaption}
+                mark={userId !== undefined && markOf ? markOf(userId) : 'unknown'}
                 small={small}
               />
             );
@@ -101,6 +110,8 @@ function Cell({
   name,
   occupied,
   mine,
+  caption,
+  mark,
   small,
 }: {
   grid: SeatingGrid;
@@ -109,6 +120,8 @@ function Cell({
   name?: string;
   occupied: boolean;
   mine: boolean;
+  caption: string;
+  mark: SeatMark;
   small: boolean;
 }) {
   const { palette } = useTheme();
@@ -175,7 +188,15 @@ function Cell({
       >
         {filled ? name : '—'}
       </Text>
-      {mine ? <Text style={{ fontSize: small ? 9 : 10, fontWeight: '700', color: '#fff' }}>내 자리</Text> : null}
+      {mine ? <Text style={{ fontSize: small ? 9 : 10, fontWeight: '700', color: '#fff' }}>{caption}</Text> : null}
+      {mark !== 'unknown' ? (
+        <MaterialIcons
+          name={mark === 'confirmed' ? 'check-circle' : 'pause-circle'}
+          size={small ? 12 : 14}
+          color={mark === 'confirmed' ? palette.success : palette.warning}
+          style={{ position: 'absolute', top: 2, right: 2 }}
+        />
+      ) : null}
     </View>
   );
 }

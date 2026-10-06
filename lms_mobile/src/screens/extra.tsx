@@ -4,7 +4,7 @@ import * as Sharing from 'expo-sharing';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { formatPostingText, type PostingBlock } from '@web/features/jobs/postingText';
 import { COMMON_QUESTIONS } from '@web/features/jobApply/companyQuestions';
 import { ResumeStatusLabels } from '@web/domain/constants';
@@ -15,6 +15,7 @@ import { featuredPostings, fetchApplyLink, fetchPosting, type Posting } from '..
 import { requestReview, updateResume, useFeedbacks, useResumes, createResume, setBaseResume, deleteResume } from '../data/resumes';
 import { useAlerts, dismissAlertToday, markAlertRead } from '../data/notices';
 import { Btn, Card, Field, Muted, Row, Screen, T, goBack, todayKey } from '../ui/kit';
+import { confirmAction } from '../ui/form';
 import { useTheme } from '../theme/Theme';
 import { elevation } from '../theme/tokens';
 
@@ -92,7 +93,7 @@ export function ResumeEditPage({ id }: { id: string }) {
       <Field label="전화" value={phone} onChangeText={setPhone} />
       <Field label="성장 과정" value={growth} onChangeText={setGrowth} multiline />
       <Field label="지원 동기" value={motivation} onChangeText={setMotivation} multiline />
-      {message ? <Text>{message}</Text> : null}
+      {message ? <T tone="secondary">{message}</T> : null}
       <Btn label="저장" onPress={() => {
         if (!user) return;
         const patch = { title, content: content(), userId: user.uid, userDisplayName: user.displayName, status: 'draft' as const, sections: {}, isBaseResume: false, feedbackCount: 0, lastSeenFeedbackCount: 0, readFeedbackIds: [], revisionCount: 0 };
@@ -111,10 +112,12 @@ export function ResumeEditPage({ id }: { id: string }) {
               setReview(result.summary ?? (lines || '제안이 없습니다.'));
             }).catch((error: unknown) => setReview(error instanceof Error ? error.message : '첨삭에 실패했습니다.'));
           }} />
-          <Btn label="삭제" tone="danger" onPress={() => void deleteResume(existing.id).then(goBack)} />
+          <Btn label="삭제" tone="danger" onPress={() => confirmAction('이력서 삭제', `'${existing.title}' 이력서를 삭제할까요?`, () => {
+            void deleteResume(existing.id).then(goBack).catch((error: unknown) => setMessage(error instanceof Error ? error.message : '삭제에 실패했습니다.'));
+          })} />
         </>
       ) : null}
-      {review ? <Card><Text>{review}</Text></Card> : null}
+      {review ? <Card><T>{review}</T></Card> : null}
       {feedbacks.map((row) => <Row key={row.id} title={row.authorName} subtitle={row.content} />)}
     </Screen>
   );
@@ -141,7 +144,7 @@ export function ApplyPage() {
           setPosting(plain(text) || text);
         }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : '공고를 찾지 못했습니다.'));
       }} />
-      {posting ? <Card><Text>{posting}</Text></Card> : null}
+      {posting ? <Card><T>{posting}</T></Card> : null}
       <Muted>자주 나오는 문항</Muted>
       {COMMON_QUESTIONS.map((question) => <Row key={question.key} title={question.question} subtitle={`${question.limit}자`} />)}
       <Btn label="지원 화면 캡처" tone="ghost" onPress={() => {
@@ -153,7 +156,7 @@ export function ApplyPage() {
       <Btn label="지원 사이트로" onPress={() => {
         void fetchApplyLink(jobId).then((url) => (url ? Linking.openURL(url) : setMessage('지원 링크가 없습니다.')));
       }} />
-      {message ? <Text>{message}</Text> : null}
+      {message ? <T tone="secondary">{message}</T> : null}
     </Screen>
   );
 }
@@ -186,7 +189,7 @@ export function JobPage({ id }: { id: string }) {
   }, [id]);
   return (
     <Screen title="공고" loading={!loaded && !text}>
-      <Text>{text || '본문이 없습니다.'}</Text>
+      <Card><T>{text || '본문이 없습니다.'}</T></Card>
       {url ? <Btn label="지원 사이트" onPress={() => void Linking.openURL(url)} /> : null}
     </Screen>
   );
