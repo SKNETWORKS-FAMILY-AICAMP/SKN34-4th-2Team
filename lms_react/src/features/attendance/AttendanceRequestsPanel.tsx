@@ -15,12 +15,13 @@ import { RoutePaths } from '../../app/routePaths';
 import type { AttendanceIssue, AttendanceRequestStatus, User } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { Badge, Button, Chip, Dialog, Spacer, TextArea, TextInput } from '../../ui/components';
-import { downloadText, matchStudents } from '../manager/studentFilters';
+import { ExportMenu } from '../export/ExportMenu';
+import { matchStudents } from '../manager/studentFilters';
 import {
   RequestStatusLabels,
   RequestStatusTones,
   labelOf,
-  requestsToCsv,
+  requestsTable,
 } from './attendanceRequest';
 import './attendanceRequest.css';
 
@@ -187,9 +188,7 @@ export function AttendanceRequestsPanel({
       .finally(() => setBusy(false));
   };
 
-  const exportCsv = () => {
-    downloadText(`출결신청_${from || '처음'}_${to || '끝'}.csv`, requestsToCsv(rows, nameOf));
-  };
+  const exportName = `출결신청_${from || '처음'}_${to || '끝'}`;
 
   const togglePick = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
 
@@ -216,10 +215,11 @@ export function AttendanceRequestsPanel({
             최근 30일
           </Chip>
           <Spacer />
-          <Button size="sm" variant="outline" onClick={exportCsv} disabled={rows.length === 0}>
-            <Icon name="download" size={16} />
-            CSV(엑셀)
-          </Button>
+          <ExportMenu
+            disabled={rows.length === 0}
+            fileName={exportName}
+            build={() => ({ ...requestsTable(rows, nameOf), title: `출결 신청 · ${rangeLabel}` })}
+          />
         </div>
         <div className="att-requests__toolbar">
           {STATUS_FILTERS.map((f) => (

@@ -35,6 +35,7 @@ SK네트웍스 Family AI 캠프 34기 4차 프로젝트 2팀.
 | `practice_verifier/` | 복습 문제 검증기 (브라우저와 같은 Pyodide) |
 | `vectordb/` | 학생 챗봇 벡터 DB 적재 |
 | `chatbot_lab/` | 챗봇 실험용 (운영과 연결 안 됨) |
+| `lms_mobile/` | 모바일 앱 (Expo · React Native, 웹 도메인 코드를 함께 씀) |
 | `lms_expo/` | 모바일 앱 시작점 (Expo) |
 | `scripts/` | 실행 · 이전 · 적재 스크립트 |
 | `deploy/`, `docker-compose*.yml` | 배포 (Nginx · AI 서버 이미지) |
@@ -85,6 +86,51 @@ npm run dev
 ```
 
 계정은 팀 채널에서 받습니다(저장소에 비밀번호를 적지 않습니다).
+
+### 4. 휴대폰으로 보기 (웹 · Expo 앱)
+
+PC와 휴대폰이 **같은 와이파이**에 있어야 합니다. 아래 `192.168.0.55`는 예시이니 `ipconfig`의 IPv4 주소로 바꿉니다.
+
+```bash
+ipconfig                          # 무선 LAN 의 IPv4 주소 확인 (예: 192.168.0.55)
+```
+
+**① 루트 `.env`에 PC 주소 추가** (바꾼 뒤 Django 를 다시 켭니다)
+
+```
+ALLOWED_HOSTS=127.0.0.1,localhost,192.168.0.55
+CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173,http://192.168.0.55:5173
+CSRF_TRUSTED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173,http://192.168.0.55:5173
+```
+
+**② Django 를 외부에서 접속 가능하게 띄우기**
+
+```bash
+cd lms_api
+python manage.py runserver 0.0.0.0:8000
+```
+
+**③-A 웹으로 보기** → 휴대폰 브라우저에서 `http://192.168.0.55:5173`
+
+```bash
+cd lms_react
+npm run dev -- --host             # --host 가 있어야 휴대폰에서 열린다
+```
+
+**③-B Expo 앱으로 보기** → 휴대폰에 **Expo Go** 설치 후 QR 스캔
+
+```bash
+cd lms_mobile
+# lms_mobile/.env (처음 한 번)
+#   EXPO_PUBLIC_API_BASE=http://192.168.0.55:8000/api
+#   EXPO_PUBLIC_WEB_URL=http://192.168.0.55:5173
+npm install
+npx expo start -c                 # -c : 캐시 비우고 시작 (.env · 패키지 바꾼 뒤엔 꼭)
+```
+
+- 터미널에서 `r` 은 앱 새로고침, Android 는 Expo Go 로, iPhone 은 기본 카메라로 QR 을 찍습니다.
+- 로그인이 안 되면: PC 주소가 바뀌지 않았는지, `.env` 를 바꾼 뒤 Django · Expo 를 다시 켰는지, Windows 방화벽이 8000 · 5173 · 8081 포트를 막지 않는지 확인합니다.
+- 같은 와이파이가 아니면 `npx expo start --tunnel` 로 앱은 열리지만, API 주소(`EXPO_PUBLIC_API_BASE`)는 휴대폰이 닿는 주소여야 합니다.
 
 ## 테스트
 

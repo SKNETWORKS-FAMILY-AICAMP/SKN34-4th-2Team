@@ -11,6 +11,7 @@ from django.db import connection, transaction
 
 from lms.permissions import can_access_cohort
 from lms.practice_service import PRACTICE_OPS
+from lms.push import notify_alert_popup, notify_new_notice
 from lms.services import schedule_notice_vector
 
 KST = ZoneInfo("Asia/Seoul")
@@ -251,6 +252,7 @@ def op_create_notice(cur, user, p):
     )
     pk = cur.fetchone()[0]
     cur.execute("UPDATE notices SET legacy_id = %s WHERE id = %s", [str(pk), pk])
+    notify_new_notice(cur, cohort_id, pk, p.get("title") or "", p.get("content") or "", user["id"])
     schedule_notice_vector(
         cohort_code=code, notice_id=pk,
         data={"title": p.get("title"), "content": p.get("content"), "author_id": user["id"],
@@ -1003,6 +1005,8 @@ def op_upsert_alert(cur, user, p):
     cur.execute("UPDATE alert_popups SET legacy_id = %s WHERE id = %s", [str(pk), pk])
     if targets:
         set_alert_targets(cur, pk, cohort_id, targets)
+    if is_active:
+        notify_alert_popup(cur, pk, cohort_id, title, content)
     return {"id": str(pk)}
 
 

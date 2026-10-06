@@ -129,7 +129,7 @@ export function InstructorAttendanceScreen() {
         ]}
       />
       {savedNotice && mode === 'history' && (
-        <div className="callout callout--success">점검을 저장했습니다. 여기서 CSV(엑셀)로 내려받을 수 있습니다.</div>
+        <div className="callout callout--success">점검을 저장했습니다. 여기서 Excel · Word · PDF 로 내려받을 수 있습니다.</div>
       )}
       {mode === 'spot' && (
         <SpotCheckRunner

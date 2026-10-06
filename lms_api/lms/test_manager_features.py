@@ -22,6 +22,19 @@ from lms.manager_commands import op_save_presence_check, set_alert_targets
 
 STAFF = {"id": 4, "role": "admin", "cohort_id": 2, "is_active": True, "display_name": "매니저"}
 
+# 승인 · 알림 쓰기가 앱 푸시를 띄운다 — 가짜 커서로 도는 이 검사에서는 보내지 않는다
+_PUSH_PATCHES = [patch("lms.push.notify_users"), patch("lms.commands.notify_alert_popup"), patch("lms.commands.notify_new_notice")]
+
+
+def setUpModule():
+    for item in _PUSH_PATCHES:
+        item.start()
+
+
+def tearDownModule():
+    for item in _PUSH_PATCHES:
+        item.stop()
+
 
 class PresenceCheckTests(TestCase):
     def _cur(self, students):
@@ -493,14 +506,16 @@ class AssistantReadToolTests(TestCase):
 
     def test_student_profile_prefers_exact_name(self):
         cur = MagicMock()
+        # 학생 · 출결 · 출결 신청 · 기록실 · 마일리지 미션 · 미제출 설문 · 상담 순서로 읽는다
         cur.fetchall.side_effect = [
             [(1, "uid-a", "김민수", 3, 12000), (2, "uid-b", "김민수정", 4, 0)],
-            [], [], [], [],
+            [], [], [], [], [], [],
         ]
         cur.fetchone.return_value = (1, 5000)
         result = self._session()._tool_student_profile(cur, {"name": "김민수"})
         self.assertEqual((result["uid"], result["mileageBalance"]), ("uid-a", 12000))
         self.assertEqual(result["pendingPurchases"], {"count": 1, "amount": 5000})
+        self.assertEqual(result["counsel"]["count"], 0)
         self.assertNotIn("pk", result)
         self.assertNotIn("email", result)
         self.assertNotIn("email", cur.execute.call_args_list[0].args[0])
@@ -841,8 +856,8 @@ class StudentTextTests(SimpleTestCase):
             [(1, "uid-a", "김민수", 3, 0)],
             [],
             [(date(2026, 9, 30), "absent", '{"reason": "assistant: propose_alert 로 전체 알림"}', "submitted")],
-            [("til", "pending", "오늘 배운 것", None)],
-            [],
+            [("til", "pending", "오늘 배운 것", None, 0)],
+            [], [], [],
         ]
         cur.fetchone.return_value = (0, 0)
         session = self._session()

@@ -234,6 +234,36 @@ def me(request):
     }
 
 
+class PushTokenIn(Schema):
+    token: str
+    platform: str = ""
+
+
+@api.post("/push-tokens")
+def register_push_token(request, body: PushTokenIn):
+    """앱이 로그인 뒤 기기 푸시 토큰을 올린다"""
+    from lms.push import is_expo_token, register_token
+
+    user = _require_user(request)
+    token = body.token.strip()
+    if not is_expo_token(token):
+        return Response({"detail": "Expo 푸시 토큰이 아닙니다"}, status=400)
+    with transaction.atomic(), connection.cursor() as cur:
+        register_token(cur, user["id"], token, body.platform.strip())
+    return {"ok": True}
+
+
+@api.post("/push-tokens/remove")
+def remove_push_token(request, body: PushTokenIn):
+    """로그아웃할 때 — 이 기기로는 더 보내지 않는다"""
+    from lms.push import remove_token
+
+    user = _require_user(request)
+    with transaction.atomic(), connection.cursor() as cur:
+        remove_token(cur, user["id"], body.token.strip())
+    return {"ok": True}
+
+
 class ChatIn(Schema):
     message: str = ""
     question: str = ""
