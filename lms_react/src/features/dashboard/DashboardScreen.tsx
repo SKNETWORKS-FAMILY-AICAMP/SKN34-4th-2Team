@@ -129,17 +129,17 @@ function ProfileCard() {
       </div>
       {course !== null && (
         <div className="profile-card__course">
+          {/* 날짜는 제목 줄 오른쪽에 — 줄을 하나 아껴 옆 마일리지 카드(신용카드 비율, 높이 고정)와 높이를 맞춘다 */}
           <div className="profile-card__course-head">
             <span>과정 진행</span>
             <strong>{course.label}</strong>
+            <span className="profile-card__course-dates">
+              {course.start} ~ {course.end}
+            </span>
             <span className="profile-card__course-pct">{Math.round(course.ratio * 100)}%</span>
           </div>
           <span className="profile-card__course-bar" role="img" aria-label={`과정 ${Math.round(course.ratio * 100)}% 진행`}>
             <i style={{ width: `${course.ratio * 100}%` }} />
-          </span>
-          <span className="profile-card__course-dates">
-            <span>{course.start} 시작</span>
-            <span>{course.end} 수료</span>
           </span>
         </div>
       )}
