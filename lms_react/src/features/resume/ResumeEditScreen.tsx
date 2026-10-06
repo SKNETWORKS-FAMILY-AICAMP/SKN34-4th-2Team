@@ -276,7 +276,7 @@ export function ResumeEditScreen() {
         <button
           type="button"
           className="icon-btn resume-edit__pdf"
-          onClick={() => window.print()}
+          onClick={() => printResume(resume)}
           aria-label="PDF 내보내기"
           title="PDF 내보내기"
         >
@@ -587,6 +587,15 @@ export function ResumeEditScreen() {
       <ResumePrintDoc resume={resume} />
     </div>
   );
+}
+
+/** 인쇄 창의 「PDF로 저장」은 문서 제목을 파일 이름으로 쓴다. 그동안만 「이름_이력서」로 바꿨다가 되돌린다 */
+function printResume(resume: Resume) {
+  const name = resume.content.basicInfo.name.trim();
+  const previous = document.title;
+  document.title = name === '' ? resume.title : `${name}_이력서`;
+  window.addEventListener('afterprint', () => { document.title = previous; }, { once: true });
+  window.print();
 }
 
 function BasicInfo({

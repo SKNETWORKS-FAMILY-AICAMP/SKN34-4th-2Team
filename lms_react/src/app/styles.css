@@ -9383,6 +9383,7 @@ a.coach-ask__card-title:hover {
 
   .rail,
   .appbar,
+  .resume-edit__top,
   .resume-edit__progress,
   .resume-edit__chips,
   .resume-doc,
@@ -9402,24 +9403,49 @@ a.coach-ask__card-title:hover {
     color: #2a2f37;
     font-size: 9.5pt;
     line-height: 1.45;
+    /* 쪽 여백은 @page 대신 여기서 준다(아래 @page 참고). clone 이라 쪽마다 위아래 여백이 다시 생긴다 */
+    padding: 42pt 48pt 34pt;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
   }
 
-  .print-doc__name {
+  /* 머리 — 큰 글씨는 이력서 제목, 그 아래 이름과 연락처. 선은 긋지 않는다(첫 섹션 제목의 밑줄과 겹친다) */
+  .print-doc__header {
+    padding-bottom: 6pt;
+  }
+
+  .print-doc__heading {
     margin: 0;
-    font-size: 20pt;
+    font-size: 19pt;
     font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.2pt;
     color: #111111;
   }
 
-  .print-doc__subtitle {
-    margin: 3pt 0 0;
-    font-size: 9pt;
-    color: #5b6270;
+  .print-doc__byline {
+    margin: 6pt 0 0;
+    font-size: 11.5pt;
+    font-weight: 700;
+    color: #2a2f37;
   }
 
   .print-doc__contact {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3pt 14pt;
     margin: 6pt 0 0;
-    font-size: 8.6pt;
+    padding: 0;
+    list-style: none;
+    font-size: 8.8pt;
+    color: #2a2f37;
+  }
+
+  .print-doc__contact-label {
+    margin-right: 4pt;
+    font-size: 7.8pt;
+    font-weight: 600;
+    color: #8a909b;
   }
 
   .print-doc__section {
@@ -9491,13 +9517,34 @@ a.coach-ask__card-title:hover {
     color: #5b6270;
   }
 
-  .print-doc__intro .print-doc__section {
+  /* 자기소개서 문항. 섹션 제목보다 한 단계 아래라 밑줄 없이 굵게만 */
+  .print-doc__qa {
+    margin-top: 10pt;
     break-inside: avoid;
   }
 
+  .print-doc__qa:first-of-type {
+    margin-top: 0;
+  }
+
+  .print-doc__question {
+    margin: 0;
+    font-size: 10pt;
+    font-weight: 700;
+    color: #111111;
+    break-after: avoid;
+  }
+
+  .print-doc__answer-title {
+    margin: 1pt 0 0;
+    font-weight: 600;
+    color: #2a2f37;
+  }
+
+  /* 여백을 0 으로 두면 브라우저가 쪽마다 찍는 날짜 · 문서 제목 · 주소 · 쪽 번호가 들어갈 자리가 없어 빠진다 */
   @page {
     size: A4;
-    margin: 42pt 48pt 34pt;
+    margin: 0;
   }
 }
 
