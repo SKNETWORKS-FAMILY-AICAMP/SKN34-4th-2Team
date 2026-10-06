@@ -66,30 +66,52 @@ def _with_chat_ops(response: schemas.JobChatResponse) -> schemas.JobChatResponse
         }
     )
 
-@asynccontextmanager
-async def _lifespan(_: FastAPI):
-    """첫 요청이 물어야 할 준비 비용을 서버가 뜰 때 미리 치른다.
+_warm_lock = threading.Lock()
+_warm_started = False
 
-    임베딩 클라이언트를 처음 만드는 데 2.3초, Pinecone 인덱스를 처음 잡는 데 1.2초가
-    든다. 그냥 두면 그 3.5초를 **처음 추천을 누른 사람**이 기다린다.
 
-    실패해도 서버는 뜬다. 준비를 못 했을 뿐이고 요청이 오면 그때 다시 시도한다.
-
-    마감 확인 세션은 뜨는 것을 기다리지 않고 따로 연다. 여는 데 3~5초를 일부러 쉬기 때문이다.
-    """
-    for service in (_service, _chat):
-        threading.Thread(target=service.liveness.warm, daemon=True).start()
+def _warm_embeddings() -> None:
     try:
         from langchain_openai import OpenAIEmbeddings
 
         from job_matching_bot.retrieval.pinecone_index import EMBEDDING_MODEL, index
 
-        await asyncio.to_thread(
-            OpenAIEmbeddings(model=EMBEDDING_MODEL).embed_query, "준비"
-        )
-        await asyncio.to_thread(index().describe_index_stats)
+        OpenAIEmbeddings(model=EMBEDDING_MODEL).embed_query("준비")
+        index().describe_index_stats()
     except Exception as error:  # noqa: BLE001 — 준비 실패가 서버를 막을 이유는 없다
         print(f"[준비] 미리 데우지 못했습니다: {type(error).__name__}")
+
+
+def _start_warming() -> None:
+    """첫 요청이 물어야 할 준비 비용을 뒤에서 미리 치른다. 한 번만 돈다. `SERVER_WARM=0`이면 끈다.
+
+    - 임베딩 클라이언트를 처음 만드는 데 2.3초, Pinecone 인덱스를 처음 잡는 데 1.2초
+    - 마감 확인 세션 — 여는 데 3~5초를 일부러 쉰다
+    - 자주 묻는 집계 85개 조합(지금 한 번, 매일 06:30) — RDS 에서 한 번에 3~20초
+
+    **서버가 뜰 때(lifespan)와 첫 요청 때 둘 다 부른다.** 운영 서버는 통합 앱(cover_letter_rag/app/integrated.py)이
+    이 앱을 `mount`로 붙이는데, Starlette 는 붙인 앱의 lifespan 을 돌리지 않는다. 그래서 위 준비가 운영에서는
+    한 번도 돌지 않았다 — 화면 첫 질문의 마감 확인 11.6초(2026-10-06). 통합 앱은 첨삭 쪽 파일이라 이쪽에서 막는다.
+    """
+    global _warm_started
+    if os.environ.get("SERVER_WARM", "1").strip() == "0":
+        return
+    with _warm_lock:
+        if _warm_started:
+            return
+        _warm_started = True
+    from job_matching_bot.retrieval import market_stats
+
+    for service in (_service, _chat):
+        threading.Thread(target=service.liveness.warm, daemon=True).start()
+    threading.Thread(target=_warm_embeddings, daemon=True).start()
+    threading.Thread(target=market_stats.warm_forever, args=(_chat.store_path,), daemon=True).start()
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    """단독으로 띄울 때(`job_matching_bot.api.main:app`)는 여기서 준비를 시작한다. 실패해도 서버는 뜬다."""
+    _start_warming()
     yield
 
 
@@ -126,6 +148,7 @@ async def _log_duration(request, call_next):
     LLM이 느렸던 요청은 [느림] 으로 표시해 눈에 띄게 한다.
     """
     started = time.perf_counter()
+    _start_warming()  # 통합 앱에 붙어 lifespan 이 안 돌 때를 위해. 두 번째부터는 아무것도 안 한다
     try:
         response = await call_next(request)
     except Exception:

@@ -46,5 +46,31 @@ class SearchCacheTest(unittest.TestCase):
             self.assertEqual(2, remember(key, load))
 
 
+class DayCacheTest(unittest.TestCase):
+    """집계는 하루 동안 다시 쓴다. 검색 기억과 따로 둔다."""
+
+    def setUp(self):
+        store_search._cache.clear()
+        store_search._day_cache.clear()
+        self.key = cache_key("stats", Path("artifacts/job_store.sqlite"), JobFilters(roles=["QA"]),
+                             datetime(2026, 9, 26, 15, tzinfo=KST))
+
+    def test_lasts_a_day_not_ten_minutes(self):
+        calls = []
+        load = lambda: calls.append(1) or len(calls)
+        with patch.object(store_search.time, "monotonic", return_value=1000.0):
+            store_search.remember_day(self.key, load)
+        with patch.object(store_search.time, "monotonic", return_value=1000.0 + 3 * 3600):
+            self.assertEqual(1, store_search.remember_day(self.key, load), "세 시간 뒤에도 다시 쓴다")
+        with patch.object(store_search.time, "monotonic", return_value=1000.0 + store_search._DAY_SECONDS + 1):
+            self.assertEqual(2, store_search.remember_day(self.key, load))
+
+    def test_searches_do_not_push_out_warmed_stats(self):
+        store_search.remember_day(self.key, lambda: "집계")
+        for i in range(store_search._CACHE_MAX + 10):
+            remember(("search", i), lambda: i)
+        self.assertIn(self.key, store_search._day_cache)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -350,20 +350,37 @@ def cache_key(
 
 def remember(key: tuple | None, compute):
     """열쇠가 있으면 10분 동안 결과를 다시 쓴다. 없으면 매번 계산한다."""
+    return _remember(_cache, _CACHE_SECONDS, _CACHE_MAX, key, compute)
+
+
+# 집계(market_stats)는 하루 동안 다시 쓴다. 공고는 밤에만 바뀌고 열쇠에 날짜가 들어 있어 날이 바뀌면 새로 센다.
+# 검색과 따로 둔다 — 같이 두면 미리 세 둔 집계가 검색 결과에 밀려 지워진다. 검색은 10분 그대로다:
+# 낮에 마감 확인으로 닫힌 공고가 목록에 오래 남으면 안 된다(카드는 마감 확인을 다시 거치지만 건수가 남는다).
+_DAY_SECONDS = 86400.0
+_DAY_MAX = 1024
+_day_cache: "OrderedDict[tuple, tuple[float, object]]" = OrderedDict()
+
+
+def remember_day(key: tuple | None, compute):
+    """열쇠가 있으면 하루 동안 결과를 다시 쓴다. 집계용."""
+    return _remember(_day_cache, _DAY_SECONDS, _DAY_MAX, key, compute)
+
+
+def _remember(cache: "OrderedDict", seconds: float, limit: int, key: tuple | None, compute):
     if key is None:
         return compute()
     now = time.monotonic()
     with _cache_lock:
-        hit = _cache.get(key)
-        if hit is not None and now - hit[0] < _CACHE_SECONDS:
-            _cache.move_to_end(key)
+        hit = cache.get(key)
+        if hit is not None and now - hit[0] < seconds:
+            cache.move_to_end(key)
             return hit[1]
     value = compute()
     with _cache_lock:
-        _cache[key] = (now, value)
-        _cache.move_to_end(key)
-        while len(_cache) > _CACHE_MAX:
-            _cache.popitem(last=False)
+        cache[key] = (now, value)
+        cache.move_to_end(key)
+        while len(cache) > limit:
+            cache.popitem(last=False)
     return value
 
 

@@ -29,5 +29,7 @@ def _no_managed_store(monkeypatch):
     monkeypatch.setattr(sqlite_store, "connect_postgres", guarded)
     # 열린 질문 에이전트는 실제 모델을 부른다. 에이전트를 재는 테스트만 켜고 가짜 실행기를 준다.
     monkeypatch.setenv("COACH_AGENT", "0")
+    # 서버 준비 스레드(마감 확인 세션 · 임베딩 · 집계 미리 세기)는 사이트 · OpenAI · 운영 저장소를 연다. 테스트에서는 끈다.
+    monkeypatch.setenv("SERVER_WARM", "0")
     # 앞 테스트가 열어 둔 운영 연결을 다음 테스트가 꺼내 쓰지 않게 비운다.
     monkeypatch.setattr(sqlite_store, "_pool", [])

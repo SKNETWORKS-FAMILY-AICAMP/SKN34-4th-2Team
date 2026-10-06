@@ -172,6 +172,15 @@ def rule_프롬프트노출(got: dict) -> str | None:
     return f"프롬프트 문구가 답에 있다: {leaked}" if leaked else None
 
 
+_FOREIGN = re.compile(r"[぀-ヿ一-鿿]")
+
+
+def rule_외국문자(got: dict) -> str | None:
+    """한국어 답에 일본어 가나 · 한자가 섞이면 안 된다. 「분포에載る」가 나간 적이 있다."""
+    hit = _FOREIGN.search(got.get("reply") or "")
+    return f"외국 문자가 섞였다: {hit.group(0)}" if hit else None
+
+
 def rule_연봉숫자(got: dict) -> str | None:
     """우리 데이터에 연봉이 없다. 금액을 말하면 지어낸 것이다."""
     hit = _SALARY.search(got.get("reply") or "")
@@ -195,6 +204,7 @@ RULES = {
     "ab라벨": rule_ab라벨,
     "프롬프트노출": rule_프롬프트노출,
     "연봉숫자": rule_연봉숫자,
+    "외국문자": rule_외국문자,
     "코드": rule_코드,
 }
 
