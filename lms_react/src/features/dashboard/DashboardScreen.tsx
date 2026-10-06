@@ -158,16 +158,7 @@ function ProfileCard() {
           ))}
         </div>
       )}
-      {/* 기술 스택은 입력할 곳이 없다(마이페이지에 칸이 없다). 관리자가 넣어 둔 사람에게만 칩이 보인다 */}
-      {user.skills.length > 0 && (
-        <div className="profile-card__skills">
-          {user.skills.map((skill) => (
-            <span key={skill} className="skill-chip">
-              {skill}
-            </span>
-          ))}
-        </div>
-      )}
+      {/* 기술 스택은 여기 두지 않는다 — 마이페이지 · 이력서에서 본다. 칩이 늘면 옆 마일리지 카드와 높이가 어긋난다 */}
     </div>
   );
 }

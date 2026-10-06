@@ -1,7 +1,12 @@
+import { Link } from 'react-router-dom';
+
+import { RoutePaths } from '../../app/routePaths';
 import { SelfIntroKeys, SelfIntroLabels } from '../../domain/constants';
 import type { Resume, ResumeContent } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
+import { useCurrentUser } from '../auth/session';
 import { TechStackEditor } from './skills/TechStackEditor';
+import { sameSkill } from './skills/skillCatalog';
 
 /**
  * 이력서 섹션 — features/resume/presentation/resume_edit_screen.dart의 양식.
@@ -105,6 +110,47 @@ export function AddItem({ onAdd, label = '항목 추가' }: { onAdd(): void; lab
 type Patch = (patch: Partial<ResumeContent>) => void;
 
 /** 섹션 하나를 편집 또는 읽기로 그린다. */
+/**
+ * 「마이페이지에서 불러오기」 — 마이페이지 기술 스택 중 이 이력서에 없는 것만 숙련도째 넣는다.
+ * 이력서에서 빼거나 고친 건 그대로 둔다(공고 맞춤 이력서는 일부러 뺀 기술이 있다). 이력서 주인에게만 보인다.
+ */
+function ProfileTechImport({ resume, patch }: { resume: Resume; patch: Patch }) {
+  const user = useCurrentUser();
+  if (resume.userId !== user.uid) return null;
+  const profile = user.techStack ?? [];
+  const current = resume.content.techStack;
+  const fresh = profile.filter((t) => !current.some((x) => sameSkill(x.name, t.name)));
+
+  if (profile.length === 0) {
+    return (
+      <p className="tech-import tech-import--hint">
+        <Icon name="info" size={16} />
+        <span>
+          <Link to={RoutePaths.myPage}>마이페이지</Link>에 기술 스택을 적어 두면 이력서마다 한 번에 불러올 수 있어요.
+        </span>
+      </p>
+    );
+  }
+  if (fresh.length === 0) return null;
+  return (
+    <div className="tech-import">
+      <span>
+        마이페이지 기술 스택 중 이 이력서에 없는 기술 <strong>{fresh.length}개</strong>
+      </span>
+      <button
+        type="button"
+        className="btn btn--outline btn--sm"
+        onClick={() =>
+          patch({ techStack: [...current, ...fresh.map((t) => ({ id: nextId('t'), name: t.name, level: t.level }))] })
+        }
+      >
+        <Icon name="download" size={16} />
+        마이페이지에서 불러오기
+      </button>
+    </div>
+  );
+}
+
 export function SectionBody({
   sectionKey,
   resume,
@@ -330,12 +376,15 @@ export function SectionBody({
 
     case 'techStack':
       return (
-        <TechStackEditor
-          items={c.techStack}
-          readOnly={readOnly}
-          onChange={(techStack) => patch({ techStack })}
-          newId={() => nextId('t')}
-        />
+        <>
+          {!readOnly && <ProfileTechImport resume={resume} patch={patch} />}
+          <TechStackEditor
+            items={c.techStack}
+            readOnly={readOnly}
+            onChange={(techStack) => patch({ techStack })}
+            newId={() => nextId('t')}
+          />
+        </>
       );
 
     case 'certifications':

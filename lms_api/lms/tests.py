@@ -12,7 +12,7 @@ from lms.api import ChatIn, _data, _notice_image_key, api, chat, upload_notice_i
 from lms.bootstrap_service import _dicts
 from lms.commands import (
     _validate_record_submission_write, _validate_resume_write, op_add_todo,
-    op_create_cohort, op_delete_todo, op_set_seat_presence, op_toggle_todo,
+    _save_user_skills, op_create_cohort, op_delete_todo, op_set_seat_presence, op_toggle_todo,
     op_update_cohort, op_upsert_sql,
 )
 from lms.seating_layout import seating_payload
@@ -408,6 +408,22 @@ class CohortPeriodTests(SimpleTestCase):
     def test_only_admin_can_change_period(self):
         with self.assertRaises(PermissionError):
             op_update_cohort(Mock(), {"id": 2, "role": "instructor"}, {"cohortId": "cohort_34", "endDate": "2026-12-14"})
+
+
+class ProfileSkillsTests(SimpleTestCase):
+    """마이페이지 기술 스택 — 숙련도와 원래 표기를 함께 저장한다."""
+
+    def test_saves_level_and_label(self):
+        cur = Mock()
+        cur.fetchone.return_value = (11,)
+        _save_user_skills(cur, 5, [{"name": " Python ", "level": "중급"}, "SQL", {"name": "", "level": "고급"}])
+        calls = [c.args for c in cur.execute.call_args_list]
+        self.assertIn("DELETE FROM user_skills", calls[0][0])
+        skills = [args for sql, args in calls if sql.lstrip().startswith("INSERT INTO skills")]
+        self.assertEqual([["python"], ["sql"]], skills, "찾기용 이름은 소문자, 빈 이름은 버린다")
+        links = [args for sql, args in calls if "INSERT INTO user_skills" in sql]
+        self.assertEqual([5, 11, "중급", '{"label": "Python"}'], links[0])
+        self.assertEqual([5, 11, None, '{"label": "SQL"}'], links[1], "예전 이름 목록은 숙련도 없이")
 
 
 class UpsertRoleTests(SimpleTestCase):

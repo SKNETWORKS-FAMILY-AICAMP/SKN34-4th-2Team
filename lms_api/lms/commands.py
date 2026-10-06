@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -84,6 +85,32 @@ def dispatch(user: dict, op: str, payload: dict) -> dict:
             return handler(cur, user, payload) or {"ok": True}
 
 
+def _save_user_skills(cur, user_id: int, items) -> None:
+    """프로필 기술 스택을 통째로 바꾼다. 이름은 소문자로 맞춰 skills 에 두고(찾기용),
+    화면에 보일 원래 표기(「Python」)는 evidence.label, 숙련도(고급 · 중급 · 초급 · 입문)는 proficiency 에 둔다."""
+    cur.execute("DELETE FROM user_skills WHERE user_id = %s", [user_id])
+    for item in items or []:
+        if isinstance(item, dict):
+            label, level = " ".join(str(item.get("name") or "").split()), str(item.get("level") or "").strip()
+        else:
+            label, level = " ".join(str(item).split()), ""
+        name = label.casefold()
+        if not name:
+            continue
+        cur.execute(
+            """INSERT INTO skills (canonical_name,created_at) VALUES (%s,now())
+               ON CONFLICT (canonical_name) DO UPDATE SET canonical_name=EXCLUDED.canonical_name
+               RETURNING id""",
+            [name],
+        )
+        skill_id = cur.fetchone()[0]
+        cur.execute(
+            """INSERT INTO user_skills (user_id,skill_id,proficiency,source,evidence,updated_at)
+               VALUES (%s,%s,%s,'profile',%s,now()) ON CONFLICT DO NOTHING""",
+            [user_id, skill_id, level or None, json.dumps({"label": label}, ensure_ascii=False)],
+        )
+
+
 def op_update_profile(cur, user, p):
     uid = p.get("uid") or user["firebase_uid"]
     if user["role"] != "admin" and uid != user["firebase_uid"]:
@@ -121,24 +148,9 @@ def op_update_profile(cur, user, p):
     target_user_id = resolve_user(cur, uid)
     if target_user_id is None:
         raise KeyError("user")
-    if "skills" in p:
-        cur.execute("DELETE FROM user_skills WHERE user_id = %s", [target_user_id])
-        for raw_skill in p.get("skills") or []:
-            name = " ".join(str(raw_skill).split()).casefold()
-            if not name:
-                continue
-            cur.execute(
-                """INSERT INTO skills (canonical_name,created_at) VALUES (%s,now())
-                   ON CONFLICT (canonical_name) DO UPDATE SET canonical_name=EXCLUDED.canonical_name
-                   RETURNING id""",
-                [name],
-            )
-            skill_id = cur.fetchone()[0]
-            cur.execute(
-                """INSERT INTO user_skills (user_id,skill_id,source,updated_at)
-                   VALUES (%s,%s,'profile',now()) ON CONFLICT DO NOTHING""",
-                [target_user_id, skill_id],
-            )
+    if "techStack" in p or "skills" in p:
+        # 마이페이지 「기술 스택」 — techStack 은 [{name, level}], 예전 skills 는 이름 목록. 둘 다 오면 techStack
+        _save_user_skills(cur, target_user_id, p["techStack"] if "techStack" in p else p.get("skills"))
     if "jobPreferences" in p:
         import json
         cur.execute(

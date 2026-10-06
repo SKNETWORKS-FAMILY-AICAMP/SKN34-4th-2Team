@@ -86,13 +86,13 @@ export function ResumePrintDoc({ resume }: { resume: Resume }) {
   const contact = contactItems(c);
 
   // 기술스택은 숙련도별로 한 줄씩 묶는다 — skillRows와 같은 방식.
-  const levels = ['고급', '중급', '초급'];
-  const techRows = levels
-    .map((level) => ({
-      level,
-      names: c.techStack.filter((t) => t.level === level).map((t) => t.name).join(', '),
-    }))
-    .filter((row) => row.names !== '');
+  // 「입문」과 숙련도를 안 고른 기술은 예전에 빠졌다. 입문은 제 줄, 안 고른 것은 「기타」 줄에 둔다
+  const levels = ['고급', '중급', '초급', '입문'];
+  const named = c.techStack.filter((t) => t.name.trim() !== '');
+  const techRows = [
+    ...levels.map((level) => ({ level, names: named.filter((t) => t.level === level).map((t) => t.name).join(', ') })),
+    { level: '기타', names: named.filter((t) => !levels.includes(t.level)).map((t) => t.name).join(', ') },
+  ].filter((row) => row.names !== '');
 
   const intro = SelfIntroKeys.filter((key) => c.selfIntroduction[key].body.trim() !== '');
 

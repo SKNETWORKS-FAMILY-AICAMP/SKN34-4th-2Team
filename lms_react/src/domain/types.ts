@@ -31,7 +31,10 @@ export interface User {
   isActive: boolean;
   mustChangePassword: boolean;
   motto?: string;
+  /** 기술 이름만 — 영상 추천 정렬 · 관리자 목록. 원본은 techStack */
   skills: string[];
+  /** 마이페이지 「기술 스택」 — 이름 + 숙련도. 이력서 기술스택이 여기서 불러온다 */
+  techStack?: ProfileTechItem[];
   socialLinks: Record<string, string>;
   jobPreferences: JobPreferences;
   birthDate?: string;
@@ -299,6 +302,12 @@ export interface ResumeEducationItem {
   endDate: string;
   /** 졸업 / 재학 / 수료 */
   status: string;
+}
+
+/** 마이페이지 기술 스택 한 칸. 이력서 기술스택(ResumeTechStackItem)에서 id 만 없다 */
+export interface ProfileTechItem {
+  name: string;
+  level: string;
 }
 
 /** 기술스택은 이름 + 숙련도(고급·중급·초급) */
