@@ -944,8 +944,11 @@ class ChatService(_LivenessMixin):
     """
 
     def __init__(self, generator=None, store_path: Path | None = None,
-                 adviser=None, job_asker=None, finder=None, comparer=None, profiler=None):
+                 adviser=None, job_asker=None, finder=None, comparer=None, profiler=None,
+                 agent_factory=None):
         self._generator = generator
+        # 열린 질문 에이전트를 만드는 함수(도구 목록 → 실행기). 테스트가 갈아끼운다. None 이면 실제 모델
+        self._agent_factory = agent_factory
         self._store_path = store_path
         self._adviser = adviser
         self._job_asker = job_asker
@@ -1214,7 +1217,7 @@ class ChatService(_LivenessMixin):
         filters = _to_job_filters(turn.filters)
 
         if turn.intent == "질문":
-            return self._advise(request, turn, filters, clock)
+            return self._ask_open(request, turn, filters, clock)
 
         # "이거 말고" — 같은 조건에서 앱이 지금까지 보여 준 공고를 빼고 다음 것을 준다.
         # 직전 한 쪽만 빼면 두 번째 "이거 말고"에 첫 목록이 다시 나오므로 전부 받는다.
@@ -1433,6 +1436,17 @@ class ChatService(_LivenessMixin):
                 if "전국" in (hit.region or "") or any(r in (hit.region or "") for r in filters.regions)
             ]
         return found[:top_k]
+
+    def _ask_open(self, request, turn, filters, clock: StageClock) -> schemas.JobChatResponse:
+        """열린 질문. 에이전트가 도구를 골라 답하고(`chat_agent`), 못 하면 한 번 세고 쓰는 길로."""
+        from job_matching_bot.api import chat_agent
+
+        if chat_agent.enabled():
+            try:
+                return chat_agent.answer(self, request, turn, clock, agent_factory=self._agent_factory)
+            except chat_agent.AgentFailed as error:
+                print(f"[챗봇] 에이전트 실패, 예전 길로 답한다: {error}")
+        return self._advise(request, turn, filters, clock)
 
     def _advise(self, request, turn, filters, clock: StageClock) -> schemas.JobChatResponse:
         """채용 질문에 답한다. 조건이 잡혔으면 그 조건의 공고를 세어 근거로 준다.
