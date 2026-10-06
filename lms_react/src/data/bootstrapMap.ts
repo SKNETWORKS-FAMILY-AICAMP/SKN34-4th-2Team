@@ -1,4 +1,6 @@
 import type {
+  AiEvalResult,
+  AiGenerationLog,
   AlertPopup,
   Assessment,
   AssessmentQuestion,
@@ -748,6 +750,55 @@ function groupBy<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
   return out;
 }
 
+function count(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function optionalCount(value: unknown): number | undefined {
+  return value == null || value === '' ? undefined : count(value);
+}
+
+export function mapAiLog(row: Record<string, unknown>): AiGenerationLog {
+  const error = String(row.errorMessage ?? row.error_message ?? '').trim();
+  const name = String(row.createdByName ?? row.created_by_name ?? '').trim();
+  return {
+    id: String(row.id ?? row.pk ?? ''),
+    type: String(row.type ?? ''),
+    promptVersion: String(row.promptVersion ?? row.prompt_version ?? ''),
+    model: String(row.model ?? ''),
+    generatedCount: count(row.generatedCount ?? row.generated_count),
+    adoptedCount: count(row.adoptedCount ?? row.adopted_count),
+    editedCount: count(row.editedCount ?? row.edited_count),
+    usefulCount: count(row.usefulCount ?? row.useful_count),
+    latencyMs: count(row.latencyMs ?? row.latency_ms),
+    status: row.status === 'error' ? 'error' : 'success',
+    errorMessage: error || undefined,
+    tokenIn: optionalCount(row.tokenIn ?? row.token_in),
+    tokenOut: optionalCount(row.tokenOut ?? row.token_out),
+    createdByName: name || undefined,
+    createdAt: asDate(row.createdAt ?? row.created_at),
+  };
+}
+
+/** 통과율은 0~1. 통과 수 / 사례 수가 있으면 그걸 쓰고, 없으면 accuracy(0~1 또는 %)를 쓴다 */
+export function mapAiEval(row: Record<string, unknown>): AiEvalResult {
+  const caseCount = count(row.totalCases ?? row.total_cases);
+  const passed = count(row.passed);
+  const accuracy = count(row.accuracy);
+  const passRate = caseCount > 0 && row.passed != null ? passed / caseCount : accuracy > 1 ? accuracy / 100 : accuracy;
+  return {
+    id: String(row.id ?? row.pk ?? ''),
+    promptVersion: String(row.promptVersion ?? row.prompt_version ?? ''),
+    suite: String(row.source ?? ''),
+    model: row.model ? String(row.model) : undefined,
+    passRate: Math.min(1, passRate),
+    caseCount,
+    avgLatencyMs: optionalCount(row.avgLatencyMs ?? row.avg_latency_ms),
+    ranAt: asDate(row.createdAt ?? row.created_at) ?? new Date(0),
+  };
+}
+
 export function mapBootstrap(payload: Record<string, unknown>): Database {
   const me = parseJsonb((payload.me ?? {}) as Record<string, unknown>);
   const majorOf = new Map(
@@ -886,16 +937,8 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
     })),
     qualExams: mapQualExams(payload),
     qualExamsSyncedAt: qualSyncedAt(payload),
-    aiLogs: rowsOf(payload, 'aiGenerationLogs').map((row) => ({
-      id: String(row.id ?? row.pk ?? ''),
-      type: String(row.type ?? ''),
-      promptVersion: String(row.promptVersion ?? row.prompt_version ?? ''),
-      model: String(row.model ?? ''),
-      generatedCount: Number(row.generatedCount ?? 0),
-      latencyMs: Number(row.latencyMs ?? row.latency_ms ?? 0),
-      status: (row.status as 'success' | 'error') || 'success',
-      createdAt: asDate(row.createdAt ?? row.created_at),
-    })),
+    aiLogs: rowsOf(payload, 'aiGenerationLogs').map(mapAiLog),
+    aiEvals: rowsOf(payload, 'aiEvalRuns').map(mapAiEval),
     alertDismissals: dismissals,
     alertReadIds: Array.isArray(payload.alertPopupReadIds) ? (payload.alertPopupReadIds as unknown[]).map(String) : [],
   };
