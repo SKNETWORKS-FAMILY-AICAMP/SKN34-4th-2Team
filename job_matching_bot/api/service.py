@@ -98,6 +98,12 @@ PROFILE_EFFORT = "low"
 LIVENESS_SPARE = 2
 # 구조화 결과를 몇 벌까지 들고 있을지. 이력서 한 건이 몇 KB라 넉넉해도 가볍다.
 PROFILE_CACHE_SIZE = 64
+# 가르기 결과를 다시 쓰는 시간과 개수(`ChatService._route`). 가르기는 공고 데이터와 상관없이 말만 보므로 길어도 된다.
+ROUTE_CACHE_SECONDS = 6 * 3600
+ROUTE_CACHE_SIZE = 512
+# 미리 찾아 둘 검색의 직무(`ChatService.warm_searches`). × 신입 · 경력무관 × 전체 · 서울 = 40, 직무 없는 검색 2.
+# 검색 기억은 64개라(`store_search._SEARCH_MAX`) 남는 자리를 사용자가 처음 하는 검색에 둔다.
+WARM_SEARCH_ROLES = ("백엔드", "프론트엔드", "풀스택", "데이터분석", "데이터엔지니어", "AI", "앱개발", "게임", "임베디드", "클라우드")
 # 직무를 말하지 않은 코치 검색에서, 이력서가 없을 때 앞에 둘 직무. 수강생은 개발 과정이다.
 # 「AI」 「데이터」만 두면 「[AI본부] 게임 아트 어시스턴트」 「영상 콘텐츠 데이터 관리」가 앞에 섰다 — 직무 이름으로 둔다
 DEFAULT_PREFER_ROLES = (
@@ -959,6 +965,9 @@ class ChatService(_LivenessMixin):
         self._profiler = profiler
         # 이력서 평문 → 희망 직무. 같은 이력서로 여러 번 물으므로 기억해 둔다(추천의 구조화와 같은 호출)
         self._resume_roles: OrderedDict[str, list[str]] = OrderedDict()
+        # (직전 조건, 말) → 가른 결과. 화면의 제안 단추(「서울 백엔드 신입」 · 「이 조건으로 공고 보여줘」)는 늘 같은
+        # 글을 보낸다. 같은 조건에서 같은 말이면 다시 가르지 않는다 — 가르기가 2.4~6.7초다(2026-10-06).
+        self._routes: OrderedDict[tuple[str, str], tuple[float, schemas.ChatTurnOut]] = OrderedDict()
 
     @property
     def profiler(self):
@@ -966,6 +975,29 @@ class ChatService(_LivenessMixin):
         if self._profiler is None:
             self._profiler = _build_generator(prompts.PROFILE_PROMPT, schemas.ResumeProfileOut, PROFILE_EFFORT)
         return self._profiler
+
+    def _route(self, previous: schemas.ChatFilters, message: str) -> schemas.ChatTurnOut:
+        """말을 가른다. 운영 저장소면 같은 (직전 조건, 말)을 `ROUTE_CACHE_SECONDS` 동안 다시 쓴다.
+
+        입력이 글자까지 같을 때만 쓴다. 테스트 저장소는 담아 두지 않는다 — 같은 말에 다른 가르기를 줘 가며 잰다.
+        """
+        from job_matching_bot.ingestion.sqlite_store import is_managed_store
+
+        values = {"previous": previous.model_dump_json(), "message": message}
+        if not is_managed_store(self.store_path):
+            return self.generator(values)
+        key = (values["previous"], message.strip())
+        now = time.monotonic()
+        hit = self._routes.get(key)
+        if hit is not None and now - hit[0] < ROUTE_CACHE_SECONDS:
+            self._routes.move_to_end(key)
+            return hit[1]
+        turn = self.generator(values)
+        self._routes[key] = (now, turn)
+        self._routes.move_to_end(key)
+        while len(self._routes) > ROUTE_CACHE_SIZE:
+            self._routes.popitem(last=False)
+        return turn
 
     def _preferred_roles(self, resume_text: str | None) -> tuple[list[str], str]:
         """직무를 말하지 않은 검색에서 앞에 둘 직무와, 답에 밝힐 기준.
@@ -1036,6 +1068,22 @@ class ChatService(_LivenessMixin):
 
             self._store_path = DEFAULT_STORE
         return self._store_path
+
+    def warm_searches(self) -> int:
+        """자주 하는 검색을 미리 찾아 하루 기억에 넣는다(`store_search.remember_search`). 집계 미리 세기 뒤에 돈다.
+
+        열쇠가 조건 그대로라 라우터 · 에이전트가 뽑는 말과 같아야 맞는다. 직무를 말하지 않은 검색은 `_find`가
+        개발 직군(`DEFAULT_PREFER_ROLES`)을 앞에 두므로 그 순서로 찾아 둔다.
+        """
+        items: list[tuple[store_search.JobFilters, tuple[str, ...]]] = [
+            (store_search.JobFilters(roles=[role], regions=regions, career=career), ())
+            for role in WARM_SEARCH_ROLES for career in ("신입", "무관") for regions in ([], ["서울"])
+        ]
+        items += [
+            (store_search.JobFilters(career="신입"), DEFAULT_PREFER_ROLES),
+            (store_search.JobFilters(regions=["서울"], career="신입"), DEFAULT_PREFER_ROLES),
+        ]
+        return store_search.warm_searches(self.store_path, items)
 
     def search_jobs(self, request: schemas.JobSearchRequest) -> schemas.JobSearchResponse:
         """필터를 그대로 받아 조건에 맞는 공고를 준다. LLM을 부르지 않는다.
@@ -1124,12 +1172,7 @@ class ChatService(_LivenessMixin):
             return self._ask_job(request, previous, clock)
 
         clock.begin("route")
-        turn = self.generator(
-            {
-                "previous": previous.model_dump_json(),
-                "message": request.message,
-            }
-        )
+        turn = self._route(previous, request.message)
         clock.lap("route")
 
         # 여기가 문이다. **채용이라고 짚은 말만** 아래로 내려간다.

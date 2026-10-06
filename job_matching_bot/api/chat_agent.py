@@ -45,6 +45,8 @@ TOOL_CALL_LIMIT = 6
 SEARCH_SHOW = 10
 # 카드로 내보낼 최대 수. 검색 답과 같다.
 CARD_LIMIT = 5
+# 찾은 공고 중 마감 확인을 미리 열어 둘 수. 모델은 대개 앞쪽에서 고른다. 확인기는 8개를 한 번에 연다.
+LIVENESS_PREFETCH = 8
 # 도구를 고르는 일은 깊게 생각할 일이 아니다. 답 품질은 `OPENAI_REASONING_EFFORT`가 아니라
 # 도구 결과가 정한다. 바꿀 때 `COACH_AGENT_EFFORT`.
 AGENT_EFFORT = "low"
@@ -147,6 +149,7 @@ class Collected:
     counted: list[int] = field(default_factory=list)
     searched: list[int] = field(default_factory=list)
     calls: list[str] = field(default_factory=list)
+    prefetch: list = field(default_factory=list)  # 마감 확인을 미리 연 스레드
 
 
 def build_tools(service: Any, clock: Any, collected: Collected) -> list:
@@ -167,6 +170,17 @@ def build_tools(service: Any, clock: Any, collected: Collected) -> list:
             clock.lap(name)
             # 다음은 도구를 더 부르거나 답을 쓴다. 어느 쪽인지 모르므로 둘 다 덮는 말을 띄운다.
             clock.begin("think")
+
+    def prefetch_liveness(hits) -> None:
+        # 카드는 답이 끝난 뒤 마감 확인을 거친다(1.9~2.1초). 찾은 순간 뒤에서 미리 열어 두면, 그때는 기록
+        # (`link_checks`, 1시간)에서 꺼내기만 한다. 모델이 답을 쓰는 몇 초 동안 끝난다. 실패해도 마지막 확인이 다시 연다.
+        ids = [hit.job_id for hit in hits[:LIVENESS_PREFETCH]]
+        if ids:
+            import threading
+
+            thread = threading.Thread(target=service.drop_dead, args=(ids,), daemon=True)
+            thread.start()
+            collected.prefetch.append(thread)
 
     def hit_line(hit) -> str:
         tags = ", ".join(hit.tech_stack[:8]) or "-"
@@ -200,6 +214,7 @@ def build_tools(service: Any, clock: Any, collected: Collected) -> list:
             collected.searched.append(count)
             for hit in result.jobs:
                 collected.hits.setdefault(hit.job_id, hit)
+            prefetch_liveness(result.jobs)
             if not result.jobs:
                 return "그 조건으로 열린 공고가 없다."
             head = f"찾은 공고 {count:,}건{' 넘음' if result.scanned_cap and not result.strong else ''} 중 앞 {len(result.jobs)}건:"
@@ -223,6 +238,7 @@ def build_tools(service: Any, clock: Any, collected: Collected) -> list:
             collected.searched.append(len(found))
             for hit in found:
                 collected.hits.setdefault(hit.job_id, hit)
+            prefetch_liveness(found)
             if not found:
                 return "뜻이 가까운 열린 공고를 찾지 못했다."
             return "\n".join([f"뜻이 가까운 공고 {len(found)}건:", *map(hit_line, found)])
@@ -282,6 +298,50 @@ def default_agent_factory(tools: list):
     )
 
 
+def _stream(agent: Any, payload: dict, clock: Any) -> dict:
+    """에이전트를 돌리면서 마지막 답의 `answer` 칸을 조각으로 흘려보낸다. 다 돌면 마지막 상태를 준다.
+
+    마지막 답은 `AgentAnswer` 도구를 부르는 꼴로 온다(create_agent 의 구조화 출력). 그 인자 JSON 이 글자 단위로
+    흘러오므로, 반쯤 온 JSON 에서 `answer`만 꺼내 늘어난 만큼 보낸다. 도구를 고르는 중간 호출(count_jobs 등)은
+    흘리지 않는다 — 사용자에게 보일 글이 아니다. 예전에는 다 쓸 때까지 진행 문구만 돌다가 10~20초 뒤 답이
+    한꺼번에 떴다(2026-10-06 화면 확인). 화면은 `done`이 오면 흘려받은 글을 마지막 답으로 바꿔 끼운다.
+    """
+    from langchain_core.utils.json import parse_partial_json
+
+    final_name = AgentAnswer.__name__
+    state: dict = {}
+    message_id = None
+    names: dict[int, str] = {}
+    buffers: dict[int, str] = {}
+    sent = 0
+    for mode, data in agent.stream(payload, stream_mode=["messages", "values"]):
+        if mode == "values":
+            state = data
+            continue
+        chunk = data[0]
+        if getattr(chunk, "id", None) != message_id:
+            message_id, names, buffers = getattr(chunk, "id", None), {}, {}
+        for part in getattr(chunk, "tool_call_chunks", None) or []:
+            index = part.get("index") or 0
+            if part.get("name"):
+                names[index] = part["name"]
+                if part["name"] == final_name:
+                    clock.lap("answer")
+                    clock.begin("answer")
+            if names.get(index) != final_name:
+                continue
+            buffers[index] = buffers.get(index, "") + (part.get("args") or "")
+            try:
+                parsed = parse_partial_json(buffers[index]) or {}
+            except Exception:  # noqa: BLE001 — 덜 온 JSON 은 다음 조각에서 다시 본다
+                continue
+            text = parsed.get("answer") if isinstance(parsed, dict) else None
+            if isinstance(text, str) and len(text) > sent:
+                clock.on_text(text[sent:])
+                sent = len(text)
+    return state
+
+
 class AgentFailed(RuntimeError):
     """에이전트가 답을 내지 못했다(상한 · 형식 · 호출 실패). 부르는 쪽이 예전 길로 답한다."""
 
@@ -299,8 +359,12 @@ def answer(
     agent = (agent_factory or default_agent_factory)(tools)
     # 여기서 「답을 쓰는 중…」을 띄우지 않는다. 띄웠더니 화면에 「답을 쓰는 중」 → 「공고를 찾는 중」 →
     # 「공고를 세어 보는 중」 순으로 나왔다. 앞 단계의 「질문을 살펴보는 중…」이 첫 도구까지 이어진다.
+    payload = {"messages": [{"role": "user", "content": _human(request, turn)}]}
     try:
-        state = agent.invoke({"messages": [{"role": "user", "content": _human(request, turn)}]})
+        if clock.on_text is not None and hasattr(agent, "stream"):
+            state = _stream(agent, payload, clock)
+        else:
+            state = agent.invoke(payload)
     except Exception as error:  # noqa: BLE001 — 실패 이유는 남기고 예전 길로 간다
         raise AgentFailed(f"{type(error).__name__}: {error}") from error
     clock.lap("answer")
@@ -313,6 +377,8 @@ def answer(
     picked = picked[:CARD_LIMIT]
     if picked:
         clock.begin("liveness")
+        for thread in collected.prefetch:
+            thread.join(timeout=5)  # 미리 연 확인이 아직 돌면 기다린다 — 같은 공고를 두 번 열지 않게
         alive = service.drop_dead([hit.job_id for hit in picked])
         clock.lap("liveness")
         picked = [hit for hit in picked if hit.job_id in alive]

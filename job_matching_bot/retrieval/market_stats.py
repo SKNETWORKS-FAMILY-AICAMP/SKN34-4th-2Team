@@ -172,8 +172,12 @@ def warm(store_path: Path, filters: list[JobFilters] | None = None, as_of: datet
 WARM_AT = (6, 30)
 
 
-def warm_forever(store_path: Path, log: Callable[[str], None] = print) -> None:
-    """지금 한 번, 그 뒤로 매일 `WARM_AT`에 센다. 서버가 뜰 때 데몬 스레드로 부른다."""
+def warm_forever(store_path: Path, log: Callable[[str], None] = print,
+                 then: Callable[[], object] | None = None) -> None:
+    """지금 한 번, 그 뒤로 매일 `WARM_AT`에 센다. 서버가 뜰 때 데몬 스레드로 부른다.
+
+    `then`은 집계를 다 센 뒤 이어서 할 일이다(자주 하는 검색 미리 하기 — `ChatService.warm_searches`).
+    """
     import time
     from datetime import timedelta
 
@@ -183,6 +187,11 @@ def warm_forever(store_path: Path, log: Callable[[str], None] = print) -> None:
         return  # 운영 저장소가 아니면 담아 두지 않으니 세어 봐야 쓸 데가 없다
     while True:
         warm(store_path, log=log)
+        if then is not None:
+            try:
+                then()
+            except Exception as error:  # noqa: BLE001 — 준비 실패가 서버를 막을 이유는 없다
+                log(f"[미리 하기] 이어서 할 일 실패: {type(error).__name__}")
         now = datetime.now(KST)
         nxt = now.replace(hour=WARM_AT[0], minute=WARM_AT[1], second=0, microsecond=0)
         if nxt <= now:

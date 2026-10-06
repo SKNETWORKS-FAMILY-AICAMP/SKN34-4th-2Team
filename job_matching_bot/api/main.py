@@ -87,7 +87,7 @@ def _start_warming() -> None:
 
     - 임베딩 클라이언트를 처음 만드는 데 2.3초, Pinecone 인덱스를 처음 잡는 데 1.2초
     - 마감 확인 세션 — 여는 데 3~5초를 일부러 쉰다
-    - 자주 묻는 집계 85개 조합(지금 한 번, 매일 06:30) — RDS 에서 한 번에 3~20초
+    - 자주 묻는 집계 85개 조합과 검색 42개 조합(지금 한 번, 매일 06:30) — RDS 에서 한 번에 3~20초
 
     **서버가 뜰 때(lifespan)와 첫 요청 때 둘 다 부른다.** 운영 서버는 통합 앱(cover_letter_rag/app/integrated.py)이
     이 앱을 `mount`로 붙이는데, Starlette 는 붙인 앱의 lifespan 을 돌리지 않는다. 그래서 위 준비가 운영에서는
@@ -105,7 +105,9 @@ def _start_warming() -> None:
     for service in (_service, _chat):
         threading.Thread(target=service.liveness.warm, daemon=True).start()
     threading.Thread(target=_warm_embeddings, daemon=True).start()
-    threading.Thread(target=market_stats.warm_forever, args=(_chat.store_path,), daemon=True).start()
+    threading.Thread(
+        target=market_stats.warm_forever, args=(_chat.store_path,), kwargs={"then": _chat.warm_searches}, daemon=True,
+    ).start()
 
 
 @asynccontextmanager

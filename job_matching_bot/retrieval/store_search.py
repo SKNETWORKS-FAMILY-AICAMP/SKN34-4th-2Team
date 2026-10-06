@@ -354,8 +354,7 @@ def remember(key: tuple | None, compute):
 
 
 # 집계(market_stats)는 하루 동안 다시 쓴다. 공고는 밤에만 바뀌고 열쇠에 날짜가 들어 있어 날이 바뀌면 새로 센다.
-# 검색과 따로 둔다 — 같이 두면 미리 세 둔 집계가 검색 결과에 밀려 지워진다. 검색은 10분 그대로다:
-# 낮에 마감 확인으로 닫힌 공고가 목록에 오래 남으면 안 된다(카드는 마감 확인을 다시 거치지만 건수가 남는다).
+# 검색과 따로 둔다 — 같이 두면 미리 세 둔 집계가 검색 결과에 밀려 지워진다.
 _DAY_SECONDS = 86400.0
 _DAY_MAX = 1024
 _day_cache: "OrderedDict[tuple, tuple[float, object]]" = OrderedDict()
@@ -364,6 +363,34 @@ _day_cache: "OrderedDict[tuple, tuple[float, object]]" = OrderedDict()
 def remember_day(key: tuple | None, compute):
     """열쇠가 있으면 하루 동안 결과를 다시 쓴다. 집계용."""
     return _remember(_day_cache, _DAY_SECONDS, _DAY_MAX, key, compute)
+
+
+# 검색도 하루 동안 다시 쓴다. 처음 하는 검색이 RDS 에서 7~12초였다(2026-10-06 정리 뒤, 문자열 검색 CPU).
+# 10분이던 때는 같은 조건을 하루에도 몇 번씩 다시 훑었다. 낮에 마감된 공고가 기억된 목록에 남을 수 있지만
+# 카드로 내보내기 전에는 늘 마감 확인을 거친다(`_find` · 에이전트 마무리) — 건수만 몇 건 어긋날 수 있다.
+# 한 번에 최대 `SCAN_LIMIT`(3,000)행이라 집계보다 무겁다. 개수를 작게 둔다.
+_SEARCH_MAX = 64
+_search_cache: "OrderedDict[tuple, tuple[float, object]]" = OrderedDict()
+
+
+def remember_search(key: tuple | None, compute):
+    """열쇠가 있으면 하루 동안 검색 결과를 다시 쓴다. 최대 `_SEARCH_MAX`개."""
+    return _remember(_search_cache, _DAY_SECONDS, _SEARCH_MAX, key, compute)
+
+
+def warm_searches(store_path: Path, items: list[tuple["JobFilters", tuple[str, ...]]],
+                  as_of: datetime | None = None, log=print) -> int:
+    """(조건, 앞에 둘 직무) 목록을 미리 찾아 하루 기억에 넣는다. 찾은 조합 수. 하나가 실패해도 나머지는 찾는다."""
+    started = time.monotonic()
+    done = 0
+    for filters, prefer in items:
+        try:
+            search(store_path, filters, limit=5, as_of=as_of, prefer=prefer)
+            done += 1
+        except Exception as error:  # noqa: BLE001 — 준비 실패가 서버를 막을 이유는 없다
+            log(f"[검색 미리 하기] {filters.summary()} 실패: {type(error).__name__}")
+    log(f"[검색 미리 하기] {done}개 조합 · {time.monotonic() - started:.0f}초")
+    return done
 
 
 def _remember(cache: "OrderedDict", seconds: float, limit: int, key: tuple | None, compute):
@@ -830,7 +857,7 @@ def search(
             connection.close()
         return _one_per_posting(rows)
 
-    rows = remember(cache_key("search", store_path, filters, as_of, tuple(prefer_terms)), load)
+    rows = remember_search(cache_key("search", store_path, filters, as_of, tuple(prefer_terms)), load)
     seen = set(exclude_ids)
     remaining = [row for row in rows if row["job_id"] not in seen]
     jobs = [_to_hit(row, int(row["relevance"] or 0), bool(row["has_detail"]))
