@@ -70,7 +70,7 @@ export function PeoplePage({ role }: { role: UserRole }) {
             <ListItem
               key={person.uid}
               title={person.displayName}
-              subtitle={[person.email, person.seatNumber ? `좌석 ${person.seatNumber}번` : '', role === 'instructor' ? person.cohortName : ''].filter(Boolean).join(' · ')}
+              subtitle={[person.seatNumber ? `좌석 ${person.seatNumber}번` : '', role === 'instructor' ? person.cohortName : '', person.email].filter(Boolean).join(' · ')}
               left={<Avatar name={person.displayName} size={34} />}
               right={person.isActive === false ? <Badge label="비활성" tone="neutral" /> : undefined}
               onPress={() => push(`/(admin)/people/${person.uid}`)}
@@ -124,7 +124,7 @@ export function PersonPage({ uid }: { uid: string }) {
           <Avatar name={person.displayName} />
           <View style={{ flex: 1, gap: 4 }}>
             <T variant="title">{person.displayName}</T>
-            <View style={{ flexDirection: 'row', gap: 6 }}>
+            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
               <Badge label={ROLE_LABEL[person.role]} />
               {person.isActive === false ? <Badge label="비활성" tone="neutral" /> : <Badge label="활성" tone="success" />}
               {person.mustChangePassword ? <Badge label="비밀번호 변경 대기" tone="warning" /> : null}
@@ -135,7 +135,7 @@ export function PersonPage({ uid }: { uid: string }) {
 
       <ListGroup>
         {info.map(([label, value]) => (
-          <ListItem key={label} title={value} subtitle={label} />
+          <ListItem key={label} title={value} titleLines={3} subtitle={label} />
         ))}
       </ListGroup>
 

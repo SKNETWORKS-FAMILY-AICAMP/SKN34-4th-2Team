@@ -110,14 +110,14 @@ export function RecordsBoard({ reviewer }: { reviewer: boolean }) {
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-        <Chip label={type === null ? '✓ 전체' : '전체'} selected={type === null} onPress={() => setType(null)} />
+        <Chip label="전체" selected={type === null} onPress={() => setType(null)} />
         {FILTER_TYPES.map((t) => (
-          <Chip key={t} label={type === t ? `✓ ${RecordTypeLabels[t]}` : RecordTypeLabels[t]} selected={type === t} onPress={() => setType(t)} />
+          <Chip key={t} label={RecordTypeLabels[t]} selected={type === t} onPress={() => setType(t)} />
         ))}
       </ScrollView>
       <View style={styles.chips}>
         {STATUS_FILTERS.map(([id, label]) => (
-          <Chip key={id} label={status === id ? `✓ ${label}` : label} selected={status === id} onPress={() => setStatus(status === id ? null : id)} />
+          <Chip key={id} label={label} selected={status === id} onPress={() => setStatus(status === id ? null : id)} />
         ))}
       </View>
 
@@ -385,6 +385,7 @@ export function RecordNewPage() {
             key={type}
             title={RecordTypeLabels[type]}
             subtitle={RecordTypeDescriptions[type]}
+            subtitleLines={4}
             left={
               <View style={[styles.typeIcon, { backgroundColor: palette.primaryLight }]}>
                 <MaterialIcons name={icon} size={22} color={palette.primary} />
@@ -628,7 +629,7 @@ export function RecordFormPage({ type }: { type: RecordType }) {
                       ]}
                     >
                       <T variant="subtitle" tone={on ? 'primary' : 'default'}>{w.weekNumber}주차</T>
-                      <T variant="caption" tone="secondary">{w.label.replace(`${w.weekNumber}주차 `, '')}</T>
+                      <T variant="caption" tone="secondary" numberOfLines={1} fit>{w.label.replace(`${w.weekNumber}주차 `, '')}</T>
                       {done ? <T variant="caption" tone="success">승인됨</T> : null}
                     </Pressable>
                   );

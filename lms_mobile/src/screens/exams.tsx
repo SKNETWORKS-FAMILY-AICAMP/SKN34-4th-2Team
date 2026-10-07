@@ -9,7 +9,7 @@ import { useSession } from '../auth/session';
 import { fetchReview, fetchTake, submitAssessment, useAssessments, useSubmissions } from '../data/assessments';
 import { queryClient, queryKeys } from '../data/query';
 import { useTheme } from '../theme/Theme';
-import { Badge, Btn, Callout, Card, EmptyState, Field, Screen, StatTile, T, fmt, goBack } from '../ui/kit';
+import { Badge, Btn, Callout, Card, EmptyState, Field, Screen, StatTile, T, fmt, fmtRange, goBack } from '../ui/kit';
 
 type WindowState = 'before' | 'open' | 'closed';
 
@@ -87,7 +87,8 @@ export function ExamsPage() {
                   </View>
                 ) : null}
                 <T variant="subtitle" numberOfLines={2}>{exam.title}</T>
-                <T variant="caption" tone="hint">{exam.questionCount}문제 · {exam.maxScore}점 · {fmt(exam.startAt)} ~ {fmt(exam.endAt)}</T>
+                <T variant="caption" tone="hint">{exam.questionCount}문제 · {exam.maxScore}점</T>
+                <T variant="caption" tone="hint">{fmtRange(exam.startAt, exam.endAt)}</T>
                 {notice[exam.id] ? <T variant="caption" tone="error">{notice[exam.id]}</T> : null}
               </View>
               {done ? (
@@ -297,13 +298,14 @@ export function ExamResultPage({ id }: { id: string }) {
   const rate = questions.length ? Math.round((correct / questions.length) * 100) : 0;
 
   return (
-    <Screen title={`${exam.title} 결과`}>
+    <Screen title="평가 결과">
+      <T variant="title">{exam.title}</T>
       <T tone="secondary">{questions.length}문항 · {fmt(submission.submittedAt)} 제출</T>
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <StatTile icon="emoji-events" label={`점수 (${maxScore}점 만점)`} value={`${submission.totalScore}점`} />
+        <StatTile icon="emoji-events" label="점수" value={`${submission.totalScore} / ${maxScore}`} />
         <StatTile icon="check-circle" label="맞힌 문항" value={`${correct} / ${questions.length}`} tone={correct === questions.length ? 'success' : 'warning'} />
+        <StatTile icon="percent" label="정답률" value={`${rate}%`} tone="info" />
       </View>
-      <StatTile icon="percent" label="정답률" value={`${rate}%`} tone="info" />
 
       {questions.map((q, i) => {
         const entry = submission.answers[q.id];
