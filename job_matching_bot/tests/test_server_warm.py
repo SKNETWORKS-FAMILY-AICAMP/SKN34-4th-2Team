@@ -18,7 +18,7 @@ from job_matching_bot.retrieval import market_stats
 class WarmFiltersTest(unittest.TestCase):
     def test_counts_the_common_combinations(self):
         filters = market_stats.warm_filters()
-        self.assertEqual(3 + 25 * 3 + 7, len(filters))
+        self.assertEqual(3 + len(market_stats.WARM_ROLES) * 3 + 7, len(filters))
         self.assertTrue(any(f.roles == ["백엔드"] and f.skills == ["Spring"] and f.career == "신입" for f in filters))
         self.assertTrue(any(not f.roles and f.career == "무관" for f in filters), "전체도 센다")
 

@@ -24,6 +24,7 @@ from typing import Collection
 
 from job_matching_bot import config
 from job_matching_bot.matching.hard_filter import ENTRY_ONLY_MAX_YEARS
+from job_matching_bot.matching.role_normalize import canonical_roles
 from job_matching_bot.matching.skill_normalize import canonical_skill
 from job_matching_bot.retrieval.grouping import normalize_company, normalize_title
 from job_matching_bot.retrieval.training import sql_exclusion as training_exclusion
@@ -436,6 +437,11 @@ class JobFilters:
     keywords: list[str] = field(default_factory=list)       # 그 밖의 말
     exclude_keywords: list[str] = field(default_factory=list)  # 빼 달라는 말(스타트업, 파견)
     posted_within_days: int | None = None                   # 최근 올라온 것만. 0이면 오늘
+
+    def __post_init__(self) -> None:
+        # 같은 직무를 다르게 말해도 같은 조건이 되게(「AI엔지니어」 · 「인공지능 개발자」 → 「AI 개발자」).
+        # 검색 · 집계 · 기억 열쇠가 모두 이 값을 쓴다 — 미리 세어 둔 것도 어떻게 말하든 맞는다.
+        self.roles = canonical_roles(self.roles)
 
     @property
     def is_empty(self) -> bool:
