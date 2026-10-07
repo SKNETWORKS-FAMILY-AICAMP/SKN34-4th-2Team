@@ -443,9 +443,10 @@ function Bubble({
         </button>
       )}
 
-      {/* 질문에 답한 경우 목록은 찾아 준 결과가 아니라 답의 근거다. 그렇게 적어 둔다 */}
+      {/* 질문에 답한 경우 목록은 찾아 준 결과가 아니라 답이 예로 든 공고다. 「이 숫자를 센 공고」라고
+          적었더니, 에이전트가 「Spring 안 쓰는 공고」로 고른 두 건이 816건을 센 근거처럼 읽혔다 */}
       {message.mode === '질문' && message.jobs.length > 0 && (
-        <span className="coach-ask__note">이 숫자를 센 공고들이에요</span>
+        <span className="coach-ask__note">답에서 예로 든 공고예요</span>
       )}
       {message.jobs.map((job) => (
         <JobCard

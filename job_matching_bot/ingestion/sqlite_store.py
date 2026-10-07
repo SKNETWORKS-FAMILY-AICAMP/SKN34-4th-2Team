@@ -33,6 +33,7 @@ from job_matching_bot.ingestion.job_store import (
     REQUIRED_FIELDS,
     _is_expired,
     keep_listing_fields,
+    listing_deadline_change,
     resolve_status,
 )
 from job_matching_bot.ingestion.company_name import clean_company_name, clean_listing_text
@@ -1194,6 +1195,50 @@ class SqliteJobStore:
         with self.conn:
             self.conn.executemany("UPDATE jobs SET status = 'EXPIRED' WHERE job_id = %s", [(j,) for j in expired])
         return expired
+
+    def refresh_listing_deadlines(
+        self, listed: dict[str, tuple[str | None, bool, str]], at: datetime, *, source: str
+    ) -> dict[str, int]:
+        """오늘 목록에 보인 공고의 마감일을 목록 값으로 맞춘다(판정은 `listing_deadline_change`).
+
+        `listed`는 공고 번호 → (목록 마감일, 상시채용인가, 목록 문구). 적재보다 **먼저** 불러야 한다 —
+        적재가 저장된 마감일로 오늘 안 받은 공고를 마감 처리하기 때문이다.
+        """
+        ids = list(listed)
+        updates: list[tuple[object, ...]] = []
+        counts = {"reopened": 0, "changed": 0, "expired": 0}
+        for start in range(0, len(ids), self._IN_CHUNK):
+            chunk = ids[start:start + self._IN_CHUNK]
+            placeholders = ", ".join("%s" for _ in chunk)
+            rows = self.conn.execute(
+                f"SELECT job_id, source_job_id, deadline, status FROM jobs "
+                f"WHERE source = %s AND source_job_id IN ({placeholders})",
+                (source, *chunk),
+            ).fetchall()
+            for row in rows:
+                deadline, open_ended, evidence = listed[row["source_job_id"]]
+                change = listing_deadline_change(row["deadline"], row["status"], deadline, open_ended, at)
+                if change is None:
+                    continue
+                new_deadline, new_status = change
+                if row["status"] == STATUS_EXPIRED and new_status == STATUS_OPEN:
+                    counts["reopened"] += 1
+                elif row["status"] == STATUS_OPEN and new_status == STATUS_EXPIRED:
+                    counts["expired"] += 1
+                else:
+                    counts["changed"] += 1
+                updates.append((
+                    new_deadline, new_status, at.isoformat(),
+                    Jsonb({"method": "listing", "evidence": evidence}), row["job_id"],
+                ))
+        with self.conn:
+            self.conn.executemany(
+                "UPDATE jobs SET deadline = %s, status = %s, missing_runs = 0, last_seen_at = %s, "
+                "field_provenance = jsonb_set(COALESCE(field_provenance, '{}'::jsonb), '{deadline}', %s) "
+                "WHERE job_id = %s",
+                updates,
+            )
+        return counts
 
     def removal_candidates(self, source: str, observed: set[str], missing_run_limit: int = DEFAULT_MISSING_RUN_LIMIT) -> list[str]:
         """이번 upsert에서 REMOVED로 넘어갈 진행 중 공고. 링크 확인 대상이다."""

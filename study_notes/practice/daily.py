@@ -24,9 +24,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from study_notes.git_tools import RepoCache, cache_root, parse_repo_url
-from study_notes.practice.build import build_practice_set
+from study_notes.practice.auto import build_day
 from study_notes.practice.generate import practice_model_name
-from study_notes.practice.increments import DAY_QUOTA, DayPlan, FileCoverage, plan_day
+from study_notes.practice.increments import MAX_DAY, DayPlan, FileCoverage, plan_day
 from study_notes.practice.runner import REPO_ROOT, PyodideRunner
 
 
@@ -50,7 +50,7 @@ def save_coverage(path: Path, coverage: dict[str, FileCoverage], days: dict[str,
 def describe(plan: DayPlan, already: int) -> str:
     head = f"[{plan.date}] 바뀐 파일 {len(plan.files)}개 · 출제 {len(plan.targets)}개 파일 · {plan.total}문제"
     if already:
-        head += f" (이날 이미 {already}문제, 하루 {DAY_QUOTA}문제까지)"
+        head += f" (이날 이미 {already}문제, 하루 {MAX_DAY}문제까지)"
     rows = [head, f"  구성: {plan.kind_counts() or '없음'}"]
     for f in plan.files:
         state = f"건너뜀 — {f.skipped}" if f.skipped else f"{f.quota}문제"
@@ -84,20 +84,14 @@ def main(argv: list[str] | None = None) -> int:
         files = [(f.path, f.commit, cache.read_file(f.commit, f.path)) for f in changed]
         # 같은 날 늦은 커밋으로 다시 돌면 남은 개수만 — 하루 총량을 넘기지 않는다
         already = days.get(date, 0)
-        plan = plan_day(date, files, coverage, quota=max(0, DAY_QUOTA - already))
+        plan = plan_day(date, files, coverage, already=already)
         print(describe(plan, already), flush=True)
         if not plan.targets:
-            print("  → 출제할 새 내용 없음" + (" (하루 몫을 다 냄)" if already >= DAY_QUOTA else "") + "\n")
+            print("  → 출제할 새 내용 없음" + (" (하루 몫을 다 냄)" if already >= MAX_DAY else "") + "\n")
             continue
         if runner is not None:
             started = time.monotonic()
-            result = build_practice_set(
-                scope_label=f"{date} 수업 — 새로 진행한 부분",
-                materials=plan.materials(),
-                runner=runner,
-                focus_note=plan.focus_note(),
-                kind_counts=plan.kind_counts(),
-            )
+            result = build_day(date, plan, runner)
             by_file: dict[str, int] = {}
             for p in result.problems:
                 for f in p.source_files or ["(근거 없음)"]:

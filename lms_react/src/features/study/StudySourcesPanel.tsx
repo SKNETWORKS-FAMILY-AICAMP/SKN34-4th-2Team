@@ -5,6 +5,7 @@ import {
   addGithubOwner,
   fetchGithubOwners,
   fetchPracticeAuto,
+  fetchStudySchedule,
   fetchStudySourceTree,
   refreshAfterPractice,
   removeGithubOwner,
@@ -17,11 +18,14 @@ import {
   type GithubOwner,
   type PracticeAutoRun,
   type PracticeAutoStatus,
+  type ScheduleIssue,
   type StudySourceSync,
 } from '../../data/repository';
 import { Icon } from '../../ui/Icon';
 import { Button, Row, Spacer, TextInput, Toggle } from '../../ui/components';
 import { formatRelative } from '../../utils/format';
+import { DailyUpload } from './DailyUpload';
+import { FolderImport } from './FolderImport';
 import { repoName } from './lessonDays';
 
 /**
@@ -33,11 +37,17 @@ import { repoName } from './lessonDays';
  *
  * 복습 문제는 매일 18:30 에 공개된 저장소마다 그날 새로 올라온 내용으로 자동 출제된다(저장소마다 끌 수 있다).
  * 수업이 일찍 끝났으면 「지금 만들기」. 출제 중이면 10초마다 끝났는지 본다.
+ *
+ * GitHub 을 안 쓰는 반은 「폴더 올리기」(FolderImport) — 올리기는 강사만(canUpload), 관리자 화면은 보기만 한다.
+ * 커리큘럼과 실제 수업 날짜가 어긋나면 맨 위에 알린다(강사 · 관리자 모두).
  */
 const PRACTICE_POLL_MS = 10_000;
 
-export function StudySourcesPanel({ cohortId }: { cohortId: string }) {
+export function StudySourcesPanel({ cohortId, canUpload = false }: { cohortId: string; canUpload?: boolean }) {
   const sources = useStudySources().filter((s) => !s.cohortId || s.cohortId === cohortId);
+  const [mode, setMode] = useState<'github' | 'folder'>('github');
+  const [issues, setIssues] = useState<ScheduleIssue[]>([]);
+  const [daily, setDaily] = useState<{ id: string; title: string } | null>(null);
   const [owners, setOwners] = useState<GithubOwner[] | null>(null);
   const [owner, setOwner] = useState('');
   const [busy, setBusy] = useState(false);
@@ -72,6 +82,18 @@ export function StudySourcesPanel({ cohortId }: { cohortId: string }) {
   useEffect(() => {
     void loadPractice();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cohortId]);
+
+  // 일정 어긋남 — 못 읽어도 저장소 관리는 된다
+  useEffect(() => {
+    let alive = true;
+    setIssues([]);
+    fetchStudySchedule(cohortId)
+      .then((r) => alive && setIssues(r.issues))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
   }, [cohortId]);
 
   // 출제 중인 저장소가 있으면 끝날 때까지 — 끝나면 새 세트가 화면에 보이게 스냅샷도 다시 받는다
@@ -125,6 +147,31 @@ export function StudySourcesPanel({ cohortId }: { cohortId: string }) {
 
   return (
     <div className="study-sources">
+      {issues.length > 0 && (
+        <div className="study-sources__issues" aria-label="수업 일정 확인">
+          {issues.map((issue, i) => (
+            <div key={i} className="callout callout--warning">
+              <Icon name="event_busy" size={16} /> {issue.text}
+            </div>
+          ))}
+        </div>
+      )}
+      {canUpload && (
+        <div className="study-sources__mode" role="tablist" aria-label="수업 자료 올리는 방법">
+          <button type="button" role="tab" aria-selected={mode === 'github'} className={`chip${mode === 'github' ? ' chip--on' : ''}`} onClick={() => setMode('github')}>
+            <Icon name="hub" size={15} /> GitHub 연결
+          </button>
+          <button type="button" role="tab" aria-selected={mode === 'folder'} className={`chip${mode === 'folder' ? ' chip--on' : ''}`} onClick={() => setMode('folder')}>
+            <Icon name="drive_folder_upload" size={15} /> 폴더 올리기
+          </button>
+        </div>
+      )}
+      {canUpload && mode === 'folder' ? (
+        <div className="study-sources__owners">
+          <strong>폴더 올리기</strong>
+          <FolderImport cohortId={cohortId} onDone={() => setMode('github')} />
+        </div>
+      ) : (
       <div className="study-sources__owners">
         <strong>연결된 GitHub</strong>
         <p className="hint">
@@ -183,18 +230,33 @@ export function StudySourcesPanel({ cohortId }: { cohortId: string }) {
           <div className="callout callout--error">복습 문제 저장소(practice 스키마)가 없어 출제할 수 없어요. practice_schema.sql 을 실행하세요.</div>
         )}
       </div>
+      )}
 
       {sources.length === 0 ? (
-        <p className="hint">아직 올라간 저장소가 없어요. GitHub 조직이나 계정을 연결하세요.</p>
+        <p className="hint">아직 올라간 저장소가 없어요. GitHub 조직이나 계정을 연결{canUpload ? '하거나 수업 자료 폴더를 올리' : ''}세요.</p>
       ) : (
         sources.map((src) => (
           <div key={src.id} className={`media-row${src.isActive ? '' : ' media-row--off'}`}>
             <span className="media-row__main media-row__main--plain">
               <span className="media-row__body">
-                <strong>{src.title}</strong>
-                <a className="media-row__repo" href={src.repoUrl} target="_blank" rel="noreferrer">
-                  {src.repoUrl.replace(/^https?:\/\/github\.com\//, '')}
-                </a>
+                <strong>
+                  {src.title}
+                  {isUploaded(src.repoUrl) && <span className="study-sources__kind">폴더에서 올림</span>}
+                </strong>
+                {isUploaded(src.repoUrl) ? (
+                  <span className="hint study-sources__upload">
+                    GitHub 없이 올린 과목 — 「오늘 수업 올리기」로 올린 날이 수업 날짜가 돼요
+                    {canUpload && (
+                      <Button size="sm" variant="outline" icon={<Icon name="upload" size={16} />} onClick={() => setDaily({ id: src.id, title: src.title })}>
+                        오늘 수업 올리기
+                      </Button>
+                    )}
+                  </span>
+                ) : (
+                  <a className="media-row__repo" href={src.repoUrl} target="_blank" rel="noreferrer">
+                    {src.repoUrl.replace(/^https?:\/\/github\.com\//, '')}
+                  </a>
+                )}
                 <span className="hint">
                   {src.branch}
                   {src.allowedPrefixes.length > 0 && ` · ${src.allowedPrefixes.join(', ')}`}
@@ -230,8 +292,14 @@ export function StudySourcesPanel({ cohortId }: { cohortId: string }) {
           </div>
         ))
       )}
+      {daily && <DailyUpload cohortId={cohortId} source={daily} onClose={() => setDaily(null)} />}
     </div>
   );
+}
+
+/** 폴더 올리기로 만든 과목 — 저장소 주소가 upload://<기수>/<과목> */
+function isUploaded(repoUrl: string): boolean {
+  return repoUrl.startsWith('upload://');
 }
 
 /** 한 번에 고를 수 있는 날짜 — 날짜마다 LLM 을 부른다(서버도 5일로 막는다) */

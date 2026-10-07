@@ -11,7 +11,7 @@ export function InstructorStudySourcesScreen() {
         title="수업 저장소"
         description="연결한 GitHub 조직·계정의 저장소가 학생 공부방에 자동으로 올라갑니다. 학생은 여기 공개된 저장소로 복습 노트를 만들어요."
       />
-      <StudySourcesPanel cohortId={user.cohortId} />
+      <StudySourcesPanel cohortId={user.cohortId} canUpload />
     </div>
   );
 }

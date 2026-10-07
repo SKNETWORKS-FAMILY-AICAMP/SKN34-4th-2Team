@@ -112,10 +112,10 @@ def build_bootstrap(user: dict) -> dict:
                 visible_args,
             )),
             ("skills", (
-                f"""SELECT us.user_id, s.canonical_name
+                f"""SELECT us.user_id, s.canonical_name, us.proficiency, us.evidence
                     FROM user_skills us JOIN skills s ON s.id = us.skill_id
                     JOIN users u ON u.id = us.user_id
-                    WHERE {visible} ORDER BY s.canonical_name""",
+                    WHERE {visible} ORDER BY us.id""",  # 학생이 추가한 순서 그대로
                 visible_args,
             )),
             ("preferences", (
@@ -131,12 +131,16 @@ def build_bootstrap(user: dict) -> dict:
         uid_by_pk = {r["id"]: r["firebase_uid"] for r in first["uids"]}
         code_by_pk = {r["id"]: r["code"] for r in first["codes"]}
         users = first["users"]
-        skills_by_user = {}
+        # 기술 스택 — 화면에는 저장할 때의 표기(evidence.label, 「Python」)를, 없으면(예전 행) 소문자 이름을
+        tech_by_user = {}
         for row in first["skills"]:
-            skills_by_user.setdefault(row["user_id"], []).append(row["canonical_name"])
+            evidence = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+            label = str(evidence.get("label") or row["canonical_name"])
+            tech_by_user.setdefault(row["user_id"], []).append({"name": label, "level": row.get("proficiency") or ""})
         preferences_by_user = {r["user_id"]: r["preferences"] for r in first["preferences"]}
         for row in users:
-            row["skills"] = skills_by_user.get(row["id"], [])
+            row["tech_stack"] = tech_by_user.get(row["id"], [])
+            row["skills"] = [item["name"] for item in row["tech_stack"]]
             row["job_preferences"] = preferences_by_user.get(row["id"], {})
         cohorts = first["cohorts"]
         cohort_ids = [c["id"] for c in cohorts] or [-1]

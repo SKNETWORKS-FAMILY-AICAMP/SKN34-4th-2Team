@@ -36,9 +36,14 @@ class BatchTests(unittest.TestCase):
 
 class SectionsTests(unittest.TestCase):
     def test_unknown_heading_stays_in_previous_section(self) -> None:
-        sections = pipeline._sections("## 파일별 학습 내용\na\n## 따로 붙인 제목\nb\n## 실행 체크리스트\nc")
-        self.assertEqual(sections["파일별 학습 내용"], "a\n## 따로 붙인 제목\nb")
-        self.assertEqual(sections["실행 체크리스트"], "c")
+        sections = pipeline._sections("## 개념별 정리\na\n## 따로 붙인 제목\nb\n## 자주 하는 실수\nc")
+        self.assertEqual(sections["개념별 정리"], "a\n## 따로 붙인 제목\nb")
+        self.assertEqual(sections["자주 하는 실수"], "c")
+
+    def test_legacy_headings_are_still_read(self) -> None:
+        # 다시 만들기 전 예전 형식 노트도 「이전 수업」으로 읽는다
+        sections = pipeline._sections("## 오늘의 핵심 한 문장\nx\n## 파일별 학습 내용\ny")
+        self.assertEqual(sections, {"오늘의 핵심 한 문장": "x", "파일별 학습 내용": "y"})
 
 
 class NoteInBatchesTests(unittest.TestCase):
@@ -56,14 +61,15 @@ class NoteInBatchesTests(unittest.TestCase):
             report, packed = pipeline._note_in_batches("2026-09-23", [material(f"{i:02}.html") for i in range(count)])
         return report, packed, labels
 
-    def test_details_are_joined_and_summary_comes_from_merge(self) -> None:
-        merged = "\n".join(f"## {h}\n합친 {h}" for h in pipeline.SUMMARY_HEADS)
+    def test_merge_rewrites_the_whole_note_by_concept(self) -> None:
+        # 개념 중심이라 부분 노트를 이어 붙이지 않는다 — 합치는 호출이 개념을 모아 하나로 다시 쓴다
+        merged = "머리글\n" + "\n".join(f"## {h}\n합친 {h}" for h in pipeline.NOTE_HEADS)
         report, packed, labels = self.run_batches(merged)
         self.assertEqual(sorted(labels), ["2026-09-23 — 파일 묶음 1/2", "2026-09-23 — 파일 묶음 2/2"])
-        self.assertEqual(self.code_limits, [5, 5], "하루 코드 블록 수를 묶음끼리 나눈다")
-        self.assertIn("## 파일별 학습 내용\n1/2 파일별 학습 내용\n\n2/2 파일별 학습 내용", report)
-        self.assertIn("## 오늘의 핵심 한 문장\n합친 오늘의 핵심 한 문장", report)
-        self.assertNotIn("1/2 오늘의 핵심 한 문장", report)
+        self.assertEqual(self.code_limits, [6, 6], "하루 코드 블록 수를 묶음끼리 나눈다")
+        self.assertIn("## 개념별 정리\n합친 개념별 정리", report)
+        self.assertNotIn("1/2 개념별 정리", report)
+        self.assertTrue(report.startswith("## 오늘 꼭 알아야 할 것"))
         # 소제목은 NOTE_HEADS 순서 그대로
         order = [report.index(f"## {h}") for h in pipeline.NOTE_HEADS]
         self.assertEqual(order, sorted(order))
@@ -72,11 +78,13 @@ class NoteInBatchesTests(unittest.TestCase):
         self.assertIn("<09.html>", packed)
 
     def test_missing_summary_heading_falls_back_to_parts(self) -> None:
-        report, _packed, _labels = self.run_batches("## 오늘의 핵심 한 문장\n합친 한 문장")
-        self.assertIn("## 실행 체크리스트\n1/2 실행 체크리스트\n\n2/2 실행 체크리스트", report)
+        report, _packed, _labels = self.run_batches("## 오늘 꼭 알아야 할 것\n합친 요점")
+        self.assertIn("## 오늘 꼭 알아야 할 것\n합친 요점", report)
+        # 합친 답에 개념 정리가 빠지면 부분 노트의 개념을 이어 붙인다(빠지는 것보다 낫다)
+        self.assertIn("## 개념별 정리\n1/2 개념별 정리\n\n2/2 개념별 정리", report)
 
     def test_few_files_use_single_call(self) -> None:
-        with mock.patch.object(pipeline, "_note", return_value="## 오늘의 핵심 한 문장\n하나") as note, \
+        with mock.patch.object(pipeline, "_note", return_value="## 오늘 꼭 알아야 할 것\n하나") as note, \
                 mock.patch.object(pipeline, "_note_in_batches") as batches:
             pipeline.generate_study_note(scope_label="d", commits=[], materials=[material(f"{i}.py") for i in range(8)])
         note.assert_called_once()
@@ -103,10 +111,13 @@ class PackMaterialsTests(unittest.TestCase):
 
 
 class TidyHeadingsTests(unittest.TestCase):
-    def test_extra_h2_goes_down_and_path_label_is_dropped(self) -> None:
-        note = "## 핵심 코드와 개념\n## 파일 경로: `01_html/09_iframe.html`\n### 파일 경로: `a.css`\n## 실행 체크리스트"
+    def test_extra_h2_becomes_a_concept_heading_and_path_label_is_dropped(self) -> None:
+        note = "## 개념별 정리\n## 리스트\n## 파일 경로: `01_html/09_iframe.html`\n### 파일 경로: `a.css`\n## 자주 하는 실수"
         self.assertEqual(pipeline.tidy_headings(note),
-                         "## 핵심 코드와 개념\n#### `01_html/09_iframe.html`\n### `a.css`\n## 실행 체크리스트")
+                         "## 개념별 정리\n### 리스트\n### `01_html/09_iframe.html`\n### `a.css`\n## 자주 하는 실수")
+
+    def test_preface_before_first_heading_is_dropped(self) -> None:
+        self.assertEqual(pipeline.tidy_headings("핵심은 변수입니다.\n\n## 오늘 꼭 알아야 할 것\n- a"), "## 오늘 꼭 알아야 할 것\n- a")
 
 
 class PreviousTests(unittest.TestCase):
@@ -115,9 +126,12 @@ class PreviousTests(unittest.TestCase):
         text = pipeline.pack_previous(days)
         self.assertEqual([line for line in text.split("\n") if line.startswith("### ")],
                          ["### 2026-06-19", "### 2026-06-22", "### 2026-06-23"])
-        self.assertIn("22 오늘의 핵심 한 문장", text)
-        self.assertIn("22 전체 수업 흐름", text)
-        self.assertNotIn("파일별 학습 내용", text)
+        self.assertIn("22 오늘 꼭 알아야 할 것", text)
+        self.assertNotIn("개념별 정리", text)
+        # 예전 형식 노트(다시 만들기 전)도 요점만 읽는다
+        legacy = pipeline.pack_previous([{"date": "2026-06-17", "report": "## 오늘의 핵심 한 문장\n옛 요점\n## 파일별 학습 내용\n긴 해설"}])
+        self.assertIn("옛 요점", legacy)
+        self.assertNotIn("긴 해설", legacy)
 
     def test_nothing_before_is_marked(self) -> None:
         self.assertEqual(pipeline.pack_previous([]), pipeline.NO_PREVIOUS)
@@ -129,7 +143,7 @@ class PreviousTests(unittest.TestCase):
             pipeline.generate_study_note(scope_label="d", commits=[], materials=[material("a.py")],
                                          previous=[{"date": "2026-06-18", "report": part_note("18")}])
         note.assert_called_once()
-        self.assertIn("### 2026-06-18\n18 오늘의 핵심 한 문장", seen["prev"])
+        self.assertIn("### 2026-06-18\n18 오늘 꼭 알아야 할 것", seen["prev"])
 
 
 if __name__ == "__main__":

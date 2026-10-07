@@ -16,7 +16,7 @@ from django.contrib.auth.hashers import check_password, make_password
 from django.db import connection, transaction
 from django.http import HttpRequest, StreamingHttpResponse
 from django.views.decorators.csrf import ensure_csrf_cookie
-from ninja import Body, File, NinjaAPI, Schema, UploadedFile
+from ninja import Body, File, Form, NinjaAPI, Schema, UploadedFile
 from ninja.responses import Response
 from ninja.security import HttpBearer
 from pydantic import Field
@@ -32,7 +32,7 @@ from lms.posting_link import job_id_from_link
 from lms.publish import publish_scheduled_notices
 from lms.resume_text import build_profile, build_resume_text
 from lms.services import schedule_notice_vector
-from lms import apply_link, featured_postings, practice_auto, practice_custom, practice_tutor, practice_web, study_note_service, study_source_service
+from lms import apply_link, featured_postings, folder_upload, practice_auto, practice_custom, practice_tutor, practice_web, study_note_service, study_source_service
 
 
 class LmsAuth(HttpBearer):
@@ -545,11 +545,45 @@ def study_sources_sync(request, body: StudySyncIn):
     return _sources(lambda: study_source_service.sync_cohort(user, body.cohortId, force=body.force))
 
 
+@api.get("/study-sources/schedule")
+def study_sources_schedule(request, cohortId: str = ""):
+    """커리큘럼 ↔ 실제 수업 날짜 어긋남 — 강사 · 관리자 수업 저장소 화면.
+    아래 PATCH /study-sources/{source_id} 보다 먼저 둔다 — 뒤에 두면 그쪽이 이 주소를 가져가 405 가 난다."""
+    user = _require_user(request)
+    return _sources(lambda: folder_upload.schedule(user, cohortId))
+
+
 @api.patch("/study-sources/{source_id}")
 def study_sources_update(request, source_id: str, body: StudySourcePatch):
     """공개 · 숨김, 이름 바꾸기"""
     user = _require_user(request)
     return _sources(lambda: study_source_service.update_source(user, source_id, is_active=body.isActive, title=body.title))
+
+
+# ── 폴더 올리기(GitHub 없이) — lms/folder_upload.py ──
+
+
+@api.post("/study-sources/upload/plan")
+def study_upload_plan(request, body: dict[str, Any] = Body(...)):
+    """올리기 전 계획 — 파일 목록(경로 · 지문 · 앞부분 글, 내용 없음). mode: import(처음 가져오기) · daily(오늘 수업 올리기)"""
+    user = _require_user(request)
+    return _sources(lambda: folder_upload.plan(user, body))
+
+
+@api.post("/study-sources/upload/commit")
+def study_upload_commit(
+    request,
+    cohortId: str = Form(...),
+    manifest: str = Form(...),
+    sourceId: str = Form(""),
+    name: str = Form(""),
+    files: list[UploadedFile] = File(...),
+):
+    """확정한 파일 올리기(한 번에 100개까지 — 많으면 화면이 나눠 보낸다). sourceId 가 없으면 name 으로 과목을 만든다."""
+    user = _require_user(request)
+    return _sources(lambda: folder_upload.commit(
+        user, cohort_code=cohortId, source_key=sourceId, name=name, manifest=manifest, files=files,
+    ))
 
 
 class PracticeAutoPatch(Schema):

@@ -8,24 +8,29 @@ daily.py 를 손으로 돌리던 것과 같은 일을 한다.
 - 처음 보는 저장소는 최근 FIRST_RUN_DAYS 일 안의 가장 최근 수업 하루만 — 연결하자마자 지난 과목 전체를 출제하지 않고,
   며칠 커밋이 없던 과목도 마지막 수업은 바로 문제가 생긴다(학생 「오늘 복습」도 14일 안의 수업을 올린다).
 - 저장은 하지 않는다. 만든 문제와 새 출제 범위 기록을 돌려주면 Django 가 practice 스키마에 넣는다.
+- 하루 문제 수는 그날 새 내용 양으로(increments.day_quota, 8 ~ 25). 12문제가 넘는 날은 파일 묶음으로 나눠 LLM 을 동시에 부른다.
 - 한 날짜가 실패하면 거기서 멈추고, 그 앞까지의 결과와 기록을 돌려준다(다음 실행이 실패한 날부터 다시).
 """
 
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date as Date
 from datetime import timedelta
 from typing import Any, Protocol
 
 from study_notes.git_tools import ChangedFile
-from study_notes.practice.build import build_practice_set
-from study_notes.practice.generate import practice_model_name
-from study_notes.practice.increments import DAY_QUOTA, FileCoverage, plan_day
+from study_notes.practice.blind import solve_blind
+from study_notes.practice.build import BuildResult, KindStats, build_practice_set, drop_overlaps, refill_overlaps
+from study_notes.practice.generate import Usage, practice_model_name
+from study_notes.practice.increments import DayPlan, FileCoverage, plan_day
 from study_notes.practice.runner import Runner
 
 FIRST_RUN_DAYS = 14
 MAX_TITLE_TOPICS = 3
+# 하루 몫을 나눈 묶음을 동시에 몇 개까지 — 25문제면 묶음 3개
+MAX_PARALLEL = 3
 
 
 class LessonRepo(Protocol):
@@ -72,6 +77,48 @@ def nothing_to_do(lesson_dates: list[str], today: str) -> str:
     )
 
 
+def build_day(day: str, plan: DayPlan, runner: Runner) -> BuildResult:
+    """하루 몫 — 12문제가 넘으면 묶음(plan.batches)마다 따로, 동시에 만들어 합친다. 한 묶음이라도 실패하면 그날은 실패."""
+    parts = plan.batches()
+
+    def one(part: DayPlan) -> BuildResult:
+        return build_practice_set(
+            scope_label=f"{day} 수업 — 새로 진행한 부분",
+            materials=part.materials(),
+            runner=runner,
+            focus_note=part.focus_note(),
+            kind_counts=part.kind_counts(),
+        )
+
+    if len(parts) == 1:
+        return one(parts[0])
+    with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL, len(parts))) as pool:
+        results = list(pool.map(one, parts))
+    merged = BuildResult(problems=[p for r in results for p in r.problems], stats={}, usage=Usage())
+    for r in results:
+        for kind, stat in r.stats.items():
+            total = merged.stats.setdefault(kind, KindStats())
+            for key, value in vars(stat).items():
+                setattr(total, key, getattr(total, key) + value)
+        merged.malformed += r.malformed
+        merged.dropped += r.dropped
+        for key in ("calls", "input_tokens", "output_tokens"):
+            setattr(merged.usage, key, getattr(merged.usage, key) + getattr(r.usage, key))
+    # 묶음끼리 겹침 — 같은 주제의 exercise · question 이 다른 묶음에 들어가면 묶음 안에서는 못 찾는다.
+    # 뺀 문제는 그 문제를 낸 묶음의 자료로 다시 채운다.
+    owner = {id(p): i for i, r in enumerate(results) for p in r.problems}
+    overlapped = drop_overlaps(merged)
+    for i, part in enumerate(parts):
+        mine = [p for p in overlapped if owner.get(id(p)) == i]
+        if mine:
+            merged.overlapped = mine
+            refill_overlaps(
+                merged, scope_label=f"{day} 수업 — 새로 진행한 부분", materials=part.materials(), runner=runner,
+                focus_note=part.focus_note(), blind=True, solver=solve_blind,
+            )
+    return merged
+
+
 def set_title(problems: list[dict[str, Any]]) -> str:
     topics: list[str] = []
     for p in problems:
@@ -110,17 +157,11 @@ def run_source(
         _shas, changed = repo.changed_files_on(day, prefixes)
         # 웹 수업(.html · .css · .js)도 낸다 — 개념 + 웹 실습(web_task, jsdom 채점). 2026-09-29 까지는 노트만 냈다
         files = [(f.path, f.commit, repo.read_file(f.commit, f.path)) for f in changed]
-        plan = plan_day(day, files, files_cov, quota=max(0, DAY_QUOTA - already))
+        plan = plan_day(day, files, files_cov, already=already)
         if plan.targets:
             started = time.monotonic()
             try:
-                result = build_practice_set(
-                    scope_label=f"{day} 수업 — 새로 진행한 부분",
-                    materials=plan.materials(),
-                    runner=runner,
-                    focus_note=plan.focus_note(),
-                    kind_counts=plan.kind_counts(),
-                )
+                result = build_day(day, plan, runner)
             except Exception as exc:  # noqa: BLE001 — 이 날부터 다음 실행에 다시
                 error = f"{day} 출제 실패: {str(exc)[:300]}"
                 break

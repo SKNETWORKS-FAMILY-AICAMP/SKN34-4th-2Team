@@ -55,14 +55,22 @@ KIND_GUIDE = (
     "  수업 코드의 핵심 흐름(반복·조건·자료 구조 다루기)을 학생이 직접 구현하게 한다.\n"
     "  starterCode는 학생이 「뼈대 받기」를 눌렀을 때만 보이는 함수 이름·인자·docstring과 pass만 있는 코드,\n"
     "  referenceSolution은 5~20줄의 완성 함수, hiddenTests는 assert 문 3~5개 (prompt의 예시 하나, 경계값 하나 포함)\n"
-    "- sql_query: SQL 조회 문제(수업 자료가 SQL일 때만). 브라우저의 SQLite에서 채점한다.\n"
-    "  setupSql은 수업에 나온 테이블 이름·열 이름 그대로 2~3개 테이블을 만들고 행을 5~15개씩 넣는 스크립트.\n"
+    "- sql_query: SQL 문제(수업 자료가 SQL일 때만). 브라우저의 SQLite에서 채점한다. 그날 수업이 가르친 개념을 묻는다 —\n"
+    "  조회(SELECT · WHERE · GROUP BY · JOIN …)를 배운 날은 조회 문제, 테이블 만들기 · 제약 조건(DDL)을 배운 날은 테이블 만들기 문제.\n"
+    "  예제 테이블은 그 개념을 묻기 좋게 새로 만든다. 수업 테이블 이름 · 열 이름을 외워야 풀 수 있게 하지 않는다.\n"
     "  SQLite에서 도는 표준 SQL로 쓴다(AUTO_INCREMENT · ENGINE · COMMENT · USE 금지, 기본 키는 INTEGER PRIMARY KEY).\n"
-    "  referenceSolution은 SELECT 문 하나(수업에서 배운 WHERE · ORDER BY · GROUP BY · JOIN 등을 쓴다). 결과는 1~20행.\n"
-    "  NOW() · RAND() 처럼 실행할 때마다 달라지는 함수는 쓰지 않는다.\n"
-    "  채점은 결과 값만 비교한다(열 이름은 안 본다). 그래서 prompt에 쓸 테이블, 결과에 낼 열과 그 순서,\n"
-    "  정렬 기준을 모두 적는다(예: 「tbl_menu에서 가격이 10000원 이상인 메뉴의 이름과 가격을 가격 높은 순으로」).\n"
-    "  starterCode는 비워 두거나 `-- 여기에 조회문을 쓰세요` 한 줄\n"
+    "  NOW() · RAND() 처럼 실행할 때마다 달라지는 함수는 쓰지 않는다. 채점은 결과 값만 비교한다(열 이름은 안 본다).\n"
+    "  · 조회 문제: setupSql은 2~3개 테이블을 만들고 행을 5~15개씩 넣는 스크립트, referenceSolution은 SELECT 문 하나(결과 1~20행),\n"
+    "    checkSql은 비운다. prompt에 쓸 테이블, 결과에 낼 열과 그 순서, 정렬 기준을 모두 적는다\n"
+    "    (예: 「tbl_menu에서 가격이 10000원 이상인 메뉴의 이름과 가격을 가격 높은 순으로」). starterCode는 `-- 여기에 조회문을 쓰세요` 한 줄\n"
+    "  · 테이블 만들기 문제: 학생이 CREATE TABLE을 쓴다. referenceSolution은 CREATE TABLE 문(1~2개, 다른 문장 없이),\n"
+    "    setupSql은 외래 키가 가리킬 부모 테이블과 그 행(없으면 비움). checkSql은 학생 테이블 뒤에 돌리는 확인 문장 —\n"
+    "    INSERT OR IGNORE INTO … 를 3~6줄 넣고 마지막은 SELECT 하나. 제약을 어기는 행(NULL · 범위 밖 값 · 중복)을 섞어서,\n"
+    "    제약이 있으면 그 행이 빠져 결과 표에 드러나게 한다. DEFAULT는 그 열을 빼고 넣어서, ON DELETE는 부모 행을 DELETE 해서 본다.\n"
+    "    외래 키를 어기는 INSERT는 넣지 않는다(실행이 멈춘다). 번호 열(기본 키) 값은 INSERT에 직접 적는다.\n"
+    "    prompt에 테이블 이름, 열 이름 · 순서 · 자료형을 적고, 제약은 키워드 대신 요구로 적는다\n"
+    "    (예: 「이름은 비워 둘 수 없고, 나이는 0 이상, 이메일은 겹치면 안 되고, 상태를 안 넣으면 'Y'」). 확인 문장은 학생 화면에 함께 보인다.\n"
+    "    starterCode는 `-- 여기에 CREATE TABLE 문을 쓰세요` 한 줄\n"
     "- web_task: 웹 실습(수업 자료가 HTML · CSS 또는 페이지를 다루는 JavaScript일 때). 학생은 HTML 문서를 고쳐 요구대로 만든다.\n"
     "  starterCode는 <style>을 포함한 짧은 HTML 문서(40줄 이하), referenceSolution은 요구대로 고친 전체 문서.\n"
     "  HTML · CSS 수업이면 <script>를 쓰지 않는다. 파일 지시에 'HTML + JavaScript'라고 적힌 몫은 문서 안의 <script>(바깥 src 금지)로\n"
@@ -102,6 +110,9 @@ PROBLEM_RULES = (
     "- hiddenTests는 prompt와 starterCode에 적힌 조건만 검사한다. 적히지 않은 형식 · 자료형 · 경계값을 몰래 검사하지 않는다\n"
     "- hiddenTests가 쓰는 모듈(math, numpy 등)은 hiddenTests 안에서 import 한다\n"
     "- starterCode의 docstring · 주석은 hiddenTests가 기대하는 반환값과 같게 쓴다\n"
+    "- 문제마다 다른 개념을 묻는다. 같은 함수 · 같은 코드를 종류만 바꿔(빈칸 → 버그 고치기 → 처음부터 짜기) 다시 내지 않는다\n"
+    "- 연습(exercise)과 문제(question) 파일이 같은 내용을 다루면 그 내용은 한 번만 낸다\n"
+    "- 테이블 이름 · 값만 바꾼 같은 틀의 문제를 되풀이하지 않는다\n"
 )
 
 SCHEMA = (
@@ -112,7 +123,7 @@ SCHEMA = (
     '  "prompt": "학생에게 보일 문제 문장",\n'
     '  "choices": [], "answerIndex": 0,\n'
     '  "starterCode": "", "expectedStdout": "", "blankAnswers": [],\n'
-    '  "referenceSolution": "", "hiddenTests": "", "setupSql": "",\n'
+    '  "referenceSolution": "", "hiddenTests": "", "setupSql": "", "checkSql": "",\n'
     '  "explanation": "정답 해설 2~3문장",\n'
     '  "language": "python | javascript (코드 문제만)"\n'
     "}}]}}"

@@ -25,31 +25,40 @@ LEARNER_LEVEL = "수업을 일부 놓친 초보자"
 MAX_CHARS_PER_FILE = 8_000
 MAX_TOTAL_CHARS = 28_000
 
-# 노트의 소제목 순서
+# 노트의 소제목 순서 — 공부 노트(2026-10-04). 예전 노트는 파일 순서로 수업 자료를 해설해(「~를 확인합니다」) 공부하기 어려웠다.
+# 34기 14과목 하루씩 견주어 보니 개념 중심이 30~50% 짧으면서 비교 · 실수 · 점검할 거리가 더 많았다(사용자 결정: 새 형식, 습니다체).
 NOTE_HEADS = (
+    "오늘 꼭 알아야 할 것", "개념별 정리", "비교로 기억하기", "자주 하는 실수",
+    "말로 설명해 보기", "이전 수업과 연결", "이 내용이 있는 파일",
+)
+# 예전 형식 노트의 소제목 — 「이전 수업」으로 읽을 때 알아본다(다시 만들기 전 노트가 남아 있을 수 있다)
+LEGACY_HEADS = (
     "오늘의 핵심 한 문장", "전체 수업 흐름", "파일별 학습 내용", "핵심 코드와 개념",
     "이전 학습과의 연결", "실행 체크리스트", "내가 직접 해볼 실습", "포트폴리오 회고 포인트",
 )
-# 새 코드를 써도 되는 소제목 — 여기 코드 블록에는 「수업 파일에 없는 코드」 표시를 달지 않는다
-PRACTICE_HEAD = "내가 직접 해볼 실습"
 NO_PREVIOUS = "없음"
-NO_PREVIOUS_LINE = "이어서 볼 이전 수업 노트가 없어요."
+NO_PREVIOUS_LINE = "이어서 볼 이전 수업 노트가 없습니다."
 # 2026-09-29 gpt-6-luna 로 python_basic 06-18 을 만들어 보니 코드 블록 16개가 수업 코드를 옮기지 않고 비슷하게 새로 쓴
 # 것이었다. 이전 학습과의 연결은 이전 수업을 모른 채 써서 첫 수업에도 「이전에 배웠다」고 지어냈다. 그래서 소제목마다 쓰는 법을 적는다.
-# 「파일 경로」라고만 적으면 그 말을 제목으로 옮겨 적는다(`## 파일 경로: …`). 그래서 예시로 보인다.
-# 코드 블록 수는 {code_limit} — 묶음으로 나눠 만들 때 묶음마다 다 채우면 하루 노트가 3만 자를 넘는다
+# 코드 블록 수는 {code_limit} — 묶음으로 나눠 만들 때 묶음마다 다 채우면 하루 노트가 너무 길어진다
 HEAD_GUIDE = {
-    "파일별 학습 내용": "파일마다 `### 01_variable/exercise.ipynb` 처럼 경로만 소제목으로 달고, 그 파일에서 다룬 개념 · 함수 · 실행 순서를 적는다",
-    "핵심 코드와 개념": (
-        "가장 중요한 코드 블록 {code_limit}개 이하. 코드 블록은 수업 자료의 코드를 그대로 옮긴다. 이름 · 값 · 문자열을 바꾸거나 "
-        "여러 셀을 섞어 새로 짜지 않는다. 긴 셀은 이어진 핵심 줄만 잘라 옮긴다. 블록 바로 위 줄에는 `01_variable/exercise.ipynb` "
-        "처럼 경로만 백틱으로 적는다(# 제목으로 쓰지 않는다). 설명은 블록 아래 글로 쓴다"
+    "오늘 꼭 알아야 할 것": "3~5줄 글머리표. 오늘 수업에서 가장 중요한 사실을 짧게. 자료를 설명하지 말고(「~를 확인합니다」 금지) 개념 자체를 말한다",
+    "개념별 정리": (
+        "파일 순서가 아니라 개념(주제)마다 `### 개념 이름`. 같은 개념이 여러 파일에 나오면 한 곳에 모은다. 각 개념은:\n"
+        "- **뜻**: 한 문장\n- **언제 쓰나**: 한 문장\n"
+        "- 수업 코드 한 블록(꼭 필요한 개념만) — 수업 자료 코드를 그대로 옮기고(이름 · 값 · 문자열을 바꾸거나 여러 셀을 섞지 않는다, "
+        "긴 셀은 이어진 핵심 줄만), 블록 바로 위 줄에 출처 경로를 백틱으로\n"
+        "- **결과**: 코드에서 알 수 있으면 실제 출력값(예: `13`, `[1, 2, [3, 4]]`). 「출력합니다」처럼 쓰지 않는다\n"
+        "- **헷갈리기 쉬운 점**: 초보자가 실제로 틀리는 지점이 있을 때만 한 번. 없으면 줄을 쓰지 않는다\n"
+        "코드 블록은 모두 합쳐 {code_limit}개 이하. 코드가 없는 개념(이론)은 뜻 · 언제 쓰나 · **핵심 정리**만"
     ),
-    "이전 학습과의 연결": (
-        f"위 「이전 수업」에 적힌 내용과만 잇는다. 「이전 수업」이 '{NO_PREVIOUS}'이면 이 소제목 아래에 "
-        f"'{NO_PREVIOUS_LINE}' 한 줄만 쓴다"
+    "비교로 기억하기": "수업에 짝지어 볼 만한 것이 있을 때만 표로(행 2~6개). 없으면 이 소제목 자체를 쓰지 않는다",
+    "자주 하는 실수": "수업 자료에 나온 오류 예시 · 주의할 점만. `무엇` → 왜 틀리고 어떻게 고치는지 한 줄씩. 없으면 소제목을 쓰지 않는다",
+    "말로 설명해 보기": "스스로 설명해 볼 질문 3~4개(답은 쓰지 않는다 — 위 본문에 있다). 「왜」 「차이」 「언제」를 묻는다",
+    "이전 수업과 연결": (
+        f"위 「이전 수업」에 적힌 내용과만 잇는다. 「이전 수업」이 '{NO_PREVIOUS}'이면 이 소제목 아래에 '{NO_PREVIOUS_LINE}' 한 줄만 쓴다"
     ),
-    PRACTICE_HEAD: "수업 코드를 조금 바꿔 보는 과제. 이 소제목에서만 새 코드를 써도 된다",
+    "이 내용이 있는 파일": "개념 → 파일 경로 색인. `- 형 변환: 02_data-type/exercise.ipynb` 처럼 한 줄씩",
 }
 
 
@@ -57,42 +66,43 @@ def _heads_text(heads: tuple[str, ...]) -> str:
     return "\n".join(f"## {h}" + (f"\n({HEAD_GUIDE[h]})" if h in HEAD_GUIDE else "") for h in heads)
 
 
+NOTE_SYSTEM = (
+    "당신은 AI 부트캠프 수강생이 복습할 공부 노트를 만드는 교육 전문가입니다.\n"
+    "수업 자료를 해설하지 말고, 학생이 다시 읽고 이해 · 기억할 수 있게 개념 중심으로 정리하세요.\n"
+    "모든 문장은 「~습니다 · ~합니다」체로 씁니다(「~다」 「~해요」로 끝내지 않습니다). 문장은 짧게, 핵심어는 굵게.\n"
+    "수업에 없던 기능을 새로 가르치지 마세요(개념을 풀어 설명하는 일반 지식은 괜찮습니다). 문제와 정답은 넣지 마세요.\n"
+    f"첫 줄은 반드시 `## {NOTE_HEADS[0]}` 이고, 그 앞에 아무것도 쓰지 마세요. 소제목은 아래 목록의 것만 `##` 로 씁니다.\n"
+    "git 커밋 해시, '변경 커밋', '수업 날짜/범위' 메타 박스, '확인할 수 없음'은 쓰지 마세요."
+)
+
 NOTE_PROMPT = ChatPromptTemplate.from_messages([
-    (
-        "system",
-        "당신은 AI 부트캠프 수업자료를 학습 노트로 정리하는 교육 전문가입니다.\n"
-        "학습자가 코드를 다시 실행할 수 있게 구체적으로 쓰되, 자료에 없는 내용은 지어내지 마세요.\n"
-        "git 커밋 해시, '변경 커밋', '수업 날짜/범위' 메타 박스, '확인할 수 없음'은 쓰지 마세요.\n"
-        "제목(#)으로 시작하지 마세요.",
-    ),
+    ("system", NOTE_SYSTEM),
     (
         "human",
         "수업 범위: {scope_label}\n"
         "학습자 수준: {learner_level}\n\n"
         "이전 수업(같은 과목, 날짜순 요약):\n{previous}\n\n"
         "수업 자료:\n{materials}\n\n"
-        "아래 제목 순서대로 한국어 Markdown으로 작성하세요. 괄호 안은 쓰는 법이니 옮겨 적지 마세요. 문제나 퀴즈는 넣지 마세요.\n\n"
+        "아래 소제목 순서대로 한국어 Markdown으로 작성하세요. 괄호 안은 쓰는 법이니 옮겨 적지 마세요.\n\n"
         + _heads_text(NOTE_HEADS),
     ),
 ])
 
 # ── 파일이 많은 날 ────────────────────────────────────────────────
 # 한 번에 넣으면 전체 예산(MAX_TOTAL_CHARS)에 걸려 뒤 파일이 「분량 제한으로 생략」된다.
-# 그래서 BATCH_FILES 개씩 묶어 부분 노트를 동시에 만들고 하나로 합친다.
-# 파일별 내용 · 코드는 부분 노트를 그대로 잇는다 — LLM 에게 다시 줄이게 하면 파일이 빠진다.
-# 하루 전체를 봐야 하는 소제목(핵심 한 문장 · 흐름 · 체크리스트 …)만 LLM 이 부분 노트를 보고 다시 쓴다.
+# 그래서 BATCH_FILES 개씩 묶어 부분 노트를 동시에 만들고, 마지막에 개념끼리 모아 하나로 다시 쓴다.
+# 개념 중심이라 부분 노트를 이어 붙이면 같은 개념이 묶음마다 흩어진다 — 합치는 호출이 개념을 모으고, 코드 블록은 부분 노트의
+# 것을 글자 그대로 옮긴다(대조 grounding 이 다시 본다). web_server 45개 · web_client 26개 날로 확인했다(2026-10-04).
 BATCH_FILES = 8
 BATCH_WORKERS = 4
-DETAIL_HEADS = ("파일별 학습 내용", "핵심 코드와 개념")
-SUMMARY_HEADS = tuple(h for h in NOTE_HEADS if h not in DETAIL_HEADS)
+MERGE_CODE_BLOCKS = 12
 
 MERGE_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
-        "당신은 AI 부트캠프 수업자료를 학습 노트로 정리하는 교육 전문가입니다.\n"
-        "하루 수업의 파일이 많아 파일 묶음마다 부분 노트를 만들었습니다. 이것들을 보고 하루 전체를 아우르는\n"
-        "소제목만 새로 씁니다. 부분 노트에 없는 내용은 지어내지 마세요. 문제나 퀴즈는 넣지 마세요.\n"
-        "제목(#)으로 시작하지 마세요.",
+        NOTE_SYSTEM + "\n하루 수업 파일이 많아 파일 묶음마다 부분 노트를 만들었습니다. 이것을 하나의 공부 노트로 합칩니다.\n"
+        "같은 개념은 하나로 모으고, 수업 흐름 순서로 개념을 놓습니다. 코드 블록과 그 위 경로 줄은 부분 노트의 것을 글자 그대로 옮기고"
+        " 새로 짜지 않습니다. 부분 노트에 없는 내용은 더하지 않습니다. 개념을 빠뜨리지 마세요.",
     ),
     (
         "human",
@@ -100,9 +110,8 @@ MERGE_PROMPT = ChatPromptTemplate.from_messages([
         "학습자 수준: {learner_level}\n\n"
         "이전 수업(같은 과목, 날짜순 요약):\n{previous}\n\n"
         "부분 노트:\n{parts}\n\n"
-        "아래 제목 순서대로 한국어 Markdown으로 작성하세요. 괄호 안은 쓰는 법이니 옮겨 적지 마세요.\n"
-        "묶음 순서가 아니라 수업이 진행된 흐름으로 하나로 이어 쓰세요.\n\n"
-        + _heads_text(SUMMARY_HEADS),
+        "아래 소제목 순서대로 하나의 노트로 작성하세요. 괄호 안은 쓰는 법이니 옮겨 적지 마세요.\n\n"
+        + _heads_text(NOTE_HEADS),
     ),
 ])
 
@@ -198,12 +207,12 @@ def _shares(lengths: list[int], budget: int) -> list[int]:
     return shares
 
 
-def pack_materials(materials: list[Material]) -> str:
+def pack_materials(materials: list[Material], budget: int = MAX_TOTAL_CHARS) -> str:
     """수업 자료를 파일 제목과 함께 한 덩어리로. 전체 글자 수 예산을 넘으면 파일마다 고르게 줄인다.
 
     예전엔 앞 파일부터 채워 뒤 파일은 「분량 제한으로 생략」됐다. 출제는 그 파일에도 문제를 배정해서 LLM 이 「내용이
     없는 파일로는 못 낸다」며 하루를 통째로 거절했다(2026-09-29 LLM파트 08-19, 파일 6개 중 2개 생략)."""
-    shares = _shares([len(item["content"]) for item in materials], MAX_TOTAL_CHARS)
+    shares = _shares([len(item["content"]) for item in materials], budget)
     chunks: list[str] = []
     for item, share in zip(materials, shares):
         body = item["content"][:share]
@@ -249,12 +258,13 @@ def generate_study_note(
     else:
         packed = pack_materials(materials)
         report = _note(scope_label, packed, before)
-    report, stats = ground_report(report, packed, free_heads=(PRACTICE_HEAD,))
+    report, stats = ground_report(report, packed)
     print(f"[노트 점검] {scope_label}: {stats.summary()}")
     return report, ""
 
 
-# 이전 수업 — 최근 날짜 몇 개의 핵심 한 문장 · 흐름만. 노트 전체를 넣으면 자료 예산만큼 길어진다
+# 이전 수업 — 최근 날짜 몇 개의 요점만. 노트 전체를 넣으면 자료 예산만큼 길어진다
+PREVIOUS_HEADS = (NOTE_HEADS[0], "오늘의 핵심 한 문장", "전체 수업 흐름")
 MAX_PREVIOUS_DAYS = 3
 MAX_PREVIOUS_CHARS = 800
 
@@ -264,7 +274,8 @@ def pack_previous(previous: list[DayNote]) -> str:
     chunks = []
     for day in sorted(previous, key=lambda d: d["date"])[-MAX_PREVIOUS_DAYS:]:
         sections = _sections(day["report"])
-        text = "\n".join(sections[h] for h in ("오늘의 핵심 한 문장", "전체 수업 흐름") if sections.get(h))
+        # 새 노트는 「오늘 꼭 알아야 할 것」, 다시 만들기 전 예전 노트는 「핵심 한 문장 · 흐름」
+        text = "\n".join(sections[h] for h in PREVIOUS_HEADS if sections.get(h))
         if text:
             chunks.append(f"### {day['date']}\n{text[:MAX_PREVIOUS_CHARS]}")
     return "\n\n".join(chunks) or NO_PREVIOUS
@@ -277,9 +288,11 @@ _PATH_LABEL = re.compile(r"^(#*[ \t]*)파일 경로[ \t]*:[ \t]*", re.MULTILINE)
 
 
 def tidy_headings(report: str) -> str:
-    """정해진 소제목(NOTE_HEADS)이 아닌 「## 」는 한 단계 아래로 — 모델이 코드 위 파일 경로를 ## 로 쓰면 노트 뼈대가
-    깨진다. 「파일 경로: 」 머리말도 뗀다."""
-    return _PATH_LABEL.sub(r"\1", _OTHER_H2.sub(r"#### \1", report))
+    """정해진 소제목(NOTE_HEADS)이 아닌 「## 」는 개념 소제목(###)으로 — 모델이 개념이나 코드 위 파일 경로를 ## 로 쓰면
+    노트 뼈대가 깨진다. 「파일 경로: 」 머리말도 떼고, 첫 소제목 앞에 붙인 머리글도 뗀다."""
+    report = _PATH_LABEL.sub(r"\1", _OTHER_H2.sub(r"### \1", report))
+    first = report.find(f"## {NOTE_HEADS[0]}")
+    return report[first:] if first > 0 else report
 
 
 def _note(scope_label: str, packed: str, previous: str = NO_PREVIOUS, code_limit: int = CODE_BLOCKS_PER_NOTE) -> str:
@@ -303,12 +316,12 @@ def _batches(materials: list[Material]) -> list[list[Material]]:
 
 
 def _sections(markdown: str) -> dict[str, str]:
-    """「## 소제목」 → 본문. NOTE_HEADS 에 없는 소제목은 앞 소제목 본문에 붙여 둔다."""
+    """「## 소제목」 → 본문. 정해진 소제목(새 · 예전 형식)이 아닌 것은 앞 소제목 본문에 붙여 둔다."""
     out: dict[str, str] = {}
     current = ""
     for line in markdown.split("\n"):
         match = re.match(r"^##\s+(.+?)\s*$", line)
-        if match and match.group(1) in NOTE_HEADS:
+        if match and (match.group(1) in NOTE_HEADS or match.group(1) in LEGACY_HEADS):
             current = match.group(1)
             out.setdefault(current, "")
             continue
@@ -318,10 +331,10 @@ def _sections(markdown: str) -> dict[str, str]:
 
 
 def _note_in_batches(scope_label: str, materials: list[Material], previous: str = NO_PREVIOUS) -> tuple[str, str]:
-    """(노트, 모델이 본 자료 전체) — 묶음마다 부분 노트를 동시에 만들고 하나로 합친다."""
+    """(노트, 모델이 본 자료 전체) — 묶음마다 부분 노트를 동시에 만들고, 개념끼리 모아 하나로 다시 쓴다."""
     batches = _batches(materials)
     packs = [pack_materials(b) for b in batches]
-    code_limit = max(3, -(-CODE_BLOCKS_PER_NOTE // len(packs)))
+    code_limit = max(4, -(-MERGE_CODE_BLOCKS // len(packs)))
     with ThreadPoolExecutor(max_workers=min(BATCH_WORKERS, len(packs))) as pool:
         parts = list(pool.map(
             lambda i: _note(f"{scope_label} — 파일 묶음 {i + 1}/{len(packs)}", packs[i], previous, code_limit),
@@ -332,16 +345,15 @@ def _note_in_batches(scope_label: str, materials: list[Material], previous: str 
         "scope_label": scope_label,
         "learner_level": LEARNER_LEVEL,
         "previous": previous,
-        "parts": "\n\n".join(f"### 묶음 {i + 1}\n{p}" for i, p in enumerate(parts)),
+        "parts": "\n\n".join(f"# 부분 노트 {i + 1}\n{p}" for i, p in enumerate(parts)),
+        "code_limit": MERGE_CODE_BLOCKS,
     })
-    merged = _sections(sanitize_student_markdown(response_text(response)))
+    merged = _sections(tidy_headings(sanitize_student_markdown(response_text(response))))
     blocks = []
     for head in NOTE_HEADS:
-        if head in DETAIL_HEADS or not merged.get(head):
-            # 합친 답에 빠진 소제목도 부분 노트를 이어 채운다(같은 글은 한 번 — 「이전 수업 노트가 없어요」 등)
-            body = "\n\n".join(dict.fromkeys(s[head] for s in part_sections if s.get(head)))
-        else:
-            body = merged[head]
+        # 합친 답에 빠진 소제목은 부분 노트를 이어 채운다(같은 글은 한 번 — 「이전 수업 노트가 없습니다」 등).
+        # 개념 정리가 통째로 빠지면 부분 노트의 개념을 이어 붙인다 — 개념이 흩어져도 빠지는 것보다 낫다
+        body = merged.get(head) or "\n\n".join(dict.fromkeys(s[head] for s in part_sections if s.get(head)))
         if body:
             blocks.append(f"## {head}\n{body}")
     return "\n\n".join(blocks), "\n\n".join(packs)

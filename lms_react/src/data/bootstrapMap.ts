@@ -111,6 +111,14 @@ function withJobDefaults(value: unknown): User['jobPreferences'] {
   return { ...v, targetRoles: list(v.targetRoles), regions: list(v.regions), employmentTypes: list(v.employmentTypes) };
 }
 
+/** 서버의 [{name, level}] — 모양이 다르면 버린다 */
+function profileTech(value: unknown): User['techStack'] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null && String(x.name ?? '').trim() !== '')
+    .map((x) => ({ name: String(x.name).trim(), level: String(x.level ?? '') }));
+}
+
 export function mapUser(row: Record<string, unknown>): User {
   return {
     uid: String(row.firebase_uid ?? row.uid ?? ''),
@@ -125,6 +133,7 @@ export function mapUser(row: Record<string, unknown>): User {
     mustChangePassword: Boolean(row.mustChangePassword ?? row.must_change_password),
     motto: row.motto ? String(row.motto) : undefined,
     skills: Array.isArray(row.skills) ? (row.skills as string[]) : [],
+    techStack: profileTech(row.techStack ?? row.tech_stack),
     socialLinks: ((row.socialLinks ?? row.social_links) as Record<string, string> | null) ?? {},
     // 강사 · 관리자는 DB 에 {} 로 들어 있다 — 빠진 목록은 빈 목록으로(화면이 .length 에서 멈췄다)
     jobPreferences: withJobDefaults(row.jobPreferences ?? row.job_preferences),

@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { RoutePaths, formFillPath } from '../../app/routePaths';
 import {
   markFormResponded,
   useAttendanceOfUser,
+  useCohorts,
   useCurriculumSheets,
   useFormResponses,
   useFormTasks,
@@ -106,34 +107,106 @@ export function DashboardScreen() {
   );
 }
 
-/** 프로필 카드 — widgets/dashboard_profile_header.dart */
+/** 프로필 카드 — widgets/dashboard_profile_header.dart. 이름 아래에 과정 진행과 이번 과정 출결을 둔다 */
 function ProfileCard() {
   const user = useCurrentUser();
+  const cohort = useCohorts().find((c) => c.cohortId === user.cohortId);
+  const rows = useAttendanceOfUser(user.uid);
+  const course = courseProgress(cohort?.startDate, cohort?.endDate, new Date());
+  const tally = attendanceTally(rows, cohort?.startDate);
+
   return (
     <div className="panel profile-card">
       <div className="profile-card__row">
         <span className="profile-card__avatar">
           <Icon name="person" size={26} />
         </span>
-        <div>
+        <div className="profile-card__who">
           <p className="profile-card__cohort">{user.cohortName}</p>
           <strong className="profile-card__name">{user.displayName}님</strong>
         </div>
+        {course?.dday && <span className="profile-card__dday">{course.dday}</span>}
       </div>
-      <hr className="profile-card__rule" />
-      <div className="profile-card__skills">
-        {user.skills.length === 0 ? (
-          <span className="hint">마이페이지에서 기술 스택을 등록해 보세요.</span>
-        ) : (
-          user.skills.map((skill) => (
-            <span key={skill} className="skill-chip">
-              {skill}
+      {course !== null && (
+        <div className="profile-card__course">
+          {/* 날짜는 제목 줄 오른쪽에 — 줄을 하나 아껴 옆 마일리지 카드(신용카드 비율, 높이 고정)와 높이를 맞춘다 */}
+          <div className="profile-card__course-head">
+            <span>과정 진행</span>
+            <strong>{course.label}</strong>
+            <span className="profile-card__course-dates">
+              {course.start} ~ {course.end}
             </span>
-          ))
-        )}
-      </div>
+            <span className="profile-card__course-pct">{Math.round(course.ratio * 100)}%</span>
+          </div>
+          <span className="profile-card__course-bar" role="img" aria-label={`과정 ${Math.round(course.ratio * 100)}% 진행`}>
+            <i style={{ width: `${course.ratio * 100}%` }} />
+          </span>
+        </div>
+      )}
+      {/* 숫자 배지 — 이력서 관리 탭처럼. 색 · 순서는 출석 달력 범례와 같고, 0이어도 자리를 지킨다(0은 회색) */}
+      {tally.length > 0 && (
+        <div className="profile-card__tally" aria-label="이번 과정 출결">
+          {tally.map(({ code, label, n }) => (
+            <span
+              key={code}
+              className={`profile-card__stat${n === 0 ? ' profile-card__stat--zero' : ''}`}
+              style={{ '--tone': AttendanceColorVars[code] } as CSSProperties}
+            >
+              {label}
+              <b>{n}</b>
+            </span>
+          ))}
+        </div>
+      )}
+      {/* 기술 스택은 여기 두지 않는다 — 마이페이지 · 이력서에서 본다. 칩이 늘면 옆 마일리지 카드와 높이가 어긋난다 */}
     </div>
   );
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** 기수 기간 → 진행 비율 · 「114일째」 · 「D-62」. 기간을 모르면 null */
+function courseProgress(start: Date | undefined, end: Date | undefined, now: Date) {
+  if (!start || !end || end <= start) return null;
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const today = day(now);
+  const total = day(end) - day(start);
+  const ratio = Math.min(1, Math.max(0, (today - day(start)) / total));
+  const md = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
+  let label: string;
+  let dday: string | null = null;
+  if (today < day(start)) {
+    label = '개강 전';
+    dday = `개강 D-${Math.round((day(start) - today) / DAY_MS)}`;
+  } else if (today > day(end)) {
+    label = '수료했어요';
+  } else {
+    const left = Math.round((day(end) - today) / DAY_MS);
+    label = `${Math.round((today - day(start)) / DAY_MS) + 1}일째`;
+    dday = left === 0 ? '오늘 수료' : `수료 D-${left}`;
+  }
+  return { ratio, label, dday, start: md(start), end: md(end) };
+}
+
+/** 이번 과정의 출결 횟수. 하루에 한 상태(달력과 같다). 범례 순서로 여섯 가지 모두 */
+function attendanceTally(
+  rows: { dateKey: string; status?: string }[],
+  start: Date | undefined,
+): { code: string; label: string; n: number }[] {
+  const from = start ? dateKeyOf(start) : '';
+  const byDate = new Map<string, string>();
+  for (const r of rows) if (r.status !== undefined && r.dateKey >= from) byDate.set(r.dateKey, r.status);
+  const order: [string, string][] = [
+    ['present', '출석'],
+    ['late', '지각'],
+    ['absent', '결석'],
+    ['officialLeave', '공가'],
+    ['earlyLeave', '조퇴'],
+    ['outing', '외출'],
+  ];
+  const counts = new Map<string, number>();
+  for (const status of byDate.values()) counts.set(status, (counts.get(status) ?? 0) + 1);
+  return order.map(([code, label]) => ({ code, label, n: counts.get(code) ?? 0 }));
 }
 
 /** 마일리지 카드 — 눌러서 마일리지로, 포인터를 따라 기울어진다 */

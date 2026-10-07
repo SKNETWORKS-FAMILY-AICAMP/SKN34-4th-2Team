@@ -54,8 +54,8 @@ class NoteHasNoProblemsTests(unittest.TestCase):
         self.assertNotIn("정답과 해설", human)
 
     def test_problems_the_model_adds_anyway_are_cut(self) -> None:
-        report, review = self._generate("## 오늘의 핵심 한 문장\n요약\n\n---\n\n## 복습 문제\n1. 문제")
-        self.assertEqual("## 오늘의 핵심 한 문장\n요약", report)
+        report, review = self._generate("## 오늘 꼭 알아야 할 것\n요약\n\n---\n\n## 복습 문제\n1. 문제")
+        self.assertEqual("## 오늘 꼭 알아야 할 것\n요약", report)
         self.assertEqual("", review)
 
 

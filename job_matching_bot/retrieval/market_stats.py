@@ -29,8 +29,9 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
-from job_matching_bot.retrieval.store_search import KST, JobFilters, cache_key, conditions, connect, remember
+from job_matching_bot.retrieval.store_search import KST, JobFilters, cache_key, conditions, connect, remember_day
 
 # 집계에 훑을 최대 행. 저장소 전체가 이보다 작으므로 보통은 전수로 센다. 상한은
 # 저장소가 훨씬 커졌을 때를 위한 안전장치다. 걸리면 "대략"이라고 밝히고 답한다.
@@ -121,8 +122,81 @@ def summarize(
 ) -> MarketStats:
     """조건에 맞는 공고를 훑어 분포를 낸다."""
     as_of = as_of or datetime.now(KST)
-    # 공고는 밤에만 바뀐다. 같은 조건 · 같은 날이면 10분 동안 다시 쓴다(`store_search.remember`).
-    return remember(cache_key("stats", store_path, filters, as_of), lambda: _summarize(store_path, filters, as_of))
+    # 공고는 밤에만 바뀐다. 같은 조건 · 같은 날이면 하루 동안 다시 쓴다(`store_search.remember_day`).
+    # 10분이던 때는 RDS 에서 한 번에 3~20초 드는 집계를 같은 날 같은 조건으로 몇 번이고 다시 셌다.
+    return remember_day(cache_key("stats", store_path, filters, as_of), lambda: _summarize(store_path, filters, as_of))
+
+
+# ── 미리 세 두기 ─────────────────────────────────────────────
+# 집계가 RDS 에서 한 번에 3~20초 걸린다. 서버를 막 띄우고 처음 물은 열린 질문이 39초였는데 그중 20초가
+# 집계였다(2026-10-06). 자주 묻는 조합을 서버가 뜰 때와 밤 배치가 끝난 아침에 뒤에서 세어 둔다.
+# 열쇠가 조건 그대로라 라우터 · 에이전트가 같은 말(「백엔드」 · 「신입」)로 물을 때만 맞는다.
+WARM_ROLES = (
+    "백엔드", "프론트엔드", "풀스택", "데이터분석", "데이터엔지니어", "AI", "AI 개발자", "머신러닝", "앱개발",
+    "안드로이드", "iOS", "게임", "임베디드", "클라우드", "DevOps", "보안", "QA", "웹개발", "서버",
+    "기획", "PM", "마케팅", "영업", "디자이너", "인사", "회계",
+)
+WARM_CAREERS = ("신입", "경력", "무관")
+# 기술을 함께 묻는 흔한 조합(「백엔드 신입은 Spring 많이 요구해?」 — 에이전트가 넓게 한 번, 기술로 한 번 센다)
+WARM_SKILLS = (("백엔드", ("Spring", "Java", "Python", "Node.js")), ("데이터분석", ("Python", "SQL")), ("프론트엔드", ("React",)))
+
+
+def warm_filters() -> list[JobFilters]:
+    filters = [JobFilters(career=career) for career in WARM_CAREERS]
+    filters += [JobFilters(roles=[role], career=career) for role in WARM_ROLES for career in WARM_CAREERS]
+    filters += [
+        JobFilters(roles=[role], skills=[skill], career="신입")
+        for role, skills in WARM_SKILLS for skill in skills
+    ]
+    return filters
+
+
+def warm(store_path: Path, filters: list[JobFilters] | None = None, as_of: datetime | None = None,
+         log: Callable[[str], None] = print) -> int:
+    """자주 묻는 조합을 세어 하루 기억에 넣는다. 센 조합 수. 하나가 실패해도 나머지는 센다."""
+    import time
+
+    started = time.monotonic()
+    done = 0
+    for item in filters if filters is not None else warm_filters():
+        try:
+            summarize(store_path, item, as_of)
+            done += 1
+        except Exception as error:  # noqa: BLE001 — 준비 실패가 서버를 막을 이유는 없다
+            log(f"[집계 미리 세기] {item.summary()} 실패: {type(error).__name__}")
+    log(f"[집계 미리 세기] {done}개 조합 · {time.monotonic() - started:.0f}초")
+    return done
+
+
+# 밤 배치는 06:00 안에 끝난다(`nightly.DEFAULT_MAX_MINUTES`). 그 뒤에 그날 날짜로 다시 센다 — 열쇠에 날짜가 있다.
+WARM_AT = (6, 30)
+
+
+def warm_forever(store_path: Path, log: Callable[[str], None] = print,
+                 then: Callable[[], object] | None = None) -> None:
+    """지금 한 번, 그 뒤로 매일 `WARM_AT`에 센다. 서버가 뜰 때 데몬 스레드로 부른다.
+
+    `then`은 집계를 다 센 뒤 이어서 할 일이다(자주 하는 검색 미리 하기 — `ChatService.warm_searches`).
+    """
+    import time
+    from datetime import timedelta
+
+    from job_matching_bot.ingestion.sqlite_store import is_managed_store
+
+    if not is_managed_store(store_path):
+        return  # 운영 저장소가 아니면 담아 두지 않으니 세어 봐야 쓸 데가 없다
+    while True:
+        warm(store_path, log=log)
+        if then is not None:
+            try:
+                then()
+            except Exception as error:  # noqa: BLE001 — 준비 실패가 서버를 막을 이유는 없다
+                log(f"[미리 하기] 이어서 할 일 실패: {type(error).__name__}")
+        now = datetime.now(KST)
+        nxt = now.replace(hour=WARM_AT[0], minute=WARM_AT[1], second=0, microsecond=0)
+        if nxt <= now:
+            nxt += timedelta(days=1)
+        time.sleep((nxt - now).total_seconds())
 
 
 def _summarize(store_path: Path, filters: JobFilters, as_of: datetime) -> MarketStats:
@@ -133,25 +207,22 @@ def _summarize(store_path: Path, filters: JobFilters, as_of: datetime) -> Market
     # 검색과 같은 연결 · 같은 조건 함수를 쓴다. 말한 건수와 목록의 모수가 같아야 한다.
     connection = connect(store_path)
     try:
-        # 전체와 마감 임박을 한 번에 센다. RDS 는 왕복마다 0.2초에 전체 훑기가 붙는다.
+        # 세기와 읽기를 한 쿼리로 — 창 함수는 LIMIT 전에 전체를 센다. 예전에는 둘로 나눠 `jobs`를
+        # 두 번 훑었다. 공고 테이블이 RDS 캐시보다 커서 훑을 때마다 디스크를 읽어, 5~10초가
+        # 3.2~3.7초가 됐다(2026-10-06, 전체 · 백엔드 신입).
         until = _plus_days(as_of, CLOSING_DAYS)
-        counted = connection.execute(
-            "SELECT COUNT(*) AS total, COUNT(*) FILTER ("
-            "WHERE deadline IS NOT NULL AND substr(deadline, 1, 10) <= %s) AS closing "
-            f"FROM jobs WHERE {clause}",
-            [until, *params],
-        ).fetchone()
-        total, closing = counted[0], counted[1]
-        if not total:
-            return MarketStats(total=0, scanned=0, scope=scope)
-
         rows = connection.execute(
-            f"SELECT title, tech_stack, keywords, region, career_type, employment_type, "
-            f"education FROM jobs WHERE {clause} ORDER BY first_seen_at DESC LIMIT %s",
-            [*params, SCAN_LIMIT],
+            f"SELECT title, tech_stack, keywords, region, career_type, employment_type, education, "
+            "COUNT(*) OVER () AS total, COUNT(*) FILTER ("
+            "WHERE deadline IS NOT NULL AND substr(deadline, 1, 10) <= %s) OVER () AS closing "
+            f"FROM jobs WHERE {clause} ORDER BY first_seen_at DESC LIMIT %s",
+            [until, *params, SCAN_LIMIT],
         ).fetchall()
     finally:
         connection.close()
+    if not rows:
+        return MarketStats(total=0, scanned=0, scope=scope)
+    total, closing = rows[0]["total"], rows[0]["closing"]
 
     scanned = len(rows)
     skills: Counter[str] = Counter()

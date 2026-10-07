@@ -64,6 +64,7 @@ from job_matching_bot.crawling.http_session import (
 )
 from job_matching_bot.ingest import DEFAULT_STORE
 from job_matching_bot.ingestion.job_store import open_store
+from job_matching_bot.schemas.job_record import STATUS_OPEN
 from job_matching_bot.ingestion.record_files import latest_by_id, read_records
 
 KST = timezone(timedelta(hours=9))
@@ -360,6 +361,21 @@ def known_from_files(store_path: Path) -> tuple[set[str], dict[str, str]]:
     return known, waiting
 
 
+def listing_deadlines(records: list[dict[str, Any]], as_of: datetime) -> dict[str, tuple[str | None, bool, str]]:
+    """목록 줄 → 공고 번호별 (마감일, 상시채용인가, 문구). 상세 적재와 같은 파서(`saramin.parse_deadline`)."""
+    from job_matching_bot.ingestion.saramin import deadline_is_open, parse_deadline
+
+    listed: dict[str, tuple[str | None, bool, str]] = {}
+    for record in records:
+        job_id = str(record.get("source_job_id") or "")
+        if not job_id or job_id in listed:
+            continue
+        text = str(record.get("support_text") or "")
+        deadline, evidence = parse_deadline(text, as_of)
+        listed[job_id] = (deadline, deadline is None and deadline_is_open(text), evidence)
+    return listed
+
+
 def record_observations(store: Any, result: "SweepResult", now: datetime, authoritative: bool,
                         summary: dict[str, Any]) -> tuple[set[str], list[str]]:
     """목록에서 본 것을 저장소에 적고, 살아 있는 공고와 삭제 후보를 돌려준다."""
@@ -374,6 +390,11 @@ def record_observations(store: Any, result: "SweepResult", now: datetime, author
     )
     summary["list_jobs"] = listed
     print(f"[목록 적재] 챗봇 검색용 {listed:,}건")
+    # 회사가 늘린 마감일을 목록에서 읽어 맞춘다. 적재가 저장된 마감일로 마감 처리하기 **전에** 한다.
+    summary["listing_deadlines"] = store.refresh_listing_deadlines(
+        listing_deadlines(result.records, now), now, source=SOURCE
+    )
+    print("[마감일 맞춤] " + " · ".join(f"{k} {v:,}" for k, v in summary["listing_deadlines"].items()))
     observed = store.list_observed(
         SOURCE, seen_today=result.seen_today, as_of=now, within_days=OBSERVED_WINDOW_DAYS, authoritative=authoritative
     )
@@ -441,9 +462,13 @@ def record_jobkorea_list(store: Any, list_path: Path, at: datetime) -> dict[str,
         }
 
     # 상세를 받는 대분류의 공고는 `jobs` 로 들어오므로 목록 표에 담지 않는다. 저장소의
-    # skip 판정은 `cat_mcls` 를 보므로 여기서 미리 거른다.
+    # skip 판정은 `cat_mcls` 를 보므로 여기서 미리 거른다. 워크넷 연계 공고(`external_site`)는
+    # 상세를 받지 않으므로(jobkorea 모듈 설명 7) 대분류와 상관없이 목록 표에 담는다.
     skip = set(jobkorea.DETAIL_CATEGORIES)
-    detailed = {r["source_job_id"] for r in rows if skip.intersection(r.get("categories") or [])}
+    detailed = {
+        r["source_job_id"] for r in rows
+        if skip.intersection(r.get("categories") or []) and not r.get("external_site")
+    }
     keep = [r for r in rows if r["source_job_id"] not in detailed]
 
     store.record_list_seen(dict(seen), complete, at, source=JOBKOREA_SOURCE)
@@ -452,6 +477,22 @@ def record_jobkorea_list(store: Any, list_path: Path, at: datetime) -> dict[str,
         print(f"  [잡코리아] 끝 쪽까지 못 넘긴 대분류 {len(capped)}개 {capped} — 완전히 훑은 것으로 세지 않음")
     print(f"  [잡코리아] 목록 적재 {listed:,}건 (관측 {sum(len(v) for v in seen.values()):,}쌍)")
     return {"rows": len(rows), "listed": listed, "capped": capped, "complete": sorted(complete)}
+
+
+def jobkorea_listing_deadline(stored: str | None, support_text: str, as_of: datetime) -> str | None:
+    """잡코리아 누적 상세의 마감일을 오늘 목록 문구로 바꿀 값. 그대로 두면 None, 상시채용으로 바뀌었으면 "".
+
+    사람인과 같은 판정(`listing_deadline_change`)이다. 잡코리아는 적재가 누적 상세 파일을 다시 쓰므로
+    저장소가 아니라 적재 입력을 고친다 — 저장소만 고치면 적재가 옛 마감일로 되돌린다.
+    """
+    from job_matching_bot.ingestion.job_store import listing_deadline_change
+    from job_matching_bot.ingestion.listing_conditions import deadline_from_listing, deadline_is_open
+
+    listed = deadline_from_listing(support_text, as_of.date())
+    change = listing_deadline_change(stored or None, STATUS_OPEN, listed, deadline_is_open(support_text), as_of)
+    if change is None:
+        return None
+    return change[0] or ""
 
 
 def jobkorea_observation(
@@ -479,12 +520,25 @@ def jobkorea_observation(
     )
     stamp = run_stamp(as_of)
     today_input = work_dir / f"{stamp}_jobkorea_today.jsonl"
-    kept = 0
+    support = {str(row["source_job_id"]): str(row.get("support_text") or "") for row in payload.get("list") or []}
+    kept = moved = 0
     with JOBKOREA_DETAIL_FILE.open(encoding="utf-8") as src, today_input.open("w", encoding="utf-8") as dst:
         for line in src:
-            if line.strip() and json.loads(line).get("source_job_id") in seen_today:
-                dst.write(line if line.endswith("\n") else line + "\n")
-                kept += 1
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            job_id = record.get("source_job_id")
+            if job_id not in seen_today:
+                continue
+            # 누적 상세의 마감일은 처음 받은 날 것이다. 회사가 늘렸으면 오늘 목록에만 보인다.
+            deadline = jobkorea_listing_deadline(record.get("deadline_raw"), support.get(str(job_id), ""), as_of)
+            if deadline is not None:
+                record["deadline_raw"] = deadline
+                moved += 1
+                line = json.dumps(record, ensure_ascii=False)
+            dst.write(line if line.endswith("\n") else line + "\n")
+            kept += 1
+    info["listing_deadlines"] = moved
     observed_file = work_dir / f"{stamp}_jobkorea_observed.json"
     observed_file.write_text(json.dumps([{"source_job_id": i} for i in sorted(observed)]), encoding="utf-8")
     info["observation"] = {"seen_today": len(seen_today), "input": kept, "observed": len(observed)}
@@ -629,6 +683,21 @@ def run_index(store_path: Path, as_of: datetime, work_dir: Path) -> int:
     ]
     print("[인덱스] " + " ".join(command[2:]), flush=True)
     return subprocess.run(command, cwd=str(REPO_ROOT)).returncode
+
+
+def run_prune(store_path: Path, as_of: datetime, work_dir: Path) -> dict[str, Any]:
+    """닫힌 지 15일 지난 공고를 백업하고 지운다(job_matching_bot.prune). 첨삭 중인 공고는 남긴다."""
+    report = work_dir / f"{run_stamp(as_of)}_prune.json"
+    command = [
+        sys.executable, "-m", "job_matching_bot.prune",
+        "--store", str(store_path), "--report", str(report), "--apply",
+    ]
+    print("[정리] " + " ".join(command[2:]), flush=True)
+    code = subprocess.run(command, cwd=str(REPO_ROOT)).returncode
+    try:
+        return {"exit_code": code, **json.loads(report.read_text(encoding="utf-8"))}
+    except (OSError, ValueError):
+        return {"exit_code": code}
 
 
 def share_store_file(store_path: Path) -> dict[str, Any]:
@@ -836,6 +905,9 @@ def main() -> int:
         # 5e. 요건 채우기 — 인덱스 전에. 채운 연차가 검색 조건에도 실리게
         summary["requirements"] = run_fill_requirements(args.store, now, NIGHTLY_DIR)
         summary["index_exit_code"] = run_index(args.store, now, NIGHTLY_DIR)
+        # 5f. 닫힌 지 15일 지난 공고를 지운다. 인덱스가 벡터를 먼저 지운 뒤라야 한다(prune 은 인덱스에
+        #     남은 행을 건너뛴다). 표 파일은 줄이지 않는다 — 지운 자리는 새 공고가 다시 쓴다.
+        summary["prune"] = run_prune(args.store, now, NIGHTLY_DIR)
 
         # 6. PostgreSQL 직접 공유 초안. 담당자 검토 전에는 이 배치 변경을 배포하지 않는다.
         if not args.no_share:

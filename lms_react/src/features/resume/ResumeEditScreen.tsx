@@ -276,7 +276,7 @@ export function ResumeEditScreen() {
         <button
           type="button"
           className="icon-btn resume-edit__pdf"
-          onClick={() => window.print()}
+          onClick={() => printResume(resume)}
           aria-label="PDF 내보내기"
           title="PDF 내보내기"
         >
@@ -589,6 +589,19 @@ export function ResumeEditScreen() {
   );
 }
 
+/** 인쇄 창의 「PDF로 저장」은 문서 제목을 파일 이름으로 쓴다. 그동안만 「이름_이력서」로 바꿨다가 되돌린다 */
+function printResume(resume: Resume) {
+  const name = resume.content.basicInfo.name.trim();
+  const previous = document.title;
+  document.title = name === '' ? resume.title : `${name}_이력서`;
+  window.addEventListener('afterprint', () => { document.title = previous; }, { once: true });
+  window.print();
+}
+
+const isUrlField = (key: string) => key === 'githubUrl' || key === 'blogUrl';
+const shortUrl = (url: string) => url.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+const fullUrl = (url: string) => (/^https?:\/\//.test(url.trim()) ? url.trim() : `https://${url.trim()}`);
+
 function BasicInfo({
   resume,
   patch,
@@ -620,7 +633,16 @@ function BasicInfo({
             <span className="contact-field__label">{label}</span>
             {readOnly ? (
               <strong className={info[key].trim() === '' ? 'doc-read__empty' : undefined}>
-                {info[key].trim() === '' ? '미작성' : info[key]}
+                {info[key].trim() === '' ? (
+                  '미작성'
+                ) : isUrlField(key) ? (
+                  // 주소는 https:// · 끝 / 를 떼어 짧게(PDF 와 같다). 누르면 새 탭으로 연다
+                  <a href={fullUrl(info[key])} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+                    {shortUrl(info[key])}
+                  </a>
+                ) : (
+                  info[key]
+                )}
               </strong>
             ) : (
               <input

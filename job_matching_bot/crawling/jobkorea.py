@@ -59,6 +59,13 @@ Disallow인 `/login/` `/user/` `/my/` `/account/` `/RecrtMng/` `/corp/` `/text_c
    2,588건). 그래서 **총 건수로 끝 쪽을 계산해 거기까지 넘긴다.** 빈 자리의 공고(약 5%)는
    어느 정렬로도 안 보여 받을 수 없다 — 받은 수가 총 건수에 못 미치는 것은 그래서다.
 
+7. **워크넷(고용24) 연계 공고가 목록에 섞여 있다**(2026-10-04 확인, 하루 약 430건 · 2%).
+   번호가 7자리이고 링크가 `/Recruit/GI_Read/5658974/Ext?siteCode=WN` 이다. 이 화면은 잡코리아
+   껍데기에 고용24 상세를 iframe 으로 띄울 뿐이라 우리 상세 파서가 읽을 본문이 없고, 번호만 떼어
+   `GI_Read/{번호}` 로 열면 404다. 그 404를 매일 밤 430건씩 다시 받으려 했다(9월 말부터 늘 실패
+   400건대). 그래서 **상세를 받지 않고 목록 전용(`list_jobs`)으로 둔다** — 사람인의 상세 안 받는
+   대분류와 같다. 행에 `external_site`(예: `WN`)를 달고, `source_url` 은 원래 링크로 둔다.
+
 6. **한 목록은 1만 건(200쪽)까지만 보여 준다.** 201쪽부터는 200쪽이 그대로 되풀이된다.
    1만이 넘는 대분류는 지역(`condition[local]`)으로, 그래도 넘으면 지역 × 경력
    (`condition[career]`)으로 쪼개 받아 공고번호로 합친다. 제조·생산 27,883건 → 서울 1,792 ·
@@ -237,6 +244,8 @@ REGION_CODES: tuple[str, ...] = (
 CAREER_CODES: tuple[str, ...] = ("1", "2", "3", "4", "5", "6", "7", "8")
 
 GNO_RE = re.compile(r"GI_Read/(\d+)")
+# 다른 사이트 공고를 띄우는 링크 — `GI_Read/{번호}/Ext?siteCode=WN`(워크넷). 모듈 설명 7
+EXTERNAL_RE = re.compile(r"GI_Read/\d+/Ext\b.*?\bsiteCode=(\w+)", re.IGNORECASE)
 TOTAL_RE = re.compile(r"\(([\d,]+)건\)")
 WS_RE = re.compile(r"\s+")
 
@@ -363,13 +372,18 @@ def parse_row(tr: Any) -> dict[str, Any] | None:
     if not match:
         return None
     gno = match.group(1)
+    href = link.get("href", "")
+    external = EXTERNAL_RE.search(href)
     # 빈 span.cell이 끝에 하나 붙어 온다. 조건 개수를 세는 쪽이 헷갈리니 여기서 턴다.
     cells = [text for cell in tr.select("td.tplTit p.etc span.cell") if (text := _text(cell))]
     sectors = _text(tr.select_one("td.tplTit p.dsc"))
     return {
         "source": SOURCE,
         "source_job_id": gno,
-        "source_url": f"{DETAIL_URL}/{gno}",
+        # 연계 공고는 번호만으로 열면 404다. 원래 링크 그대로 둔다
+        "source_url": f"{BASE_URL}{href}" if external and href.startswith("/") else f"{DETAIL_URL}/{gno}",
+        # 다른 사이트(워크넷 WN) 공고면 그 코드. 상세를 받지 않고 목록 전용으로 둔다
+        "external_site": external.group(1).upper() if external else "",
         "company": _text(tr.select_one("td.tplCo a.link")),
         "title": (link.get("title") or _text(link)).strip(),
         # 목록이 주는 조건. 순서가 바뀔 수 있어 원문도 함께 남긴다.
@@ -881,7 +895,8 @@ def main() -> int:
     failed = 0
     if args.details:
         # 상세는 `detail_duties`에 걸린 공고만. 목록에만 있는 나머지는 챗봇 검색용이다.
-        targets = [r for r in rows if detail_duties.intersection(r["categories"])]
+        # 워크넷 연계 공고는 본문이 고용24 에 있어 받지 않는다(모듈 설명 7). 목록 전용으로 남는다
+        targets = [r for r in rows if detail_duties.intersection(r["categories"]) and not r.get("external_site")]
         list_only = len(rows) - len(targets)
         done = read_done_ids(args.detail_file)
         targets = [r for r in targets if r["source_job_id"] not in done]

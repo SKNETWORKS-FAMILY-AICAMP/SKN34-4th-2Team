@@ -12,7 +12,8 @@ from lms.api import ChatIn, _data, _notice_image_key, api, chat, upload_notice_i
 from lms.bootstrap_service import _dicts
 from lms.commands import (
     _validate_record_submission_write, _validate_resume_write, op_add_todo,
-    op_delete_todo, op_set_seat_presence, op_toggle_todo, op_upsert_sql,
+    _save_user_skills, op_create_cohort, op_delete_todo, op_set_seat_presence, op_toggle_todo,
+    op_update_cohort, op_upsert_sql,
 )
 from lms.seating_layout import seating_payload
 from lms.services import sync_notice_vector
@@ -355,6 +356,74 @@ class ResumeWriteValidationTests(SimpleTestCase):
         _validate_resume_write(Mock(), self.actor, data, None)
         self.assertEqual(data["user_id"], 1)
         self.assertEqual(data["base_resume_id"], 7)
+
+
+class CohortPeriodTests(SimpleTestCase):
+    """관리자 화면 「기수 관리」의 시작일 · 종료일이 저장된다(예전에는 버렸다)."""
+
+    ADMIN = {"id": 1, "role": "admin"}
+
+    def _update(self, payload, current_start=None):
+        cur = Mock()
+        cur.fetchone.return_value = (7, current_start)
+        op_update_cohort(cur, self.ADMIN, {"cohortId": "cohort_34", **payload})
+        sql, args = cur.execute.call_args_list[-1].args
+        return sql, args
+
+    def test_update_saves_end_date_from_screen_value(self):
+        from datetime import date
+        sql, args = self._update({"name": "34기", "endDate": "2026-12-14T00:00:00.000Z"})
+        self.assertIn("end_date = %s", sql)
+        self.assertNotIn("start_date", sql, "보내지 않은 시작일은 건드리지 않는다")
+        self.assertIn(date(2026, 12, 14), args)
+        self.assertEqual(7, args[-1])
+
+    def test_update_rejects_end_before_start(self):
+        with self.assertRaises(ValueError):
+            self._update({"startDate": "2026-06-15", "endDate": "2026-06-01"})
+
+    def test_started_cohort_keeps_its_start_date(self):
+        """개강한 기수의 시작일은 못 바꾼다 — 출석 단위기간이 시작일부터 나뉜다. 종료일은 바꿀 수 있다."""
+        from datetime import date
+        with self.assertRaises(ValueError):
+            self._update({"startDate": "2026-06-22", "endDate": "2026-12-14"}, current_start=date(2026, 6, 15))
+        # 화면은 저장할 때 같은 시작일을 그대로 보낸다 — 같은 값이면 통과하고 종료일만 바뀐다
+        sql, args = self._update({"startDate": "2026-06-15T00:00:00.000Z", "endDate": "2026-12-14"}, current_start=date(2026, 6, 15))
+        self.assertIn(date(2026, 12, 14), args)
+
+    def test_not_started_cohort_can_move_its_start_date(self):
+        from datetime import date
+        sql, args = self._update({"startDate": "2099-03-09"}, current_start=date(2099, 3, 2))
+        self.assertIn(date(2099, 3, 9), args)
+
+    def test_create_saves_period(self):
+        from datetime import date
+        cur = Mock()
+        cur.fetchone.return_value = (9,)
+        op_create_cohort(cur, self.ADMIN, {"cohortId": "cohort_36", "startDate": "2026-11-02", "endDate": "2027-04-30"})
+        sql, args = cur.execute.call_args.args
+        self.assertIn("start_date, end_date", sql)
+        self.assertEqual([date(2026, 11, 2), date(2027, 4, 30)], args[7:9])
+
+    def test_only_admin_can_change_period(self):
+        with self.assertRaises(PermissionError):
+            op_update_cohort(Mock(), {"id": 2, "role": "instructor"}, {"cohortId": "cohort_34", "endDate": "2026-12-14"})
+
+
+class ProfileSkillsTests(SimpleTestCase):
+    """마이페이지 기술 스택 — 숙련도와 원래 표기를 함께 저장한다."""
+
+    def test_saves_level_and_label(self):
+        cur = Mock()
+        cur.fetchone.return_value = (11,)
+        _save_user_skills(cur, 5, [{"name": " Python ", "level": "중급"}, "SQL", {"name": "", "level": "고급"}])
+        calls = [c.args for c in cur.execute.call_args_list]
+        self.assertIn("DELETE FROM user_skills", calls[0][0])
+        skills = [args for sql, args in calls if sql.lstrip().startswith("INSERT INTO skills")]
+        self.assertEqual([["python"], ["sql"]], skills, "찾기용 이름은 소문자, 빈 이름은 버린다")
+        links = [args for sql, args in calls if "INSERT INTO user_skills" in sql]
+        self.assertEqual([5, 11, "중급", '{"label": "Python"}'], links[0])
+        self.assertEqual([5, 11, None, '{"label": "SQL"}'], links[1], "예전 이름 목록은 숙련도 없이")
 
 
 class UpsertRoleTests(SimpleTestCase):
