@@ -269,8 +269,9 @@ function HistoryTab({ ids }: { ids: Set<string> }) {
         {rows.map((row) => (
           <ListItem
             key={row.id}
-            title={`${row.userDisplayName} · ${row.reason}`}
-            subtitle={fmt(row.createdAt)}
+            title={row.reason}
+            titleLines={2}
+            subtitle={`${row.userDisplayName} · ${fmt(row.createdAt)}`}
             right={<T style={{ fontWeight: '700', color: row.amount >= 0 ? palette.success : palette.error }}>{row.amount >= 0 ? '+' : ''}{row.amount.toLocaleString('ko-KR')}</T>}
           />
         ))}

@@ -120,14 +120,13 @@ export function ShopPage() {
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
         {usages.map((u) => (
-          <Card key={u.category} style={{ width: 200, gap: 2 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <T variant="subtitle" style={{ flex: 1 }}>{MileageCategoryLabels[u.category] ?? u.category}</T>
-              <T variant="caption" tone="hint">한도 {won(u.limit)}</T>
-            </View>
-            <T variant="title" tone="primary">{won(u.remaining)}</T>
+          <Card key={u.category} style={{ width: 220, gap: 2 }}>
+            <T variant="subtitle" numberOfLines={1}>{MileageCategoryLabels[u.category] ?? u.category}</T>
+            <T variant="caption" tone="hint" numberOfLines={1}>한도 {won(u.limit)}</T>
+            <T variant="title" tone="primary" numberOfLines={1} fit style={{ marginTop: 4 }}>{won(u.remaining)}</T>
             <T variant="caption" tone="secondary">추가 신청 가능</T>
-            <T variant="caption" tone="hint">승인 {won(u.approved)} · 대기 {won(u.pending)} · 수정요청 {won(u.modifyRequested)}</T>
+            <T variant="caption" tone="hint" numberOfLines={1} fit>승인 {won(u.approved)} · 대기 {won(u.pending)}</T>
+            <T variant="caption" tone="hint" numberOfLines={1} fit>수정요청 {won(u.modifyRequested)}</T>
           </Card>
         ))}
       </ScrollView>
@@ -192,7 +191,7 @@ function ProductCard({ product, remaining, onPick }: { product: MileageProduct; 
   return (
     <View style={styles.cell}>
       <Card onPress={onPick} style={{ gap: 6, padding: 12 }}>
-        <Badge label={MileageCategoryLabels[product.category] ?? product.category} tone="neutral" />
+        <Badge label={MileageCategoryLabels[product.category] ?? product.category} tone="neutral" style={{ alignSelf: 'flex-start' }} />
         <View style={[styles.image, { backgroundColor: palette.surfaceVariant }]}>
           {product.imageUrl ? (
             <Image source={{ uri: absoluteFileUrl(product.imageUrl) }} style={StyleSheet.absoluteFill} resizeMode="cover" />
@@ -282,7 +281,7 @@ function AddToCartSheet({
           {error ? <T tone="error">{error}</T> : null}
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <View style={{ flex: 1 }}><Btn label="취소" tone="ghost" onPress={onClose} /></View>
-            <View style={{ flex: 1 }}><Btn label="장바구니에 담기" onPress={submit} /></View>
+            <View style={{ flex: 2 }}><Btn label="장바구니에 담기" icon="add-shopping-cart" onPress={submit} /></View>
           </View>
         </Pressable>
       </Pressable>

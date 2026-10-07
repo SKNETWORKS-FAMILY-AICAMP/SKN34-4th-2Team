@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Children, Fragment, isValidElement, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { Children, Fragment, isValidElement, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -56,6 +56,7 @@ export function T({
   tone = 'default',
   style,
   numberOfLines,
+  fit,
   onPress,
 }: {
   children?: ReactNode;
@@ -63,13 +64,23 @@ export function T({
   tone?: 'default' | 'secondary' | 'hint' | Tone;
   style?: StyleProp<TextStyle>;
   numberOfLines?: number;
+  /** 넘치면 말줄임 대신 글자를 줄인다 — numberOfLines 와 함께 쓴다 */
+  fit?: boolean;
   onPress?: () => void;
 }) {
   const { palette } = useTheme();
   const color =
     tone === 'default' ? palette.text : tone === 'secondary' ? palette.textSecondary : tone === 'hint' ? palette.textHint : toneColor(palette, tone);
   return (
-    <Text style={[typography[variant], { color }, style]} numberOfLines={numberOfLines} onPress={onPress} suppressHighlighting={!onPress}>
+    <Text
+      style={[typography[variant], { color }, style]}
+      numberOfLines={numberOfLines}
+      adjustsFontSizeToFit={fit}
+      minimumFontScale={fit ? 0.75 : undefined}
+      onPress={onPress}
+      suppressHighlighting={!onPress}
+      lineBreakStrategyIOS="hangul-word"
+    >
       {children}
     </Text>
   );
@@ -95,8 +106,11 @@ export function Screen({
   left,
   right,
   stickToBottom,
+  scrollRef: externalScrollRef,
 }: {
   title: string;
+  /** 화면 안 특정 위치로 옮겨야 할 때 — 본문 ScrollView 를 넘겨받는다 */
+  scrollRef?: RefObject<ScrollView | null>;
   /** 채팅처럼 내용이 늘면 맨 아래를 따라간다 */
   stickToBottom?: boolean;
   loading?: boolean;
@@ -113,7 +127,8 @@ export function Screen({
   right?: ReactNode;
 }) {
   const { palette } = useTheme();
-  const scrollRef = useRef<ScrollView>(null);
+  const ownScrollRef = useRef<ScrollView>(null);
+  const scrollRef = externalScrollRef ?? ownScrollRef;
   const [pulling, setPulling] = useState(false);
   const pull = onRefresh
     ? () => {
@@ -130,7 +145,7 @@ export function Screen({
           <Pressable accessibilityLabel="뒤로" onPress={goBack} style={styles.hit}>
             <MaterialIcons name="arrow-back" size={24} color={palette.text} />
           </Pressable>
-          <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>
+          <Text style={[styles.title, { color: palette.text }]} numberOfLines={2} lineBreakStrategyIOS="hangul-word">
             {title}
           </Text>
           <View style={styles.hit}>{right}</View>
@@ -230,7 +245,14 @@ export function Btn({
       ]}
     >
       {icon ? <MaterialIcons name={icon} size={18} color={fg} /> : null}
-      <Text style={[typography.subtitle, { color: fg, fontSize: 15 }]}>{label}</Text>
+      <Text
+        style={[typography.subtitle, { color: fg, fontSize: 15, flexShrink: 1, textAlign: 'center' }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.75}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -318,12 +340,13 @@ export function Row({
   );
 }
 
-export function Badge({ label, tone = 'primary' }: { label: string; tone?: Tone | string }) {
+/** 세로로 쌓이는 자리에 둘 때는 `style={{ alignSelf: 'flex-start' }}` 로 늘어나지 않게 한다 */
+export function Badge({ label, tone = 'primary', style }: { label: string; tone?: Tone | string; style?: StyleProp<ViewStyle> }) {
   const { palette } = useTheme();
   const color = toneColor(palette, tone);
   return (
-    <View style={[styles.badge, { backgroundColor: soft(color) }]}>
-      <Text style={[typography.label, { color }]}>{label}</Text>
+    <View style={[styles.badge, { backgroundColor: soft(color) }, style]}>
+      <Text style={[typography.label, { color }]} numberOfLines={1}>{label}</Text>
     </View>
   );
 }
@@ -379,12 +402,16 @@ export function ListItem({
   left,
   right,
   onPress,
+  titleLines = 1,
+  subtitleLines = 2,
 }: {
   title: string;
   subtitle?: string;
   left?: ReactNode;
   right?: ReactNode;
   onPress?: () => void;
+  titleLines?: number;
+  subtitleLines?: number;
 }) {
   const { palette } = useTheme();
   return (
@@ -396,8 +423,8 @@ export function ListItem({
     >
       {left}
       <View style={styles.fillGap}>
-        <T variant="body" numberOfLines={1} style={{ fontWeight: '500' }}>{title}</T>
-        {subtitle ? <T variant="caption" tone="hint" numberOfLines={1}>{subtitle}</T> : null}
+        <T variant="body" numberOfLines={titleLines} style={{ fontWeight: '500' }}>{title}</T>
+        {subtitle ? <T variant="caption" tone="hint" numberOfLines={subtitleLines}>{subtitle}</T> : null}
       </View>
       {right}
       {onPress ? <MaterialIcons name="chevron-right" size={20} color={palette.textHint} /> : null}
@@ -422,13 +449,15 @@ export function StatTile({
   const color = toneColor(palette, tone);
   return (
     <View style={styles.fill}>
-      <Card onPress={onPress} style={{ gap: 10 }}>
+      <Card onPress={onPress} style={{ gap: 10, flex: 1 }}>
         <View style={[styles.iconBox, { backgroundColor: soft(color) }]}>
           <MaterialIcons name={icon} size={20} color={color} />
         </View>
         <View style={{ gap: 2 }}>
-          <T variant="caption" tone="secondary">{label}</T>
-          <T variant="title" numberOfLines={1}>{value}</T>
+          <T variant="caption" tone="secondary" numberOfLines={2}>{label}</T>
+          <Text style={[typography.title, { color: palette.text }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+            {value}
+          </Text>
         </View>
       </Card>
     </View>
@@ -459,7 +488,7 @@ export function Fab({ icon, label, onPress }: { icon: IconName; label: string; o
       ]}
     >
       <MaterialIcons name={icon} size={22} color="#fff" />
-      <Text style={[typography.subtitle, { color: '#fff', fontSize: 15 }]}>{label}</Text>
+      <Text style={[typography.subtitle, { color: '#fff', fontSize: 15 }]} numberOfLines={1}>{label}</Text>
     </Pressable>
   );
 }
@@ -476,7 +505,9 @@ export function QuickAction({ icon, label, onPress }: { icon: IconName; label: s
       <View style={[styles.quickIcon, { backgroundColor: palette.surface, borderColor: palette.border }, elevation]}>
         <MaterialIcons name={icon} size={24} color={palette.primary} />
       </View>
-      <T variant="caption" numberOfLines={1}>{label}</T>
+      <Text style={[typography.caption, { color: palette.text }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -498,7 +529,7 @@ export function Chip({ label, selected, onPress }: { label: string; selected?: b
         },
       ]}
     >
-      <Text style={{ fontSize: 14, color: selected ? palette.primaryDark : palette.textSecondary, fontWeight: selected ? '700' : '500' }}>
+      <Text style={{ fontSize: 14, color: selected ? palette.primaryDark : palette.textSecondary, fontWeight: selected ? '700' : '500' }} numberOfLines={1}>
         {label}
       </Text>
     </Pressable>
@@ -539,7 +570,14 @@ export function Segmented<K extends string>({
             onPress={() => onChange(option.key)}
             style={[styles.segmentItem, active && [{ backgroundColor: palette.surface }, elevation]]}
           >
-            <Text style={[typography.subtitle, { fontSize: 14, color: active ? palette.text : palette.textSecondary }]}>{option.label}</Text>
+            <Text
+              style={[typography.subtitle, { fontSize: 14, color: active ? palette.text : palette.textSecondary }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+            >
+              {option.label}
+            </Text>
           </Pressable>
         );
       })}
@@ -594,6 +632,24 @@ export function fmt(value?: Date | string | null): string {
   return date.toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+/** 기간 표기 — 같은 날이면 날짜를 한 번만 쓰고, 다른 날이면 `10/7 09:30 ~ 10/14 18:00` 처럼 줄인다 */
+export function fmtRange(start?: Date | string | null, end?: Date | string | null): string {
+  const toDate = (value?: Date | string | null) => {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+  const from = toDate(start);
+  const to = toDate(end);
+  const time = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const short = (d: Date) => `${d.getMonth() + 1}/${d.getDate()} ${time(d)}`;
+  if (!from && !to) return '';
+  if (!from) return `~ ${short(to!)}`;
+  if (!to) return `${short(from)} ~`;
+  if (todayKey(from) === todayKey(to)) return `${from.getMonth() + 1}/${from.getDate()} ${time(from)}~${time(to)}`;
+  return `${short(from)} ~ ${short(to)}`;
+}
+
 export function todayKey(date = new Date()): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
@@ -625,7 +681,7 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 16 },
   rowLine: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   iconBox: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, alignSelf: 'flex-start' },
+  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, flexShrink: 0 },
   section: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
   listItem: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 52, paddingHorizontal: 16, paddingVertical: 10 },
   empty: { alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 40 },
@@ -647,7 +703,7 @@ const styles = StyleSheet.create({
   chip: { minHeight: 36, paddingHorizontal: 14, borderRadius: 999, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   callout: { flexDirection: 'row', gap: 8, padding: 12, borderRadius: 12, borderWidth: 1 },
   segment: { flexDirection: 'row', padding: 4, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth },
-  segmentItem: { flex: 1, minHeight: 36, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  segmentItem: { flex: 1, minHeight: 36, borderRadius: 9, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',

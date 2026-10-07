@@ -1,10 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Text } from 'react-native';
 
 import { homeHref, useSession } from '../src/auth/session';
-import { Btn, Card, Screen } from '../src/ui/kit';
+import { Btn, Card, Screen, T } from '../src/ui/kit';
 
 const SLIDES = [
   '출결, 공지, 마일리지는 핸드폰에서 바로 확인합니다.',
@@ -32,7 +31,7 @@ export default function TourScreen() {
   return (
     <Screen title="시작하기" back={false}>
       <Card>
-        <Text style={{ fontSize: 18 }}>{SLIDES[index]}</Text>
+        <T style={{ fontSize: 18, lineHeight: 26 }}>{SLIDES[index]}</T>
       </Card>
       {last ? <Btn label="시작" onPress={() => void finish()} /> : <Btn label="다음" onPress={() => setIndex((value) => value + 1)} />}
       <Btn label="건너뛰기" tone="ghost" onPress={() => void finish()} />
