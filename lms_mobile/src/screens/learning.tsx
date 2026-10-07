@@ -126,7 +126,7 @@ function ExamTimeline({ exam }: { exam: QualExamSchedule }) {
                 {i < stages.length - 1 ? <View style={[styles.rail, { backgroundColor: palette.border }]} /> : null}
               </View>
               <View style={{ flex: 1, paddingBottom: 10, flexDirection: 'row', gap: 8 }}>
-                <T variant="caption" style={{ width: 60, fontWeight: '700', color }}>{stage.label}</T>
+                <T variant="caption" style={{ width: 64, fontWeight: '700', color }} numberOfLines={1} fit>{stage.label}</T>
                 <T variant="caption" tone={done ? 'hint' : 'default'} style={{ flex: 1 }}>
                   {formatYmd(stage.from)}
                   {stage.to !== stage.from && stage.to !== undefined ? ` ~ ${formatYmd(stage.to)}` : ''}
@@ -176,8 +176,9 @@ export function WrongPage() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <Badge label={`못 푼 문제 ${wrongCount}`} tone="warning" />
             <Badge label={`해결한 문제 ${solvedCount}`} tone="success" />
-            <View style={{ flex: 1 }} />
-            <SolvedToggle on={showSolved} onToggle={() => setShowSolved((v) => !v)} />
+            <View style={{ marginLeft: 'auto' }}>
+              <SolvedToggle on={showSolved} onToggle={() => setShowSolved((v) => !v)} />
+            </View>
           </View>
           {shown.length === 0 ? (
             <Card><EmptyState icon="celebration" text="틀렸던 문제를 모두 다시 풀었어요. 「해결한 문제도 보기」를 켜면 다시 풀어 맞힌 문제를 볼 수 있어요." /></Card>

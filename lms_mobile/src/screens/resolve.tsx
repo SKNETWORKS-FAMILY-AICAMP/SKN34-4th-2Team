@@ -42,8 +42,6 @@ import {
   FormFillPage,
   FormsPage,
   MyPage,
-  NotePage,
-  NotesPage,
   NoticePage,
   PostPage,
   QuestsPage,
@@ -52,6 +50,7 @@ import {
   TeamsPage,
 } from './student';
 import { QualPage, WrongPage } from './learning';
+import { NotePage, NotesPage } from './notes';
 import { RecordDetailPage, RecordFormPage, RecordNewPage, RecordsBoard } from './records';
 import { CartPage, ShopPage } from './shop';
 import { ExamResultPage, ExamTakePage, ExamsPage } from './exams';

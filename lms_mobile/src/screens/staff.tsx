@@ -561,7 +561,7 @@ export function PresencePage({ home = false }: { home?: boolean }) {
             {checks.slice(0, 5).map((check) => (
               <ListItem
                 key={check.id}
-                title={`${fmt(check.checkedAt)} · ${check.period === 'am' ? '오전' : '오후'}`}
+                title={`${fmt(check.checkedAt)} · ${check.period === 'am' ? '오전반' : '오후반'} 점검`}
                 subtitle={`유 ${check.items.filter((item) => item.state === 'present').length} · 무 ${check.items.filter((item) => item.state === 'absent').length}${check.checkedByName ? ` · ${check.checkedByName}` : ''}`}
               />
             ))}

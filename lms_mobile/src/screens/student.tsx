@@ -3,7 +3,6 @@ import { router } from 'expo-router';
 import { useState, type ReactNode } from 'react';
 import { Alert, Linking, Pressable, Text, View, useWindowDimensions } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import Markdown from 'react-native-markdown-display';
 import {
   AttendanceLabels,
 } from '@web/domain/constants';
@@ -46,8 +45,9 @@ import { refreshBootstrap, useBootstrap, useDb } from '../data/query';
 import { useQuests, submitQuest } from '../data/quests';
 import { uploadEvidence } from '../data/records';
 import { useRooms, useTeams } from '../data/seating';
-import { useNotes, useSources } from '../data/study';
+import { useNotes } from '../data/study';
 import { appNav, navIcon, navLabel } from '../nav/webNav';
+import { MarkdownView } from '../ui/MarkdownView';
 import { SeatGrid } from '../ui/SeatGrid';
 import {
   Avatar,
@@ -307,7 +307,7 @@ export function NoticePage({ id }: { id: string }) {
     <Screen title="공지" empty={!notice} emptyText="공지를 찾지 못했습니다.">
       {notice ? (
         <Card style={{ gap: 12 }}>
-          {notice.isFavorite ? <Badge label="중요" tone="error" /> : null}
+          {notice.isFavorite ? <Badge label="중요" tone="error" style={{ alignSelf: 'flex-start' }} /> : null}
           <T variant="title" style={{ fontSize: 20 }}>{notice.title}</T>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Avatar name={notice.authorName} size={28} />
@@ -484,9 +484,9 @@ function QuestionField({ question, value, onChange }: { question: FormQuestion; 
           ))}
         </View>
         {question.minLabel || question.maxLabel ? (
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <T variant="caption" tone="secondary">{question.minLabel ? `1 = ${question.minLabel}` : ''}</T>
-            <T variant="caption" tone="secondary">{question.maxLabel ? `${max} = ${question.maxLabel}` : ''}</T>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+            <T variant="caption" tone="secondary" style={{ flexShrink: 1 }}>{question.minLabel ? `1 = ${question.minLabel}` : ''}</T>
+            <T variant="caption" tone="secondary" style={{ flexShrink: 1, textAlign: 'right' }}>{question.maxLabel ? `${max} = ${question.maxLabel}` : ''}</T>
           </View>
         ) : null}
       </Card>
@@ -844,7 +844,7 @@ export function AttendancePage() {
           }
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Btn label={file ? '다른 파일 고르기' : '파일 고르기'} icon="attach-file" tone="ghost" onPress={() => void pickFile()} />
+            <Btn label={file ? '바꾸기' : '파일 고르기'} icon="attach-file" tone="ghost" onPress={() => void pickFile()} />
             {file ? <T variant="caption" style={{ flex: 1 }} numberOfLines={1}>{file.name}</T> : null}
             {file ? (
               <Pressable onPress={() => setFile(null)} hitSlop={8} accessibilityLabel="파일 빼기">
@@ -983,9 +983,15 @@ export function StudyPage() {
             <ListItem
               key={day.date}
               title={formatLessonDate(day.date)}
-              subtitle={day.set ? `복습 문제 · ${day.set.sourceTitle}` : undefined}
+              subtitle={day.set?.sourceTitle || undefined}
               left={<MaterialIcons name={day.note ? 'description' : 'event'} size={20} color={day.note ? palette.primary : palette.textHint} />}
-              right={day.note ? <Badge label="노트" tone="primary" /> : <Badge label="노트 없음" tone="neutral" />}
+              right={
+                day.note ? (
+                  <Badge label="노트" tone="primary" />
+                ) : (
+                  <T variant="caption" tone="hint" style={{ marginRight: 30 }}>노트 없음</T>
+                )
+              }
               onPress={day.note ? () => go(`/(student)/notes/${day.note!.id}`) : undefined}
             />
           ))}
@@ -995,39 +1001,10 @@ export function StudyPage() {
   );
 }
 
-const NoteStatusLabels: Record<string, string> = {
-  ready: '정리 완료',
-  done: '정리 완료',
-  generating: '정리 중',
-  too_broad: '범위가 너무 넓음',
-  failed: '정리 실패',
-};
-
 function formatLessonDate(key: string): string {
   const date = new Date(`${key}T00:00:00`);
   if (Number.isNaN(date.getTime())) return key;
   return date.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' });
-}
-
-export function NotesPage() {
-  const notes = useNotes();
-  const sources = useSources();
-  return (
-    <Screen title="공부 노트">
-      {notes.length === 0 ? <Muted>노트가 없습니다.</Muted> : notes.map((note) => (
-        <Row key={note.id} title={sources.find((source) => source.id === note.sourceId)?.title ?? note.scopeKey ?? '노트'} subtitle={NoteStatusLabels[note.status] ?? '정리 완료'} onPress={() => go(`/(student)/notes/${note.id}`)} />
-      ))}
-    </Screen>
-  );
-}
-
-export function NotePage({ id }: { id: string }) {
-  const note = useNotes().find((row) => row.id === id);
-  return (
-    <Screen title="노트" empty={!note}>
-      {note ? <MarkdownBlock text={note.reportMarkdown || note.reviewMarkdown || '내용이 없습니다.'} /> : null}
-    </Screen>
-  );
 }
 
 export function MileagePage() {
@@ -1071,6 +1048,7 @@ export function MileagePage() {
               <ListItem
                 key={row.id}
                 title={row.reason}
+                titleLines={2}
                 subtitle={fmt(row.createdAt)}
                 left={
                   <MaterialIcons name={plus ? 'add-circle-outline' : 'remove-circle-outline'} size={22} color={plus ? palette.success : palette.error} />
@@ -1191,11 +1169,11 @@ export function QuestsPage() {
               ) : null}
 
               {full ? (
-                <Badge label="모두 완료" tone="success" />
+                <Badge label="모두 완료" tone="success" style={{ alignSelf: 'flex-start' }} />
               ) : pending ? (
                 <Btn label="검토 중" tone="ghost" disabled onPress={() => undefined} />
               ) : !quest.open ? (
-                <Badge label="마감" tone="neutral" />
+                <Badge label="마감" tone="neutral" style={{ alignSelf: 'flex-start' }} />
               ) : active ? (
                 <View style={{ gap: 12, marginTop: 4 }}>
                   {quest.evidenceType === 'text' ? (
@@ -1502,20 +1480,5 @@ export function DesktopPage({ feature }: { feature: string }) {
 }
 
 function MarkdownBlock({ text }: { text: string }) {
-  const { palette } = useTheme();
-  return (
-    <Markdown
-      style={{
-        body: { color: palette.text, fontSize: 15, lineHeight: 22 },
-        link: { color: palette.primary },
-        code_inline: { backgroundColor: palette.surfaceVariant, color: palette.text },
-        code_block: { backgroundColor: palette.surfaceVariant, color: palette.text, borderColor: palette.border },
-        fence: { backgroundColor: palette.surfaceVariant, color: palette.text, borderColor: palette.border },
-        blockquote: { backgroundColor: palette.surfaceVariant, borderColor: palette.primary },
-        hr: { backgroundColor: palette.border },
-      }}
-    >
-      {text}
-    </Markdown>
-  );
+  return <MarkdownView text={text} size="compact" />;
 }

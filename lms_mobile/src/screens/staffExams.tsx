@@ -12,7 +12,7 @@ import { refreshBootstrap, useDb } from '../data/query';
 import { navLabel } from '../nav/webNav';
 import { useTheme } from '../theme/Theme';
 import { ChipRow, JobNotice, SectionLabel, ToggleRow, confirmAction, dateFromKey, dateLabel, isDateKey, keyOf, useJob } from '../ui/form';
-import { Badge, Btn, Callout, Card, EmptyState, Field, ListGroup, ListItem, Muted, Screen, T, fmt, goBack } from '../ui/kit';
+import { Badge, Btn, Callout, Card, EmptyState, Field, ListGroup, ListItem, Muted, Screen, T, fmt, fmtRange, goBack } from '../ui/kit';
 
 function push(path: string) {
   router.push(path as never);
@@ -59,13 +59,12 @@ export function ExamsAdminPage({ readOnly = false }: { readOnly?: boolean }) {
         return (
           <Card key={exam.id} onPress={() => push(`${base}/exams/${exam.id}`)} style={{ gap: 6 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <T variant="subtitle" style={{ flex: 1 }} numberOfLines={2}>{exam.title}</T>
               <Badge label={phase.label} tone={phase.tone} />
               <Badge label={exam.published ? '공개' : '비공개'} tone={exam.published ? 'primary' : 'neutral'} />
             </View>
-            <T variant="caption" tone="secondary">
-              {dateLabel(exam.startAt)} ~ {dateLabel(exam.endAt)} · {exam.questionCount}문항 · {exam.maxScore}점 · 제출 {count}명
-            </T>
+            <T variant="subtitle" numberOfLines={2}>{exam.title}</T>
+            <T variant="caption" tone="secondary">{dateLabel(exam.startAt)} ~ {dateLabel(exam.endAt)}</T>
+            <T variant="caption" tone="secondary">{exam.questionCount}문항 · {exam.maxScore}점 · 제출 {count}명</T>
             {exam.tags.length > 0 ? <T variant="caption" tone="hint">#{exam.tags.join(' #')}</T> : null}
           </Card>
         );
@@ -331,14 +330,15 @@ export function ExamDetailPage({ id, readOnly = false }: { id: string; readOnly?
   const pending = submissions.filter((row) => needsGrading(row, questions)).length;
 
   return (
-    <Screen title={exam.title} onRefresh={refreshBootstrap}>
+    <Screen title="평가 상세" onRefresh={refreshBootstrap}>
       <Card style={{ gap: 8 }}>
+        <T variant="title">{exam.title}</T>
         <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
           <Badge label={phase.label} tone={phase.tone} />
           <Badge label={exam.published ? '공개' : '비공개'} tone={exam.published ? 'primary' : 'neutral'} />
           {pending > 0 ? <Badge label={`채점 필요 ${pending}명`} tone="warning" /> : null}
         </View>
-        <T variant="caption" tone="secondary">{fmt(exam.startAt)} ~ {fmt(exam.endAt)}</T>
+        <T variant="caption" tone="secondary">{fmtRange(exam.startAt, exam.endAt)}</T>
         <T>{exam.questionCount}문항 · 만점 {exam.maxScore}점</T>
         <T>제출 {submissions.length} / {students.length}명 · 평균 {average}점</T>
       </Card>
@@ -383,7 +383,7 @@ export function ExamDetailPage({ id, readOnly = false }: { id: string; readOnly?
       {questions.length > 0 ? (
         <ListGroup>
           {questions.map((question, index) => (
-            <ListItem key={question.id} title={`${index + 1}. ${question.prompt}`} subtitle={`${TYPE_LABEL[question.type]} · ${question.points}점`} />
+            <ListItem key={question.id} title={`${index + 1}. ${question.prompt}`} titleLines={2} subtitle={`${TYPE_LABEL[question.type]} · ${question.points}점`} />
           ))}
         </ListGroup>
       ) : (
