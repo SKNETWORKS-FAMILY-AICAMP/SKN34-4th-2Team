@@ -43,6 +43,7 @@ pinecone>=9,<11
 # 정책 XLS/XLSX 수집
 openpyxl>=3.1
 xlrd>=2
+python-docx>=1.1,<2
 
 # 공고 데이터 공유 (Firebase Storage)
 firebase-admin>=7,<8

@@ -191,6 +191,8 @@ ANSWER_PROMPT = """
 - 현재 유효한 최신 공지가 정책을 변경·제한한다고 명시한 경우에만 공지를 우선하고, "기존 안내와 달리
   최신 공지에 따라"라고 변경 내용과 기준 날짜를 말한다. 관련성·날짜·유효 상태가 불명확하면 임의로
   해결하지 말고 기본 정책과 확인할 공지를 구분한다. 서로 다른 주제는 섞지 않는다.
+- 기수 시작·종료·수료일은 `course_start_date`·`course_end_date`를 우선한다. 다른 날짜는 적용 대상과 현재 유효성이
+  명확한 최신 변경 공지일 때만 따른다(단순 일정 재언급·수료식 날짜 제외). 잔여 일수는 `as_of`부터 계산한다.
 
 [프로젝트 레퍼런스]
 - 이전 기수의 공개 사례는 로그인 기수와 달라도 안내하며 개인정보·비공개 LMS 데이터만 제외한다.
@@ -204,8 +206,8 @@ ANSWER_PROMPT = """
 - 다음 규칙은 로그인 학생 기수의 커리큘럼 PDF가 제공된 경우에만 쓴다.
 - 차수가 없는 `단위 프로젝트`는 인접한 이틀을 한 구간으로 묶고 PDF의 날짜순으로 1차부터 부여한다.
   첫날은 시작일, 마지막 날은 발표일이다. 기수별 날짜·횟수는 매번 해당 PDF에서 계산하며 재사용하지 않는다.
-- 연속된 `최종프로젝트` 행은 한 기간이다. 첫날은 시작일, 마지막 날은 발표일이자 수료일이다. 마감 공지가
-  없어도 PDF가 있으면 이 날짜를 안내하되, 별도 근거 없이 발표일을 파일 제출 마감일로 단정하지 않는다.
+- 기수 날짜 컨텍스트에 개강일·종강일이 없을 때만 연속된 `최종프로젝트` 행의 마지막 날을 수료일 근거로 쓴다.
+  별도 근거 없이 발표일을 파일 제출 마감일로 단정하지 않는다.
 - 일정에서 PDF에 없는 프로젝트 주제를 추측하지 말고 실제 project_reference 제출물 근거가 있을 때만 답한다.
 
 [진행 중 출석]
@@ -224,7 +226,7 @@ ANSWER_PROMPT = """
 
 BLOCKED_ANSWER = "저는 LMS 정책, FAQ, 가이드, 공지 또는 전 기수 프로젝트와 관련된 질문만 답변할 수 있어요."
 GREETING_ANSWER = "안녕하세요! 저는 플레이데이터 LMS 학생 챗봇이에요. LMS 정책, 공지, FAQ와 전 기수 프로젝트 정보를 도와드릴 수 있어요."
-COHORT_ANSWER = "공지 확인에 필요한 학생 기수 정보가 없습니다. 내 정보의 기수 등록 상태를 확인해 주세요."
+COHORT_ANSWER = "기수별 정책과 공지 검색에 필요한 학생 기수 정보가 없습니다. 내 정보의 기수 등록 상태를 확인해 주세요."
 
 
 class SupervisorTask(BaseModel):
@@ -660,7 +662,10 @@ class LmsStudentChatbot:
             answer = GREETING_ANSWER
         elif decision.route == "blocked":
             answer = BLOCKED_ANSWER
-        elif "notice" in namespaces and not state.get("cohort"):
+        elif (
+            any(namespace in namespaces for namespace in ("policy", "notice"))
+            and not state.get("cohort")
+        ):
             answer = COHORT_ANSWER
         else:
             answer = ""
@@ -681,7 +686,10 @@ class LmsStudentChatbot:
     def _next_node(
         self, state: ChatState,
     ) -> Literal["student_tools", "policy_notice_retrieve", "project_retrieve", END]:
-        if state["route"] != "lms" or ("notice" in state["namespaces"] and not state.get("cohort")):
+        if state["route"] != "lms" or (
+            any(namespace in state["namespaces"] for namespace in ("policy", "notice"))
+            and not state.get("cohort")
+        ):
             return END
         if state.get("student_scopes"):
             return "student_tools"
@@ -750,12 +758,19 @@ class LmsStudentChatbot:
         default_k: int | None = None,
         on_query: Callable[[int, int], None] | None = None,
     ) -> Any:
+        required_filter: dict[str, Any] = {}
+        if namespace in ("notice", "policy"):
+            cohort = cohort.strip()
+            if not re.fullmatch(r"cohort_\d{1,3}", cohort):
+                raise ValueError("기수별 검색에 사용할 학생 기수 형식이 올바르지 않습니다")
+            required_filter = {"cohort": {"$eq": cohort}}
+
         store = ScopedPineconeVectorStore(
             index=self.index,
             embedding=self.embeddings,
             text_key="page_content",
             namespace=namespace,
-            required_filter={"cohort": {"$eq": cohort}} if namespace == "notice" else {},
+            required_filter=required_filter,
             on_query=on_query,
         )
         search_kwargs: dict[str, Any] = {"k": _requested_k(query, default_k or self.k)}
