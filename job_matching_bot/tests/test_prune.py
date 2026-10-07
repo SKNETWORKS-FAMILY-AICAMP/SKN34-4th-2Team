@@ -103,7 +103,7 @@ class JobkoreaFileTest(unittest.TestCase):
         self.assertEqual((3, 1), prune.prune_jobkorea_file(path, {"2"}, backup, apply=True))
         left = [json.loads(line)["source_job_id"] for line in path.read_text(encoding="utf-8").splitlines()]
         self.assertEqual(["1", "3"], left)
-        self.assertEqual(3, len(backup.read_text(encoding="utf-8").splitlines()), "원본을 백업한다")
+        self.assertEqual([{"source_job_id": "2"}], [json.loads(line) for line in backup.read_text(encoding="utf-8").splitlines()], "뺀 줄만 백업한다")
 
 
 if __name__ == "__main__":

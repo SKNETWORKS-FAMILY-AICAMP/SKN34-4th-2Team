@@ -17,7 +17,7 @@
   15일 뒤에 다시 보이면 새 공고로 상세를 다시 받는다.
 - `list_jobs`: 목록에서 15일 넘게 안 보였거나(밤 배치도 내려간 공고로 본다, `OBSERVED_WINDOW_DAYS`)
   마감일이 15일 넘게 지난 것.
-- 함께: 지운 공고의 `job_tags` · `link_checks`, 잡코리아 누적 상세(`details.jsonl`)의 그 공고 줄 — 남겨 두면
+- 함께: 지운 공고의 `job_tags` · `link_checks`, 잡코리아 누적 상세(`details.jsonl`)의 그 공고 줄(뺀 줄만 백업) — 남겨 두면
   잡코리아 관측을 건너뛰는 밤에 누적 상세 전부가 다시 적재돼 지운 공고가 되살아난다.
 
 ## 무엇을 남기나
@@ -36,7 +36,6 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
-import shutil
 import sys
 import time
 from datetime import datetime, timedelta
@@ -101,19 +100,21 @@ def prune_jobkorea_file(path: Path, removed: set[str], backup_path: Path, apply:
     if not path.exists():
         return 0, 0
     kept: list[str] = []
-    total = dropped = 0
+    gone: list[str] = []
+    total = 0
     with path.open(encoding="utf-8") as src:
         for line in src:
             if not line.strip():
                 continue
             total += 1
-            if str(json.loads(line).get("source_job_id")) in removed:
-                dropped += 1
-                continue
-            kept.append(line if line.endswith("\n") else line + "\n")
+            line = line if line.endswith("\n") else line + "\n"
+            (gone if str(json.loads(line).get("source_job_id")) in removed else kept).append(line)
+    dropped = len(gone)
     if apply and dropped:
+        # 뺀 줄만 남긴다. 처음에는 파일 전체(100MB)를 날마다 복사해 한 달이면 3GB가 쌓일 판이었다(2026-10-07).
+        # 되돌리려면 남은 파일 끝에 이 줄들을 붙이면 된다.
         backup_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, backup_path)
+        backup_path.write_text("".join(gone), encoding="utf-8")
         temp = path.with_suffix(".jsonl.tmp")
         temp.write_text("".join(kept), encoding="utf-8")
         temp.replace(path)
