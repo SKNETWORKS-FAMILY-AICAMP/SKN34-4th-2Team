@@ -1318,11 +1318,11 @@ def _featured_cards(view: Literal["live", "past"]) -> list[dict]:
 def _load_featured_cards(view: Literal["live", "past"], today) -> list[dict]:
     norm = featured_postings.NORM_SQL
     with connection.cursor() as cur:
-        # 지원 방법 칸 · 회사 정보 표는 migration(recruit_roles_company_profiles) 뒤에 생긴다. 없으면 빈 값으로 읽는다
+        # 지원 방법 칸 · 회사 정보 표는 migration 0014 가 만든다(회사 표는 public 스키마). 없으면 빈 값으로 읽는다
         cur.execute(
             """SELECT EXISTS (SELECT 1 FROM information_schema.columns
                               WHERE table_schema = 'jobs' AND table_name = 'jobs' AND column_name = 'apply_method'),
-                      to_regclass('jobs.company_profiles') IS NOT NULL"""
+                      to_regclass('public.company_profiles') IS NOT NULL"""
         )
         has_apply, has_profiles = cur.fetchone()
         cur.execute(f"SELECT DISTINCT {norm} FROM jobs.jobs WHERE company_type ~* %s", [featured_postings.BIG_TYPE])
@@ -1347,7 +1347,7 @@ def _load_featured_cards(view: Literal["live", "past"], today) -> list[dict]:
                        {"j.apply_method" if has_apply else "NULL::varchar AS apply_method"},
                        {"p.logo_url" if has_profiles else "NULL::varchar AS logo_url"}
                 FROM jobs.jobs j
-                {f"LEFT JOIN jobs.company_profiles p ON p.company_key = {norm}" if has_profiles else ""}
+                {f"LEFT JOIN public.company_profiles p ON p.company_key = {featured_postings.PROFILE_KEY_SQL}" if has_profiles else ""}
                 WHERE {when} AND j.career_type IN ('ENTRY', 'ANY')
                   AND (j.company_type ~* %s OR j.company ~* %s OR {norm} = ANY(%s))""",
             [*params, featured_postings.COARSE_TYPE, featured_postings.COARSE_NAME, list(big_names)],
