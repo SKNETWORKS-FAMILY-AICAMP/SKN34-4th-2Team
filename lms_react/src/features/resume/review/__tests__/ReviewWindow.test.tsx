@@ -4,6 +4,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Json } from '../reviewApi';
+import { ReviewStarCells, ReviewRequirementStrip, requirementRowsFrom } from '../reviewRequirements';
+import sourceQuestions from './questionSourcePublic.json';
 
 const api = vi.hoisted(() => ({
   context: vi.fn(),
@@ -33,7 +35,7 @@ globalThis.ResizeObserver ??= class {
 Element.prototype.scrollTo ??= function scrollTo() {};
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const review: Json = {
+const review: Json & { sentence_reviews: Json[] } = {
   review_id: 'rev-1',
   input_hash: 'h1',
   summary: '이력서와 공고를 비교했습니다.',
@@ -100,6 +102,149 @@ const button = (label: string) =>
 const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
 
 describe('첨삭 창', () => {
+  it('부분 실패 완료 안내와 요건 대기를 성공 및 0/N으로 표시하지 않는다',async ()=>{
+    const saved={version:1,resume_id:'r1',job_id:'JOB-1',result:{...review,questions:[],
+      requirement_map:[{id:'r',group:'must',label:'요건',status:'partial',assessment_state:'pending'}],
+      sentence_reviews:[{...review.sentence_reviews[0],validation_status:'READY'}],
+      telemetry:{experience_outcomes:[{experience_id:'growth',status:'REJECTED'},{experience_id:'lms',status:'READY'}]}},
+      requirement_map:[{id:'r',group:'must',label:'요건',status:'partial',assessment_state:'pending'}],
+      messages:[],question_queue:[],suggestion_queue:[],gap_audit_started:true,gap_audit_finished:true};
+    act(()=>root.render(<MemoryRouter><ReviewDockHost><Opener saved={saved} /></ReviewDockHost></MemoryRouter>));
+    await settle();
+    const notice=document.querySelector('.rv-done')!;
+    expect(notice.textContent).toContain('일부 항목 재검토 필요');expect(notice.textContent).toContain('필수 대조 대기');
+    expect(notice.textContent).not.toContain('0/1');expect(notice.querySelector('strong')?.textContent).not.toBe('첨삭 완료');
+  });
+  it('질문 흐름이 끝나도 공고 요건 대조 미완료를 첨삭 성공으로 표시하지 않는다',async ()=>{
+    const saved={version:1,resume_id:'r1',job_id:'JOB-1',result:{...review,questions:[],sentence_reviews:[],
+      requirement_map:[{id:'r',group:'must',label:'요건',posting_quote:'요건',status:'partial',assessment_state:'pending'}],
+      telemetry:{information_review:{state:'pending',unreviewed_experiences:0,open_opportunities:0,
+        requirements:[{requirement_id:'r',state:'partially_supported',assessment:'pending'}]}}},
+      requirement_map:[{id:'r',group:'must',label:'요건',posting_quote:'요건',status:'partial',assessment_state:'pending'}],
+      messages:[],question_queue:[],suggestion_queue:[],gap_audit_started:true,gap_audit_finished:true};
+    act(()=>root.render(<MemoryRouter><ReviewDockHost><Opener saved={saved} /></ReviewDockHost></MemoryRouter>));
+    await settle();
+    const notice=document.querySelector('.rv-done')!;
+    expect(notice.querySelector('strong')?.textContent).toBe('첨삭 흐름 종료 · 일부 검토 대기');
+    expect(notice.textContent).toContain('공고 요건 1개의 근거 대조가 미완료');
+    expect(notice.textContent).toContain('자동 재요청 예정이라는 뜻은 아닙니다');
+  });
+  it.each(sourceQuestions)('저장 review $review_id 공개 질문의 대상·요구 정보를 그대로 표시한다', async row => {
+    // Explicit offline conversion, not a replay of old model-produced new fields.
+    const q=row.public_payload;
+    const saved={version:1,resume_id:'r1',job_id:'JOB-1',result:{...review,sentence_reviews:[],questions:[q]},
+      messages:[{type:'question',payload:q}],question_queue:[],suggestion_queue:[]};
+    act(()=>root.render(<MemoryRouter><ReviewDockHost><Opener saved={saved} /></ReviewDockHost></MemoryRouter>));
+    await settle();
+    expect(text()).toContain(q.experience_title);expect(text()).toContain(q.question);
+    expect(document.querySelector('.rv-question-box__body')?.textContent).toBe(q.question);
+    const quotes=[...document.querySelectorAll('.rv-bubble blockquote')].map(e=>e.textContent);
+    expect(quotes).toEqual(q.target_contexts.map(c=>c.quote));
+    const marks=[...document.querySelectorAll('.rv-bubble mark')].map(e=>e.textContent);
+    for (const context of q.target_contexts) {
+      for (const term of context.anchors.length ? context.anchors : context.selected_source_quotes) expect(marks).toContain(term);
+    }
+  });
+  it('anchor 없는 fallback도 대상 원문을 강조해 익명 질문으로 표시하지 않는다', async () => {
+    const row=sourceQuestions.find(r=>r.review_id===121)!;
+    const q={...row.public_payload,target_contexts:row.no_anchor_fallback_contexts};
+    const saved={version:1,resume_id:'r1',job_id:'JOB-1',result:{...review,sentence_reviews:[],questions:[q]},
+      messages:[{type:'question',payload:q}],question_queue:[],suggestion_queue:[]};
+    act(()=>root.render(<MemoryRouter><ReviewDockHost><Opener saved={saved} /></ReviewDockHost></MemoryRouter>));
+    await settle();
+    expect(document.querySelector('.rv-bubble mark')?.textContent).toContain('days_to_expire');
+    expect(document.querySelector('.rv-bubble blockquote')?.textContent).toContain('XGBoost');
+  });
+  it('질문 대상은 원문 안에서 한 번 강조하고 부정·조건을 잘라 표시하지 않는다', async () => {
+    const question={question_id:'new',field_path:'projects[0].description',experience_title:'분석 경험',
+      question:'어떤 방법으로 직접 점검했나요?\n시험 수행만으로 성공을 단정하지 않아도 됩니다.',target_contexts:[{type:'applicant_source',source_type:'resume_text',
+        quote:'단일 변수 AUC 0.905를 확인했지만 전체 모델 성능은 아닙니다.',anchors:['AUC 0.905'],
+        selected_source_quotes:['AUC 0.905'],context_quote:'앞의 목적 설명. 단일 변수 AUC 0.905를 확인했지만 전체 모델 성능은 아닙니다.'}]};
+    const saved={version:1,resume_id:'r1',job_id:'JOB-1',result:{...review,sentence_reviews:[],questions:[question]},
+      messages:[{type:'question',payload:question}],question_queue:[],suggestion_queue:[]};
+    act(()=>root.render(<MemoryRouter><ReviewDockHost><Opener saved={saved} /></ReviewDockHost></MemoryRouter>));
+    await settle();
+    const bubble=document.querySelector('.rv-bubble')!;
+    expect(bubble.querySelector('blockquote')?.textContent).toBe(question.target_contexts[0].quote);
+    expect(bubble.querySelectorAll('mark')).toHaveLength(1);
+    expect(bubble.querySelector('mark')?.textContent).toBe('AUC 0.905');
+    expect(bubble.querySelector('details')?.hasAttribute('open')).toBe(false);
+    const box=bubble.querySelector('.rv-question-box')!;
+    expect(box.getAttribute('aria-label')).toBe('답변할 질문');
+    expect(box.querySelector('.rv-question-box__body')?.textContent).toBe(question.question);
+    expect(bubble.querySelector('details')!.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(text()).not.toContain('원문에서 선택한 구간');expect(text()).not.toContain('지목한 원문 표현');
+  });
+  it.each([
+    {contexts:[],label:null},
+    {contexts:[{type:'applicant_source',source_type:'user_answer',quote:'이전 답변 원문입니다.'}],label:'이전 답변에서 확인할 부분'},
+    {contexts:[{type:'posting_source',quote:'공고 원문입니다.'}],label:'공고 요건 · 지원자 경험과 별개'},
+  ])('질문 박스가 출처 유무와 종류에 관계없이 전체 질문을 보존한다 ($label)',async ({contexts,label})=>{
+    const q={question_id:'source-kind',field_path:'projects[0].description',question:'기억나는 범위에서 알려주세요.',target_contexts:contexts};
+    const saved={version:1,resume_id:'r1',job_id:'JOB-1',result:{...review,sentence_reviews:[],questions:[q]},
+      messages:[{type:'question',payload:q}],question_queue:[],suggestion_queue:[]};
+    act(()=>root.render(<MemoryRouter><ReviewDockHost><Opener saved={saved} /></ReviewDockHost></MemoryRouter>));
+    await settle();
+    expect(document.querySelector('.rv-question-box__body')?.textContent).toBe(q.question);
+    expect(document.querySelector('.rv-question-box__label')?.textContent).toBe('답변할 질문');
+    expect([...document.querySelectorAll('.rv-question-source blockquote')].map(e=>e.textContent)).toEqual(contexts.map(c=>c.quote));
+    if (label) expect(text()).toContain(label);
+  });
+  it('B 답변 관리에서 취소를 서버로 보내고 문서 반영 취소와 구분한다', async () => {
+    const question=(review.questions as Json[])[0];
+    const saved={version:1,resume_id:'r1',job_id:'JOB-1',result:{...review,sentence_reviews:[],questions:[],
+      telemetry:{engine:'v2-local-ui-2',answer_edit_supported:true},confirmed_answers:[{...question,answer:'오입력'}]},messages:[],question_queue:[],suggestion_queue:[],
+      gap_audit_started:true,gap_audit_finished:true,manually_completed:true};
+    api.review.mockResolvedValue({...review,review_id:'repaired',sentence_reviews:[],confirmed_answers:[],
+      telemetry:{engine:'v2-local-ui-2',answer_edit_supported:true,execution:{state:'verified'},answer_recovery:{question_id:'q1',operation:'retract',requires_document_undo:false}}});
+    const confirm=vi.spyOn(window,'confirm').mockReturnValue(true);
+    act(() => root.render(<MemoryRouter><ReviewDockHost><Opener saved={saved} /></ReviewDockHost></MemoryRouter>));
+    await settle();
+    expect(text()).toContain('답변 수정·취소');expect(text()).toContain('자동 삭제되지');
+    await act(async () => button('답변 취소')!.click());
+    expect(api.review.mock.calls[0][1].answer_changes).toEqual([expect.objectContaining({question_id:'q1',operation:'retract',expected_answer:'오입력'})]);
+    expect(api.undo).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+  it('미판정 요건은 0/N 확정 표시가 아니라 대조 대기로 표시한다', () => {
+    const rows = requirementRowsFrom([{ id: 'r1', group: 'must', label: '기술 활용', status: 'unconfirmed', assessment_state: 'pending' }]);
+    act(() => root.render(<ReviewRequirementStrip rows={rows} onTapRow={() => {}} />));
+    expect(text()).toContain('필수 대조 대기');
+    expect(text()).not.toContain('0/1');
+    expect(document.querySelector('button[title*="미판정"]')).not.toBeNull();
+  });
+  it('원문 STAR의 미확인은 부족 체크리스트가 아니며 근거 인용을 제공한다', () => {
+    act(() => root.render(<ReviewStarCells check={{ fieldPath: 'projects[0].description', present: ['action'],
+      reason: '', diagnosticStatus: 'complete', quotes: { action: 'API를 구현했습니다.' } }} />));
+    expect(text()).toContain('현재 원문 STAR');
+    expect(text()).toContain('결과 근거 미확인');
+    expect(text()).not.toContain('빠짐');
+    expect(document.querySelector('[title="API를 구현했습니다."]')).not.toBeNull();
+    act(() => root.render(<ReviewStarCells check={{ fieldPath: 'projects[0].description', present: [], reason: '', diagnosticStatus: 'pending' }} />));
+    expect(text()).toContain('판정 대기');
+    expect(text()).not.toContain('근거 미확인');
+    act(() => root.render(<ReviewStarCells check={{ fieldPath: 'selfIntroduction.motivation.body', present: [], reason: '', diagnosticStatus: 'not_applicable' }} />));
+    expect(text()).toBe('');
+  });
+  it('이전 review index 0의 적용 기록은 audit index 0 카드를 적용됨으로 표시하지 않는다', async () => {
+    const saved: Json = { version: 1, resume_id: 'r1', job_id: 'JOB-1',
+      result: { review_id: 'audit-review', input_hash: 'h1' }, gap_audit_started: true, gap_audit_finished: true,
+      applied_suggestion_keys: [JSON.stringify(['answer-review', 0])], applied_indices: [0],
+      messages: [
+        { type: 'suggestion', payload: { ...review.sentence_reviews[0], _review_id: 'answer-review', _index: 0, _applied: true } },
+        { type: 'suggestion', payload: { ...review.sentence_reviews[1], _review_id: 'audit-review', _index: 0 } },
+      ], question_queue: [], suggestion_queue: [], pending_question: null };
+    act(() => root.render(<MemoryRouter><ReviewDockHost><Opener saved={saved} /></ReviewDockHost></MemoryRouter>));
+    await settle();
+    expect(document.querySelectorAll('.rv-applied')).toHaveLength(1);
+    expect(text()).toContain('분류 모델을 만들었습니다');
+    expect(button('이 문장으로 바꾸기')).toBeDefined();
+    api.apply.mockResolvedValue({ content: {}, input_hash: 'h2' });
+    await act(async () => button('이 문장으로 바꾸기')!.click());
+    expect(api.apply.mock.calls[0][1]).toMatchObject({ review_id: 'audit-review', selected_indices: [0] });
+    expect(document.querySelectorAll('.rv-applied')).toHaveLength(2);
+  });
+
   it('B 초기 content 수정안을 기존 체크박스 묶음에 동시에 표시한다', async () => {
     api.review.mockResolvedValue({ ...review, sentence_reviews: review.sentence_reviews.map((item: Json, i: number) => ({
       ...item, edit_type: 'content', validation_status: i === 2 ? 'REJECTED' : 'READY',

@@ -22,6 +22,7 @@ import {
   ReviewStarCells,
   isEligibility,
   requirementGroupLabel,
+  requirementGroupSummary,
   reviewStageLabel,
   type RequirementRow,
   type StarCheck,
@@ -560,6 +561,7 @@ function ReviewChatPane({
             </div>
           </>
         )}
+        {session.answerEditSupported && <AnswerManager session={session} />}
         {session.messages.map((message, i) => (
           <ChatBubble
             key={i}
@@ -567,22 +569,29 @@ function ReviewChatPane({
             resumeContent={session.preview}
             requirementRows={requirementRows}
             starChecks={session.starChecks}
-            appliedSuggestionIndices={session.appliedSuggestionIndices}
-            onApply={(indices) => void session.applySuggestion(indices)}
-            onSkip={session.skipSuggestion}
+            isSuggestionApplied={session.isSuggestionApplied}
+            onApply={(indices) => void session.applySuggestion(indices, String('payload' in message ? message.payload._review_id ?? '' : ''))}
+            onSkip={(indices) => session.skipSuggestion(indices, String('payload' in message ? message.payload._review_id ?? '' : ''))}
             onUndo={(item) => void session.undoSuggestion(item)}
           />
         ))}
         {session.busy &&
           (session.busyKind === 'review' ? (
-            <InitialReviewProgress currentStage={session.busyStage} generalReview={generalReview} canMinimize={canMinimize} />
+            <><InitialReviewProgress currentStage={session.busyStage} generalReview={generalReview} canMinimize={canMinimize} />
+              {session.processingLabel && <div role="status">{session.processingLabel}</div>}</>
           ) : (
-            <CompactBusyCard label={busyLabel((session.busyKind ?? 'answer') as BusyKind)} />
+            <CompactBusyCard label={session.processingLabel ?? busyLabel((session.busyKind ?? 'answer') as BusyKind)} />
           ))}
-        {session.error !== null && <div className="rv-error">{session.error}</div>}
+        {session.error !== null && <div className="rv-error">{session.error}
+          {session.canRetryProcessing && <button type="button" className="btn btn--text btn--sm" disabled={session.busy} onClick={session.retryProcessing}>
+            저장된 처리 재개
+          </button>}
+        </div>}
         {reviewCompleted && (
           <ReviewCompletedNotice
             requirementRows={requirementRows}
+            hasFailures={session.hasUnresolvedReviewFailure}
+            informationPending={session.informationReviewPending}
             hasSuggestions={session.messages.some((m) => m.type === 'suggestion' || m.type === 'identity')}
             onClose={() => void session.completeReview(false)}
             onRestart={session.restartReview}
@@ -596,13 +605,24 @@ function ReviewChatPane({
             type="button"
             className="chip rv-none"
             style={{ visibility: onNoneAnswer !== null && !session.busy ? 'visible' : 'hidden' }}
-            title="해 본 적이 없거나 기억나지 않으면 누르세요. 이력서에 넣지 않고 다음 질문으로 넘어갑니다."
+            title={activeQuestion?.owner_scope === 'unassigned' ? '해당 경험이 없다면 누르세요. 기억이 불확실하면 답변에 모르겠다고 적어 주세요.' : '이 항목에서 추가로 확인할 내용이 없으면 누르세요.'}
             onClick={() => onNoneAnswer?.()}
           >
             <Icon name="remove_circle_outline" size={16} />
             없음
           </button>
           <div className={`rv-answer${session.busy || activeQuestion === null ? ' is-idle' : ''}`}>
+            {activeQuestion?.owner_scope === 'unassigned' && <label>
+              답변이 속한 경험
+              <select aria-label="답변 경험 항목 선택" disabled={session.busy}
+                value={String(session.answerOwner(activeQuestion)?.experience_id ?? '')}
+                onChange={e => session.selectAnswerOwner(activeQuestion, e.target.value)}>
+                <option value="">{activeQuestion.information_aspect==='experience_presence'
+                  ? '경험 유무 먼저 답변 가능 · 항목 연결은 다음 단계' : '항목 선택 (경험 없음 / 모름은 선택 없이 답변)'}</option>
+                {(Array.isArray(activeQuestion.owner_options) ? activeQuestion.owner_options as Json[] : []).map(option =>
+                  <option key={String(option.experience_id)} value={String(option.experience_id)}>{String(option.experience_title)}</option>)}
+              </select>
+            </label>}
             {/* 입력칸은 항상 쓸 수 있게 둔다. 처리 중 전송은 흐름이 막는다. 못 쓰는 상태는 힌트와 바탕색으로 알린다 */}
             <textarea
               ref={answerRef}
@@ -628,6 +648,30 @@ function ReviewChatPane({
       )}
     </div>
   );
+}
+
+function AnswerManager({session}: {session: ReviewSession}) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const [text, setText] = useState('');
+  return <details>
+    <summary>답변 수정·취소</summary>
+    <p>답변 변경과 문서 반영 취소는 별도입니다. 이미 적용한 문장은 자동 삭제되지 않으며, 영향을 받은 문장은 반영 취소 후 재검토해야 합니다.</p>
+    {session.editableAnswers.map(answer => <div key={String(answer.question_id)}>
+      <p>대상 · {session.answerTargetLabel(answer)}</p>
+      <p>{String(answer.question)}</p><p>{String(answer.answer)}</p>
+      {editing === answer.question_id ? <>
+        <textarea aria-label="수정할 답변" value={text} onChange={e => setText(e.target.value)} disabled={session.busy} />
+        <button type="button" disabled={session.busy || !text.trim()} onClick={() => void session.changeAnswer(String(answer.question_id),text).then(() => {if (!session.error) setEditing(null);})}>수정 저장</button>
+        <button type="button" onClick={() => setEditing(null)}>편집 취소</button>
+      </> : <>
+        <button type="button" disabled={session.busy} onClick={() => {setEditing(String(answer.question_id));setText(String(answer.answer));}}>답변 수정</button>
+        <button type="button" disabled={session.busy} onClick={() => {
+          if (window.confirm('답변 근거를 취소합니다. 이미 적용한 문장은 자동 삭제되지 않습니다. 계속할까요?')) void session.changeAnswer(String(answer.question_id),null);
+        }}>답변 취소</button>
+      </>}
+    </div>)}
+    {session.awaitingDocumentUndo && <p role="status">이미 적용한 수정안을 반영 취소해 이전 원문을 복원해 주세요. 답변 취소만으로 문장을 삭제하거나 검증 완료로 처리하지 않습니다.</p>}
+  </details>;
 }
 
 function InitialReviewProgress({
@@ -696,23 +740,24 @@ function CompactBusyCard({ label }: { label: string }) {
 
 function ReviewCompletedNotice({
   requirementRows,
+  hasFailures,
+  informationPending,
   hasSuggestions,
   onClose,
   onRestart,
 }: {
   requirementRows: RequirementRow[];
+  hasFailures: boolean;
+  informationPending: boolean;
   hasSuggestions: boolean;
   onClose(): void;
   onRestart(): void;
 }) {
   /** 「공고 요건: 필수 4/5 · 우대 2/3 근거 확인」. 공고 없는 첨삭이면 빈 문자열 */
-  const part = (group: string) => {
-    const rows = requirementRows.filter((row) => row.group === group && !isEligibility(row));
-    if (rows.length === 0) return '';
-    return `${requirementGroupLabel(group)} ${rows.filter((row) => row.status === 'met').length}/${rows.length}`;
-  };
+  const part = (group: string) => requirementGroupSummary(requirementRows,group);
   const parts = [part('must'), part('preferred')].filter((t) => t !== '');
   const missing = requirementRows.some((row) => row.status !== 'met' && row.group !== 'task' && !isEligibility(row));
+  const pendingRequirementCount = requirementRows.filter((row) => row.assessmentState === 'pending').length;
   const summary =
     parts.length === 0
       ? ''
@@ -720,12 +765,18 @@ function ReviewCompletedNotice({
 
   return (
     <div className="rv-done">
-      <Icon name="check_circle" size={22} className="rv-done__icon" />
+      <Icon name={hasFailures ? 'warning' : 'check_circle'} size={22} className="rv-done__icon" />
       <div className="rv-done__text">
-        <strong>첨삭 완료</strong>
+        <strong>{hasFailures ? '일부 항목 재검토 필요' : informationPending ? '첨삭 흐름 종료 · 일부 검토 대기' : '첨삭 완료'}</strong>
         {summary !== '' && <span className="rv-done__summary">{summary}</span>}
         <span>
-          {hasSuggestions
+          {hasFailures
+            ? '일부 항목은 분석 또는 검증을 마치지 못했습니다. 적용한 내용과 답변은 유지되며, 모든 항목의 첨삭이 성공한 것은 아닙니다.'
+            : informationPending
+              ? pendingRequirementCount
+                ? `표시할 추가 질문과 수정안은 끝났지만 공고 요건 ${pendingRequirementCount}개의 근거 대조가 미완료입니다. 경험이 없다는 판정이나 자동 재요청 예정이라는 뜻은 아닙니다. 이미 적용한 내용과 답변은 유지됩니다.`
+                : '표시할 추가 질문과 수정안은 끝났지만 일부 정보 검토 또는 경험 항목 연결이 남아 있습니다. 이미 적용한 내용과 답변은 유지됩니다.'
+            : hasSuggestions
             ? '추가 확인 질문이 없습니다. 표시된 수정안은 원하는 것만 반영한 뒤 마칠 수 있습니다.'
             : '추가 확인 질문과 적용할 수정안이 없습니다. 첨삭을 마칠 수 있습니다.'}
         </span>
@@ -736,7 +787,7 @@ function ReviewCompletedNotice({
         </button>
       </div>
       <button type="button" className="btn btn--filled btn--sm rv-green" onClick={onClose}>
-        첨삭 완료
+        {hasFailures || informationPending ? '첨삭 닫기' : '첨삭 완료'}
       </button>
     </div>
   );
@@ -771,7 +822,7 @@ function tagFor(item: Json, requirementRows: RequirementRow[], starChecks: Recor
   const topic = typeof item.topic === 'string' ? item.topic : null;
   const check = starChecks[String(item.field_path)];
   const starText =
-    'question' in item && topic !== null && check !== undefined && topic in STAR_GAPS && !check.present.includes(topic)
+    'question' in item && topic !== null && check !== undefined && check.diagnosticStatus === undefined && topic in STAR_GAPS && !check.present.includes(topic)
       ? STAR_GAPS[topic]
       : null;
   if (stage === '') return null;
@@ -814,7 +865,7 @@ function ChatBubble({
   resumeContent,
   requirementRows,
   starChecks,
-  appliedSuggestionIndices,
+  isSuggestionApplied,
   onApply,
   onSkip,
   onUndo,
@@ -823,7 +874,7 @@ function ChatBubble({
   resumeContent: Json | null;
   requirementRows: RequirementRow[];
   starChecks: Record<string, StarCheck>;
-  appliedSuggestionIndices: Set<number>;
+  isSuggestionApplied(item: Json): boolean;
   onApply(indices: number[]): void;
   onSkip(indices: number[]): void;
   onUndo(item: Json): void;
@@ -851,7 +902,7 @@ function ChatBubble({
     );
     const company = String(item._company ?? '');
     const title = String(item._title ?? '');
-    const applied = indices.length > 0 && (item._applied === true || indices.every((i) => appliedSuggestionIndices.has(i)));
+    const applied = isSuggestionApplied(item);
     if (item._undone === true) return <AppliedNotice text="회사명·직무명 수정안 반영을 취소했습니다." />;
     if (applied) {
       return (
@@ -884,7 +935,7 @@ function ChatBubble({
   if (message.type === 'suggestion') {
     const item = message.payload;
     const index = item._index as number;
-    const applied = item._applied === true || appliedSuggestionIndices.has(index);
+    const applied = isSuggestionApplied(item);
     if (item._undone === true) return <AppliedNotice text="수정안 반영을 취소했습니다." />;
     const newItem = item.new_item !== null && typeof item.new_item === 'object' ? (item.new_item as Json) : null;
     if (applied) {
@@ -939,16 +990,53 @@ function ChatBubble({
   const body = message.type === 'question' ? String(message.payload.question ?? '') : message.text;
   const experienceLabel = message.type === 'question' ? questionExperienceLabel(message.payload, resumeContent) : '';
   return (
-    <div className={`rv-bubble${isUser ? ' is-user' : ''}`}>
+    <div className={`rv-bubble${isUser ? ' is-user' : ''}${message.type === 'question' ? ' is-question' : ''}`}>
       {message.type === 'question' && tagFor(message.payload, requirementRows, starChecks)}
       {message.type === 'question' && experienceLabel !== '' && (
           <strong className="rv-question-experience">
             {String(message.payload.field_path ?? '').startsWith('projects[') ? '프로젝트' : '경험'} · {experienceLabel}
           </strong>
         )}
-      <p>{body}</p>
+      {message.type === 'question' && Array.isArray(message.payload.target_contexts) && message.payload.target_contexts.map((raw, index) => {
+        const context=raw as Json;
+        return <div key={index} className="rv-question-source">
+          <strong>{context.type==='posting_source' ? '공고 요건 · 지원자 경험과 별개' : context.type==='applicant_source' ? (context.source_type==='user_answer' ? '이전 답변에서 확인할 부분' : '원문에서 확인할 부분') : String(context.label ?? '추가 정보 확인')}</strong>
+          {typeof context.quote==='string' && <blockquote style={{whiteSpace:'pre-wrap'}}>
+            <QuestionSourceQuote context={context} />
+          </blockquote>}
+          {typeof context.context_quote==='string' && <details><summary>주변 원문 보기</summary>
+            <p style={{whiteSpace:'pre-wrap'}}>{context.context_quote}</p>
+          </details>}
+        </div>;
+      })}
+      {message.type === 'question' ? (
+        <div className="rv-question-box" role="group" aria-label="답변할 질문">
+          <span className="rv-question-box__label">답변할 질문</span>
+          <p className="rv-question-box__body">{body}</p>
+        </div>
+      ) : <p style={{whiteSpace:'pre-wrap'}}>{body}</p>}
     </div>
   );
+}
+
+/** Highlight exact source targets in place; never display a cut fragment alone. */
+function QuestionSourceQuote({context}: {context: Json}) {
+  const quote=String(context.quote ?? '');
+  const spans=Array.isArray(context.anchors) && context.anchors.length ? context.anchors : context.selected_source_quotes;
+  const terms=Array.isArray(spans) ? spans.filter((s): s is string => typeof s==='string' && s.length>0) : [];
+  const ranges=terms.flatMap(term => {
+    const found=[];let offset=0;
+    while (offset<quote.length) {const start=quote.indexOf(term,offset);if (start<0) break;found.push([start,start+term.length]);offset=start+term.length;}
+    return found;
+  }).sort((a,b)=>a[0]-b[0]);
+  const merged: number[][]=[];
+  for (const range of ranges) {
+    const last=merged.at(-1);
+    if (last && range[0]<=last[1]) last[1]=Math.max(last[1],range[1]);else merged.push([...range]);
+  }
+  let offset=0;
+  const parts=merged.flatMap(([start,end],i)=>{const before=quote.slice(offset,start);offset=end;return [before,<mark key={i}>{quote.slice(start,end)}</mark>];});
+  return <>{parts}{quote.slice(offset)}</>;
 }
 
 function questionExperienceLabel(question: Json, content: Json | null): string {
