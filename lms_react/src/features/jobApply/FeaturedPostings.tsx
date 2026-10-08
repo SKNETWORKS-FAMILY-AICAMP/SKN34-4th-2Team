@@ -74,9 +74,11 @@ function hueOf(name: string): number {
 function CompanyMark({ posting }: { posting: FeaturedPosting }) {
   const [broken, setBroken] = useState(false);
   if (posting.logo_url && !broken) {
+    // 앱은 연습장(Pyodide) 때문에 COEP require-corp 라 다른 출처 그림은 CORS 로 받아야 열린다.
+    // 사람인 로고 서버(clogo)는 Access-Control-Allow-Origin: * 를 준다
     return (
       <span className="featured-card__logo">
-        <img src={posting.logo_url} alt={`${posting.company} 로고`} loading="lazy" onError={() => setBroken(true)} />
+        <img src={posting.logo_url} alt={`${posting.company} 로고`} loading="lazy" crossOrigin="anonymous" onError={() => setBroken(true)} />
       </span>
     );
   }
