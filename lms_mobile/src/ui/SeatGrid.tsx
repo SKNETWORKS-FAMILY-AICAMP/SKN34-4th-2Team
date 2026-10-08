@@ -69,6 +69,8 @@ export function SeatGrid({
   highlightUserId,
   highlightCaption = '내 자리',
   markOf,
+  markLabels,
+  onSeatPress,
   width,
 }: {
   grid: SeatingGrid;
@@ -78,10 +80,15 @@ export function SeatGrid({
   highlightCaption?: string;
   /** 자리 확인 화면 — 학생별 확인 · 보류 표시 */
   markOf?: (userId: string) => SeatMark;
+  /** 확인 · 보류 대신 적을 말 — 불시 점검은 유 · 무 */
+  markLabels?: Partial<Record<SeatMark, string>>;
+  /** 학생이 앉은 칸을 눌렀을 때 */
+  onSeatPress?: (userId: string) => void;
   /** 배치도가 쓸 수 있는 폭 */
   width: number;
 }) {
   const { palette } = useTheme();
+  const labelOf = (mark: SeatMark) => markLabels?.[mark] ?? MARK_LABEL[mark];
   const grid = useMemo(() => trimmed(source), [source]);
   const layout = layoutOf(grid.cols, width);
   const { seatW, seatH, pad, rowGap, compact } = layout;
@@ -127,8 +134,22 @@ export function SeatGrid({
               picked={compact && cell.type === 'seat' && cell.seatId === picked}
               caption={!compact && seatH >= 58 ? highlightCaption : undefined}
               mark={mark}
+              markText={markLabels?.[mark]}
               layout={layout}
-              onPress={compact && cell.type === 'seat' ? () => setPicked((prev) => (prev === cell.seatId ? null : cell.seatId)) : undefined}
+              onPress={
+                cell.type !== 'seat'
+                  ? undefined
+                  : onSeatPress
+                    ? userId === undefined
+                      ? undefined
+                      : () => {
+                          if (compact) setPicked(cell.seatId);
+                          onSeatPress(userId);
+                        }
+                    : compact
+                      ? () => setPicked((prev) => (prev === cell.seatId ? null : cell.seatId))
+                      : undefined
+              }
             />
           );
         })}
@@ -150,8 +171,8 @@ export function SeatGrid({
           {pickedCell ? (
             <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: palette.text }} numberOfLines={1}>
               {pickedCell.label}번 · {seatOf(pickedCell).name || '빈 자리'}
-              {MARK_LABEL[seatOf(pickedCell).mark] ? (
-                <Text style={{ color: seatOf(pickedCell).mark === 'confirmed' ? palette.success : palette.warning }}> · {MARK_LABEL[seatOf(pickedCell).mark]}</Text>
+              {labelOf(seatOf(pickedCell).mark) ? (
+                <Text style={{ color: seatOf(pickedCell).mark === 'confirmed' ? palette.success : palette.warning }}> · {labelOf(seatOf(pickedCell).mark)}</Text>
               ) : null}
             </Text>
           ) : (
@@ -195,6 +216,7 @@ function Cell({
   picked,
   caption,
   mark,
+  markText,
   layout,
   onPress,
 }: {
@@ -208,6 +230,8 @@ function Cell({
   /** 칸이 낮으면 비워 둔다 — 강조색만으로 구분된다 */
   caption?: string;
   mark: SeatMark;
+  /** 넘겨받으면 아이콘 대신 이 글자로 표시한다 */
+  markText?: string;
   layout: Layout;
   onPress?: () => void;
 }) {
@@ -311,10 +335,18 @@ function Cell({
     );
   }
 
+  const Box = onPress ? Pressable : View;
   return (
-    <View style={seatStyle}>
+    <Box
+      style={seatStyle}
+      onPress={onPress}
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={onPress ? `${cell.label}번 ${filled ? name : '빈 자리'}${markText ? ` ${markText}` : ''}` : undefined}
+    >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-        {mark !== 'unknown' ? (
+        {mark !== 'unknown' && markText ? (
+          <Text style={{ fontSize: small ? 9 : 10, fontWeight: '800', color: markColor }}>{markText}</Text>
+        ) : mark !== 'unknown' ? (
           <MaterialIcons name={mark === 'confirmed' ? 'check-circle' : 'pause-circle'} size={small ? 10 : 12} color={markColor} />
         ) : null}
         <Text style={{ fontSize: small ? 9 : 10, fontWeight: '600', color: mine ? '#fff' : palette.textSecondary }}>{cell.label}번</Text>
@@ -328,6 +360,6 @@ function Cell({
         {filled ? name : '—'}
       </Text>
       {mine && caption ? <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff' }} numberOfLines={1}>{caption}</Text> : null}
-    </View>
+    </Box>
   );
 }
