@@ -115,7 +115,7 @@ def build_application(content, review, request):
     return updated, sorted([*spans, *added])
 
 
-def rebase_review_response(response, content):
+def rebase_review_response(response, content, *, before=None, applied_request=None):
     """Move an existing chat review onto an edit it just applied.
 
     Applying one suggestion changes the Firestore resume.  The remaining
@@ -130,6 +130,17 @@ def rebase_review_response(response, content):
     fields, _ = extract_review_fields(content)
     rebased['input_hash'] = digest(content)
     rebased['input_fields'] = {path: redact(value) for path, value in fields.items()}
+    if before is not None and applied_request is not None:
+        from app.resume_review_v2.audit_resume import bind_verified_apply
+        bind_verified_apply(rebased,before,content,applied_request)
+    else:
+        # Undo or an unproven source rebase cannot certify a new applied source.
+        for record in rebased.get('telemetry',{}).get('v2_results',[]):
+            receipt = record.get('verified_apply')
+            if receipt and fields.get(record['experience']['field_path']) != receipt['completed_candidate']['suggested_text']:
+                record.pop('verified_apply',None)
+                if receipt.get('parent_provenance'):
+                    record['source_provenance']=receipt['parent_provenance']
     return rebased
 
 
@@ -208,7 +219,8 @@ def _mutate_in_memory(gateway, uid, request, undo=False):
             # Keep the same chat session usable after a selected revision is
             # applied.  The review itself was already generated; only its
             # snapshot is rebased to the just-persisted resume content.
-            transaction.update(source_ref, {'response': rebase_review_response(source['response'], after)})
+            transaction.update(source_ref, {'response': rebase_review_response(source['response'], after,
+                before=before,applied_request=request)})
         if undo:
             transaction.update(source_ref, {'undoneBy': request.request_id})
             # Undo restores the resume snapshot, so restore the chat review's

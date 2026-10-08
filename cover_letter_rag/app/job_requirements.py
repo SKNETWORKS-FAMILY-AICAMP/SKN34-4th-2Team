@@ -64,6 +64,10 @@ class RequirementStatusRow(StrictModel):
     source: Literal['resume', 'answer', 'user', 'none'] = 'none'
     kind: RequirementKind = 'skill'
     kind_basis: str = ''
+    assessment_state: Literal['complete', 'pending'] | None = None
+    snapshot_hash: str = ''
+    source_hash: str = ''
+    evidence_refs: list[dict] = Field(default_factory=list)
 
 
 REQUIREMENT_SYSTEM_PROMPT = """

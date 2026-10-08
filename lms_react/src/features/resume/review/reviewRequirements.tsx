@@ -31,6 +31,10 @@ export interface RequirementRow {
   /** skill · eligibility(경력 연수 · 학력 같은 지원 자격 — 질문하지 않고 「확인만」 줄에 둔다) */
   kind: string;
   kindBasis: string;
+  assessmentState?: 'complete' | 'pending';
+  snapshotHash?: string;
+  sourceHash?: string;
+  evidenceRefs?: Record<string, unknown>[];
 }
 
 const strings = (value: unknown): string[] =>
@@ -48,6 +52,10 @@ export function requirementRowFromMap(map: Record<string, unknown>): Requirement
     source: String(map.source ?? 'none'),
     kind: String(map.kind ?? 'skill'),
     kindBasis: String(map.kind_basis ?? ''),
+    assessmentState: map.assessment_state === 'complete' || map.assessment_state === 'pending' ? map.assessment_state : undefined,
+    snapshotHash: typeof map.snapshot_hash === 'string' ? map.snapshot_hash : undefined,
+    sourceHash: typeof map.source_hash === 'string' ? map.source_hash : undefined,
+    evidenceRefs: Array.isArray(map.evidence_refs) ? map.evidence_refs as Record<string, unknown>[] : [],
   };
 }
 
@@ -63,6 +71,10 @@ export function requirementRowToMap(row: RequirementRow): Record<string, unknown
     source: row.source,
     kind: row.kind,
     kind_basis: row.kindBasis,
+    assessment_state: row.assessmentState,
+    snapshot_hash: row.snapshotHash,
+    source_hash: row.sourceHash,
+    evidence_refs: row.evidenceRefs,
   };
 }
 
@@ -86,16 +98,25 @@ export const STAR_ELEMENTS: Record<string, string> = {
 export interface StarCheck {
   fieldPath: string;
   present: string[];
-  /** 빠진 요소를 알리는 한 문장. 모두 있으면 빈 문자열 */
+  /** Legacy missing reason; v2 diagnosis is auxiliary, not a completeness checklist. */
   reason: string;
+  diagnosticStatus?: 'complete' | 'pending' | 'not_applicable';
+  sourceHash?: string;
+  quotes?: Record<string, string>;
+  experienceId?: string;
 }
 
 export function starCheckToMap(check: StarCheck): Record<string, unknown> {
   return {
     field_path: check.fieldPath,
     present: check.present,
-    missing: Object.keys(STAR_ELEMENTS).filter((e) => !check.present.includes(e)),
+    missing: check.diagnosticStatus && check.diagnosticStatus !== 'complete' ? []
+      : Object.keys(STAR_ELEMENTS).filter((e) => !check.present.includes(e)),
     reason: check.reason,
+    diagnostic_status: check.diagnosticStatus,
+    source_hash: check.sourceHash,
+    quotes: check.quotes,
+    experience_id: check.experienceId,
   };
 }
 
@@ -104,21 +125,35 @@ export function starChecksByPath(raw: unknown): Record<string, StarCheck> {
   for (const item of Array.isArray(raw) ? raw : []) {
     if (item === null || typeof item !== 'object') continue;
     const map = item as Record<string, unknown>;
-    const check = { fieldPath: String(map.field_path ?? ''), present: strings(map.present), reason: String(map.reason ?? '') };
+    const check: StarCheck = { fieldPath: String(map.field_path ?? ''), present: strings(map.present), reason: String(map.reason ?? '') };
+    if (['complete', 'pending', 'not_applicable'].includes(String(map.diagnostic_status))) {
+      check.diagnosticStatus = map.diagnostic_status as StarCheck['diagnosticStatus'];
+    }
+    if (typeof map.source_hash === 'string' && map.source_hash !== '') check.sourceHash = map.source_hash;
+    if (typeof map.experience_id === 'string') check.experienceId = map.experience_id;
+    if (map.quotes && typeof map.quotes === 'object') {
+      check.quotes = Object.fromEntries(Object.entries(map.quotes).filter((pair): pair is [string, string] => typeof pair[1] === 'string'));
+    }
     if (check.fieldPath !== '') out[check.fieldPath] = check;
   }
   return out;
 }
 
-/** 경험 항목 밑의 STAR 네 칸. 빠진 칸은 주황, 있는 칸은 초록 */
+/** Original-text auxiliary diagnosis; legacy cards retain their display contract. */
 export function ReviewStarCells({ check }: { check: StarCheck }) {
+  if (check.diagnosticStatus === 'not_applicable') return null;
+  if (check.diagnosticStatus === 'pending') {
+    return <div className="rv-star">현재 원문 STAR · 판정 대기 / 갱신 필요</div>;
+  }
+  const diagnostic = check.diagnosticStatus === 'complete';
   return (
     <div className="rv-star" title={check.reason || undefined}>
+      {diagnostic && <span>현재 원문 STAR · 보조 진단</span>}
       {Object.entries(STAR_ELEMENTS).map(([key, label]) => {
         const has = check.present.includes(key);
         return (
-          <span key={key} className={`rv-star__cell ${has ? 'is-ok' : 'is-missing'}`} aria-label={`${label} ${has ? '있음' : '빠짐'}`}>
-            {has ? `${label} ✓` : `${label} 빠짐`}
+          <span key={key} title={check.quotes?.[key]} className={`rv-star__cell ${has ? 'is-ok' : diagnostic ? '' : 'is-missing'}`} aria-label={`${label} ${has ? '근거 확인' : diagnostic ? '근거 미확인' : '빠짐'}`}>
+            {has ? `${label} ✓` : `${label} ${diagnostic ? '근거 미확인' : '빠짐'}`}
           </span>
         );
       })}
@@ -137,6 +172,15 @@ function requirementStatusLabel(status: string): string {
 const STATUS_ICON: Record<string, string> = { met: 'check', partial: 'change_history', absent: 'remove' };
 
 /** 대화 위에 붙는 공고 요건 대조 줄. 칩을 누르면 근거가 있는 이력서 항목으로 옮겨 간다 */
+export function requirementGroupSummary(rows: RequirementRow[], group: string): string {
+  const inGroup=rows.filter(row=>row.group===group && !isEligibility(row));
+  if (!inGroup.length)return '';
+  const complete=inGroup.filter(row=>row.assessmentState!=='pending');
+  const waiting=inGroup.length-complete.length;
+  if (!complete.length)return `${requirementGroupLabel(group)} 대조 대기`;
+  return `${requirementGroupLabel(group)} ${complete.filter(row=>row.status==='met').length}/${complete.length}${waiting ? ` · ${waiting}개 대기` : ''}`;
+}
+
 export function ReviewRequirementStrip({
   rows,
   onTapRow,
@@ -148,11 +192,7 @@ export function ReviewRequirementStrip({
   const groups = ['must', 'preferred'];
   const judged = rows.filter((row) => !isEligibility(row));
   const eligibility = rows.filter(isEligibility);
-  const count = (group: string) => {
-    const inGroup = judged.filter((row) => row.group === group);
-    if (inGroup.length === 0) return '';
-    return `${requirementGroupLabel(group)} ${inGroup.filter((row) => row.status === 'met').length}/${inGroup.length}`;
-  };
+  const count = (group: string) => requirementGroupSummary(judged,group);
   const summary = groups.map(count).filter((t) => t !== '').join(' · ');
 
   return (
@@ -180,11 +220,12 @@ export function ReviewRequirementStrip({
                       key={row.id}
                       type="button"
                       className={`rv-req-chip is-${row.status}`}
-                      title={`${requirementStatusLabel(row.status)} · 공고: ${row.postingQuote}`}
+                      title={`${row.assessmentState === 'pending' ? '미판정 / 갱신 필요' : row.status === 'unconfirmed' && row.assessmentState === 'complete' ? '현재 분석에서 직접 근거 미확인 (경험 없음 판정 아님)' : requirementStatusLabel(row.status)} · 공고: ${row.postingQuote}${row.evidenceRefs?.map(ref => `\n${String(ref.experience_title ?? ref.experience_id ?? ref.field_path)}: ${String(ref.quote ?? '')}`).join('') ?? ''}`}
                       onClick={() => onTapRow(row)}
                     >
                       <Icon name={STATUS_ICON[row.status] ?? 'help'} size={14} />
                       {row.label}
+                      {row.assessmentState === 'pending' && ' · 대기'}
                     </button>
                   ))}
               </div>

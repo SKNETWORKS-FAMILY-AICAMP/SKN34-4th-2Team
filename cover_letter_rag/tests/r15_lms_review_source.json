@@ -1,0 +1,170 @@
+{
+  "experience": {
+    "kind": "project",
+    "role": [],
+    "scope": [],
+    "title": "AI 기반 LMS 및 채용 지원 서비스",
+    "actions": [],
+    "results": [],
+    "field_path": "projects[2].description",
+    "content_hash": "59adf050126117ebf1830aeca1b1ebb9dc0d502a80d4efad912731dd7faa97ee",
+    "current_text": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다. 이력서 문장을 바로 생성하는 방식 대신 프로젝트·경력 단위 Experience와 사실 단위 Evidence를 분리하고, 지원자의 실제 경험과 채용공고의 요구사항을 구분하도록 구조를 설계했습니다. Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다. 또한 공고 요구사항 분석 결과를 재분석하지 않고 기존 JobRequirementProfile에서 재사용해 Planner와 Writer까지 전달하도록 연결했습니다. Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다.",
+    "technologies": [],
+    "verification": [],
+    "experience_id": "projects:prj1790844850071sxa",
+    "context_problem": [],
+    "implementations": [],
+    "existing_evidence": [],
+    "technical_decisions": []
+  },
+  "facts": [
+    {
+      "fact_type": "role",
+      "source_id": "projects:prj1790844850071sxa",
+      "created_at": null,
+      "updated_at": null,
+      "evidence_id": "e0",
+      "source_type": "resume_text",
+      "experience_id": "projects:prj1790844850071sxa",
+      "evidence_quote": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다.",
+      "assertion_state": "resume_stated",
+      "normalized_fact": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했다.",
+      "supersedes_evidence_ids": [],
+      "conflicts_with_evidence_ids": []
+    },
+    {
+      "fact_type": "technical_decision",
+      "source_id": "projects:prj1790844850071sxa",
+      "created_at": null,
+      "updated_at": null,
+      "evidence_id": "e1",
+      "source_type": "resume_text",
+      "experience_id": "projects:prj1790844850071sxa",
+      "evidence_quote": "이력서 문장을 바로 생성하는 방식 대신 프로젝트·경력 단위 Experience와 사실 단위 Evidence를 분리하고, 지원자의 실제 경험과 채용공고의 요구사항을 구분하도록 구조를 설계했습니다.",
+      "assertion_state": "resume_stated",
+      "normalized_fact": "이력서 문장을 곧바로 생성하는 대신 Experience와 Evidence를 분리하고 지원자 경험과 채용공고 요구사항을 구분하도록 구조를 설계했다.",
+      "supersedes_evidence_ids": [],
+      "conflicts_with_evidence_ids": []
+    },
+    {
+      "fact_type": "implementation",
+      "source_id": "projects:prj1790844850071sxa",
+      "created_at": null,
+      "updated_at": null,
+      "evidence_id": "e2",
+      "source_type": "resume_text",
+      "experience_id": "projects:prj1790844850071sxa",
+      "evidence_quote": "Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다.",
+      "assertion_state": "resume_stated",
+      "normalized_fact": "Application Workspace에서 지원 문항을 분석하고 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했다.",
+      "supersedes_evidence_ids": [],
+      "conflicts_with_evidence_ids": []
+    },
+    {
+      "fact_type": "implementation",
+      "source_id": "projects:prj1790844850071sxa",
+      "created_at": null,
+      "updated_at": null,
+      "evidence_id": "e3",
+      "source_type": "resume_text",
+      "experience_id": "projects:prj1790844850071sxa",
+      "evidence_quote": "또한 공고 요구사항 분석 결과를 재분석하지 않고 기존 JobRequirementProfile에서 재사용해 Planner와 Writer까지 전달하도록 연결했습니다.",
+      "assertion_state": "resume_stated",
+      "normalized_fact": "공고 요구사항 분석 결과를 JobRequirementProfile에서 재사용해 Planner와 Writer로 전달하도록 연결했다.",
+      "supersedes_evidence_ids": [],
+      "conflicts_with_evidence_ids": []
+    },
+    {
+      "fact_type": "implementation",
+      "source_id": "projects:prj1790844850071sxa",
+      "created_at": null,
+      "updated_at": null,
+      "evidence_id": "e4",
+      "source_type": "resume_text",
+      "experience_id": "projects:prj1790844850071sxa",
+      "evidence_quote": "Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다.",
+      "assertion_state": "resume_stated",
+      "normalized_fact": "Fact Validator와 Quality Validator를 두어 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 하고 문장별 근거를 추적하는 구조를 구현했다.",
+      "supersedes_evidence_ids": [],
+      "conflicts_with_evidence_ids": []
+    },
+    {
+      "fact_type": "technology",
+      "source_id": "projects:prj1790844850071sxa:techStack",
+      "created_at": null,
+      "updated_at": null,
+      "evidence_id": "e5",
+      "source_type": "resume_text",
+      "experience_id": "projects:prj1790844850071sxa",
+      "evidence_quote": "Python, Django, FastAPI, PostgreSQL, React, OpenAI API, AWS, Git/GitHub",
+      "assertion_state": "resume_stated",
+      "normalized_fact": "기술 스택에 Python, Django, FastAPI, PostgreSQL, React, OpenAI API, AWS, Git/GitHub가 기재되어 있다.",
+      "supersedes_evidence_ids": [],
+      "conflicts_with_evidence_ids": []
+    }
+  ],
+  "gaps": [
+    {
+      "focus": "open",
+      "gap_type": "missing",
+      "priority": "HIGH",
+      "why_needed": "숫자를 강요하지 않고 구현·분석 결과를 확인한 방법을 찾습니다.",
+      "target_slot": "validation_method",
+      "existing_evidence_ids": []
+    }
+  ],
+  "question_selection": {
+    "state": "model_not_proposed",
+    "reason": "no_candidate_returned",
+    "candidate": null,
+    "experience_id": "projects:prj1790844850071sxa"
+  },
+  "facets": [
+    {
+      "slots": [
+        "purpose_or_problem",
+        "personal_role"
+      ],
+      "material": true,
+      "evidence_id": "e0"
+    },
+    {
+      "slots": [
+        "technical_decisions"
+      ],
+      "material": true,
+      "evidence_id": "e1"
+    },
+    {
+      "slots": [
+        "actions",
+        "technical_decisions"
+      ],
+      "material": true,
+      "evidence_id": "e2"
+    },
+    {
+      "slots": [
+        "actions",
+        "technical_decisions"
+      ],
+      "material": true,
+      "evidence_id": "e3"
+    },
+    {
+      "slots": [
+        "actions",
+        "technical_decisions"
+      ],
+      "material": true,
+      "evidence_id": "e4"
+    },
+    {
+      "slots": [
+        "technologies"
+      ],
+      "material": true,
+      "evidence_id": "e5"
+    }
+  ]
+}

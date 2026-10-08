@@ -493,23 +493,17 @@ def test_masking_applies_to_model_input_and_saved_fields():
 
 def test_firebase_gateway_denies_inactive_or_foreign_owner():
     from app.firebase_gateway import FirebaseGateway, ResumeAccessError, ResumeNotFoundError
-    class Snapshot:
-        exists = True
-        def __init__(self, data): self.data = data
-        def to_dict(self): return self.data
-    class Ref:
-        def __init__(self, data): self.data = data
-        def document(self, _): return self
-        def get(self): return Snapshot(self.data)
-    class Database:
-        user = {'isActive': False, 'cohortId': 'c'}
-        def collection(self, _): return Ref(self.user)
+    from unittest.mock import MagicMock
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
     gateway = FirebaseGateway.__new__(FirebaseGateway)
-    gateway._db = Database()
-    gateway._resume_ref = lambda *args: Ref({'userId': 'another'})
+    gateway._pg = lambda: connection
+    connection.execute.return_value.fetchone.return_value = (1, False, 'c', 2)
     with pytest.raises(ResumeAccessError):
         gateway.get_owned_resume('c', 'r', 'me')
-    gateway._db.user = {'isActive': True, 'cohortId': 'c'}
+    connection.execute.return_value.fetchone.side_effect = [
+        (1, True, 'c', 2), ('r', 'title', 'draft', {}, 9, 'another'),
+    ]
     with pytest.raises(ResumeNotFoundError):
         gateway.get_owned_resume('c', 'r', 'me')
 

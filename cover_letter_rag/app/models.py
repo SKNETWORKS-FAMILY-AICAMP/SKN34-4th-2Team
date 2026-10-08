@@ -17,7 +17,12 @@ class RequirementStatus(StrEnum):
 
 
 class ConfirmationAnswer(StrictModel):
+    question_target_contexts: list[dict] = Field(default_factory=list)
+    information_need_id: str | None = None
+    information_request_fingerprint: str | None = None
+    information_aspect: str | None = None
     question_id: str | None = None
+    experience_id: str | None = None
     field_path: str = Field(min_length=1, max_length=300)
     question: str = Field(min_length=1, max_length=1000)
     answer: str = Field(min_length=1, max_length=3000)
@@ -58,6 +63,8 @@ class SentenceReview(StrictModel):
     evidence_sources: list[str] = Field(default_factory=list)
     edit_type: Literal['none', 'spelling', 'tone', 'clarity', 'content'] = 'content'
     validation_issues: list[str] = Field(default_factory=list)
+    # Server outcome, independent of legacy presentation status and LLM schema.
+    validation_status: SkipJsonSchema[Literal['READY', 'UNCHANGED', 'NEEDS_EVIDENCE', 'REJECTED'] | None] = None
     # Server-derived evidence anchors. The model must not decide which facts are protected.
     fact_anchors: list[str] = Field(default_factory=list)
     change_rate: float | None = Field(default=None, ge=0, le=1)
@@ -79,6 +86,13 @@ class SentenceReview(StrictModel):
     stage: int = Field(default=0, ge=0, le=5)
 
 
+class AnswerChange(StrictModel):
+    question_id: str = Field(min_length=1, max_length=200)
+    operation: Literal['replace', 'retract']
+    expected_answer: str = Field(min_length=1, max_length=3000)
+    answer: str | None = Field(default=None, max_length=3000)
+
+
 class FirestoreResumeReviewRequest(StrictModel):
     # 일반 첨삭은 공고와 분리해 이력서 원문 자체를 검토한다. 기존 공고 첨삭 호출은
     # 호환성을 위해 job 모드를 기본값으로 유지한다.
@@ -96,6 +110,7 @@ class FirestoreResumeReviewRequest(StrictModel):
     job_posting_text: str | None = Field(default=None, max_length=50_000)
     review_focus: str | None = Field(default=None, max_length=2_000)
     answers: list[ConfirmationAnswer] = Field(default_factory=list, max_length=10)
+    answer_changes: list[AnswerChange] = Field(default_factory=list, max_length=1)
 
     @field_validator("cohort_id", "resume_id")
     @classmethod
@@ -213,6 +228,10 @@ class StarCheck(StrictModel):
     reason: str = ''
     present: list[StarElement] = Field(default_factory=list)
     quotes: dict[str, str] = Field(default_factory=dict)
+    # Optional, presentation-only v2 metadata. Legacy STAR consumers keep their contract.
+    diagnostic_status: Literal['complete', 'pending', 'not_applicable'] | None = None
+    source_hash: str = ''
+    experience_id: str | None = None
 
 
 class StarJudgementOut(StrictModel):
@@ -232,7 +251,16 @@ class StarJudgementOut(StrictModel):
 
 
 class ReviewQuestion(StrictModel):
+    question_contract: str | None = None
+    information_need_id: str | None = None
+    target_contexts: list[dict] = Field(default_factory=list)
+    information_request_fingerprint: str | None = None
+    information_aspect: str | None = None
     question_id: str = ''
+    experience_id: str | None = None
+    experience_title: str | None = None
+    target_slot: str | None = None
+    evidence_basis: list[str] = Field(default_factory=list)
     field_path: str
     topic: Literal['situation', 'task', 'action', 'result', 'scope', 'other']
     question: str
@@ -240,6 +268,9 @@ class ReviewQuestion(StrictModel):
     priority: int = Field(default=2, ge=1, le=3)
     requirement_id: str | None = None
     stage: int = Field(default=0, ge=0, le=5)
+    owner_scope: Literal['experience', 'unassigned'] = 'experience'
+    owner_options: list[dict[str, str]] = Field(default_factory=list)
+    requirement_context_hash: str = ''
 
 
 class RequirementMatchOut(StrictModel):
