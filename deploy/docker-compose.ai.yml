@@ -6,6 +6,8 @@ services:
     restart: unless-stopped
     env_file:
       - ../.env
+    environment:
+      RESUME_REVIEW_ENGINE: ${RESUME_REVIEW_ENGINE:-v2}
     ports:
       - "8001:8000"
     # Keep the existing production worker/keep-alive settings on internal port 8000.

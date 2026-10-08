@@ -132,7 +132,7 @@ def bind_verified_apply(response, before, after, application):
             or digest(before) != application.expected_input_hash):
         return
     from app.resume_review import extract_review_fields
-    from app.local_resume_site_adapter import experience_sources
+    from app.resume_review_runtime import experience_sources
     from .models import Experience, ReviewInput
     old_fields,_ = extract_review_fields(before)
     new_fields,_ = extract_review_fields(after)

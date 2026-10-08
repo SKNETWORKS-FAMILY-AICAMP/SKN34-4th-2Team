@@ -240,7 +240,8 @@ router = APIRouter()
 
 def gateway_dependency():
     try:
-        return FirebaseGateway(get_settings())
+        from app.review_runtime_factory import build_review_gateway
+        return build_review_gateway(get_settings())
     except (GoogleAuthError, GoogleAPIError, ValueError) as exc:
         raise HTTPException(503, 'Firebase unavailable') from exc
 
