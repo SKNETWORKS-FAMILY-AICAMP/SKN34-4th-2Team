@@ -21,6 +21,14 @@ export class ReviewApiError extends Error {
 function failureMessage(status: number, detail: string | undefined): string {
   const key = `${status}:${detail ?? ''}`;
   switch (key) {
+    case '422:answer_repeats_question':
+      return '질문을 그대로 제출했습니다. 실제 답변을 입력해 주세요.';
+    case '409:answer_state_changed':
+      return '답변 상태가 변경됐습니다. 최신 첨삭을 다시 열어 확인해 주세요.';
+    case '409:question_contract_changed':
+      return '질문 계약이 갱신됐습니다. 최신 첨삭으로 질문을 다시 확인해 주세요.';
+    case '422:issued_answer_question_unavailable':
+      return '저장된 원 질문을 찾을 수 없어 답변을 안전하게 변경할 수 없습니다.';
     case '409:selected_job_closed':
     case '409:selected_job_expired':
       return '선택한 공고가 마감되어 맞춤 첨삭을 할 수 없습니다. 다른 공고를 선택해 주세요.';
@@ -88,6 +96,9 @@ async function post(path: string, body: Json | FormData): Promise<Json> {
   } catch (err) {
     const response = (err as { response?: { status?: number; data?: { detail?: unknown } } }).response;
     if (response?.status !== undefined) {
+      if (path === '/resume-review/answer-change' && response.status === 404) {
+        throw new ReviewApiError('답변 변경 경로가 서버에 아직 반영되지 않았습니다. Django 서버 반영 후 다시 시도해 주세요.',404);
+      }
       const detail = typeof response.data?.detail === 'string' ? response.data.detail : undefined;
       throw new ReviewApiError(failureMessage(response.status, detail), response.status);
     }
@@ -137,7 +148,7 @@ export const reviewApi = {
   },
 
   review: (resumeId: string, request: Json) =>
-    post('/resume-review', {
+    post(Array.isArray(request.answer_changes) && request.answer_changes.length ? '/resume-review/answer-change' : '/resume-review', {
       resumeId,
       reviewMode: request.review_mode,
       reviewPhase: request.review_phase,
@@ -148,6 +159,7 @@ export const reviewApi = {
       selectedJobId: request.selected_job_id,
       tailoredResumeId: request.tailored_resume_id,
       answers: request.answers,
+      answerChanges: request.answer_changes,
     }),
 
   apply: (resumeId: string, request: Json) =>

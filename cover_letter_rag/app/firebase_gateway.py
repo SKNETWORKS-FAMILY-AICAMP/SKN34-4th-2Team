@@ -127,6 +127,7 @@ class FirebaseGateway:
         이력서 관리의 맞춤 첨삭 사본(`tailored_`)과 섞이지 않고, 화면은 id 로 어느 쪽인지 가른다.
         """
         from psycopg.types.json import Jsonb
+        from app.resume_binding_copy import clone_existing_bindings
 
         base = self.get_owned_resume(cohort_id, resume_id, uid)
         source_hash = hashlib.sha256(json.dumps(base.get('content') or {}, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
@@ -178,6 +179,7 @@ class FirebaseGateway:
                     raise ResumeNotFoundError("tailored resume not found")
                 if title and existing[1] != title:
                     conn.execute("UPDATE resumes SET title=%s, updated_at=now() WHERE id=%s", (title, existing[0]))
+                clone_existing_bindings(conn, user_id=ident['user_pk'], source_resume_id=parent[0], target_resume_id=existing[0])
                 conn.commit()
                 # 이미 있는 맞춤본은 그 내용과 저장된 첨삭 대화를 돌려준다. 원본 내용을 주면 반영한 수정이
                 # 안 보이고, 첨삭 창이 대화를 이어 가지 못했다.
@@ -196,6 +198,7 @@ class FirebaseGateway:
                    VALUES (%s,%s,%s,%s,%s,'{}'::jsonb,'not_started',now(),now())""",
                 (created[0], snapshot_hash, source_hash, company_name, payload['jobTitle']),
             )
+            clone_existing_bindings(conn, user_id=ident['user_pk'], source_resume_id=parent[0], target_resume_id=created[0])
             conn.commit()
         return {"tailored_resume_id": tailored_id, **payload}
 
@@ -394,10 +397,15 @@ class FirebaseGateway:
         conn.execute("DELETE FROM resume_feedback WHERE resume_id = %s", (resume_pk,))
         conn.execute("DELETE FROM resume_revisions WHERE resume_id = %s", (resume_pk,))
         conn.execute("DELETE FROM resume_tailorings WHERE resume_id = %s", (resume_pk,))
+        conn.execute("UPDATE resumes SET base_resume_id = NULL WHERE base_resume_id = %s", (resume_pk,))
+        conn.execute("UPDATE resumes SET source_tailored_resume_id = NULL WHERE source_tailored_resume_id = %s", (resume_pk,))
+        if conn.execute("SELECT to_regclass('public.resume_experience_bindings')").fetchone()[0] is not None:
+            conn.execute("DELETE FROM resume_experience_bindings WHERE resume_id = %s", (resume_pk,))
         conn.execute("DELETE FROM resumes WHERE id = %s", (resume_pk,))
 
     def promote_tailored_resume(self, cohort_id, resume_id, tailored_resume_id, uid) -> str:
         from psycopg.types.json import Jsonb
+        from app.resume_binding_copy import clone_existing_bindings
 
         tailored = self.get_owned_tailored_resume(cohort_id, resume_id, tailored_resume_id, uid)
         workspace_id = "matched_" + hashlib.sha256(f"{resume_id}:{tailored_resume_id}".encode()).hexdigest()[:24]
@@ -416,15 +424,19 @@ class FirebaseGateway:
                 raise ResumeNotFoundError("tailored resume not found")
             existing = conn.execute("SELECT id FROM resumes WHERE legacy_id = %s", (workspace_id,)).fetchone()
             if not existing:
-                conn.execute(
+                created = conn.execute(
                     """INSERT INTO resumes (legacy_id, cohort_id, user_id, title, status, content,
                        is_base_resume, base_resume_id, source_tailored_resume_id, linked_job_id,
                        revision_count, created_at, updated_at)
-                       VALUES (%s,%s,%s,%s,'writing',%s,false,%s,%s,%s,0,now(),now())""",
+                       VALUES (%s,%s,%s,%s,'writing',%s,false,%s,%s,%s,0,now(),now()) RETURNING id""",
                     (workspace_id, ident["cohort_pk"], ident["user_pk"], tailored.get("title") or "맞춤 이력서",
                      Jsonb(deepcopy(tailored.get("content") or {})), parent[0] if parent else None,
                      tailored_row[0], tailored.get("jobId") or ""),
-                )
+                ).fetchone()
+                target_id = created[0]
+            else:
+                target_id = existing[0]
+            clone_existing_bindings(conn, user_id=ident['user_pk'], source_resume_id=tailored_row[0], target_resume_id=target_id)
             conn.execute(
                 "UPDATE resumes SET status='ready', updated_at=now() WHERE id=%s",
                 (tailored_row[0],),
@@ -502,7 +514,7 @@ class FirebaseGateway:
             if not undo and review_row:
                 conn.execute(
                     "UPDATE resume_ai_reviews SET response=%s WHERE legacy_id=%s",
-                    (Jsonb(rebase_review_response(review_row[0], after)), review_legacy),
+                    (Jsonb(rebase_review_response(review_row[0], after, before=before, applied_request=request)), review_legacy),
                 )
             if undo:
                 conn.execute(

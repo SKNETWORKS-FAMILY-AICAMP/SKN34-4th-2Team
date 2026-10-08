@@ -556,6 +556,8 @@ def review_stored_resume_as_user(request: ProxyResumeReviewRequest) -> Firestore
     service = build_resume_review_service()
     inner = FirestoreResumeReviewRequest(**request.model_dump(exclude={"uid"}))
     try:
+        if inner.answer_changes and service.__class__.__module__ != 'app.local_resume_site_adapter':
+            raise ReviewInputError('answer_edit_not_supported')
         return service.review_as(request.uid, inner)
     except ResumeAccessError as exc:
         raise HTTPException(status_code=403, detail="Resume access denied") from exc

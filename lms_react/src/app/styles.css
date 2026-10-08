@@ -10893,7 +10893,8 @@ a.coach-ask__card-title:hover {
   margin-top: 14px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  overflow: hidden;
+  /* The last row's absolute-positioned deletion menu opens below this box. */
+  overflow: visible;
 }
 
 .tailored__head {
@@ -10903,6 +10904,7 @@ a.coach-ask__card-title:hover {
   width: 100%;
   padding: 10px 14px;
   border: 0;
+  border-radius: 11px 11px 0 0;
   background: color-mix(in srgb, var(--primary) 6%, var(--surface));
   color: var(--text-primary);
   font: inherit;
@@ -10934,6 +10936,10 @@ a.coach-ask__card-title:hover {
 
 .tailored__row:hover {
   background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+}
+
+.tailored__row:last-child {
+  border-radius: 0 0 11px 11px;
 }
 
 .tailored__row .tailored__item {

@@ -1,0 +1,481 @@
+[
+  {
+    "review_id": 120,
+    "public_payload": {
+      "question_contract": "evidence-need-v2",
+      "information_need_id": "projects:prj17908447284945fx:value:threshold 비교 결과와 최종 모델·기준 선택",
+      "target_contexts": [
+        {
+          "type": "applicant_source",
+          "evidence_ids": [
+            "ev0-4",
+            "ev0-5"
+          ],
+          "target_evidence_id": "ev0-4",
+          "source_type": "resume_text",
+          "source_id": "projects:prj17908447284945fx",
+          "quote": "Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다.",
+          "anchor": null,
+          "selected_source_quotes": [
+            "Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다."
+          ],
+          "context_quote": "KKBOX 사용자 데이터를 활용해 사용자 이탈을 예측했습니다. 약 99만 건의 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형 문제를 확인하고 Accuracy만으로 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다. XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+          "anchors": [],
+          "target_evidence_ids": [
+            "ev0-4"
+          ]
+        },
+        {
+          "type": "applicant_source",
+          "evidence_ids": [
+            "ev0-6",
+            "ev0-7"
+          ],
+          "target_evidence_id": "ev0-6",
+          "source_type": "resume_text",
+          "source_id": "projects:prj17908447284945fx",
+          "quote": "XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+          "anchor": "threshold",
+          "selected_source_quotes": [
+            "XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다."
+          ],
+          "context_quote": "KKBOX 사용자 데이터를 활용해 사용자 이탈을 예측했습니다. 약 99만 건의 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형 문제를 확인하고 Accuracy만으로 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다. XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+          "anchors": [
+            "threshold"
+          ],
+          "target_evidence_ids": [
+            "ev0-6"
+          ]
+        }
+      ],
+      "information_request_fingerprint": "source-need:31a41e29ad69352211eea6a775e848cdb9c4725e6b71a420f967e6215035dd19",
+      "question_id": "offline-r120:v2gap:d2b16e0d9c6cab56",
+      "experience_id": "projects:prj17908447284945fx",
+      "experience_title": "KKBOX 사용자 이탈 예측",
+      "target_slot": "outcome",
+      "evidence_basis": [
+        "ev0-6",
+        "ev0-4"
+      ],
+      "field_path": "projects[0].description",
+      "topic": "other",
+      "question": "이 대상과 관련해 실제로 선택하거나 판단한 내용이 있다면 무엇을 어떤 기준으로 선택했나요? 비교 결과와 선택을 구분해 알려주세요.",
+      "reason": "이 경험을 구체적으로 설명하는 데 도움이 될 추가 정보를 확인합니다.",
+      "priority": 2,
+      "requirement_id": null,
+      "stage": 0,
+      "owner_scope": "experience",
+      "owner_options": [],
+      "requirement_context_hash": ""
+    },
+    "no_anchor_fallback_contexts": [
+      {
+        "type": "applicant_source",
+        "evidence_ids": [
+          "ev0-6",
+          "ev0-7"
+        ],
+        "target_evidence_id": "ev0-6",
+        "source_type": "resume_text",
+        "source_id": "projects:prj17908447284945fx",
+        "quote": "XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+        "anchor": null,
+        "selected_source_quotes": [
+          "XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다."
+        ],
+        "context_quote": "KKBOX 사용자 데이터를 활용해 사용자 이탈을 예측했습니다. 약 99만 건의 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형 문제를 확인하고 Accuracy만으로 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다. XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+        "anchors": [],
+        "target_evidence_ids": [
+          "ev0-6"
+        ]
+      },
+      {
+        "type": "applicant_source",
+        "evidence_ids": [
+          "ev0-4",
+          "ev0-5"
+        ],
+        "target_evidence_id": "ev0-4",
+        "source_type": "resume_text",
+        "source_id": "projects:prj17908447284945fx",
+        "quote": "Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다.",
+        "anchor": null,
+        "selected_source_quotes": [
+          "Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다."
+        ],
+        "context_quote": "KKBOX 사용자 데이터를 활용해 사용자 이탈을 예측했습니다. 약 99만 건의 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형 문제를 확인하고 Accuracy만으로 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다. XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+        "anchors": [],
+        "target_evidence_ids": [
+          "ev0-4"
+        ]
+      }
+    ]
+  },
+  {
+    "review_id": 120,
+    "public_payload": {
+      "question_contract": "evidence-need-v2",
+      "information_need_id": "projects:prj1790844823849w4d:value:정비소 검색 서비스 기능 검증 방식",
+      "target_contexts": [
+        {
+          "type": "applicant_source",
+          "evidence_ids": [
+            "ev1-2"
+          ],
+          "target_evidence_id": "ev1-2",
+          "source_type": "resume_text",
+          "source_id": "projects:prj1790844823849w4d",
+          "quote": "정비소 주소와 위·경도 데이터를 활용해 Haversine 거리 계산을 적용하고 거리순으로 정렬했습니다.",
+          "anchor": "Haversine",
+          "selected_source_quotes": [
+            "정비소 주소와 위·경도 데이터를 활용해 Haversine 거리 계산을 적용하고 거리순으로 정렬했습니다."
+          ],
+          "context_quote": "사용자의 위치를 기준으로 가까운 자동차 정비소를 찾을 수 있는 서비스를 구현했습니다. 정비소 주소와 위·경도 데이터를 활용해 Haversine 거리 계산을 적용하고 거리순으로 정렬했습니다. 브랜드 공식 서비스센터와 정비소 종류를 필터링할 수 있도록 구성했으며, 운영시간 데이터가 존재하는 경우 영업 중 여부를 표시했습니다. 초기에는 CSV를 사용하고 이후 MySQL 연계를 고려해 브랜드와 정비 유형 데이터를 구조화했습니다.",
+          "anchors": [
+            "Haversine"
+          ],
+          "target_evidence_ids": [
+            "ev1-2"
+          ]
+        },
+        {
+          "type": "applicant_source",
+          "evidence_ids": [
+            "ev1-3",
+            "ev1-4"
+          ],
+          "target_evidence_id": "ev1-3",
+          "source_type": "resume_text",
+          "source_id": "projects:prj1790844823849w4d",
+          "quote": "브랜드 공식 서비스센터와 정비소 종류를 필터링할 수 있도록 구성했으며, 운영시간 데이터가 존재하는 경우 영업 중 여부를 표시했습니다.",
+          "anchor": "필터링",
+          "selected_source_quotes": [
+            "브랜드 공식 서비스센터와 정비소 종류를 필터링할 수 있도록 구성했으며, 운영시간 데이터가 존재하는 경우 영업 중 여부를 표시했습니다."
+          ],
+          "context_quote": "사용자의 위치를 기준으로 가까운 자동차 정비소를 찾을 수 있는 서비스를 구현했습니다. 정비소 주소와 위·경도 데이터를 활용해 Haversine 거리 계산을 적용하고 거리순으로 정렬했습니다. 브랜드 공식 서비스센터와 정비소 종류를 필터링할 수 있도록 구성했으며, 운영시간 데이터가 존재하는 경우 영업 중 여부를 표시했습니다. 초기에는 CSV를 사용하고 이후 MySQL 연계를 고려해 브랜드와 정비 유형 데이터를 구조화했습니다.",
+          "anchors": [
+            "영업 중 여부",
+            "필터링"
+          ],
+          "target_evidence_ids": [
+            "ev1-3",
+            "ev1-4"
+          ]
+        }
+      ],
+      "information_request_fingerprint": "source-need:9ae867e1db1b9b523360e8e8295a0b9b6549563c3e88ed8ddc6a9495e95c80a1",
+      "question_id": "offline-r120:v2gap:5191dc6ca51fe075",
+      "experience_id": "projects:prj1790844823849w4d",
+      "experience_title": "위치 기반 자동차 정비소 검색 서비스",
+      "target_slot": "validation_method",
+      "evidence_basis": [
+        "ev1-2",
+        "ev1-3",
+        "ev1-4"
+      ],
+      "field_path": "projects[1].description",
+      "topic": "other",
+      "question": "이 대상이 실제로 동작하는지 점검한 적이 있다면 어떤 사례·방법을 사용했나요? 구현한 점검 기능과 실제 수행한 시험을 구분해 알려주세요.",
+      "reason": "이 경험을 구체적으로 설명하는 데 도움이 될 추가 정보를 확인합니다.",
+      "priority": 2,
+      "requirement_id": null,
+      "stage": 0,
+      "owner_scope": "experience",
+      "owner_options": [],
+      "requirement_context_hash": ""
+    },
+    "no_anchor_fallback_contexts": [
+      {
+        "type": "applicant_source",
+        "evidence_ids": [
+          "ev1-2"
+        ],
+        "target_evidence_id": "ev1-2",
+        "source_type": "resume_text",
+        "source_id": "projects:prj1790844823849w4d",
+        "quote": "정비소 주소와 위·경도 데이터를 활용해 Haversine 거리 계산을 적용하고 거리순으로 정렬했습니다.",
+        "anchor": null,
+        "selected_source_quotes": [
+          "정비소 주소와 위·경도 데이터를 활용해 Haversine 거리 계산을 적용하고 거리순으로 정렬했습니다."
+        ],
+        "context_quote": "사용자의 위치를 기준으로 가까운 자동차 정비소를 찾을 수 있는 서비스를 구현했습니다. 정비소 주소와 위·경도 데이터를 활용해 Haversine 거리 계산을 적용하고 거리순으로 정렬했습니다. 브랜드 공식 서비스센터와 정비소 종류를 필터링할 수 있도록 구성했으며, 운영시간 데이터가 존재하는 경우 영업 중 여부를 표시했습니다. 초기에는 CSV를 사용하고 이후 MySQL 연계를 고려해 브랜드와 정비 유형 데이터를 구조화했습니다.",
+        "anchors": [],
+        "target_evidence_ids": [
+          "ev1-2"
+        ]
+      },
+      {
+        "type": "applicant_source",
+        "evidence_ids": [
+          "ev1-3",
+          "ev1-4"
+        ],
+        "target_evidence_id": "ev1-3",
+        "source_type": "resume_text",
+        "source_id": "projects:prj1790844823849w4d",
+        "quote": "브랜드 공식 서비스센터와 정비소 종류를 필터링할 수 있도록 구성했으며, 운영시간 데이터가 존재하는 경우 영업 중 여부를 표시했습니다.",
+        "anchor": null,
+        "selected_source_quotes": [
+          "브랜드 공식 서비스센터와 정비소 종류를 필터링할 수 있도록 구성했으며, 운영시간 데이터가 존재하는 경우 영업 중 여부를 표시했습니다."
+        ],
+        "context_quote": "사용자의 위치를 기준으로 가까운 자동차 정비소를 찾을 수 있는 서비스를 구현했습니다. 정비소 주소와 위·경도 데이터를 활용해 Haversine 거리 계산을 적용하고 거리순으로 정렬했습니다. 브랜드 공식 서비스센터와 정비소 종류를 필터링할 수 있도록 구성했으며, 운영시간 데이터가 존재하는 경우 영업 중 여부를 표시했습니다. 초기에는 CSV를 사용하고 이후 MySQL 연계를 고려해 브랜드와 정비 유형 데이터를 구조화했습니다.",
+        "anchors": [],
+        "target_evidence_ids": [
+          "ev1-3",
+          "ev1-4"
+        ]
+      }
+    ]
+  },
+  {
+    "review_id": 120,
+    "public_payload": {
+      "question_contract": "evidence-need-v2",
+      "information_need_id": "projects:prj1790844850071sxa:value:Validator의 근거 추적 및 과장 방지 검증",
+      "target_contexts": [
+        {
+          "type": "applicant_source",
+          "evidence_ids": [
+            "ev2-5"
+          ],
+          "target_evidence_id": "ev2-5",
+          "source_type": "resume_text",
+          "source_id": "projects:prj1790844850071sxa",
+          "quote": "Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다.",
+          "anchor": "Fact Validator",
+          "selected_source_quotes": [
+            "Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다."
+          ],
+          "context_quote": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다. 이력서 문장을 바로 생성하는 방식 대신 프로젝트·경력 단위 Experience와 사실 단위 Evidence를 분리하고, 지원자의 실제 경험과 채용공고의 요구사항을 구분하도록 구조를 설계했습니다. Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다. 또한 공고 요구사항 분석 결과를 재분석하지 않고 기존 JobRequirementProfile에서 재사용해 Planner와 Writer까지 전달하도록 연결했습니다. Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다.",
+          "anchors": [
+            "Fact Validator",
+            "Quality Validator"
+          ],
+          "target_evidence_ids": [
+            "ev2-5"
+          ]
+        }
+      ],
+      "information_request_fingerprint": "source-need:783887b1ab97a2fe1859870b7db71d0322be1f501340805abad662c96687b363",
+      "question_id": "offline-r120:v2gap:905b9cc3a818baaa",
+      "experience_id": "projects:prj1790844850071sxa",
+      "experience_title": "AI 기반 LMS 및 채용 지원 서비스",
+      "target_slot": "validation_method",
+      "evidence_basis": [
+        "ev2-5"
+      ],
+      "field_path": "projects[2].description",
+      "topic": "other",
+      "question": "이 대상이 실제로 동작하는지 점검한 적이 있다면 어떤 사례·방법을 사용했나요? 구현한 점검 기능과 실제 수행한 시험을 구분해 알려주세요.",
+      "reason": "이 경험을 구체적으로 설명하는 데 도움이 될 추가 정보를 확인합니다.",
+      "priority": 2,
+      "requirement_id": null,
+      "stage": 0,
+      "owner_scope": "experience",
+      "owner_options": [],
+      "requirement_context_hash": ""
+    },
+    "no_anchor_fallback_contexts": [
+      {
+        "type": "applicant_source",
+        "evidence_ids": [
+          "ev2-5"
+        ],
+        "target_evidence_id": "ev2-5",
+        "source_type": "resume_text",
+        "source_id": "projects:prj1790844850071sxa",
+        "quote": "Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다.",
+        "anchor": null,
+        "selected_source_quotes": [
+          "Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다."
+        ],
+        "context_quote": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다. 이력서 문장을 바로 생성하는 방식 대신 프로젝트·경력 단위 Experience와 사실 단위 Evidence를 분리하고, 지원자의 실제 경험과 채용공고의 요구사항을 구분하도록 구조를 설계했습니다. Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다. 또한 공고 요구사항 분석 결과를 재분석하지 않고 기존 JobRequirementProfile에서 재사용해 Planner와 Writer까지 전달하도록 연결했습니다. Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다.",
+        "anchors": [],
+        "target_evidence_ids": [
+          "ev2-5"
+        ]
+      }
+    ]
+  },
+  {
+    "review_id": 121,
+    "public_payload": {
+      "question_contract": "evidence-need-v2",
+      "information_need_id": "projects:prj17908447284945fx:value:days_to_expire와 이탈 예측의 방향성 해석",
+      "target_contexts": [
+        {
+          "type": "applicant_source",
+          "evidence_ids": [
+            "e6",
+            "e9"
+          ],
+          "target_evidence_id": "e9",
+          "source_type": "resume_text",
+          "source_id": "projects:prj17908447284945fx",
+          "quote": "또한 XGBoost의 threshold를 조정하며 F1 변화를 비교하고, days_to_expire가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+          "anchor": "days_to_expire",
+          "selected_source_quotes": [
+            "days_to_expire가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다."
+          ],
+          "context_quote": "KKBOX 사용자 데이터로 이탈을 예측하면서, 약 99만 건 중 이탈 사용자가 약 6.4%인 클래스 불균형을 확인해 Accuracy만으로는 모델을 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC, PR-AUC를 함께 확인했습니다. 또한 XGBoost의 threshold를 조정하며 F1 변화를 비교하고, days_to_expire가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+          "anchors": [
+            "days_to_expire"
+          ],
+          "target_evidence_ids": [
+            "e9"
+          ]
+        }
+      ],
+      "information_request_fingerprint": "source-need:79f81ce48d524b2a7293a2efe18e435b6b9e06302df7dd30111fce05f4d73f8f",
+      "question_id": "offline-r121:v2gap:250704fb35551047",
+      "experience_id": "projects:prj17908447284945fx",
+      "experience_title": "KKBOX 사용자 이탈 예측",
+      "target_slot": "insight_or_learning",
+      "evidence_basis": [
+        "e9"
+      ],
+      "field_path": "projects[0].description",
+      "topic": "other",
+      "question": "이 대상의 관계나 방향성을 해석한 내용이 있다면 어떤 관계를 관찰했고 무엇을 근거로 해석했나요? 아직 확인하지 못했다면 그렇게 알려주세요.",
+      "reason": "이 경험을 구체적으로 설명하는 데 도움이 될 추가 정보를 확인합니다.",
+      "priority": 2,
+      "requirement_id": null,
+      "stage": 0,
+      "owner_scope": "experience",
+      "owner_options": [],
+      "requirement_context_hash": ""
+    },
+    "no_anchor_fallback_contexts": [
+      {
+        "type": "applicant_source",
+        "evidence_ids": [
+          "e6",
+          "e9"
+        ],
+        "target_evidence_id": "e9",
+        "source_type": "resume_text",
+        "source_id": "projects:prj17908447284945fx",
+        "quote": "또한 XGBoost의 threshold를 조정하며 F1 변화를 비교하고, days_to_expire가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+        "anchor": null,
+        "selected_source_quotes": [
+          "days_to_expire가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다."
+        ],
+        "context_quote": "KKBOX 사용자 데이터로 이탈을 예측하면서, 약 99만 건 중 이탈 사용자가 약 6.4%인 클래스 불균형을 확인해 Accuracy만으로는 모델을 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC, PR-AUC를 함께 확인했습니다. 또한 XGBoost의 threshold를 조정하며 F1 변화를 비교하고, days_to_expire가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+        "anchors": [],
+        "target_evidence_ids": [
+          "e9"
+        ]
+      }
+    ]
+  },
+  {
+    "review_id": 124,
+    "public_payload": {
+      "question_contract": "evidence-need-v2",
+      "information_need_id": "projects:prj17908447284945fx:value:model_comparison_decision_and_supporting_result",
+      "target_contexts": [
+        {
+          "type": "applicant_source",
+          "evidence_ids": [
+            "e0-4"
+          ],
+          "target_evidence_id": "e0-4",
+          "source_type": "resume_text",
+          "source_id": "projects:prj17908447284945fx",
+          "quote": "Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다.",
+          "anchor": null,
+          "selected_source_quotes": [
+            "Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다."
+          ],
+          "context_quote": "KKBOX 사용자 데이터를 활용해 사용자 이탈을 예측했습니다. 약 99만 건의 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형 문제를 확인하고 Accuracy만으로 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다. XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+          "anchors": [],
+          "target_evidence_ids": [
+            "e0-4"
+          ]
+        },
+        {
+          "type": "applicant_source",
+          "evidence_ids": [
+            "e0-5",
+            "e0-6"
+          ],
+          "target_evidence_id": "e0-5",
+          "source_type": "resume_text",
+          "source_id": "projects:prj17908447284945fx",
+          "quote": "XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+          "anchor": "threshold",
+          "selected_source_quotes": [
+            "XGBoost의 threshold를 조정하며 F1 변화를 비교했고"
+          ],
+          "context_quote": "KKBOX 사용자 데이터를 활용해 사용자 이탈을 예측했습니다. 약 99만 건의 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형 문제를 확인하고 Accuracy만으로 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다. XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+          "anchors": [
+            "threshold"
+          ],
+          "target_evidence_ids": [
+            "e0-5"
+          ]
+        }
+      ],
+      "information_request_fingerprint": "source-need:31a41e29ad69352211eea6a775e848cdb9c4725e6b71a420f967e6215035dd19",
+      "question_id": "offline-r124:v2gap:bf43a84902bff457",
+      "experience_id": "projects:prj17908447284945fx",
+      "experience_title": "KKBOX 사용자 이탈 예측",
+      "target_slot": "outcome",
+      "evidence_basis": [
+        "e0-4",
+        "e0-5"
+      ],
+      "field_path": "projects[0].description",
+      "topic": "other",
+      "question": "이 대상과 관련해 실제로 선택하거나 판단한 내용이 있다면 무엇을 어떤 기준으로 선택했나요? 비교 결과와 선택을 구분해 알려주세요.",
+      "reason": "이 경험을 구체적으로 설명하는 데 도움이 될 추가 정보를 확인합니다.",
+      "priority": 2,
+      "requirement_id": null,
+      "stage": 0,
+      "owner_scope": "experience",
+      "owner_options": [],
+      "requirement_context_hash": ""
+    },
+    "no_anchor_fallback_contexts": [
+      {
+        "type": "applicant_source",
+        "evidence_ids": [
+          "e0-4"
+        ],
+        "target_evidence_id": "e0-4",
+        "source_type": "resume_text",
+        "source_id": "projects:prj17908447284945fx",
+        "quote": "Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다.",
+        "anchor": null,
+        "selected_source_quotes": [
+          "Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다."
+        ],
+        "context_quote": "KKBOX 사용자 데이터를 활용해 사용자 이탈을 예측했습니다. 약 99만 건의 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형 문제를 확인하고 Accuracy만으로 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다. XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+        "anchors": [],
+        "target_evidence_ids": [
+          "e0-4"
+        ]
+      },
+      {
+        "type": "applicant_source",
+        "evidence_ids": [
+          "e0-5",
+          "e0-6"
+        ],
+        "target_evidence_id": "e0-5",
+        "source_type": "resume_text",
+        "source_id": "projects:prj17908447284945fx",
+        "quote": "XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+        "anchor": null,
+        "selected_source_quotes": [
+          "XGBoost의 threshold를 조정하며 F1 변화를 비교했고"
+        ],
+        "context_quote": "KKBOX 사용자 데이터를 활용해 사용자 이탈을 예측했습니다. 약 99만 건의 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형 문제를 확인하고 Accuracy만으로 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다. XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+        "anchors": [],
+        "target_evidence_ids": [
+          "e0-5"
+        ]
+      }
+    ]
+  }
+]

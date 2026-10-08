@@ -13,6 +13,7 @@ import { Badge, Button, Row, Select, Spacer, TextInput } from '../../ui/componen
 import { formatDateTime } from '../../utils/format';
 import { FitWidth, SeatGrid } from '../seating/SeatingScreen';
 import { ExportMenu } from '../export/ExportMenu';
+import { ABSENT_REASONS } from './spotCheckLabels';
 import { SpotCheckPeriodLabels, spotChecksTable } from './studentFilters';
 import './manager.css';
 
@@ -21,7 +22,7 @@ import './manager.css';
  * 저장하면 점검 시각 · 점검자와 함께 남고, 이력에서 Excel · CSV · Word · PDF 로 받는다.
  */
 
-export const ABSENT_REASONS = ['외출', '조퇴', '병원', '화장실 · 휴식', '상담 · 면담', '결석'] as const;
+export { ABSENT_REASONS };
 
 type Marks = Record<string, { state: SpotCheckState; reason?: string }>;
 

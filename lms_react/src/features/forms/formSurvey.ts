@@ -1,5 +1,5 @@
 import type { FormAnswer, FormQuestion, FormQuestionType, FormResponse, FormTask, User } from '../../domain/types';
-import { toCsv, type ExportTable } from '../export/tableExport';
+import { toCsv, type ExportTable } from '../export/csv';
 
 /** 서버(lms/form_surveys.py)와 같은 한도 */
 export const MAX_QUESTIONS = 50;

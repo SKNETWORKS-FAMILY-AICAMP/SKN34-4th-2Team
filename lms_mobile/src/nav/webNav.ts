@@ -54,7 +54,6 @@ const appPaths: Record<string, string> = {
   [R.adminCounsel]: '/(admin)/counsel',
   [R.adminInstructors]: '/(admin)/instructors',
   [R.adminAttendance]: '/(admin)/attendance',
-  [R.adminSeatPresence]: '/(admin)/presence',
   [R.adminSeating]: '/(admin)/rooms',
   [R.adminAssessments]: '/(admin)/exams',
   [R.adminRecords]: '/(admin)/records',

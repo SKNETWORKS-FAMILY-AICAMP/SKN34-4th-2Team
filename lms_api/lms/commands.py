@@ -422,6 +422,10 @@ def _delete_resume(cur, resume_id: int) -> None:
     )
     for table in ("resume_feedback", "resume_revisions", "resume_ai_applications", "resume_ai_reviews", "resume_tailorings"):
         cur.execute(f"DELETE FROM {table} WHERE resume_id = %s", [resume_id])
+    # Optional until v2 migration 0011 is deployed; shared Experience/Evidence survive.
+    cur.execute("SELECT to_regclass('public.resume_experience_bindings')")
+    if cur.fetchone()[0] is not None:
+        cur.execute("DELETE FROM resume_experience_bindings WHERE resume_id = %s", [resume_id])
     cur.execute("DELETE FROM resumes WHERE id = %s", [resume_id])
 
 

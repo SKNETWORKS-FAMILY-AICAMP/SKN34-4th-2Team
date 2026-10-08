@@ -292,6 +292,7 @@ class ResumeDeleteTests(SimpleTestCase):
         from lms.commands import _delete_resume
 
         cur = Mock()
+        cur.fetchone.return_value = (None,)  # v2 migration not present in this mocked deployment
         _delete_resume(cur, 11)
         sqls = [" ".join(call.args[0].split()) for call in cur.execute.call_args_list]
         self.assertEqual(sqls[-1], "DELETE FROM resumes WHERE id = %s")

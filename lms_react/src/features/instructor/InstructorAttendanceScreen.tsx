@@ -5,17 +5,15 @@ import {
   useAttendanceByDate,
   usePublishedSeating,
   useSeatPresence,
-  useSpotChecks,
   useStudents,
 } from '../../data/repository';
 import { dateKeyOf } from '../../data/seed';
 import { ClassPeriods, attendanceLabel, currentPeriod, nearestPeriod } from '../../domain/constants';
-import type { SeatPresenceState, SpotCheck, User } from '../../domain/types';
+import type { SeatPresenceState, User } from '../../domain/types';
 import { InstructorTargets } from '../../tour/targets';
 import { useTourTarget } from '../../tour/useTourTarget';
 import { Icon } from '../../ui/Icon';
-import { Badge, Tabs } from '../../ui/components';
-import { SpotCheckHistory, SpotCheckRunner } from '../manager/SpotCheck';
+import { Badge } from '../../ui/components';
 import { PanelHandle, useStoredSize } from '../resume/ResumeEditScreen';
 import { FitWidth, SeatGrid } from '../seating/SeatingScreen';
 import { useCurrentUser } from '../auth/session';
@@ -24,7 +22,7 @@ import { useCurrentUser } from '../auth/session';
  * 자리 확인 — features/instructor/presentation/instructor_attendance_screen.dart
  *
  * 왼쪽에 좌석 배치도, 오른쪽에 호명 순서 목록과 보류 명단을 둔다. 출석 상태는
- * 건드리지 않고 확인·보류만 남긴다. 관리자의 자리 확인도 같은 화면이다.
+ * 건드리지 않고 확인·보류만 남긴다. 강사만 쓰고, 기록 내려받기는 관리자 출석 관리에서 한다.
  */
 
 /** 오른쪽 열(호명 목록·보류) 폭과 보류 카드 높이. 손잡이로 바꾼 크기는 다음에도 쓴다. */
@@ -59,11 +57,6 @@ export function InstructorAttendanceScreen() {
   const [sideWidth, setSideWidth] = useStoredSize('instructor_roll_side_width', ROLL_SIDE.initialWidth);
   // 0 이면 보류 카드는 내용만큼(최대 45%)
   const [heldHeight, setHeldHeight] = useStoredSize('instructor_roll_held_height', 0);
-
-  const [mode, setMode] = useState<'roll' | 'spot' | 'history'>('roll');
-  const [editingCheck, setEditingCheck] = useState<SpotCheck | undefined>(undefined);
-  const [savedNotice, setSavedNotice] = useState(false);
-  const spotChecks = useSpotChecks(user.cohortId);
 
   const period = Number(periodId);
   const presence = useSeatPresence(dateKey, period);
@@ -108,56 +101,13 @@ export function InstructorAttendanceScreen() {
         <div>
           <h1 className="page-head__title">자리 확인</h1>
           <p className="page-head__desc">
-            {user.cohortName} · 교시마다 자리에 있는지 확인합니다. 불시 점검은 시각과 유/무를 문서로 남깁니다.
-            (출석 상태는 변경되지 않음)
+            {user.cohortName} · 교시마다 자리에 있는지 확인합니다. (출석 상태는 변경되지 않음)
           </p>
           <p className="running-period">
             진행 중: {running === null ? '쉬는 시간' : `${running.label} 교시`}
           </p>
         </div>
       </header>
-      <Tabs
-        active={mode}
-        onChange={(id) => {
-          setMode(id as typeof mode);
-          if (id !== 'spot') setEditingCheck(undefined);
-        }}
-        items={[
-          { id: 'roll', label: '교시 호명' },
-          { id: 'spot', label: '불시 점검' },
-          { id: 'history', label: '점검 이력', count: spotChecks.length },
-        ]}
-      />
-      {savedNotice && mode === 'history' && (
-        <div className="callout callout--success">점검을 저장했습니다. 여기서 Excel · Word · PDF 로 내려받을 수 있습니다.</div>
-      )}
-      {mode === 'spot' && (
-        <SpotCheckRunner
-          cohortId={user.cohortId}
-          checker={user}
-          students={students}
-          editing={editingCheck}
-          onSaved={() => {
-            setEditingCheck(undefined);
-            setSavedNotice(true);
-            setMode('history');
-          }}
-          onCancelEdit={() => setEditingCheck(undefined)}
-        />
-      )}
-      {mode === 'history' && (
-        <SpotCheckHistory
-          cohortId={user.cohortId}
-          cohortName={user.cohortName}
-          students={students}
-          onEdit={(check) => {
-            setEditingCheck(check);
-            setSavedNotice(false);
-            setMode('spot');
-          }}
-        />
-      )}
-      {mode === 'roll' && (
       <>
       {markError && <p role="alert">자리 확인을 저장하지 못했습니다. 다시 시도해 주세요.</p>}
 
@@ -402,7 +352,6 @@ export function InstructorAttendanceScreen() {
         </table>
       </section>
       </>
-      )}
     </div>
   );
 }

@@ -52,13 +52,6 @@ export const adminTour: TourDefinition = {
       skippableIfMissing: true,
     },
     {
-      id: 'nav_seat_presence',
-      title: '자리 확인',
-      body: '오늘 좌석에 앉은 학생을 확인하고 확인·보류를 남깁니다.',
-      targetId: AdminTargets.navSeatPresence,
-      route: RoutePaths.adminSeatPresence,
-    },
-    {
       id: 'nav_seating',
       title: '좌석 배치',
       body: '좌석 레이아웃을 만들고 배정·게시합니다.',

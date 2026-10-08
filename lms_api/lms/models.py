@@ -5,9 +5,168 @@
 #   * Make sure each ForeignKey and OneToOneField has `on_delete` set to the desired behavior
 #   * Remove `managed = False` lines if you wish to allow Django to create, modify, and delete the table
 # Feel free to rename the models, but don't rename db_table values or field names.
+import uuid
+
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 from django.db.models.functions import Lower
+
+
+class JobApplyMethod(models.TextChoices):
+    HOMEPAGE = 'HOMEPAGE', 'Company homepage'
+    SITE = 'SITE', 'Recruitment platform'
+    EMAIL = 'EMAIL', 'Email'
+    OTHER = 'OTHER', 'Other'
+
+
+class CompanyProfiles(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company_key = models.CharField(max_length=255, unique=True)
+    company_name = models.CharField(max_length=255)
+    company_type = models.CharField(max_length=100, null=True, blank=True)
+    logo_url = models.URLField(max_length=2000, null=True, blank=True)
+    homepage_url = models.URLField(max_length=2000, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'company_profiles'
+
+
+class RecruitRoles(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(CompanyProfiles, models.PROTECT, related_name='recruit_roles')
+    season = models.CharField(max_length=120)
+    role_name = models.CharField(max_length=255)
+    role_description = models.TextField()
+    requirements = models.JSONField(default=dict, blank=True)
+    questions = models.JSONField(default=list, blank=True)
+    content_hash = models.CharField(max_length=64)
+    source_type = models.CharField(max_length=20, choices=[('company_site', 'Official'), ('other', 'Private')])
+    source_url = models.URLField(max_length=2000, null=True, blank=True)
+    # The crawler owns jobs.jobs; deletion must not remove this source template.
+    job_id = models.CharField(max_length=255, null=True, blank=True)
+    created_by = models.ForeignKey('Users', models.SET_NULL, null=True, blank=True, related_name='created_recruit_roles')
+    verified_by = models.ForeignKey('Users', models.SET_NULL, null=True, blank=True, related_name='verified_recruit_roles')
+    verification_status = models.CharField(max_length=20, default='unverified')
+    verified_at = models.DateTimeField(null=True, blank=True)
+    # Retained dedupe scope, NOT identity/ACL: SET_NULL must not collapse different owners.
+    dedupe_owner = models.CharField(max_length=32, default='', editable=False)
+    use_count = models.PositiveBigIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'recruit_roles'
+        constraints = [
+            models.UniqueConstraint(fields=['company', 'season', 'role_name', 'content_hash'],
+                condition=models.Q(source_type='company_site'), name='uq_recruit_role_official'),
+            models.UniqueConstraint(fields=['company', 'season', 'role_name', 'content_hash', 'dedupe_owner'],
+                condition=models.Q(source_type='other'), name='uq_recruit_role_private'),
+            models.CheckConstraint(condition=models.Q(verification_status__in=['unverified', 'verified', 'rejected']), name='ck_recruit_role_verification'),
+            models.CheckConstraint(condition=(models.Q(source_type='company_site', dedupe_owner='') |
+                (models.Q(source_type='other') & ~models.Q(dedupe_owner=''))), name='ck_recruit_role_scope'),
+        ]
+
+
+class ApplicationQuestions(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    application = models.ForeignKey('Applications', models.CASCADE, related_name='questions')
+    order = models.PositiveIntegerField()
+    raw_text = models.TextField()
+    character_limit = models.PositiveIntegerField(null=True, blank=True)
+    count_unit = models.CharField(max_length=16, default='characters', choices=[
+        ('characters', 'Characters'), ('bytes', 'Bytes'), ('unknown', 'Unknown')])
+    include_spaces = models.BooleanField(null=True, blank=True)
+    source_type = models.CharField(max_length=24)
+    source_reference = models.CharField(max_length=255, default='', blank=True)
+    import_key = models.CharField(max_length=64)
+    analysis = models.JSONField(default=dict)
+    analysis_version = models.CharField(max_length=32, null=True, blank=True)
+    analysis_input_hash = models.CharField(max_length=64, default='', blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'application_questions'
+        ordering = ['order', 'id']
+        constraints = [
+            models.UniqueConstraint(fields=['application', 'import_key'], name='uq_application_question_import'),
+            models.CheckConstraint(condition=models.Q(character_limit__isnull=True) | models.Q(character_limit__gt=0),
+                                   name='ck_application_question_limit'),
+            models.CheckConstraint(condition=models.Q(count_unit__in=['characters', 'bytes', 'unknown']),
+                                   name='ck_application_question_unit'),
+        ]
+
+
+class ApplicationAnswers(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    question = models.ForeignKey(ApplicationQuestions, models.CASCADE, related_name='answers')
+    answer_key = models.CharField(max_length=128, default='draft')
+    content = models.TextField()
+    source_type = models.CharField(max_length=24, default='user_draft', choices=[
+        ('user_draft', 'User draft'), ('user_supplement', 'User supplement'), ('ai_generated', 'Future AI output')])
+    status = models.CharField(max_length=20, default='draft', choices=[('draft', 'Draft'), ('confirmed', 'Confirmed')])
+    target_experience = models.ForeignKey('ResumeExperiences', models.SET_NULL, null=True, blank=True)
+    confirmation_key = models.CharField(max_length=64, default='', blank=True)
+    topic_resolved = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'application_answers'
+        constraints = [models.UniqueConstraint(fields=['question', 'answer_key'], name='uq_application_answer_key')]
+
+
+class ApplicationPlans(models.Model):
+    application = models.OneToOneField('Applications', models.CASCADE, primary_key=True, related_name='planning_record')
+    input_hash = models.CharField(max_length=64)
+    version = models.CharField(max_length=32)
+    content = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'application_plans'
+
+
+class Applications(models.Model):
+    """Support workspace, distinct from resume_ai_applications (apply/undo log)."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey('Users', models.PROTECT)
+    base_resume = models.ForeignKey('Resumes', models.PROTECT, related_name='applications')
+    tailored_resume = models.OneToOneField('Resumes', models.SET_NULL, null=True, blank=True,
+                                          related_name='application_workspace')
+    # jobs is externally managed; retain a stable external reference, not a dangling FK.
+    job_id = models.CharField(max_length=255, null=True, blank=True)
+    role_context_id = models.CharField(max_length=255, null=True, blank=True)
+    requirement_profile = models.ForeignKey('JobRequirementProfiles', models.SET_NULL,
+                                           null=True, blank=True)
+    target_snapshot = models.JSONField(default=dict)
+    entry_source = models.CharField(max_length=20, choices=[(v, v) for v in
+        ('resume_first', 'job_first', 'manual')])
+    status = models.CharField(max_length=20, default='draft', choices=[(v, v) for v in
+        ('draft', 'in_progress', 'ready', 'submitted', 'archived')])
+    carried_from = models.ForeignKey('self', models.SET_NULL, null=True, blank=True)
+    idempotency_key = models.CharField(max_length=128)
+    request_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'applications'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'idempotency_key'], name='uq_application_request'),
+            models.CheckConstraint(condition=~models.Q(id=models.F('carried_from_id')),
+                                   name='ck_application_not_self'),
+            models.CheckConstraint(condition=models.Q(entry_source__in=['resume_first', 'job_first', 'manual']),
+                                   name='ck_application_entry'),
+            models.CheckConstraint(condition=models.Q(status__in=['draft', 'in_progress', 'ready', 'submitted', 'archived']),
+                                   name='ck_application_status'),
+            models.CheckConstraint(condition=~models.Q(base_resume=models.F('tailored_resume')),
+                                   name='ck_application_distinct_resume'),
+        ]
+        indexes = [models.Index(fields=['user', 'status'], name='ix_application_user_status')]
 
 
 class AiEvalRuns(models.Model):
@@ -754,6 +913,66 @@ class ResumeTailorings(models.Model):
                 name='ck_resume_tailoring_progress',
             ),
         ]
+
+
+class ResumeExperiences(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey('Users', models.CASCADE, related_name='resume_experiences')
+    kind = models.CharField(max_length=20, choices=[
+        ('project', 'Project'), ('employment', 'Employment'), ('education', 'Education'),
+        ('activity', 'Activity'), ('other', 'Other'),
+    ])
+    title = models.CharField(max_length=255)
+    period_text = models.CharField(max_length=120, blank=True, default='')
+    status = models.CharField(max_length=20, default='active', choices=[('active', 'Active'), ('archived', 'Archived')])
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'resume_experiences'
+        indexes = [models.Index(fields=['user', 'status'])]
+
+
+class ResumeEvidence(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    experience = models.ForeignKey(ResumeExperiences, models.CASCADE, related_name='evidence')
+    fact_type = models.CharField(max_length=32)
+    normalized_fact = models.TextField()
+    evidence_quote = models.TextField()
+    source_type = models.CharField(max_length=24, choices=[
+        ('resume_text', 'Resume text'), ('user_answer', 'User answer'),
+        ('uploaded_document', 'Uploaded document'),
+    ])
+    source_id = models.CharField(max_length=255)
+    assertion_state = models.CharField(max_length=20, choices=[
+        ('resume_stated', 'Resume stated'), ('user_asserted', 'User asserted'),
+        ('uncertain', 'Uncertain'), ('contradicted', 'Contradicted'),
+        ('retracted', 'Retracted'), ('superseded', 'Superseded'),
+    ])
+    supersedes_evidence = models.ForeignKey('self', models.PROTECT, blank=True, null=True, related_name='replacements')
+    conflicts_with_evidence = models.ForeignKey('self', models.PROTECT, blank=True, null=True, related_name='conflicting_reports')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'resume_evidence'
+        indexes = [models.Index(fields=['experience', 'assertion_state'])]
+
+
+class ResumeExperienceBindings(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    resume = models.ForeignKey(Resumes, models.CASCADE, related_name='experience_bindings')
+    experience = models.ForeignKey(ResumeExperiences, models.PROTECT, related_name='resume_bindings')
+    item_key = models.CharField(max_length=80)
+    field_path = models.CharField(max_length=255)
+    display_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'resume_experience_bindings'
+        constraints = [models.UniqueConstraint(fields=['resume', 'item_key'], name='uq_resume_experience_item')]
+        indexes = [models.Index(fields=['resume', 'experience'])]
 
 
 class SeatPresences(models.Model):

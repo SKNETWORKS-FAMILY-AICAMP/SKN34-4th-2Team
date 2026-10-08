@@ -1,0 +1,281 @@
+[
+  {
+    "set_id": "A",
+    "questions": [
+      "당사에 지원한 이유와 입사를 위해\n어떤 노력을 하였는지 구체적으로 기술하시오.\n1000자",
+      "지원한 직군에서 구체적으로 하고 싶은 일과\n본인이 그 일을 남들보다 잘할 수 있는\n차별화된 능력과 경험을 기술하시오.\n1000자",
+      "학업 외 가장 열정적이고 도전적으로 몰입하여\n성과를 창출했거나 목표를 달성한 경험을 기술하시오.\n1000자"
+    ],
+    "experiences": [
+      {
+        "experience_id": "exp-A",
+        "title": "채용공고 데이터 서비스",
+        "kind": "project",
+        "evidence": [
+          {
+            "evidence_id": "exp-A-1",
+            "experience_id": "exp-A",
+            "fact_type": "implementation",
+            "normalized_fact": "Python으로 채용공고 수집 파이프라인 구현",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-A-2",
+            "experience_id": "exp-A",
+            "fact_type": "implementation",
+            "normalized_fact": "사이트별 다른 공고 형식을 공통 schema로 정규화",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-A-3",
+            "experience_id": "exp-A",
+            "fact_type": "implementation",
+            "normalized_fact": "중복 공고 제거 로직 구현",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-A-4",
+            "experience_id": "exp-A",
+            "fact_type": "implementation",
+            "normalized_fact": "FastAPI API 구현",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-A-5",
+            "experience_id": "exp-A",
+            "fact_type": "technical_decision",
+            "normalized_fact": "반복 조회를 줄이도록 조회 흐름 개선",
+            "assertion_state": "user_asserted"
+          }
+        ]
+      },
+      {
+        "experience_id": "exp-B",
+        "title": "LMS 프로젝트",
+        "kind": "project",
+        "evidence": [
+          {
+            "evidence_id": "exp-B-1",
+            "experience_id": "exp-B",
+            "fact_type": "implementation",
+            "normalized_fact": "Django backend 개발",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-B-2",
+            "experience_id": "exp-B",
+            "fact_type": "implementation",
+            "normalized_fact": "React frontend 연동",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-B-3",
+            "experience_id": "exp-B",
+            "fact_type": "result",
+            "normalized_fact": "팀 프로젝트 API 연결 과정에서 오류 해결",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-B-4",
+            "experience_id": "exp-B",
+            "fact_type": "action",
+            "normalized_fact": "팀원들과 API contract를 조율",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-B-5",
+            "experience_id": "exp-B",
+            "fact_type": "action",
+            "normalized_fact": "오류 원인을 추적하고 수정",
+            "assertion_state": "user_asserted"
+          }
+        ]
+      },
+      {
+        "experience_id": "exp-C",
+        "title": "KKBOX churn analysis",
+        "kind": "project",
+        "evidence": [
+          {
+            "evidence_id": "exp-C-1",
+            "experience_id": "exp-C",
+            "fact_type": "scope",
+            "normalized_fact": "약 99만 건의 사용자 데이터를 분석",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-C-2",
+            "experience_id": "exp-C",
+            "fact_type": "context",
+            "normalized_fact": "churn class 약 6%의 불균형 문제 확인",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-C-3",
+            "experience_id": "exp-C",
+            "fact_type": "technical_decision",
+            "normalized_fact": "Accuracy보다 PR-AUC와 Recall/F1을 중요하게 판단",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-C-4",
+            "experience_id": "exp-C",
+            "fact_type": "implementation",
+            "normalized_fact": "XGBoost threshold를 조정해 F1 변화를 비교",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-C-5",
+            "experience_id": "exp-C",
+            "fact_type": "verification",
+            "normalized_fact": "days_to_expire 변수가 높은 예측 signal을 보임",
+            "assertion_state": "user_asserted"
+          }
+        ]
+      }
+    ],
+    "applicant_intent": [
+      "데이터 분석 및 AI 서비스 업무에 관심 있음",
+      "실제 사용자 문제를 데이터 기반으로 해결하는 업무를 하고 싶음"
+    ],
+    "unconfirmed_intent": [
+      "특정 회사에 오래 관심 있었다",
+      "해당 회사 제품을 사용해 왔다",
+      "해당 회사 문화에 공감한다"
+    ],
+    "target_context": {
+      "role": "데이터 분석 및 AI 서비스",
+      "company_context_available": false
+    },
+    "answers": [
+      {
+        "question_id": "A-Q2",
+        "content": "데이터 분석 및 AI 서비스 업무에 관심 있음",
+        "source_type": "user_supplement",
+        "confirmation_key": "role_motivation",
+        "topic_resolved": true
+      },
+      {
+        "question_id": "A-Q2",
+        "content": "실제 사용자 문제를 데이터 기반으로 해결하는 업무를 하고 싶음",
+        "source_type": "user_supplement",
+        "confirmation_key": "desired_work",
+        "topic_resolved": true
+      }
+    ],
+    "notes": [
+      "모든 인물/경험은 가상 fixture; production 정보 없음",
+      "정량 성과 없음. API 오류 해결은 명시적으로 확인된 정성적 결과만 result로 분류"
+    ]
+  },
+  {
+    "set_id": "B",
+    "questions": [
+      "팀원과 협업하여 문제를 해결한 경험을 기술하십시오.",
+      "기술적인 문제를 발견하고 해결한 경험을 기술하십시오.",
+      "지원 직무와 관련해 본인이 직접 구현한 기능과 기술 역량을 기술하십시오."
+    ],
+    "experiences": [
+      {
+        "experience_id": "exp-D",
+        "title": "LMS 서비스 개발",
+        "kind": "project",
+        "evidence": [
+          {
+            "evidence_id": "exp-D-1",
+            "experience_id": "exp-D",
+            "fact_type": "implementation",
+            "normalized_fact": "Django API 구현",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-D-2",
+            "experience_id": "exp-D",
+            "fact_type": "implementation",
+            "normalized_fact": "React 화면 연동",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-D-3",
+            "experience_id": "exp-D",
+            "fact_type": "result",
+            "normalized_fact": "API 응답 형식 불일치 문제 해결",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-D-4",
+            "experience_id": "exp-D",
+            "fact_type": "action",
+            "normalized_fact": "팀원과 request/response contract 조율",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-D-5",
+            "experience_id": "exp-D",
+            "fact_type": "implementation",
+            "normalized_fact": "원인을 재현하고 frontend/backend 양쪽을 수정",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-D-6",
+            "experience_id": "exp-D",
+            "fact_type": "implementation",
+            "normalized_fact": "AWS 배포 환경 구성 경험",
+            "assertion_state": "user_asserted"
+          }
+        ]
+      }
+    ],
+    "applicant_intent": [],
+    "unconfirmed_intent": [],
+    "target_context": {},
+    "answers": [],
+    "notes": [
+      "동일 Experience 재사용은 허용",
+      "API 응답 형식 불일치 해결은 주어진 가상 사실에 있는 정성적 결과"
+    ]
+  },
+  {
+    "set_id": "C",
+    "questions": [
+      "가장 도전적이었던 경험과\n이를 통해 만들어낸 성과를 구체적으로 작성하십시오."
+    ],
+    "experiences": [
+      {
+        "experience_id": "exp-E",
+        "title": "데이터 처리 pipeline 개선",
+        "kind": "project",
+        "evidence": [
+          {
+            "evidence_id": "exp-E-1",
+            "experience_id": "exp-E",
+            "fact_type": "implementation",
+            "normalized_fact": "데이터 처리 pipeline을 개선함",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-E-2",
+            "experience_id": "exp-E",
+            "fact_type": "implementation",
+            "normalized_fact": "기존 반복 조회를 줄이는 방향으로 코드를 수정함",
+            "assertion_state": "user_asserted"
+          },
+          {
+            "evidence_id": "exp-E-3",
+            "experience_id": "exp-E",
+            "fact_type": "role",
+            "normalized_fact": "직접 구현함",
+            "assertion_state": "user_asserted"
+          }
+        ]
+      }
+    ],
+    "applicant_intent": [],
+    "unconfirmed_intent": [],
+    "target_context": {},
+    "answers": [],
+    "notes": [
+      "성과 수치, 속도/효율/만족도/비용 개선 결과는 확인되지 않음"
+    ]
+  }
+]

@@ -5,7 +5,7 @@ import type {
   AttendanceStatusCode,
   OfficialLeaveType,
 } from '../../domain/types';
-import { toCsv, type ExportTable } from '../export/tableExport';
+import { toCsv, type ExportTable } from '../export/csv';
 
 /**
  * 출결 신청 — 예전 구글폼(예외 출결) 문항을 그대로 옮겼다. 서버 규칙은 lms_api/lms/attendance_requests.py 와 같다.

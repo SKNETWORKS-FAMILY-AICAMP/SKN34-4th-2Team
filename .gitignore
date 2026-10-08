@@ -163,6 +163,7 @@ test/tmp_dump/
 /presentation
 # 첨삭 평가 실행 결과 (모델 출력·비용 발생 산출물)
 cover_letter_rag/evaluation/runs/
+cover_letter_rag/evaluation/*_results/
 
 # React/Vite (lms_react)
 dist/

@@ -382,6 +382,7 @@ class ResumeReviewIn(Schema):
     previousReviewId: str | None = None
     """[{question_id, field_path, question, answer}]"""
     answers: list[dict] | None = None
+    answerChanges: list[dict] | None = None
 
 
 def _owned_resume(request, resume_id: str):
@@ -784,10 +785,18 @@ def resume_review(request, body: ResumeReviewIn):
         ("review_phase", body.reviewPhase),
         ("previous_review_id", body.previousReviewId),
         ("answers", body.answers),
+        ("answer_changes", body.answerChanges),
     ):
         if value:
             payload[key] = value
     return _review_call("/api/v1/resumes/reviews/proxy", payload)
+
+
+@api.post("/resume-review/answer-change")
+def resume_review_answer_change(request, body: ResumeReviewIn):
+    if not body.answerChanges:
+        raise HttpError(422, 'answer_change_required')
+    return resume_review(request, body)
 
 
 class ReviewContextIn(Schema):

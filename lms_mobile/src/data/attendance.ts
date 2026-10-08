@@ -1,4 +1,12 @@
-import type { Attendance, AttendanceIssue, SeatPresence, SeatPresenceState, SpotCheck } from '@web/domain/types';
+import type {
+  Attendance,
+  AttendanceIssue,
+  SeatPresence,
+  SeatPresenceState,
+  SpotCheck,
+  SpotCheckItem,
+  SpotCheckPeriod,
+} from '@web/domain/types';
 
 import { readApiError } from './http';
 import { patchBootstrap, refreshBootstrap, runCommand, useDb } from './query';
@@ -55,6 +63,33 @@ export async function setSeatPresence(
   }
 }
 
-export async function savePresenceCheck(payload: Record<string, unknown>): Promise<void> {
-  await runCommand('savePresenceCheck', payload);
+export interface SpotCheckDraft {
+  id?: string;
+  checkedAt: Date;
+  period: SpotCheckPeriod;
+  note?: string;
+  items: SpotCheckItem[];
+}
+
+/** 점검 한 번을 통째로 저장한다 — id 가 있으면 그 점검을 고쳐 쓴다. 저장된 id 를 돌려준다. */
+export async function savePresenceCheck(cohortId: string, draft: SpotCheckDraft): Promise<string> {
+  const data = await runCommand('savePresenceCheck', {
+    id: draft.id,
+    cohortId,
+    checkedAt: draft.checkedAt.toISOString(),
+    period: draft.period,
+    note: draft.note,
+    items: draft.items,
+  });
+  return String(data.id ?? draft.id ?? '');
+}
+
+export async function deletePresenceCheck(id: string): Promise<void> {
+  patchBootstrap((db) => ({ spotChecks: db.spotChecks.filter((row) => row.id !== id) }));
+  try {
+    await runCommand('deletePresenceCheck', { id });
+  } catch (error) {
+    void refreshBootstrap();
+    throw error;
+  }
 }

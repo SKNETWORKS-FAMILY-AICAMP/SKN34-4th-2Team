@@ -7,6 +7,7 @@ import {
   setAttendanceStatus,
   useAttendanceByDate,
   useAttendanceIssues,
+  useSpotChecks,
   useStudents,
 } from '../../data/repository';
 import { dateKeyOf } from '../../data/seed';
@@ -17,7 +18,7 @@ import {
   AttendanceStatuses,
   attendanceLabel,
 } from '../../domain/constants';
-import type { AttendanceStatusCode } from '../../domain/types';
+import type { AttendanceStatusCode, SpotCheck } from '../../domain/types';
 import { AdminTargets } from '../../tour/targets';
 import { useTourTarget } from '../../tour/useTourTarget';
 import { Icon } from '../../ui/Icon';
@@ -25,6 +26,8 @@ import { PageHeader, Select, Tabs } from '../../ui/components';
 import { useCurrentUser } from '../auth/session';
 import { AttendanceRequestsPanel } from '../attendance/AttendanceRequestsPanel';
 import { RequestStatusLabels, labelOf } from '../attendance/attendanceRequest';
+import { SpotCheckHistory, SpotCheckRunner } from '../manager/SpotCheck';
+import { RollCallRecords } from './RollCallRecords';
 
 /** 출석 관리 — features/admin/presentation/admin_attendance_screen.dart */
 export function AdminAttendanceScreen() {
@@ -32,7 +35,10 @@ export function AdminAttendanceScreen() {
   const students = useStudents(user.cohortId).filter((s) => s.isActive);
   const noticeRef = useTourTarget(AdminTargets.attendanceDailyNotice);
 
-  const [tab, setTab] = useState<'roll' | 'requests'>('roll');
+  const [tab, setTab] = useState<'roll' | 'requests' | 'rollCall' | 'spot' | 'history'>('roll');
+  const [editingCheck, setEditingCheck] = useState<SpotCheck | undefined>(undefined);
+  const [savedNotice, setSavedNotice] = useState(false);
+  const spotChecks = useSpotChecks(user.cohortId);
   const [dateKey, setDateKey] = useState(() => dateKeyOf(new Date()));
   const [query, setQuery] = useState('');
   const [posted, setPosted] = useState(false);
@@ -76,14 +82,56 @@ export function AdminAttendanceScreen() {
 
       <Tabs
         active={tab}
-        onChange={(id) => setTab(id as typeof tab)}
+        onChange={(id) => {
+          setTab(id as typeof tab);
+          setSavedNotice(false);
+          if (id !== 'spot') setEditingCheck(undefined);
+        }}
         items={[
           { id: 'roll', label: '출석부' },
           { id: 'requests', label: '출결 신청 확인', count: pendingRequests },
+          { id: 'rollCall', label: '교시 호명 기록' },
+          { id: 'spot', label: '불시 점검' },
+          { id: 'history', label: '점검 이력', count: spotChecks.length },
         ]}
       />
 
       {tab === 'requests' && <AttendanceRequestsPanel reviewer={user} students={students} />}
+
+      {tab === 'rollCall' && <RollCallRecords cohortId={user.cohortId} cohortName={user.cohortName} students={students} />}
+
+      {tab === 'spot' && (
+        <SpotCheckRunner
+          cohortId={user.cohortId}
+          checker={user}
+          students={students}
+          editing={editingCheck}
+          onSaved={() => {
+            setEditingCheck(undefined);
+            setSavedNotice(true);
+            setTab('history');
+          }}
+          onCancelEdit={() => setEditingCheck(undefined)}
+        />
+      )}
+
+      {tab === 'history' && (
+        <>
+          {savedNotice && (
+            <div className="callout callout--success">점검을 저장했습니다. 여기서 Excel · Word · PDF 로 내려받을 수 있습니다.</div>
+          )}
+          <SpotCheckHistory
+            cohortId={user.cohortId}
+            cohortName={user.cohortName}
+            students={students}
+            onEdit={(check) => {
+              setEditingCheck(check);
+              setSavedNotice(false);
+              setTab('spot');
+            }}
+          />
+        </>
+      )}
 
       {tab === 'roll' && (
         <>
@@ -233,8 +281,4 @@ export function AdminAttendanceScreen() {
 
 /** 좌석 배치 — features/seating/AdminSeatingScreen.tsx 로 옮겼다. */
 export { AdminSeatingScreen } from '../seating/AdminSeatingScreen';
-
-/** 자리 확인(관리자) — 강사 화면과 같은 일을 한다. */
-export { InstructorAttendanceScreen as AdminSeatPresenceScreen } from '../instructor/InstructorAttendanceScreen';
-
 export { attendanceLabel };
