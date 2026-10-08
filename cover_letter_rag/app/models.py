@@ -351,4 +351,5 @@ class FirestoreResumeReviewResponse(ResumeReviewGeneration):
 class HealthResponse(StrictModel):
     status: Literal["ok"] = "ok"
     model: str
+    review_engine: Literal['v1', 'v2', 'v2-local'] = 'v2'
     firebase_auth: Literal["configured", "not_configured"] = "not_configured"

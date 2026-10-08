@@ -23,7 +23,7 @@ services:
       - redis
     command: >
       gunicorn lms_server.wsgi:application --bind 0.0.0.0:8000
-      --workers 3 --threads 4 --timeout 120
+      --workers 3 --threads 4 --timeout 240
 
   worker:
     image: ${ECR_IMAGE:?Set ECR_IMAGE in the deployment environment}

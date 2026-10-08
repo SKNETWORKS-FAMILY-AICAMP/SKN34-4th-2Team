@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     )
 
     app_env: str = "local"
+    resume_review_engine: Literal['v1', 'v2', 'v2-local'] = 'v2'
     openai_api_key: str | None = Field(default=None, repr=False)
     openai_model: str = "gpt-5.6-luna"
     openai_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = "medium"

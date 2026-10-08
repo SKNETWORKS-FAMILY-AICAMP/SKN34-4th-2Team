@@ -29,6 +29,7 @@ from app.firebase_gateway import ResumeAccessError
 from google.api_core.exceptions import GoogleAPIError
 from google.auth.exceptions import GoogleAuthError
 from app.tailored_resumes import TailoredResumeService
+from app.review_runtime_factory import build_review_gateway, build_review_service
 
 
 app = FastAPI(
@@ -42,10 +43,10 @@ app.include_router(resume_apply_router)
 
 def get_context_gateway() -> FirebaseGateway:
     settings = get_settings()
-    if not settings.firebase_project_id:
+    if settings.resume_review_engine == 'v1' and not settings.firebase_project_id:
         raise HTTPException(status_code=503, detail='Firebase configuration unavailable')
     try:
-        return FirebaseGateway(settings)
+        return build_review_gateway(settings)
     except (GoogleAuthError, GoogleAPIError, ValueError) as exc:
         raise HTTPException(status_code=503, detail='Firebase configuration unavailable') from exc
 
@@ -530,10 +531,10 @@ def build_resume_review_service() -> ResumeReviewService:
     settings = get_settings()
     if not settings.openai_api_key:
         raise HTTPException(status_code=503, detail="OPENAI_API_KEY is not configured on the server")
-    if not settings.firebase_project_id:
+    if settings.resume_review_engine == 'v1' and not settings.firebase_project_id:
         raise HTTPException(status_code=503, detail="FIREBASE_PROJECT_ID is not configured on the server")
     try:
-        return ResumeReviewService(settings, FirebaseGateway(settings))
+        return build_review_service(settings)
     except (GoogleAuthError, GoogleAPIError, ValueError) as exc:
         raise HTTPException(status_code=503, detail='Firebase configuration unavailable') from exc
 
@@ -542,6 +543,7 @@ def build_resume_review_service() -> ResumeReviewService:
 def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
     return HealthResponse(
         model=settings.openai_model,
+        review_engine=settings.resume_review_engine,
         firebase_auth="configured" if settings.firebase_project_id else "not_configured",
     )
 
@@ -558,7 +560,7 @@ def review_stored_resume_as_user(request: ProxyResumeReviewRequest) -> Firestore
     service = build_resume_review_service()
     inner = FirestoreResumeReviewRequest(**request.model_dump(exclude={"uid"}))
     try:
-        if inner.answer_changes and service.__class__.__module__ != 'app.local_resume_site_adapter':
+        if inner.answer_changes and getattr(service, 'supports_answer_changes', False) is not True:
             raise ReviewInputError('answer_edit_not_supported')
         return service.review_as(request.uid, inner)
     except ResumeAccessError as exc:

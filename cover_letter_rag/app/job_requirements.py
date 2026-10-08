@@ -159,7 +159,7 @@ def normalize_requirements(generated: JobRequirementProfileOut, job_text: str) -
     return requirements
 
 
-def build_requirement_extractor(settings) -> Callable[[str, dict], JobRequirementProfileOut]:
+def build_requirement_extractor(settings, *, timeout: float | None = None) -> Callable[[str, dict], JobRequirementProfileOut]:
     from langchain_openai import ChatOpenAI
 
     model = ChatOpenAI(
@@ -168,6 +168,7 @@ def build_requirement_extractor(settings) -> Callable[[str, dict], JobRequiremen
         use_responses_api=True,
         reasoning_effort='low',
         max_retries=0,
+        **({'timeout': timeout} if timeout is not None else {}),
     )
     chain = REQUIREMENT_PROMPT | model.with_structured_output(JobRequirementProfileOut, method='json_schema')
 

@@ -6,6 +6,27 @@
 
 ## 로컬 개발
 
+### Resume Review v2 실행 선택
+
+통합 진입점 `app.integrated:app`은 `RESUME_REVIEW_ENGINE=v2`를 기본으로 사용한다.
+review·context·apply·undo는 공통 PostgreSQL gateway를 사용한다. Django proxy 요청은
+기존 사용자/기수/이력서 소유권 검사를 유지하며 Firebase Admin 초기화를 요구하지 않는다.
+직접 bearer 요청은 Firebase 인증 설정과 토큰 검증이 계속 필요하다.
+
+- `v2`: 공용 v2 런타임. Analyze/Writer/Verifier checkpoint와 답변 수정·철회 지원.
+- `v2-local`: 기존 B 실행용. loopback DB 제한을 유지한다.
+- `v1`: 이전 런타임으로 명시적 전환. 진행 중인 v2 review를 v1으로 이어가지 않는다.
+
+이 설정은 서버 프로세스 시작 시 읽는다. 코드 반영 후 AI 프로세스/이미지를 재시작하고
+`GET /resume-review/health`의 `review_engine`이 `v2`인지 확인한다.
+배포 Compose는 v2를 명시하며, Django/Nginx도 새 timeout 설정을 반영해야 한다.
+새 migration은 없다. 기존 v2 저장 테이블 migration이 적용된 DB를 사용한다.
+
+공고 요건은 저장된 profile을 우선 재사용한다. 미생성 profile의 추출은 최대 45초의
+호출 timeout을 사용하고, 이 시간을 포함해 review의 165초 예산을 계산한다.
+추출 실패를 확인된 요건 없음으로 처리하지 않는다. telemetry의 `v2-local-ui-2`는
+기존 checkpoint 호환용 protocol 표식이며 실행 DB가 로컬이라는 뜻은 아니다.
+
 ```text
 React localhost:5173 → Django localhost:8000 → FastAPI localhost:8001
                                              ↘ RDS / S3 / Pinecone
