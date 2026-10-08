@@ -479,7 +479,7 @@ export function JobApplyScreen() {
       {posting !== null && (
         <Card className="apply-step">
           <StepHead no={3} title="회사 자기소개서 문항" done={questions !== null} />
-          <QuestionsStep value={questions} locked={draft !== null} onChange={setQuestions} />
+          <QuestionsStep value={questions} locked={draft !== null} onChange={setQuestions} posting={posting} />
         </Card>
       )}
 

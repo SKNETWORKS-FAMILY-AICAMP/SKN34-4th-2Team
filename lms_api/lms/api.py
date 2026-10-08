@@ -1430,6 +1430,93 @@ def featured_posting_list(request, view: str = "live", tier: str = "", offset: i
     }
 
 
+class SharedQuestionItemIn(Schema):
+    question: str = Field(max_length=500)
+    limit: int | None = None
+
+
+class SharedQuestionsIn(Schema):
+    jobId: str = Field(min_length=1, max_length=255)
+    roleName: str = Field(min_length=1, max_length=255)
+    questions: list[SharedQuestionItemIn] = Field(max_length=20)
+    share: bool = True
+
+
+class SharedQuestionReportIn(Schema):
+    reason: str = Field(max_length=40)
+
+
+def _shared_call(fn, *args, **kwargs):
+    from lms import shared_questions
+
+    try:
+        return fn(*args, **kwargs)
+    except shared_questions.SharedQuestionError as exc:
+        return Response({"detail": exc.detail}, status=exc.status)
+
+
+def _role_id(value: str) -> bool:
+    import uuid
+
+    try:
+        uuid.UUID(value)
+        return True
+    except ValueError:
+        return False
+
+
+@api.get("/apply/shared-questions")
+def shared_question_list(request, jobId: str):
+    """공고 맞춤 지원 3단계 — 고른 공고의 회사 · 시즌에 다른 수강생이 정리한 문항(직무별 · 공통). shared_questions.py"""
+    from lms import shared_questions
+
+    user = _require_user(request)
+    return _shared_call(shared_questions.list_shared, user["id"], jobId)
+
+
+@api.post("/apply/shared-questions/check")
+def shared_question_check(request, body: SharedQuestionsIn):
+    """확정 전 — 이름은 다른데 문항이 같은 직무가 있으면 알려 준다(합칠지 묻는다)."""
+    from lms import shared_questions
+
+    user = _require_user(request)
+    questions = [q.dict() for q in body.questions]
+    return _shared_call(shared_questions.check, user["id"], body.jobId, body.roleName, questions)
+
+
+@api.post("/apply/shared-questions")
+def shared_question_save(request, body: SharedQuestionsIn):
+    """학생이 문항을 확정했을 때 남긴다. share=False 면 올린 학생만 본다. 답 · 메모는 받지 않는다."""
+    from lms import shared_questions
+
+    user = _require_user(request)
+    questions = [q.dict() for q in body.questions]
+    return _shared_call(shared_questions.save, user["id"], body.jobId, body.roleName, questions, share=body.share)
+
+
+@api.post("/apply/shared-questions/{role_id}/use")
+def shared_question_use(request, role_id: str):
+    """「이 문항으로 쓰기」 — 사용 수를 올린다(올린 학생 자신은 세지 않는다)."""
+    from lms import shared_questions
+
+    user = _require_user(request)
+    if not _role_id(role_id):
+        return Response({"detail": "정리를 찾을 수 없어요."}, status=404)
+    result = _shared_call(shared_questions.use, user["id"], role_id)
+    return result if isinstance(result, Response) else {"ok": True}
+
+
+@api.post("/apply/shared-questions/{role_id}/report")
+def shared_question_report(request, role_id: str, body: SharedQuestionReportIn):
+    """이상해요 — 2명이 누르면 숨긴다. recruit_role_reports 표가 생기기 전에는 503."""
+    from lms import shared_questions
+
+    user = _require_user(request)
+    if not _role_id(role_id):
+        return Response({"detail": "정리를 찾을 수 없어요."}, status=404)
+    return _shared_call(shared_questions.report, user["id"], role_id, body.reason)
+
+
 @api.get("/postings/{job_id}", auth=None)
 def job_posting(request, job_id: str):
     """공고 원문 한 건 — 추천 카드에서 새 탭으로 여는 화면이 읽는다.

@@ -2,15 +2,18 @@ import { useState } from 'react';
 
 import { nextId } from '../../data/store';
 import { Icon } from '../../ui/Icon';
-import { Button, TextArea } from '../../ui/components';
+import { Button, Checkbox, Dialog, TextArea } from '../../ui/components';
 import { CaptureUpload } from './CaptureUpload';
 import { COMMON_QUESTIONS, splitQuestions, type CompanyQuestion } from './companyQuestions';
+import { SharedQuestions } from './SharedQuestions';
+import { COMMON_ROLE, roleFromTitle, sharedQuestionsApi } from './sharedQuestionsApi';
 
 /**
- * 회사 자기소개서 문항 정하기 — 붙여넣기 · 캡처 올리기 · 자주 나오는 문항 · 기본 여섯 문항.
+ * 회사 자기소개서 문항 정하기 — 다른 수강생이 정리한 문항 · 붙여넣기 · 캡처 올리기 · 자주 나오는 문항 · 기본 여섯 문항.
  *
  * 문항은 대개 회사 채용 사이트에 있고 우리가 수집한 공고 글에는 거의 없다(companyQuestions.ts).
  * 회사 사이트로 가는 버튼은 위의 공고 요약에 하나만 둔다(ApplySiteButton.tsx). 여기서는 그 버튼을 가리킨다.
+ * 붙여넣기 · 캡처로 정한 문항은 같은 회사 · 시즌 · 직무를 고른 수강생에게도 보이게 남긴다(SharedQuestions.tsx).
  */
 export type QuestionChoice = CompanyQuestion[] | 'default';
 
@@ -18,7 +21,7 @@ type Tab = 'paste' | 'upload' | 'common' | 'default';
 
 const TABS: { id: Tab; icon: string; label: string }[] = [
   { id: 'paste', icon: 'content_paste', label: '붙여넣기' },
-  { id: 'upload', icon: 'upload_file', label: '캡처 · PDF 올리기' },
+  { id: 'upload', icon: 'upload_file', label: '캡처 · 파일 올리기' },
   { id: 'common', icon: 'checklist', label: '자주 나오는 문항' },
   { id: 'default', icon: 'list', label: '기본 6문항' },
 ];
@@ -27,11 +30,14 @@ export function QuestionsStep({
   value,
   locked,
   onChange,
+  posting,
 }: {
   value: QuestionChoice | null;
   /** 공고용 이력서를 만든 뒤에는 여기서 바꾸지 않는다 */
   locked: boolean;
   onChange(value: QuestionChoice | null): void;
+  /** 고른 공고 — 있으면 다른 수강생이 정리한 문항을 보여 주고, 정한 문항을 남긴다 */
+  posting?: { job_id: string; company: string; title: string };
 }) {
   const [tab, setTab] = useState<Tab>('paste');
   const [pasted, setPasted] = useState('');
@@ -39,6 +45,47 @@ export function QuestionsStep({
   /** 캡처에서 읽었는데 캡처 글에 없어 뺀 문항 수 */
   const [dropped, setDropped] = useState(0);
   const [picked, setPicked] = useState<Record<string, number | null>>({ motivation: 600, competency: 800 });
+  const [role, setRole] = useState('');
+  const [common, setCommon] = useState(false);
+  const [share, setShare] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [roleError, setRoleError] = useState<string | null>(null);
+  /** 이름은 다른데 문항이 같은 직무 — 합칠지 묻는다 */
+  const [same, setSame] = useState<{ name: string; useCount: number; list: CompanyQuestion[] } | null>(null);
+
+  /** 붙여넣기 · 캡처로 정한 문항을 남기고 정한다. 남기다 실패해도 정하기는 막지 않는다 */
+  const keep = async (list: CompanyQuestion[], roleName: string) => {
+    setSame(null);
+    if (posting !== undefined) {
+      try {
+        await sharedQuestionsApi.save(posting.job_id, roleName, list, share);
+      } catch {
+        // 공유는 덤이다
+      }
+    }
+    onChange(list);
+  };
+
+  const confirm = async (list: CompanyQuestion[]) => {
+    if (posting === undefined) {
+      onChange(list);
+      return;
+    }
+    const roleName = common ? COMMON_ROLE : role.trim();
+    if (roleName === '') {
+      setRoleError('위에서 지원 직무를 적어 주세요. 같은 직무를 고른 수강생과 문항을 나눠요.');
+      return;
+    }
+    setRoleError(null);
+    setSaving(true);
+    try {
+      const { sameRole } = await sharedQuestionsApi.check(posting.job_id, roleName, list).catch(() => ({ sameRole: null }));
+      if (sameRole !== null) setSame({ ...sameRole, list });
+      else await keep(list, roleName);
+    } finally {
+      setSaving(false);
+    }
+  };
 
 
   if (value !== null) {
@@ -76,11 +123,26 @@ export function QuestionsStep({
 
   return (
     <>
+      {posting !== undefined && (
+        <SharedQuestions
+          jobId={posting.job_id}
+          role={role}
+          onRole={(name) => {
+            setRole(name);
+            setRoleError(null);
+          }}
+          common={common}
+          onCommon={setCommon}
+          guess={roleFromTitle(posting.title, posting.company)}
+          onPick={(list) => onChange(list)}
+        />
+      )}
+
       <div className="apply-note">
         <Icon name="info" size={18} />
         <span>
           자기소개서 문항은 대개 회사 채용 사이트에 있어요. 위의 「회사 채용 사이트 열기」로 지원서 화면을 열고, 문항을 복사해
-          붙여 넣거나 캡처를 올려 주세요.
+          붙여 넣거나 캡처 · 양식 파일을 올려 주세요.
         </span>
       </div>
 
@@ -198,13 +260,51 @@ export function QuestionsStep({
               </div>
             </div>
           )}
+          {posting !== undefined && pastedChoice.length > 0 && (
+            <div className="apply-shared__share">
+              <Checkbox checked={share} onChange={setShare} label="다른 수강생에게도 보여주기" />
+              <span className="hint">
+                문항 · 글자 수만 공유돼요. 내 답과 메모는 공유되지 않아요. 유료 문항집처럼 나누면 안 되는 자료면 꺼 주세요.
+              </span>
+            </div>
+          )}
+          {roleError !== null && <p className="apply-error">{roleError}</p>}
           <div>
-            <Button onClick={() => onChange(pastedChoice)} disabled={pastedChoice.length === 0}>
+            <Button onClick={() => void confirm(pastedChoice)} disabled={pastedChoice.length === 0 || saving}>
               <Icon name="check" size={18} />
               {pastedChoice.length === 0 ? '문항을 먼저 뽑아 주세요' : `이 문항 ${pastedChoice.length}개로 정하기`}
             </Button>
           </div>
         </div>
+      )}
+
+      {same !== null && (
+        <Dialog
+          title={`「${same.name}」에 같은 문항이 이미 있어요`}
+          onClose={() => setSame(null)}
+          width={560}
+          actions={
+            <>
+              <Button variant="outline" onClick={() => void keep(same.list, role.trim())}>
+                아니요, 다른 직무예요
+              </Button>
+              <Button
+                onClick={() => {
+                  setRole(same.name);
+                  void keep(same.list, same.name);
+                }}
+              >
+                네, 같은 직무예요 — {same.name}로 합치기
+              </Button>
+            </>
+          }
+        >
+          <p>
+            내가 정한 직무는 <b>{role.trim()}</b>이에요. 같은 회사 · 시즌의 <b>{same.name}</b>에 문항이 모두 같은 정리가 있어요
+            {same.useCount > 0 && ` (${same.useCount}명 사용)`}.
+          </p>
+          <p className="hint">따로 두어도 다른 수강생에게는 문항이 같은 정리 한 장으로 보여요.</p>
+        </Dialog>
       )}
 
       {tab === 'common' && (

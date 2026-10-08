@@ -1154,3 +1154,115 @@
   align-items: flex-end;
   gap: 4px;
 }
+
+/* 다른 수강생이 정리한 문항(SharedQuestions.tsx) */
+.apply-shared {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.apply-shared__roles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.apply-shared__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.apply-shared__role-input {
+  max-width: 360px;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.apply-shared__suggest {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 520px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.apply-shared__suggest-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--primary);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.apply-shared__suggest-item span {
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.apply-shared__empty {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.apply-shared__card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+}
+
+.apply-shared__card--common {
+  border-color: color-mix(in srgb, var(--success) 40%, var(--border));
+  background: color-mix(in srgb, var(--success) 5%, var(--surface));
+}
+
+.apply-shared__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  font-size: 14px;
+}
+
+.apply-shared__card .apply-q-list li.is-diff span:first-child {
+  background: color-mix(in srgb, var(--warning) 22%, transparent);
+  border-radius: 4px;
+}
+
+.apply-shared__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.apply-shared__share {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
