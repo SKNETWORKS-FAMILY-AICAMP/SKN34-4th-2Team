@@ -14,7 +14,7 @@ import { useCurrentUser } from '../auth/session';
 import { JobPostingDialog } from '../jobs/JobPostingDialog';
 import { careerLabel, type Posting } from '../jobs/JobPostingScreen';
 import { closedReason } from '../jobs/postingStatus';
-import { reviewApi, type Json } from '../resume/review/reviewApi';
+import { ReviewApiError, reviewApi, type Json } from '../resume/review/reviewApi';
 import { DeleteResumeDialog } from '../resume/DeleteResumeDialog';
 import { applyCopyTitle, isApplyCopy, isTailored, reviewWorkCopy } from '../resume/resumeGroups';
 import {
@@ -50,7 +50,8 @@ import './jobApply.css';
 type Requirements =
   | { state: 'loading' }
   | { state: 'ready'; rows: PostingRequirement[] }
-  | { state: 'failed'; message: string };
+  /** retry: 다시 해서 나아질 실패(연결 · 서버 오류)인가. 이미지뿐인 공고 · 마감 공고처럼 서버가 정한 답이면 안내만 */
+  | { state: 'failed'; message: string; retry: boolean };
 
 interface Draft {
   resumeId: string;
@@ -155,7 +156,11 @@ export function JobApplyScreen() {
       .requirements(jobId)
       .then((data) => setRequirements({ state: 'ready', rows: requirementRows(data) }))
       .catch((err: unknown) =>
-        setRequirements({ state: 'failed', message: errorDetail(err, '공고 요건을 정리하지 못했어요.') }),
+        setRequirements({
+          state: 'failed',
+          message: errorDetail(err, '공고 요건을 정리하지 못했어요.'),
+          retry: !(err instanceof ReviewApiError && [404, 409, 422].includes(err.statusCode)),
+        }),
       );
   };
 
@@ -591,6 +596,14 @@ function PostingSummary({ posting, onOpen, onChange }: { posting: Posting; onOpe
 function RequirementList({ requirements, onRetry }: { requirements: Requirements; onRetry(): void }) {
   if (requirements.state === 'loading') {
     return <p className="hint apply-loading">공고 원문에서 필수 · 우대 요건을 정리하고 있어요… (처음 여는 공고는 몇 초 걸려요)</p>;
+  }
+  if (requirements.state === 'failed' && !requirements.retry) {
+    return (
+      <p className="apply-note">
+        <Icon name="info" size={18} />
+        <span>{requirements.message}</span>
+      </p>
+    );
   }
   if (requirements.state === 'failed') {
     return (
