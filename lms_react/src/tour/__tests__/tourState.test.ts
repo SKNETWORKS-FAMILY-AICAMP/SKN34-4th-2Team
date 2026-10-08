@@ -26,7 +26,7 @@ describe('스텝 정의', () => {
   it('역할별 스텝 수가 Flutter와 같다', () => {
     expect(studentTour.steps).toHaveLength(14);
     expect(instructorTour.steps).toHaveLength(12);
-    expect(adminTour.steps).toHaveLength(17);
+    expect(adminTour.steps).toHaveLength(16);
   });
 
   it('스텝 id가 투어 안에서 유일하다', () => {

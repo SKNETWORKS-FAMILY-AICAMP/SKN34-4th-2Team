@@ -28,7 +28,6 @@ import {
   PeoplePage,
   PersonFormPage,
   PersonPage,
-  PresencePage,
   RoomsPage,
   SourcesPage,
   StudyAdminPage,
@@ -124,7 +123,8 @@ export function AdminRoute({ parts }: { parts: string[] }): ReactNode {
   if (a === 'counsel') return <CounselPage studentId={b} />;
   if (a === 'quests') return <AdminQuestsPage />;
   if (a === 'attendance') return <AttendanceAdminPage />;
-  if (a === 'presence') return <PresencePage />;
+  // 관리자 자리 확인은 없앴다 — 예전 주소는 불시 점검이 있는 출석 관리로 연다
+  if (a === 'presence') return <AttendanceAdminPage />;
   if (a === 'rooms') return <RoomsPage />;
   if (a === 'teams') return <TeamEditPage />;
   if (a === 'exams' && c === 'sub' && d) return <GradePage submissionId={d} readOnly />;

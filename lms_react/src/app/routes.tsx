@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import { Navigate } from 'react-router-dom';
 
 import { lazyNamed, tracked } from './lazyNamed';
 
@@ -76,7 +77,6 @@ const loadAdminQuestScreen = tracked(() => import('../features/quests/AdminQuest
 const AdminQuestScreen = lazyNamed(loadAdminQuestScreen, 'AdminQuestScreen');
 const loadAdminAttendanceScreens = tracked(() => import('../features/admin/AdminAttendanceScreens'));
 const AdminAttendanceScreen = lazyNamed(loadAdminAttendanceScreens, 'AdminAttendanceScreen');
-const AdminSeatPresenceScreen = lazyNamed(loadAdminAttendanceScreens, 'AdminSeatPresenceScreen');
 const AdminSeatingScreen = lazyNamed(loadAdminAttendanceScreens, 'AdminSeatingScreen');
 const loadAdminRecordsScreen = tracked(() => import('../features/admin/AdminRecordsScreen'));
 const AdminRecordsScreen = lazyNamed(loadAdminRecordsScreen, 'AdminRecordsScreen');
@@ -233,7 +233,8 @@ export const adminRoutes: AppRoute[] = [
   { path: RoutePaths.adminInstructorsCreate, element: <AdminInstructorCreateScreen />, roles: admin },
 
   { path: RoutePaths.adminAttendance, element: <AdminAttendanceScreen />, roles: admin },
-  { path: RoutePaths.adminSeatPresence, element: <AdminSeatPresenceScreen />, roles: admin },
+  // 자리 확인은 강사만 한다. 예전 주소는 불시 점검이 옮겨 간 출석 관리로 보낸다.
+  { path: RoutePaths.adminSeatPresence, element: <Navigate to={RoutePaths.adminAttendance} replace />, roles: admin },
   { path: RoutePaths.adminSeating, element: <AdminSeatingScreen />, roles: admin },
 
   { path: RoutePaths.adminAssessments, element: <InstructorAssessmentsScreen readOnly />, roles: admin },
