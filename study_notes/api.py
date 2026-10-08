@@ -134,7 +134,7 @@ def _internal_auth(token: str | None = Header(default=None, alias="X-LMS-AI-Toke
 
 def _proxy_auth_if_configured(token: str | None = Header(default=None, alias="X-LMS-AI-Token")) -> None:
     """LMS_AI_SHARED_TOKEN 이 있는 곳(운영 · 두 EC2)에서만 Django 의 토큰을 본다. 로컬처럼 비어 있으면 그냥 받는다.
-    웹 채점처럼 받은 글(검사문)을 실행하는 창구에 건다 — 보안 그룹이 한 번 잘못 열려도 밖에서 JS 를 돌리지 못하게."""
+    /proxy/* 창구 모두에 건다 — 보안 그룹이 한 번 잘못 열려도 밖에서 LLM 을 부르거나 검사문(JS)을 돌리지 못하게."""
     if os.environ.get("LMS_AI_SHARED_TOKEN") and not valid_proxy_token(token):
         raise HTTPException(status_code=401, detail="Django proxy authentication required")
 
@@ -196,13 +196,13 @@ def get_note(request: GetNoteRequest, session: Session = Depends(_session)) -> d
     )
 
 
-@router.post("/proxy/tree")
+@router.post("/proxy/tree", dependencies=[Depends(_proxy_auth_if_configured)])
 def proxy_tree(request: ProxyTreeRequest) -> dict[str, Any]:
     source = service.source_from_payload(request.source.model_dump())
     return service.source_tree(request.cohortId, source)
 
 
-@router.post("/proxy/generate")
+@router.post("/proxy/generate", dependencies=[Depends(_proxy_auth_if_configured)])
 def proxy_generate(request: ProxyGenerateRequest) -> dict[str, Any]:
     """몇 분 걸린다. Django 는 학생 요청을 먼저 돌려보내고 뒤에서 이걸 기다린다."""
     source = service.source_from_payload(request.source.model_dump())
@@ -210,7 +210,7 @@ def proxy_generate(request: ProxyGenerateRequest) -> dict[str, Any]:
     return service.build_note_for_lms(request.cohortId, source, request.scopeType, request.scopeValue, previous)
 
 
-@router.post("/proxy/resolve")
+@router.post("/proxy/resolve", dependencies=[Depends(_proxy_auth_if_configured)])
 def proxy_resolve(request: ProxyGenerateRequest) -> dict[str, Any]:
     """노트를 만들지 않고 범위의 파일 · 내용 해시만 — LLM 없음, 1~2초. Django 가 같은 자료로 만든 노트를 찾는 데 쓴다."""
     source = service.source_from_payload(request.source.model_dump())
@@ -222,7 +222,7 @@ class ProxyFileRequest(ProxyTreeRequest):
     commit: str = Field(default="", max_length=64)
 
 
-@router.post("/proxy/file")
+@router.post("/proxy/file", dependencies=[Depends(_proxy_auth_if_configured)])
 def proxy_file(request: ProxyFileRequest) -> dict[str, Any]:
     """수업 파일 하나의 원문 — 노트의 「연습장에서 열기」. LLM 없음."""
     source = service.source_from_payload(request.source.model_dump())
@@ -239,7 +239,7 @@ class ProxySubjectRequest(BaseModel):
     days: list[ProxySubjectDay] = Field(min_length=1, max_length=120)
 
 
-@router.post("/proxy/subject")
+@router.post("/proxy/subject", dependencies=[Depends(_proxy_auth_if_configured)])
 def proxy_subject(request: ProxySubjectRequest) -> dict[str, Any]:
     """과목 전체 요약 — Django 가 모은 날짜별 노트를 한 장으로. 저장소는 읽지 않는다. LLM 1회."""
     from study_notes.pipeline import generate_subject_summary
@@ -255,7 +255,7 @@ def proxy_subject(request: ProxySubjectRequest) -> dict[str, Any]:
     return {"status": "ready", "reportMarkdown": report}
 
 
-@router.post("/proxy/subject-files")
+@router.post("/proxy/subject-files", dependencies=[Depends(_proxy_auth_if_configured)])
 def proxy_subject_files(request: ProxyTreeRequest) -> dict[str, Any]:
     """과목 전체 요약 — 수업 파일을 직접 읽어 주제(맨 위 폴더)별로(study_notes/subject.py). 몇 분 걸린다. LLM 1회 ~ 묶음 수 + 1회."""
     source = service.source_from_payload(request.source.model_dump())
@@ -269,7 +269,7 @@ def proxy_subject_files(request: ProxyTreeRequest) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=service.failure_message(exc)) from exc
 
 
-@router.post("/proxy/repos")
+@router.post("/proxy/repos", dependencies=[Depends(_proxy_auth_if_configured)])
 def proxy_repos(request: ProxyReposRequest) -> dict[str, Any]:
     """GitHub 계정·조직의 수업 저장소 목록 — LMS 가 새 저장소를 공부방에 자동으로 올릴 때 쓴다."""
     try:
@@ -278,7 +278,7 @@ def proxy_repos(request: ProxyReposRequest) -> dict[str, Any]:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
-@router.post("/proxy/practice")
+@router.post("/proxy/practice", dependencies=[Depends(_proxy_auth_if_configured)])
 def proxy_practice(request: ProxyPracticeRequest) -> dict[str, Any]:
     """복습 문제 자동 출제 — 저장소 하나. 수 분 걸린다(LLM + 검증). Django 가 매일 18:30 에 부른다."""
     from study_notes.practice.auto import run_source
@@ -336,7 +336,7 @@ def proxy_practice_web_grade(request: ProxyWebGradeRequest) -> dict[str, Any]:
     return grade_result(results["grade"])
 
 
-@router.post("/proxy/practice/custom")
+@router.post("/proxy/practice/custom", dependencies=[Depends(_proxy_auth_if_configured)])
 def proxy_practice_custom(request: ProxyCustomPracticeRequest) -> dict[str, Any]:
     """학생이 고른 자료(자기 노트 · 연습장 파일)로 복습 문제. 수 분 걸린다 — Django 가 뒤에서 기다린다."""
     from study_notes.practice.custom import make_problems, upload_materials
@@ -360,7 +360,7 @@ def proxy_practice_custom(request: ProxyCustomPracticeRequest) -> dict[str, Any]
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@router.post("/proxy/tutor")
+@router.post("/proxy/tutor", dependencies=[Depends(_proxy_auth_if_configured)])
 def proxy_tutor(request: ProxyTutorRequest) -> dict[str, Any]:
     """연습장 튜터 — 문제 셀엔 3단계 힌트, 일반 셀엔 코드 · 오류 설명. 잡담은 LLM 없이 돌려보낸다."""
     from study_notes.practice.tutor import ask

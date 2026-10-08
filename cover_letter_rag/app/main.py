@@ -172,7 +172,8 @@ def job_requirements_as_user(
 
 
 class ProxyQuestionExtractRequest(StrictModel):
-    """LMS(Django) 프록시용. 캡처 이미지 세 장까지, 또는 지원서 양식 PDF 한 개(data URL)에서 문항을 뽑는다. 저장하지 않는다."""
+    """LMS(Django) 프록시용. 캡처 이미지 세 장까지, 또는 지원서 양식 파일(PDF · DOCX · PPTX · HWPX) 한 개(data URL)에서
+    문항을 뽑는다. 저장하지 않는다."""
 
     images: list[str] = Field(min_length=1, max_length=3)
 
@@ -190,8 +191,9 @@ def question_extract_as_user(request: ProxyQuestionExtractRequest, extractor=Dep
 
     LMS 가 로그인 · 파일 종류 · 크기를 확인한 뒤 부른다. 이 창구는 바깥에 열지 않는다(Django 만 부른다).
     """
-    from app.question_extract import extract_questions
-    if any(not re.match(r'^data:(image/(png|jpeg|webp)|application/pdf);base64,', url) for url in request.images):
+    from app.question_extract import DOCUMENT_TYPES, extract_questions
+    kinds = '|'.join(['image/(png|jpeg|webp)', 'application/pdf', *map(re.escape, DOCUMENT_TYPES)])
+    if any(not re.match(rf'^data:({kinds});base64,', url) for url in request.images):
         raise HTTPException(status_code=422, detail='unsupported_image')
     try:
         return extract_questions(extractor, request.images)

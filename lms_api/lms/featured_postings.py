@@ -29,6 +29,10 @@ TIERS = ("인기 기업", "대기업", "외국계")
 # 법인 표기 · 띄어쓰기를 뗀 이름 — 「(주)카카오」 「카카오 (주)」 = 카카오. SQL 의 NORM_SQL 과 같다
 _LEGAL = re.compile(r"\(주\)|\(유\)|㈜|주식회사|유한회사|\s")
 NORM_SQL = r"regexp_replace(company, '\(주\)|\(유\)|㈜|주식회사|유한회사|\s', '', 'g')"
+# company_profiles.company_key 와 같은 열쇠 — recruit_role_store.canonical_company_key(NFKC · 소문자 · 앞뒤 법인 표기만 뗌)를
+# SQL 로 옮긴 것. 우리 NORM_SQL 과 규칙이 달라 따로 둔다(2026-10-08 공고 회사 이름 36,578개에서 둘이 모두 같음)
+PROFILE_KEY_SQL = r"""regexp_replace(regexp_replace(lower(regexp_replace(normalize(j.company, NFKC), '^\s+|\s+$', '', 'g')),
+    '^(주식회사|\(주\)|㈜)\s*|\s*(주식회사|\(주\)|㈜)$', '', 'g'), '\s+', '', 'g')"""
 # 사이트마다 붙였다 뗐다 하는 영문 이름 — 「엠디엑스 주식회사(MDX Inc.)」 「(MDX lnc.)」
 _ENGLISH_ALIAS = re.compile(r"\([A-Za-z0-9 .,&'-]+\)")
 
