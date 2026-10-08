@@ -571,7 +571,7 @@ describe('이용 안내 투어', () => {
     click('빠른 로그인 (데모)');
     click('관리자');
     await flush();
-    expect(container.querySelector('.tour-card')?.textContent).toContain('1 / 17');
+    expect(container.querySelector('.tour-card')?.textContent).toContain('1 / 16');
     click('다시 보지 않기', container.querySelector('.tour-card') as HTMLElement);
     await flush();
     expect(container.querySelector('.tour-card')).toBeNull();

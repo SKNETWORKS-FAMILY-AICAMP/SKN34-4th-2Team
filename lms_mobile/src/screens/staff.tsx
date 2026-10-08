@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Linking, Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
 import { RoutePaths } from '@web/app/routePaths';
 import { ClassPeriods, currentPeriod, nearestPeriod } from '@web/domain/constants';
@@ -12,7 +12,7 @@ import {
   STATUS_TONE as QUEST_STATUS_TONE,
   periodLabel,
 } from '@web/features/quests/questLabels';
-import type { Quest, QuestApproval, QuestEvidenceType, SeatPresenceState, User } from '@web/domain/types';
+import type { Quest, QuestApproval, QuestEvidenceType, SeatPresenceState, SpotCheck, User } from '@web/domain/types';
 
 import { useSession } from '../auth/session';
 import { reviewAttendanceRequest, setSeatPresence, useAttendance, useIssues, usePresence, useSpotChecks } from '../data/attendance';
@@ -29,6 +29,7 @@ import { SeatGrid } from '../ui/SeatGrid';
 import { Avatar, Badge, Btn, Callout, Card, Chip, EmptyState, Field, ListGroup, ListItem, Muted, Screen, Segmented, StatTile, T, fmt, todayKey } from '../ui/kit';
 import { SettingsPage } from './student';
 import { ResumeListPage } from './extra';
+import { PaneHead, SpotCheckHistory, SpotCheckRunner, Toggle, useWideLayout, type SpotSeating } from './staffSpotCheck';
 
 export { CohortsPage, CounselPage, PeoplePage, PersonFormPage, PersonPage } from './staffPeople';
 export { AlertsAdminPage, CurriculumPage, FormsAdminPage, NoticeAdminPage, SourcesPage, StudyAdminPage } from './staffBoard';
@@ -346,16 +347,78 @@ export function AttendanceAdminPage() {
   );
   const users = useDb()?.users ?? [];
   const job = useJob();
+  const { width } = useWindowDimensions();
+  const { user, students, roll, seatLabelOf, seating } = useCohortRoll();
+  const checks = useSpotChecks().filter((row) => row.cohortId === user?.cohortId);
+  const [tab, setTab] = useState<'requests' | 'spot' | 'history'>('requests');
+  const [editingCheck, setEditingCheck] = useState<SpotCheck | undefined>(undefined);
+  const [savedNotice, setSavedNotice] = useState(false);
   const [comments, setComments] = useState<Record<string, string>>({});
   const decide = (id: string, decision: 'approved' | 'rejected') => {
     const comment = comments[id]?.trim() ?? '';
     if (decision === 'rejected' && !comment) return job.fail('반려 사유를 매니저 메모에 적어 주세요.');
     void job.run(() => reviewAttendanceRequest([id], decision, comment), decision === 'approved' ? '승인했습니다.' : '반려했습니다.');
   };
+  const pending = issues.filter((issue) => issue.status === 'submitted').length;
   return (
-    <Screen title={navLabel(RoutePaths.adminAttendance, '출석 관리')} empty={issues.length === 0} emptyText="출결 신청이 없습니다." onRefresh={refreshBootstrap}>
-      <JobNotice notice={job.notice} />
-      {issues.map((issue) => {
+    <Screen title={navLabel(RoutePaths.adminAttendance, '출석 관리')} onRefresh={refreshBootstrap}>
+      <Segmented
+        options={[
+          { key: 'requests', label: pending > 0 ? `출결 신청 ${pending}` : '출결 신청' },
+          { key: 'spot', label: '불시 점검' },
+          { key: 'history', label: `점검 이력 ${checks.length}` },
+        ]}
+        value={tab}
+        onChange={(next) => {
+          setTab(next);
+          setSavedNotice(false);
+          if (next !== 'spot') setEditingCheck(undefined);
+        }}
+      />
+
+      {tab === 'spot' ? (
+        user?.cohortId ? (
+          <SpotCheckRunner
+            cohortId={user.cohortId}
+            roll={roll}
+            seating={seating}
+            seatLabelOf={seatLabelOf}
+            width={width - 32 - 16 - 2}
+            editing={editingCheck}
+            onSaved={() => {
+              setEditingCheck(undefined);
+              setSavedNotice(true);
+              setTab('history');
+            }}
+            onCancelEdit={() => setEditingCheck(undefined)}
+          />
+        ) : (
+          <Card><EmptyState icon="groups" text="대시보드에서 기수를 먼저 선택해 주세요." /></Card>
+        )
+      ) : null}
+
+      {tab === 'history' ? (
+        <>
+          {savedNotice ? (
+            <Callout tone="success">
+              <T tone="success">점검을 저장했습니다. Excel · Word · PDF 내려받기는 웹에서 할 수 있습니다.</T>
+            </Callout>
+          ) : null}
+          <SpotCheckHistory
+            checks={checks}
+            students={students}
+            onEdit={(check) => {
+              setEditingCheck(check);
+              setSavedNotice(false);
+              setTab('spot');
+            }}
+          />
+        </>
+      ) : null}
+
+      {tab === 'requests' ? <JobNotice notice={job.notice} /> : null}
+      {tab === 'requests' && issues.length === 0 ? <Card><EmptyState text="출결 신청이 없습니다." /></Card> : null}
+      {tab !== 'requests' ? null : issues.map((issue) => {
         const comment = comments[issue.id] ?? '';
         return (
           <Card key={issue.id} style={{ gap: 8 }}>
@@ -386,44 +449,55 @@ export function AttendanceAdminPage() {
 
 // ── 자리 확인 ──────────────────────────────────────────
 
+/** 가로 호명 명단 한 줄 높이 — 지금 학생 줄로 따라 내려갈 때 쓴다 */
+const ROLL_ROW_H = 48;
+
 function shiftDay(dateKey: string, days: number): string {
   const [y, m, d] = dateKey.split('-').map(Number);
   return todayKey(new Date(y, m - 1, d + days));
 }
 
-/** 웹 `InstructorAttendanceScreen` — 강사 첫 화면이자 관리자의 자리 확인. 출석 상태는 건드리지 않는다. */
-export function PresencePage({ home = false }: { home?: boolean }) {
+/** 고른 기수의 학생(이름 차례) · 확정 좌석 배치 — 자리 확인과 관리자 불시 점검이 같이 쓴다 */
+function useCohortRoll() {
   const { user } = useSession();
   const db = useDb();
-  const { palette } = useTheme();
-  const { width } = useWindowDimensions();
   const students = useUsers().filter((row) => row.role === 'student' && row.isActive !== false && row.cohortId === user?.cohortId);
-  const [dateKey, setDateKey] = useState(() => todayKey());
-  const [periodId, setPeriodId] = useState(() => nearestPeriod().id);
-  const [index, setIndex] = useState(0);
-  const [markError, setMarkError] = useState(false);
-  const period = Number(periodId);
-  const presence = usePresence().filter((row) => row.dateKey === dateKey && row.period === period);
-  const checks = useSpotChecks().filter((row) => row.cohortId === user?.cohortId);
-  const running = currentPeriod();
-
   const roomId = user?.cohortId ? db?.seatingMeta?.[user.cohortId]?.publishedRoomId : undefined;
   const room = (db?.seatingRooms ?? []).find((row) => row.id === roomId);
   const assignment = (db?.seatingAssignments ?? []).find((row) => row.roomId === roomId);
   const published = room !== undefined && assignment?.status === 'published';
-
-  const stateOf = (uid: string): SeatPresenceState => presence.find((row) => row.userId === uid)?.state ?? 'unknown';
   // 호명은 이름 차례대로. 좌석 순서로 부르면 옆자리가 비었을 때 헷갈린다.
   const roll = [...students].sort((a, b) => a.displayName.localeCompare(b.displayName, 'ko'));
-  const current = roll[Math.min(index, roll.length - 1)];
-  const confirmed = roll.filter((row) => stateOf(row.uid) === 'confirmed');
-  const held = roll.filter((row) => stateOf(row.uid) === 'held');
-
   const seatLabelOf = (uid: string | undefined) => {
     const seatId = Object.entries(assignment?.assignments ?? {}).find(([, owner]) => owner === uid)?.[0];
     if (seatId === undefined) return '좌석 없음';
     return `${room?.cells.find((cell) => cell.seatId === seatId)?.label ?? seatId}번`;
   };
+  const seating: SpotSeating | undefined =
+    published && assignment !== undefined ? { grid: room, seatUserIds: assignment.assignments, seatNames: assignment.seatNames } : undefined;
+  return { user, students, roll, seatLabelOf, seating };
+}
+
+/** 웹 `InstructorAttendanceScreen` — 강사 첫 화면. 교시마다 호명만 하고 출석 상태는 건드리지 않는다. */
+export function PresencePage({ home = false }: { home?: boolean }) {
+  const { palette } = useTheme();
+  const { width } = useWindowDimensions();
+  const { user, roll, seatLabelOf, seating } = useCohortRoll();
+  const [dateKey, setDateKey] = useState(() => todayKey());
+  const [periodId, setPeriodId] = useState(() => nearestPeriod().id);
+  const [index, setIndex] = useState(0);
+  const [markError, setMarkError] = useState(false);
+  const { wide, paneHeight } = useWideLayout();
+  const [mapWidth, setMapWidth] = useState(0);
+  const listRef = useRef<ScrollView>(null);
+  const period = Number(periodId);
+  const presence = usePresence().filter((row) => row.dateKey === dateKey && row.period === period);
+  const running = currentPeriod();
+
+  const stateOf = (uid: string): SeatPresenceState => presence.find((row) => row.userId === uid)?.state ?? 'unknown';
+  const current = roll[Math.min(index, roll.length - 1)];
+  const confirmed = roll.filter((row) => stateOf(row.uid) === 'confirmed');
+  const held = roll.filter((row) => stateOf(row.uid) === 'held');
 
   const mark = (student: User, state: SeatPresenceState, advance = true) => {
     setMarkError(false);
@@ -431,7 +505,149 @@ export function PresencePage({ home = false }: { home?: boolean }) {
     setSeatPresence(dateKey, period, student.uid, state).catch(() => setMarkError(true));
   };
 
-  const title = home ? navLabel(RoutePaths.instructor, '자리 확인') : navLabel(RoutePaths.adminSeatPresence, '자리 확인');
+  const title = navLabel(RoutePaths.instructor, '자리 확인');
+  const currentIndex = Math.min(index, roll.length - 1);
+
+  // 가로 명단은 칸 안에서 민다 — 다음 학생으로 넘어가면 그 줄이 보이게 따라간다
+  useEffect(() => {
+    if (!wide || currentIndex < 0) return;
+    listRef.current?.scrollTo({ y: Math.max(0, (currentIndex - 2) * ROLL_ROW_H), animated: true });
+  }, [wide, currentIndex]);
+
+  const errorNotice = markError ? (
+    <Callout tone="error">
+      <T tone="error">자리 확인을 저장하지 못했습니다. 다시 시도해 주세요.</T>
+    </Callout>
+  ) : null;
+
+  const dateNav = (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <Pressable accessibilityLabel="이전 날" hitSlop={8} onPress={() => setDateKey((value) => shiftDay(value, -1))}>
+        <MaterialIcons name="chevron-left" size={26} color={palette.text} />
+      </Pressable>
+      <T variant="subtitle" style={wide ? undefined : { flex: 1, textAlign: 'center' }}>{dateKey}</T>
+      <Pressable accessibilityLabel="다음 날" hitSlop={8} onPress={() => setDateKey((value) => shiftDay(value, 1))}>
+        <MaterialIcons name="chevron-right" size={26} color={palette.text} />
+      </Pressable>
+      <Chip label="오늘" selected={dateKey === todayKey()} onPress={() => setDateKey(todayKey())} />
+    </View>
+  );
+
+  const periodChips = (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+      {ClassPeriods.map((row) => (
+        <Chip key={row.id} label={row.label} selected={row.id === periodId} onPress={() => setPeriodId(row.id)} />
+      ))}
+    </ScrollView>
+  );
+
+  const rollCounts = (
+    <View style={{ flexDirection: 'row', gap: 6 }}>
+      <Badge label={`확인 ${confirmed.length} / ${roll.length}`} tone="success" />
+      <Badge label={`보류 ${held.length}`} tone="warning" />
+    </View>
+  );
+
+  const wideRoll = (
+    <>
+      <Card style={{ paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        {dateNav}
+        <View style={{ flex: 1 }}>{periodChips}</View>
+        {rollCounts}
+      </Card>
+      {errorNotice}
+
+      {roll.length === 0 ? (
+        <Card><EmptyState icon="groups" text={user?.cohortId ? '이 기수에 학생이 없습니다.' : '대시보드에서 기수를 먼저 선택해 주세요.'} /></Card>
+      ) : (
+        <View style={{ flexDirection: 'row', gap: 12, height: paneHeight }}>
+          <Card style={{ flex: 11, padding: 0, gap: 0, overflow: 'hidden' }}>
+            <PaneHead title="좌석 배치" hint={current ? `지금 ${current.displayName} · ${seatLabelOf(current.uid)}` : undefined} />
+            {seating === undefined ? (
+              <EmptyState icon="event-seat" text="확정된 좌석 배치가 없습니다." />
+            ) : (
+              <ScrollView
+                nestedScrollEnabled
+                contentContainerStyle={{ paddingHorizontal: 8, paddingVertical: 12 }}
+                onLayout={(e) => setMapWidth(e.nativeEvent.layout.width)}
+              >
+                {mapWidth > 0 ? (
+                  <SeatGrid
+                    grid={seating.grid}
+                    seatUserIds={seating.seatUserIds}
+                    seatNames={seating.seatNames}
+                    highlightUserId={current?.uid}
+                    highlightCaption="지금"
+                    markOf={stateOf}
+                    width={mapWidth - 16}
+                  />
+                ) : null}
+              </ScrollView>
+            )}
+          </Card>
+
+          <Card style={{ flex: 9, padding: 0, gap: 0, overflow: 'hidden' }}>
+            <View style={{ padding: 12, gap: 10, borderBottomWidth: 1, borderBottomColor: palette.divider }}>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+                <T variant="title" numberOfLines={1} style={{ flexShrink: 1 }}>{current?.displayName ?? '—'}</T>
+                <T tone="primary" style={{ fontWeight: '600' }}>{seatLabelOf(current?.uid)}</T>
+                <View style={{ flex: 1 }} />
+                <T variant="caption" tone="secondary">{currentIndex + 1} / {roll.length}</T>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Pressable accessibilityLabel="이전 학생" hitSlop={8} onPress={() => setIndex((value) => Math.max(0, value - 1))}>
+                  <MaterialIcons name="chevron-left" size={28} color={palette.textSecondary} />
+                </Pressable>
+                <View style={{ flex: 1 }}>
+                  <Btn label="확인" icon="check" disabled={current === undefined} onPress={() => current && mark(current, 'confirmed')} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Btn label="보류" icon="pause" tone="ghost" disabled={current === undefined} onPress={() => current && mark(current, 'held')} />
+                </View>
+                <Pressable accessibilityLabel="다음 학생" hitSlop={8} onPress={() => setIndex((value) => Math.min(roll.length - 1, value + 1))}>
+                  <MaterialIcons name="chevron-right" size={28} color={palette.textSecondary} />
+                </Pressable>
+              </View>
+            </View>
+            <ScrollView ref={listRef} nestedScrollEnabled>
+              {roll.map((student, i) => {
+                const state = stateOf(student.uid);
+                const on = i === currentIndex;
+                return (
+                  <View
+                    key={student.uid}
+                    style={{
+                      height: ROLL_ROW_H,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 8,
+                      paddingHorizontal: 12,
+                      borderTopWidth: i === 0 ? 0 : 1,
+                      borderTopColor: palette.divider,
+                      backgroundColor: on ? palette.primaryLight : state === 'held' ? `${palette.warning}1f` : undefined,
+                    }}
+                  >
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`${student.displayName} 지금 부르기`}
+                      onPress={() => setIndex(i)}
+                      style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'stretch' }}
+                    >
+                      <T variant="caption" tone="hint" style={{ width: 22, textAlign: 'right' }}>{i + 1}</T>
+                      <T numberOfLines={1} style={{ flexShrink: 1, fontWeight: on ? '700' : '500' }}>{student.displayName}</T>
+                      <T variant="caption" tone="hint" numberOfLines={1}>{seatLabelOf(student.uid)}</T>
+                    </Pressable>
+                    <Toggle label="확인" compact on={state === 'confirmed'} color={palette.success} onPress={() => mark(student, 'confirmed', false)} />
+                    <Toggle label="보류" compact on={state === 'held'} color={palette.warning} onPress={() => mark(student, 'held', false)} />
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </Card>
+        </View>
+      )}
+    </>
+  );
 
   return (
     <Screen title={title} back={!home} left={home ? <MenuButton /> : undefined} onRefresh={refreshBootstrap}>
@@ -439,33 +655,15 @@ export function PresencePage({ home = false }: { home?: boolean }) {
         {user?.cohortName || '기수 없음'} · 진행 중: {running === null ? '쉬는 시간' : `${running.label} 교시`}
       </T>
 
+      {wide ? wideRoll : (
+      <>
       <Card style={{ gap: 12 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Pressable accessibilityLabel="이전 날" hitSlop={8} onPress={() => setDateKey((value) => shiftDay(value, -1))}>
-            <MaterialIcons name="chevron-left" size={26} color={palette.text} />
-          </Pressable>
-          <T variant="subtitle" style={{ flex: 1, textAlign: 'center' }}>{dateKey}</T>
-          <Pressable accessibilityLabel="다음 날" hitSlop={8} onPress={() => setDateKey((value) => shiftDay(value, 1))}>
-            <MaterialIcons name="chevron-right" size={26} color={palette.text} />
-          </Pressable>
-          <Chip label="오늘" selected={dateKey === todayKey()} onPress={() => setDateKey(todayKey())} />
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-          {ClassPeriods.map((row) => (
-            <Chip key={row.id} label={row.label} selected={row.id === periodId} onPress={() => setPeriodId(row.id)} />
-          ))}
-        </ScrollView>
-        <View style={{ flexDirection: 'row', gap: 6 }}>
-          <Badge label={`확인 ${confirmed.length} / ${roll.length}`} tone="success" />
-          <Badge label={`보류 ${held.length}`} tone="warning" />
-        </View>
+        {dateNav}
+        {periodChips}
+        {rollCounts}
       </Card>
 
-      {markError ? (
-        <Callout tone="error">
-          <T tone="error">자리 확인을 저장하지 못했습니다. 다시 시도해 주세요.</T>
-        </Callout>
-      ) : null}
+      {errorNotice}
 
       {roll.length === 0 ? (
         <Card><EmptyState icon="groups" text={user?.cohortId ? '이 기수에 학생이 없습니다.' : '대시보드에서 기수를 먼저 선택해 주세요.'} /></Card>
@@ -494,14 +692,14 @@ export function PresencePage({ home = false }: { home?: boolean }) {
       )}
 
       <SectionLabel title="좌석 배치" />
-      {!published || assignment === undefined ? (
+      {seating === undefined ? (
         <Card><EmptyState icon="event-seat" text="확정된 좌석 배치가 없습니다." /></Card>
       ) : (
         <Card style={{ paddingHorizontal: 8, paddingVertical: 16 }}>
           <SeatGrid
-            grid={room}
-            seatUserIds={assignment.assignments}
-            seatNames={assignment.seatNames}
+            grid={seating.grid}
+            seatUserIds={seating.seatUserIds}
+            seatNames={seating.seatNames}
             highlightUserId={current?.uid}
             highlightCaption="지금"
             markOf={stateOf}
@@ -553,21 +751,8 @@ export function PresencePage({ home = false }: { home?: boolean }) {
           </ListGroup>
         </>
       ) : null}
-
-      {checks.length > 0 ? (
-        <>
-          <SectionLabel title="최근 불시 점검" />
-          <ListGroup>
-            {checks.slice(0, 5).map((check) => (
-              <ListItem
-                key={check.id}
-                title={`${fmt(check.checkedAt)} · ${check.period === 'am' ? '오전반' : '오후반'} 점검`}
-                subtitle={`유 ${check.items.filter((item) => item.state === 'present').length} · 무 ${check.items.filter((item) => item.state === 'absent').length}${check.checkedByName ? ` · ${check.checkedByName}` : ''}`}
-              />
-            ))}
-          </ListGroup>
-        </>
-      ) : null}
+      </>
+      )}
     </Screen>
   );
 }

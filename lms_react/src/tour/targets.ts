@@ -39,7 +39,6 @@ export const AdminTargets = {
   navStudents: 'admin.nav.students',
   navInstructors: 'admin.nav.instructors',
   navAttendance: 'admin.nav.attendance',
-  navSeatPresence: 'admin.nav.seatPresence',
   navSeating: 'admin.nav.seating',
   navAssessments: 'admin.nav.assessments',
   navRecords: 'admin.nav.records',

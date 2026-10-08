@@ -82,7 +82,6 @@ export const adminNav: NavSection[] = [
     collapsible: true,
     items: [
       { icon: 'fact_check', label: '출석 관리', path: RoutePaths.adminAttendance, targetId: AdminTargets.navAttendance },
-      { icon: 'event_available', label: '자리 확인', path: RoutePaths.adminSeatPresence, targetId: AdminTargets.navSeatPresence },
       { icon: 'event_seat', label: '좌석 배치', path: RoutePaths.adminSeating, targetId: AdminTargets.navSeating },
     ],
   },
