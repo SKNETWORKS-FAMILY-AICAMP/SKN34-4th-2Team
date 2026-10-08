@@ -82,12 +82,19 @@ class SharedQuestionFlowTests(TestCase):
         self.assertEqual(seen["roles"], [])
         self.assertEqual(len(seen["common"]), 1)
 
-    def test_use_is_not_counted_for_the_author_and_reports_wait_for_their_table(self):
+    def test_use_is_not_counted_for_the_author(self):
         saved = sq.save(self.a.pk, "J1", "SW 개발", Q1, share=True)
         sq.use(self.a.pk, saved["id"])
         sq.use(self.b.pk, saved["id"])
         self.assertEqual(RecruitRoles.objects.get(pk=saved["id"]).use_count, 1)
-        self.assertFalse(sq.list_shared(self.b.pk, "J1")["canReport"])
-        with self.assertRaises(sq.SharedQuestionError) as caught:
-            sq.report(self.b.pk, saved["id"], "wrong")
-        self.assertEqual(caught.exception.status, 503)
+
+    def test_two_reports_hide_the_set_except_from_its_author(self):
+        saved = sq.save(self.a.pk, "J1", "SW 개발", Q1, share=True)
+        self.assertTrue(sq.list_shared(self.b.pk, "J1")["canReport"])
+        self.assertEqual(sq.report(self.b.pk, saved["id"], "wrong"), {"hidden": False})
+        self.assertEqual(sq.report(self.b.pk, saved["id"], "wrong"), {"hidden": False}, "한 학생은 한 번만 센다")
+        self.assertEqual(sq.report(self.c.pk, saved["id"], "other_company"), {"hidden": True})
+        self.assertEqual(sq.list_shared(self.b.pk, "J1")["roles"], [])
+        self.assertEqual(len(sq.list_shared(self.a.pk, "J1")["roles"]), 1, "올린 학생에게는 보인다")
+        with self.assertRaises(sq.SharedQuestionError):
+            sq.report(self.b.pk, saved["id"], "no_reason")
