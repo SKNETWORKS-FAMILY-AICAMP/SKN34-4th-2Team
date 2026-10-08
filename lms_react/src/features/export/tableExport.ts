@@ -4,12 +4,9 @@
  * 화면마다 표를 `ExportTable` 하나로 만들고, 형식은 여기서 고른다.
  * Excel · Word 라이브러리는 무거워서 고를 때 불러온다.
  */
-export interface ExportTable {
-  /** 문서 제목. 시트 이름 · Word/PDF 머리글에 쓴다. */
-  title: string;
-  header: string[];
-  rows: string[][];
-}
+import { toCsv, type ExportTable } from './csv';
+
+export { toCsv, type ExportTable };
 
 export type ExportFormat = 'csv' | 'xlsx' | 'docx' | 'pdf';
 
@@ -19,15 +16,6 @@ export const ExportFormatLabels: Record<ExportFormat, string> = {
   docx: 'Word (.docx)',
   pdf: 'PDF',
 };
-
-function csvCell(value: string): string {
-  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
-/** 엑셀에서 바로 열리게 BOM 을 붙인다 */
-export function toCsv(table: ExportTable): string {
-  return `\uFEFF${[table.header, ...table.rows].map((r) => r.map(csvCell).join(',')).join('\r\n')}`;
-}
 
 /** 파일 이름에 못 쓰는 글자를 `_` 로 바꾼다 */
 export function safeFileName(name: string): string {

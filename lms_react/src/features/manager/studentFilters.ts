@@ -1,6 +1,7 @@
 import { dateKeyOf } from '../../data/seed';
 import type { Attendance, AttendanceIssue, SpotCheck, User } from '../../domain/types';
-import type { ExportTable } from '../export/tableExport';
+import type { ExportTable } from '../export/csv';
+import { SpotCheckPeriodLabels } from './spotCheckLabels';
 
 /**
  * 학생 빠른 필터 — 지정 알림의 대상 고르기와 AI 어시스턴트가 같은 기준을 쓴다.
@@ -71,7 +72,7 @@ export function matchStudents(
 
 // ── 불시 점검 내려받기 ─────────────────────────────────
 
-export const SpotCheckPeriodLabels = { am: '오전', pm: '오후' } as const;
+export { SpotCheckPeriodLabels };
 
 function clock(at: Date): string {
   return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
