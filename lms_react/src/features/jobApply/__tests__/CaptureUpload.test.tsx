@@ -84,12 +84,26 @@ describe('캡처 올리기', () => {
     expect(api.extractQuestions).toHaveBeenCalledWith([pdf]);
   });
 
-  it('Word 파일은 받지 않고 PDF 로 저장하라고 알려 준다', async () => {
+  it('Word · PowerPoint · 한글(hwpx)은 종류가 비어 와도 확장자로 받아 한 개로 보낸다', async () => {
+    api.extractQuestions.mockResolvedValue({ questions: [], dropped: 0 });
     act(() => root.render(<CaptureUpload onParsed={vi.fn()} />));
-    choose([new File(['PK'], 'form.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })]);
+    // 브라우저는 .hwpx 의 종류를 비워 준다
+    choose([new File(['PK'], '지원서.hwpx', { type: '' })]);
+    await flush();
+    expect(host.querySelector('.apply-thumbs__pdf')?.textContent).toContain('지원서.hwpx');
+    act(() => readButton().click());
+    await flush();
+    const [[sent]] = api.extractQuestions.mock.calls[0];
+    expect(sent.type).toBe('application/hwp+zip');
+    expect(sent.name).toBe('지원서.hwpx');
+  });
+
+  it('옛 한글(.hwp)은 받지 않고 PDF 나 HWPX 로 저장하라고 알려 준다', async () => {
+    act(() => root.render(<CaptureUpload onParsed={vi.fn()} />));
+    choose([new File(['HWP'], 'form.hwp', { type: 'application/x-hwp' })]);
     await flush();
     expect(host.querySelectorAll('.apply-thumbs li')).toHaveLength(0);
-    expect(host.textContent).toContain('PDF 로 저장해 올려 주세요');
+    expect(host.textContent).toContain('PDF 나 HWPX · DOCX · PPTX 로 저장해 올려 주세요');
     expect(readButton().disabled).toBe(true);
   });
 

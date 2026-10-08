@@ -7,17 +7,34 @@ import { reviewApi } from '../resume/review/reviewApi';
 import type { CompanyQuestion } from './companyQuestions';
 
 /**
- * 캡처 · 지원서 양식 PDF 에서 자기소개서 문항 뽑기 — 회사 사이트가 로그인해야 문항을 보여 주거나,
+ * 캡처 · 지원서 양식 파일에서 자기소개서 문항 뽑기 — 회사 사이트가 로그인해야 문항을 보여 주거나,
  * 문항이 이미지 · 첨부 양식 안에 있을 때.
  *
- * 고르기 · 끌어다 놓기 · Ctrl+V 로 이미지를 세 장까지, 또는 PDF 한 개를 받는다. 글이 든 PDF 는 서버가 글을 꺼내
- * 읽고, 스캔 PDF 는 페이지 이미지를 읽는다. 서버(question_extract.py)가 이미지 속 글을 옮겨 적고,
+ * 고르기 · 끌어다 놓기 · Ctrl+V 로 이미지를 세 장까지, 또는 양식 파일(PDF · Word · PowerPoint · 한글 hwpx) 한 개를
+ * 받는다. 글이 든 PDF · 문서는 서버가 글을 꺼내 읽고, 스캔 PDF 는 페이지 이미지를 읽는다. 서버(question_extract.py)가
  * 그 글에 실제로 있는 문항과 글자 수만 돌려준다. 결과는 붙여넣기와 같은 「확인하고 고치기」 목록으로 간다.
- * 이미지는 저장하지 않는다.
+ * 파일은 저장하지 않는다. 옛 한글(.hwp) · Word(.doc) · PowerPoint(.ppt)는 ZIP 이 아니라 못 읽는다 — PDF 로 저장하게 한다.
  */
 const MAX_IMAGES = 3;
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 const PDF = 'application/pdf';
+// 문서는 브라우저가 종류를 비워 주기도 해(특히 .hwpx) 확장자로 가리고, 서버가 파일 속 구성을 다시 본다
+const DOCUMENTS: Record<string, string> = {
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.hwpx': 'application/hwp+zip',
+};
+const OLD_FORMATS = ['.hwp', '.doc', '.ppt'];
+const FILE_TYPES = [PDF, ...Object.values(DOCUMENTS)];
+
+const extOf = (name: string) => (name.match(/\.[^.]+$/)?.[0] ?? '').toLowerCase();
+
+/** 양식 파일이면 종류를 맞춘 File, 아니면 null(이미지 · 못 받는 파일) */
+function asFormFile(file: File): File | null {
+  if (file.type === PDF) return file;
+  const type = DOCUMENTS[extOf(file.name)];
+  return type === undefined ? null : new File([file], file.name, { type });
+}
 // 지원서 캡처는 세로로 길다. 폭만 줄인다 — 높이까지 맞춰 줄이면 글자가 뭉개져 못 읽는다
 const MAX_WIDTH = 1600;
 
@@ -54,22 +71,24 @@ export function CaptureUpload({ onParsed }: { onParsed(questions: CompanyQuestio
   imagesRef.current = images;
 
   const add = async (files: File[]) => {
-    // PDF 는 한 개만, 캡처와 섞지 않는다. 새 PDF 를 고르면 앞서 고른 것을 바꾼다
-    const pdf = files.find((f) => f.type === PDF);
-    if (pdf !== undefined) {
-      setError(files.length > 1 ? 'PDF 는 한 개만, 캡처와 따로 올려 주세요. 첫 PDF 만 담았어요.' : null);
-      imagesRef.current.forEach((i) => URL.revokeObjectURL(i.url));
-      setImages([{ blob: pdf, url: '', name: pdf.name }]);
+    // 양식 파일은 한 개만, 캡처와 섞지 않는다. 새 파일을 고르면 앞서 고른 것을 바꾼다
+    const form = files.map(asFormFile).find((f): f is File => f !== null);
+    if (form !== undefined) {
+      setError(files.length > 1 ? 'PDF · 문서 파일은 한 개만, 캡처와 따로 올려 주세요. 첫 파일만 담았어요.' : null);
+      imagesRef.current.forEach((i) => i.url !== '' && URL.revokeObjectURL(i.url));
+      setImages([{ blob: form, url: '', name: form.name }]);
       return;
     }
     const usable = files.filter((f) => IMAGE_TYPES.includes(f.type));
-    if (usable.length < files.length) {
-      setError('PNG · JPG · WEBP 이미지나 PDF 만 올릴 수 있어요. Word · 한글 양식은 PDF 로 저장해 올려 주세요.');
+    if (files.some((f) => OLD_FORMATS.includes(extOf(f.name)))) {
+      setError('옛 한글(.hwp) · Word(.doc) · PowerPoint(.ppt) 파일은 읽지 못해요. PDF 나 HWPX · DOCX · PPTX 로 저장해 올려 주세요.');
+    } else if (usable.length < files.length) {
+      setError('PNG · JPG · WEBP 이미지나 PDF · Word · PowerPoint · 한글(.hwpx) 파일만 올릴 수 있어요.');
     } else {
       setError(null);
     }
-    // PDF 를 담아 둔 채 캡처를 고르면 캡처로 바꾼다
-    const kept = imagesRef.current.filter((i) => i.blob.type !== PDF);
+    // 양식 파일을 담아 둔 채 캡처를 고르면 캡처로 바꾼다
+    const kept = imagesRef.current.filter((i) => !FILE_TYPES.includes(i.blob.type));
     const room = MAX_IMAGES - kept.length;
     if (usable.length > room) setError(`캡처는 ${MAX_IMAGES}장까지 올릴 수 있어요.`);
     const next = await Promise.all(usable.slice(0, Math.max(0, room)).map(async (f) => ({ blob: await shrink(f), name: f.name })));
@@ -147,15 +166,16 @@ export function CaptureUpload({ onParsed }: { onParsed(questions: CompanyQuestio
       >
         <Icon name="add_photo_alternate" size={30} />
         <span>
-          <b>문항이 보이는 화면 캡처</b>나 <b>지원서 양식 PDF</b>를 끌어다 놓거나 눌러서 골라 주세요
+          <b>문항이 보이는 화면 캡처</b>나 <b>지원서 양식 파일</b>(PDF · Word · PowerPoint · 한글)을 끌어다 놓거나 눌러서 골라 주세요
         </span>
         <span className="hint">
-          Ctrl+V 로 캡처를 바로 붙여 넣어도 돼요 · 캡처 {MAX_IMAGES}장 또는 PDF 1개 · Word · 한글 양식은 PDF 로 저장해 올려 주세요
+          Ctrl+V 로 캡처를 바로 붙여 넣어도 돼요 · 캡처 {MAX_IMAGES}장 또는 파일 1개(PDF · DOCX · PPTX · HWPX) · 옛 한글(.hwp)은 PDF 로
+          저장해 올려 주세요
         </span>
         <input
           ref={input}
           type="file"
-          accept={[...IMAGE_TYPES, PDF].join(',')}
+          accept={[...IMAGE_TYPES, ...FILE_TYPES, ...Object.keys(DOCUMENTS)].join(',')}
           multiple
           hidden
           onChange={(e) => {
@@ -169,9 +189,9 @@ export function CaptureUpload({ onParsed }: { onParsed(questions: CompanyQuestio
         <ul className="apply-thumbs">
           {images.map((image, i) => (
             <li key={`${image.name}-${i}`}>
-              {image.blob.type === PDF ? (
+              {FILE_TYPES.includes(image.blob.type) ? (
                 <span className="apply-thumbs__pdf" title={image.name}>
-                  <Icon name="picture_as_pdf" size={28} />
+                  <Icon name={image.blob.type === PDF ? 'picture_as_pdf' : 'description'} size={28} />
                   <span>{image.name}</span>
                 </span>
               ) : (
