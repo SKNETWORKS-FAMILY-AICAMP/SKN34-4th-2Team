@@ -514,7 +514,7 @@ class FirebaseGateway:
             if not undo and review_row:
                 conn.execute(
                     "UPDATE resume_ai_reviews SET response=%s WHERE legacy_id=%s",
-                    (Jsonb(rebase_review_response(review_row[0], after)), review_legacy),
+                    (Jsonb(rebase_review_response(review_row[0], after, before=before, applied_request=request)), review_legacy),
                 )
             if undo:
                 conn.execute(

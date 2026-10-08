@@ -49,6 +49,20 @@ def test_cloud_db_refused(monkeypatch):
     with pytest.raises(RuntimeError): require_local()
 
 
+def test_public_outcomes_include_untouched_failure_but_not_deleted_or_invalidated_experience():
+    from app.local_resume_site_adapter import experience_outcomes
+    records=[dict(experience={'experience_id':owner,'field_path':owner,'current_text':'원문'},
+        validation={'status':status}) for owner,status in [('growth','REJECTED'),('lms','READY'),('deleted','REJECTED')]]
+    refs={'growth':'growth','lms':'lms'};fields={'growth':'원문','lms':'원문'}
+    assert experience_outcomes(records,refs,fields)==[
+        {'experience_id':'growth','field_path':'growth','status':'REJECTED'},
+        {'experience_id':'lms','field_path':'lms','status':'READY'}]
+    records[0]['validation']['status']='READY'
+    assert not any(r['status']=='REJECTED' for r in experience_outcomes(records,refs,fields))
+    records[0]['validation']['status']='REJECTED';fields['growth']='직접 수정된 원문'
+    assert experience_outcomes(records,refs,fields)[0]['status']=='NEEDS_EVIDENCE'
+
+
 def test_v1_mode_refused(monkeypatch):
     monkeypatch.setenv('RESUME_REVIEW_ENGINE', 'v1')
     with pytest.raises(RuntimeError): require_local()
@@ -72,6 +86,22 @@ def test_regular_response_and_apply_contract():
 def test_rejected_candidate_not_applyable(status):
     service, _, _, request, _ = setup_service(status)
     assert service.review_as('student', request).sentence_reviews[0].suggested_revision is None
+
+
+@pytest.mark.parametrize('status', ['READY', 'NEEDS_EVIDENCE'])
+def test_unwritten_result_is_never_relabelled_as_unchanged(status):
+    service, _, engine, request, _ = setup_service(status)
+    run = engine.run_many.side_effect
+    def unwritten(requests):
+        results = run(requests)
+        results[0].candidate = None
+        results[0].plan.operation = 'no_change'
+        return results
+    engine.run_many.side_effect = unwritten
+    sentence = service.review_as('student', request).sentence_reviews[0]
+    assert sentence.validation_status == 'NEEDS_EVIDENCE'
+    assert sentence.status == 'needs_confirmation'
+    assert sentence.suggested_revision is None
 
 
 def test_initial_candidates_returned_together_without_edit_type_relabeling():
@@ -130,7 +160,8 @@ def test_training_course_label_preserves_identity_and_owning_sources():
 
 
 def test_replayed_question_label_comes_from_current_resume_not_old_internal_id():
-    from app.resume_review_v2.models import GapQuestion
+    from app.resume_review_v2.models import GapQuestion, QuestionNeed
+    from app.resume_review_v2.question_planning import render_question
     service, db, engine, request, content = setup_service()
     content.clear()
     content['trainingExperience'] = [{'id': 'training-one', 'course': '교육 과정 이름',
@@ -141,10 +172,11 @@ def test_replayed_question_label_comes_from_current_resume_not_old_internal_id()
         result = results[0]
         owner = result.experience.experience_id
         result.experience.title = owner  # Old stored display mapping.
-        result.gap_questions = [GapQuestion(experience_id=owner, experience_title=owner,
-            question='실습에서 확인한 점은 무엇인가요?', gap_type='missing', target_slot='outcome',
+        need = QuestionNeed(experience_id=owner, gap_type='missing', target_slot='outcome',
             priority='MEDIUM', why_needed='실습 내용은 확인됐고 배운 점을 보완할 수 있습니다.',
-            dedupe_key=owner + ':value:learning')]
+            dedupe_key=owner + ':value:learning')
+        presentation,_=render_question(need,{})
+        result.gap_questions = [GapQuestion(**need.model_dump(),experience_title=owner,**presentation)]
         return results
     engine.run_many.side_effect = with_question
     response = service.review_as('student', request)

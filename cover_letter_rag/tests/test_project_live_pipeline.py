@@ -9,7 +9,7 @@ from app.local_resume_site_adapter import LocalReviewService
 from app.resume_review_v2.batch import BatchReviewEngine
 from app.resume_review_v2.llm import LangChainReviewLLM
 from app.resume_review_v2.models import (Evidence, EvidenceFacet, ExtractionOutput,
-    WriterOutput, WriterDraft, RevisionSentence, FactVerification, Usage, GapQuestion)
+    WriterOutput, WriterDraft, RevisionSentence, FactVerification, Usage, QuestionNeed)
 
 
 @pytest.fixture
@@ -48,8 +48,8 @@ def pipeline(monkeypatch):
                         fact_type='verification', normalized_fact=item['user_answer'], evidence_quote=item['user_answer'],
                         source_type='user_answer', source_id=item['answer_source_id'], assertion_state='user_asserted'))
                     facets.append(EvidenceFacet(evidence_id='check', slots=['validation_method']))
-                question = None if item['user_answer'] else GapQuestion(
-                    experience_id=exp['experience_id'], question='구현 결과는 어떤 방법으로 확인했나요?',
+                question = None if item['user_answer'] else QuestionNeed(
+                    experience_id=exp['experience_id'],
                     target_slot='validation_method', gap_type='missing', priority='HIGH',
                     why_needed='구현은 확인됐지만 확인 방법이 없어 동작을 점검한 근거를 구체화합니다.',
                     dedupe_key='validation-evidence')
@@ -116,7 +116,7 @@ def test_actual_b_route_selects_one_value_assessed_question_per_experience(pipel
 def test_followup_reuses_facts_and_stops_questions_when_contribution_is_sufficient(pipeline):
     client, reviews, calls, db = pipeline
     first = post(client, 'first')
-    check_question = next(q for q in first['questions'] if '어떤 방법' in q['question'])
+    check_question = next(q for q in first['questions'] if q['target_slot']=='validation_method')
     second = post(client, 'second', previous_review_id='first', answers=[{
         'question_id': check_question['question_id'], 'field_path': check_question['field_path'],
         'question': check_question['question'], 'answer': '정상 조회 결과를 대조했습니다.'}])
@@ -130,16 +130,45 @@ def test_followup_reuses_facts_and_stops_questions_when_contribution_is_sufficie
                for payload in writer_calls for item in payload.get('items', payload).values())
 
 
-def test_no_information_answer_blocks_slot_without_fabricating_evidence(pipeline):
+@pytest.mark.parametrize('answer,blocked', [('모르겠습니다',False),('없습니다',True)])
+def test_no_information_answer_scope_without_fabricating_evidence(pipeline,answer,blocked):
     client, reviews, calls, db = pipeline
     first = post(client, 'first')
-    q = next(q for q in first['questions'] if '어떤 방법' in q['question'])
+    q = next(q for q in first['questions'] if q['target_slot']=='validation_method')
     second = post(client, 'second', previous_review_id='first', answers=[{
-        'question_id': q['question_id'], 'field_path': q['field_path'], 'question': q['question'], 'answer': '모르겠습니다'}])
+        'question_id': q['question_id'], 'field_path': q['field_path'], 'question': q['question'], 'answer': answer}])
     record = second['telemetry']['v2_results'][0]
-    assert 'validation_method' in record['unavailable_slots']
+    assert ('validation_method' in record['unavailable_slots']) == blocked
+    assert q['question'] in [a['question'] for a in second['confirmed_answers']]
     assert {e['evidence_id'] for e in record['evidence_state']} == {'action'}
     assert all('정량 수치' not in q['question'] for q in second['questions'])
+
+
+@pytest.mark.parametrize('same_need',[True,False])
+def test_unknown_answer_closes_issued_need_not_every_question_in_same_facet(pipeline,monkeypatch,same_need):
+    client,reviews,calls,db=pipeline
+    first=post(client,'first');q=first['questions'][0]
+    original=LangChainReviewLLM._call
+    def invoke(self,prompt,payload,schema):
+        result,usage=original(self,prompt,payload,schema)
+        if schema.__name__=='BatchExtractionOutput':
+            result.item_0.question=QuestionNeed(experience_id=result.item_0.experience_id,
+                request_aspect=None if same_need else 'verification_result_and_limits',
+                target_slot='validation_method',gap_type='missing',priority='HIGH',
+                why_needed='확인된 구현 외에 비교 입력 범위를 알면 시험 범위를 구체화할 수 있습니다.',
+                dedupe_key='validation-evidence' if same_need else 'validation-input-scope')
+        return result,usage
+    monkeypatch.setattr(LangChainReviewLLM,'_call',invoke)
+    second=post(client,'unknown',previous_review_id='first',answers=[{
+        'question_id':q['question_id'],'field_path':q['field_path'],'question':q['question'],'answer':'모르겠습니다'}])
+    record=second['telemetry']['v2_results'][0];diagnostic=record['debug_trace']['question_selection']
+    assert diagnostic['state']==('server_filtered' if same_need else 'selected')
+    assert diagnostic['reason']==('exact_repeat' if same_need else None)
+    assert bool(second['questions']) is not same_need
+    assert 'validation_method' not in record['unavailable_slots']
+    analysis=[p for stage,_,p in calls if stage=='BatchExtractionOutput'][-1]['item_0']
+    assert analysis['user_answer']=='모르겠습니다' and any(q['question'] in item for item in analysis['question_history'])
+    assert record['debug_trace']['semantic_preparation']
 
 
 def test_gap_audit_does_not_reextract_old_raw_answers(pipeline):
@@ -158,7 +187,7 @@ def test_resume_question_cap_and_other_experience_pending_gap_survives(pipeline)
     first = post(client, 'first')
     assert len(first['questions']) <= 3
     assert len(first['telemetry']['v2_results']) == 2
-    q = next(q for q in first['questions'] if q['field_path'] == 'projects[0].description' and '어떤 방법' in q['question'])
+    q = next(q for q in first['questions'] if q['field_path'] == 'projects[0].description' and q['target_slot']=='validation_method')
     second = post(client, 'second', previous_review_id='first', answers=[{
         'question_id': q['question_id'], 'field_path': q['field_path'], 'question': q['question'],
         'answer': '정상 조회 결과를 대조했습니다.'}])
