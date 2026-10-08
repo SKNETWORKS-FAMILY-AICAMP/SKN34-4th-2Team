@@ -525,6 +525,7 @@ def op_upsert_sql(cur, user, p):
     if table not in allowed:
         raise ValueError("table not allowed")
     if table == 'cohorts':
+        _require_admin(user)
         raise ValueError('기수 생성·수정은 전용 관리자 기능을 이용해 주세요.')
     # The generic writer accepts every matching DB column. Until per-domain
     # validation exists, students must not submit scores, prices, approval
