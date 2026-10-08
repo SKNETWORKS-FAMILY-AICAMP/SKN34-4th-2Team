@@ -235,7 +235,7 @@ export function Shell() {
                   className="cohort-select"
                   label="기수 선택"
                   align="left"
-                  items={cohorts.map((c) => ({
+                  items={cohorts.filter((c) => c.status === 'active').map((c) => ({
                     key: c.cohortId,
                     label: c.name,
                     hint: CohortStatusLabels[c.status],

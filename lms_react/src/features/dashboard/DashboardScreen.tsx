@@ -6,7 +6,8 @@ import {
   markFormResponded,
   useAttendanceOfUser,
   useCohorts,
-  useCurriculumSheets,
+  useCurriculumPdf,
+  curriculumPdfUrl,
   useFormResponses,
   useFormTasks,
   useMySubmissions,
@@ -384,8 +385,19 @@ function MissionProgressCard() {
 
 /** 커리큘럼 — features/curriculum/presentation/widgets/curriculum_dashboard_section.dart */
 function CurriculumCard() {
-  const sheets = useCurriculumSheets();
-  const sheet = sheets[0];
+  const pdf = useCurriculumPdf();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const openPdf = async () => {
+    const tab = window.open('about:blank', '_blank');
+    if (!tab) { setError('팝업을 허용한 뒤 다시 눌러주세요.'); return; }
+    tab.opener = null;
+    setBusy(true);
+    setError('');
+    try { tab.location.replace(await curriculumPdfUrl()); }
+    catch { tab.close(); setError('PDF를 열지 못했습니다. 잠시 후 다시 시도해 주세요.'); }
+    finally { setBusy(false); }
+  };
 
   return (
     <div className="panel side-card">
@@ -393,13 +405,14 @@ function CurriculumCard() {
       <div className="curriculum-row">
         <span className="curriculum-row__icon">PDF</span>
         <span className="hint">
-          {sheet === undefined ? '등록된 커리큘럼 PDF가 없습니다' : `${sheet.title} · ${sheet.rows.length}일차`}
+          {pdf?.filename ?? '공개된 커리큘럼 PDF가 없습니다'}
         </span>
       </div>
-      <button type="button" className="btn btn--soft btn--md">
+      <button type="button" className="btn btn--soft btn--md" disabled={!pdf || busy} onClick={openPdf}>
         <Icon name="picture_as_pdf" size={18} />
-        PDF 보기
+        {busy ? 'PDF 여는 중…' : 'PDF 보기'}
       </button>
+      {error && <p role="alert">{error}</p>}
     </div>
   );
 }

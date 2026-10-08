@@ -24,7 +24,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from lms.bootstrap_service import build_bootstrap
-from lms.commands import dispatch, resolve_cohort
+from lms.commands import _assert_cohort_writable, dispatch, resolve_cohort
 from lms.holidays import holidays_of
 from lms.jwt_auth import AuthError, issue_tokens, load_lms_user, user_from_access
 from lms.permissions import can_access_cohort
@@ -52,6 +52,12 @@ api = NinjaAPI(
     auth=LmsAuth(),
     docs_url="/docs" if os.environ.get("DJANGO_DEBUG", "1") == "1" else None,
 )
+
+
+from lms.cohort_documents import router as cohort_documents_router
+api.add_router('/cohorts', cohort_documents_router)
+from lms.cohort_lifecycle import router as cohort_lifecycle_router
+api.add_router('/cohorts', cohort_lifecycle_router)
 
 
 class LoginIn(Schema):
@@ -979,6 +985,8 @@ def resume_review_question_extract_link(request, body: QuestionLinkIn):
 class QuestionAnswerItemIn(Schema):
     question: str = Field(max_length=500)
     answer: str = Field(max_length=3000)
+    source_type: Literal['memo', 'answer', 'selection'] = 'answer'
+    selected_experience_id: str | None = Field(default=None, max_length=200)
 
 
 class QuestionAnswerIn(Schema):
@@ -986,6 +994,19 @@ class QuestionAnswerIn(Schema):
     tailoredResumeId: str
     questionId: str
     answers: list[QuestionAnswerItemIn] = []
+
+
+def _question_answer_context(items: list[QuestionAnswerItemIn]) -> list[dict]:
+    """Keep current intent and the latest choice before spending the 12-item budget on facts."""
+    retained = set()
+    for source_type in ('memo', 'selection'):
+        latest = next((index for index in range(len(items) - 1, -1, -1)
+                       if items[index].source_type == source_type), None)
+        if latest is not None:
+            retained.add(latest)
+    fact_indices = [index for index, item in enumerate(items) if item.source_type == 'answer']
+    retained.update(fact_indices[-(12 - len(retained)):])
+    return [items[index].dict() for index in sorted(retained)]
 
 
 @api.post("/resume-review/question-answer")
@@ -1003,7 +1024,7 @@ def resume_review_question_answer(request, body: QuestionAnswerIn):
         "resume_id": _review_resume_id(row),
         "tailored_resume_id": body.tailoredResumeId,
         "question_id": body.questionId,
-        "answers": [item.dict() for item in body.answers[:12]],
+        "answers": _question_answer_context(body.answers),
     }
     return _review_call("/api/v1/resumes/question-answer/proxy", payload, timeout=120)
 
@@ -1575,6 +1596,10 @@ def create_notice(request, body: dict[str, Any] = Body(...)):
         return Response({"detail": "forbidden"}, status=403)
     with transaction.atomic():
         with connection.cursor() as cur:
+            try:
+                _assert_cohort_writable(cur, cohort_id)
+            except (KeyError, ValueError) as exc:
+                return Response({"detail": str(exc)}, status=409)
             cur.execute("SELECT code FROM cohorts WHERE id = %s", [cohort_id])
             code = (cur.fetchone() or [None])[0]
             cur.execute(
@@ -1688,6 +1713,10 @@ def mileage_adjust(request, body: dict[str, Any] = Body(...)):
             if not row:
                 return Response({"detail": "user not found"}, status=404)
             uid, cohort_id, balance = row
+            try:
+                _assert_cohort_writable(cur, cohort_id)
+            except (KeyError, ValueError) as exc:
+                return Response({"detail": str(exc)}, status=409)
             cur.execute(
                 """INSERT INTO mileage_transactions (cohort_id, user_id, amount, type, reason, adjusted_by, created_at)
                    VALUES (%s,%s,%s,'adjust',%s,%s, now())""",
@@ -1900,6 +1929,24 @@ def upload_record_evidence(request, file: UploadedFile = File(...)):
     except Exception:  # noqa: BLE001 — S3 권한 · 네트워크
         return Response({"detail": "파일을 저장하지 못했습니다. 잠시 뒤 다시 시도해 주세요."}, status=502)
     return {"key": key, "name": file.name, "contentType": content_type, "size": len(data), "url": read_url(key)}
+
+
+@api.get("/curriculum/pdf", response={200: dict, 403: dict, 404: dict, 503: dict})
+def curriculum_pdf(request: HttpRequest, cohortId: str = ""):
+    from lms.storage import read_url
+    user = _require_user(request)
+    with connection.cursor() as cur:
+        cohort_id = resolve_cohort(cur, cohortId, user)
+        if not can_access_cohort(user, cohort_id):
+            return 403, {"detail": "forbidden"}
+        cur.execute("SELECT storage_key, original_filename FROM curriculum_pdfs WHERE cohort_id=%s AND published=true", [cohort_id])
+        row = cur.fetchone()
+    if not row or not row[0]:
+        return 404, {"detail": "공개된 커리큘럼 PDF가 없습니다."}
+    url = read_url(row[0])
+    if not url:
+        return 503, {"detail": "PDF 연결을 준비하지 못했습니다. 잠시 후 다시 시도해 주세요."}
+    return {"url": url, "filename": row[1]}
 
 
 @api.get("/files", auth=None)

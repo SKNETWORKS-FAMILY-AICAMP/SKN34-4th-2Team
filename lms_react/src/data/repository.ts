@@ -241,16 +241,68 @@ export function saveStudentIntake(uid: string, intake: import('../domain/types')
   if (!isTestMode()) void runCommand('saveStudentIntake', { uid, ...intake });
 }
 
-export function createCohort(cohort: Cohort): void {
+export async function createCohort(cohort: Cohort): Promise<void> {
+  if (!isTestMode()) await runCommand('createCohort', { ...cohort });
   mutate((db) => ({ cohorts: [...db.cohorts, cohort] }));
-  if (!isTestMode()) void runCommand('createCohort', { ...cohort });
 }
 
-export function updateCohort(cohortId: string, patch: Partial<Cohort>): void {
+export async function updateCohort(cohortId: string, patch: Partial<Cohort>): Promise<void> {
+  if (!isTestMode()) await runCommand('updateCohort', { cohortId, ...patch });
   mutate((db) => ({
     cohorts: db.cohorts.map((c) => (c.cohortId === cohortId ? { ...c, ...patch } : c)),
   }));
-  if (!isTestMode()) void runCommand('updateCohort', { cohortId, ...patch });
+}
+
+export async function uploadCohortDocument(cohortId: string, kind: 'curriculum' | 'policy', file: File): Promise<void> {
+  const form = new FormData();
+  form.append('cohortId', cohortId);
+  form.append('kind', kind);
+  form.append('file', file);
+  await http.post('/cohorts/documents', form, { timeout: 180_000, headers: { 'Content-Type': 'multipart/form-data' } });
+  await invalidateBootstrap();
+}
+
+export async function setCohortStatus(cohortId: string, status: 'planned' | 'active' | 'closed'): Promise<void> {
+  if (!isTestMode()) await runCommand('setCohortStatus', { cohortId, status });
+  mutate((db) => ({ cohorts: db.cohorts.map((cohort) =>
+    cohort.cohortId === cohortId ? { ...cohort, status } : cohort) }));
+}
+
+export interface CohortDeletionPreview {
+  cohortId: string;
+  name: string;
+  documents: { kind: 'curriculum' | 'policy'; filename: string }[];
+  blockers: { table: string; label: string }[];
+  unsafeDocuments: string[];
+  canDelete: boolean;
+  state: 'not_started' | 'preparing' | 'deleting' | 'failed' | 'complete';
+  error: string;
+}
+
+export async function getCohortDeletionPreview(cohortId: string): Promise<CohortDeletionPreview> {
+  const { data } = await http.get<CohortDeletionPreview>(`/cohorts/${encodeURIComponent(cohortId)}/deletion-preview`);
+  return data;
+}
+
+export async function deleteCohort(cohortId: string, confirmName: string): Promise<void> {
+  await http.delete(`/cohorts/${encodeURIComponent(cohortId)}`, { data: { confirmName } });
+  await invalidateBootstrap();
+  mutate((db) => ({ cohorts: db.cohorts.filter((cohort) => cohort.cohortId !== cohortId) }));
+}
+
+export interface CohortDocumentStatus {
+  kind: 'curriculum' | 'policy';
+  filename: string;
+  updatedAt: string | null;
+  ragStatus: 'ready' | 'registered' | 'inactive';
+}
+
+export async function getCohortDocuments(cohortId: string): Promise<{
+  cohortId: string;
+  documents: { curriculum: CohortDocumentStatus | null; policy: CohortDocumentStatus | null };
+}> {
+  const { data } = await http.get('/cohorts/documents', { params: { cohortId } });
+  return data;
 }
 
 // ── 공지 · 게시판 ──────────────────────────────────────
@@ -2207,6 +2259,16 @@ function createDemoStudyNote(
 
 export function useCurriculumSheets() {
   return useDb((db) => db.curriculumSheets);
+}
+
+export function useCurriculumPdf() {
+  const cohortId = apiCohortId();
+  return useDb((db) => db.curriculumPdfs?.find((pdf) => pdf.cohortId === cohortId));
+}
+
+export async function curriculumPdfUrl(): Promise<string> {
+  const { data } = await http.get<{ url: string }>('/curriculum/pdf', { params: { cohortId: apiCohortId() } });
+  return data.url;
 }
 
 export function upsertInflearnPackage(pkg: import('../domain/types').InflearnPackage): void {

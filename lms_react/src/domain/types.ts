@@ -401,7 +401,7 @@ export interface ResumeCompanyQuestion {
   /** 쓰고 싶은 내용 메모 — 문항 답변 첨삭이 근거로 쓴다 */
   memo?: string;
   /** 첨삭이 물은 질문과 답 — 다음 초안의 근거. 다시 열어도 이어 쓴다 */
-  notes?: { question: string; answer: string }[];
+  notes?: { question: string; answer: string; source_type?: 'answer' | 'selection'; selected_experience_id?: string }[];
 }
 
 export type ResumeStatus = 'draft' | 'submitted' | 'feedbackRequested' | 'approved';

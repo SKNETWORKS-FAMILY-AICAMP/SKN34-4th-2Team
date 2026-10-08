@@ -922,6 +922,9 @@ export function mapBootstrap(payload: Record<string, unknown>): Database {
     })),
     studyNotes: rowsOf(payload, 'studyNotes').map(mapStudyNote),
     curriculumSheets: sheets,
+    curriculumPdfs: rowsOf(payload, 'curriculumPdfs')
+      .filter((row) => row.published === true && Boolean(row.storageKey ?? row.storage_key))
+      .map((row) => ({ cohortId: String(row.cohortCode ?? row.cohortId ?? ''), filename: String(row.originalFilename ?? row.original_filename ?? '커리큘럼.pdf') })),
     formTasks: rowsOf(payload, 'formTasks').map(mapFormTask),
     formResponses: withNames(rowsOf(payload, 'formResponses').map(mapFormResponse), nameOf),
     mileageProducts: rowsOf(payload, 'mileageProducts').map(mapProduct),

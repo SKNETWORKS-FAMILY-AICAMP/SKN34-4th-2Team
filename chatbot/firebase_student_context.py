@@ -12,6 +12,7 @@ from typing import Any, Callable
 from psycopg.rows import dict_row
 
 from chatbot.database import connect
+from chatbot.cohort_document_rag import curriculum_context
 from chatbot.unit_period import calculate_unit_period_context
 
 KST = timezone(timedelta(hours=9), name="Asia/Seoul")
@@ -93,13 +94,14 @@ def _user_id(cur, uid: str) -> int | None:
     return int(row["id"]) if row else None
 
 
-def load_unit_period_context(session: dict[str, Any], today: date | None = None) -> dict[str, Any]:
+def load_unit_period_context(
+    session: dict[str, Any], today: date | None = None, *, include_attendance: bool = True,
+) -> dict[str, Any]:
     cohort = session["cohort"]
     uid = session["uid"]
     with _connect() as conn:
         cur = conn.cursor()
         cid, _code = _cohort_ids(cur, cohort)
-        user_id = _user_id(cur, uid)
         if cid is None:
             return {"unavailable_reason": "기수의 개강일 또는 종강일이 등록되지 않았습니다"}
         cohort_data = cur.execute(
@@ -108,6 +110,16 @@ def load_unit_period_context(session: dict[str, Any], today: date | None = None)
         start, end = _to_kst_date(cohort_data.get("start_date")), _to_kst_date(cohort_data.get("end_date"))
         if not start or not end:
             return {"unavailable_reason": "기수의 개강일 또는 종강일이 등록되지 않았습니다"}
+        if not include_attendance:
+            # Calendar boundaries do not depend on a PDF, lesson schedule or attendance.
+            context = calculate_unit_period_context(start, end, today=today or datetime.now(KST).date())
+            context["periods"] = [
+                {key: period[key] for key in ("number", "start_date", "end_date")}
+                for period in context["periods"]
+            ]
+            context["calculation_notes"] = context["calculation_notes"][:1]
+            return context
+        user_id = _user_id(cur, uid)
         scheduled_dates: set[date] = set()
         sheet = cur.execute(
             "SELECT id FROM curriculum_sheets WHERE cohort_id = %s ORDER BY uploaded_at DESC NULLS LAST LIMIT 1",
@@ -528,7 +540,7 @@ def load_student_context(
         loaders: dict[str, Callable[[], Any]] = {
             "student_private": lambda: _student_private(cur, cid, uid, user_id),
             "cohort_shared": lambda: _cohort_shared(cur, cid, code),
-            "curriculum_files": lambda: _s3_files(f"cohorts/{code}/curriculum/", query),
+            "curriculum_files": lambda: curriculum_context(cur, cid, code, query),
             "material_files": lambda: _s3_files(f"cohorts/{code}/materials/", query),
             "record_files": lambda: _s3_files(f"cohorts/{code}/records/{uid}/", query),
             "assignment_files": lambda: _s3_files(f"cohorts/{code}/assignments/", query, uid),

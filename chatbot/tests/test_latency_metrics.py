@@ -48,9 +48,10 @@ class LatencyMetricsTests(unittest.TestCase):
         bot.k = 4
         bot.index = FakeIndex()
         bot.embeddings = FakeEmbeddings()
-        state = {"query": "질문 원문", "cohort": "34", "namespaces": ["policy", "notice"]}
+        state = {"query": "질문 원문", "cohort": "cohort_34", "namespaces": ["policy", "notice"]}
 
-        result = bot._retrieve_namespaces(state, ["policy", "notice"])
+        with patch("chatbot.cohort_document_rag.active_policy_namespace", return_value="policy"):
+            result = bot._retrieve_namespaces(state, ["policy", "notice"])
 
         self.assertEqual(result["embedding_calls"], 2)
         self.assertEqual(result["vector_calls"], 2)

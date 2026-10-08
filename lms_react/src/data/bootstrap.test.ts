@@ -3,6 +3,15 @@ import { describe, expect, it } from 'vitest';
 import { mapAlert, mapBootstrap, mapNotice, mapScheduled } from './bootstrap';
 
 describe('Django bootstrap IDs', () => {
+  it('keeps only published PDF metadata, separate from curriculum CSV sheets', () => {
+    const db = mapBootstrap({ curriculumPdfs: [
+      { cohortId: 'cohort_34', originalFilename: 'curriculum.pdf', storageKey: 'cohorts/34/a.pdf', published: true },
+      { cohortId: 'cohort_34', originalFilename: 'draft.pdf', storageKey: 'cohorts/34/b.pdf', published: false },
+      { cohortId: 'cohort_34', published: true },
+    ] });
+    expect(db.curriculumPdfs).toEqual([{ cohortId: 'cohort_34', filename: 'curriculum.pdf' }]);
+    expect(db.curriculumSheets).toEqual([]);
+  });
   it('uses the database primary key for routes that require numeric IDs', () => {
     const row = { id: 'legacy-notice-id', pk: 42, title: '공지' };
 

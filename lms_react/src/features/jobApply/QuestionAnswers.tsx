@@ -21,8 +21,12 @@ interface Sentence {
   text: string;
   basis: 'resume' | 'answer' | 'posting';
   quote: string;
+  sources: { basis: Sentence['basis']; source_id: string; quote: string; source_type?: string }[];
   requirementIds: string[];
 }
+
+interface AnswerInput { question: string; answer: string; source_type?: 'memo' | 'answer' | 'selection'; selected_experience_id?: string }
+type AnswerNote = AnswerInput & { source_type?: 'answer' | 'selection' };
 
 interface AnswerResult {
   draft: string;
@@ -30,8 +34,11 @@ interface AnswerResult {
   limit: number | null;
   sentences: Sentence[];
   dropped: number;
-  gaps: { requirementId: string; question: string }[];
+  gaps: { requirementId: string; question: string; kind: 'clarification' | 'experience_choice'; options: { id: string; label: string }[] }[];
   requirements: { id: string; group: string; label: string }[];
+  requirementsStatus: 'available' | 'unavailable';
+  focus: { labels: string[]; reason: string };
+  experienceOptions: { id: string; label: string }[];
 }
 
 const BASIS_LABEL: Record<Sentence['basis'], string> = { resume: '이력서', answer: '내 메모·답변', posting: '공고' };
@@ -46,15 +53,25 @@ function toResult(data: Json): AnswerResult {
       text: String(s.text ?? ''),
       basis: (['resume', 'answer', 'posting'].includes(String(s.basis)) ? s.basis : 'resume') as Sentence['basis'],
       quote: String(s.quote ?? ''),
+      sources: list(s.sources).map((ref) => ({
+        basis: (['resume', 'answer', 'posting'].includes(String(ref.basis)) ? ref.basis : 'resume') as Sentence['basis'],
+        source_id: String(ref.source_id ?? ''), quote: String(ref.quote ?? ''), source_type: String(ref.source_type ?? ''),
+      })),
       requirementIds: Array.isArray(s.requirement_ids) ? (s.requirement_ids as string[]) : [],
     })),
     dropped: Number(data.dropped ?? 0),
-    gaps: list(data.gaps).map((g) => ({ requirementId: String(g.requirement_id ?? ''), question: String(g.question ?? '') })),
+    gaps: list(data.gaps).map((g) => ({ requirementId: String(g.requirement_id ?? ''), question: String(g.question ?? ''),
+      kind: g.kind === 'experience_choice' ? 'experience_choice' : 'clarification',
+      options: list(g.options).map((item) => ({ id: String(item.id ?? ''), label: String(item.label ?? '') })) })),
     requirements: list(data.requirements).map((r) => ({
       id: String(r.id ?? ''),
       group: String(r.group ?? ''),
       label: String(r.label ?? ''),
     })),
+    requirementsStatus: data.requirements_status === 'unavailable' ? 'unavailable' : 'available',
+    focus: {labels: list((data.focus as Json | undefined)?.labels).map(String),
+      reason: String((data.focus as Json | undefined)?.reason ?? '')},
+    experienceOptions: list(data.experience_options).map((item) => ({ id: String(item.id ?? ''), label: String(item.label ?? '') })),
   };
 }
 
@@ -104,7 +121,7 @@ function QuestionAnswerCard({
 }: {
   index: number;
   question: ResumeCompanyQuestion;
-  request(answers: { question: string; answer: string }[]): Promise<Json>;
+  request(answers: AnswerInput[]): Promise<Json>;
   onUpdate(patch: Partial<ResumeCompanyQuestion>): Promise<void>;
 }) {
   const [text, setText] = useState(question.answer ?? '');
@@ -112,8 +129,10 @@ function QuestionAnswerCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** 질문에 답한 것 — 다음 초안의 근거가 된다. 저장돼 있어 다시 열어도 이어 간다 */
-  const [history, setHistory] = useState<{ question: string; answer: string }[]>(question.notes ?? []);
+  const [history, setHistory] = useState<AnswerNote[]>(question.notes ?? []);
   const [gapAnswers, setGapAnswers] = useState<Record<string, string>>({});
+  const [chosenExperience, setChosenExperience] = useState(() =>
+    [...(question.notes ?? [])].reverse().find((note) => note.source_type === 'selection')?.selected_experience_id ?? '');
   const [saved, setSaved] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
   /** 쓰고 싶은 내용 메모 — 키워드만 적어도 된다. 부를 때마다 최신 메모를 근거로 싣는다. 칸에서 나갈 때 저장 */
   const [memo, setMemo] = useState(question.memo ?? '');
@@ -127,24 +146,42 @@ function QuestionAnswerCard({
   const limit = question.limit;
   const over = limit !== null && text.length > limit;
   const answeredGaps = (result?.gaps ?? [])
-    .map((g) => ({ question: g.question, answer: (gapAnswers[g.question] ?? '').trim() }))
+    .map((g) => {
+      const value = (gapAnswers[g.question] ?? '').trim();
+      return g.kind === 'experience_choice'
+        ? { question: g.question, answer: g.options.find((option) => option.id === value)?.label ?? '',
+          source_type: 'selection' as const, selected_experience_id: value }
+        : { question: g.question, answer: value };
+    })
     .filter((g) => g.answer !== '');
 
   const run = async () => {
     if (busy) return;
-    const answered = [...history, ...answeredGaps];
+    const latestSelection = [...history].reverse().find((item) => item.source_type === 'selection');
+    const changedSelection = !answeredGaps.some((item) => item.source_type === 'selection')
+      && chosenExperience && chosenExperience !== latestSelection?.selected_experience_id
+      ? [{ question: '이번 문항의 중심 경험 선택', answer: result?.experienceOptions.find((item) => item.id === chosenExperience)?.label ?? '',
+        source_type: 'selection' as const, selected_experience_id: chosenExperience }]
+      : [];
+    const newChoices = [...answeredGaps.filter((item) => item.source_type === 'selection'),
+      ...changedSelection.filter((item) => item.answer)];
+    const priorNotes = newChoices.length ? history.filter((item) => item.source_type !== 'selection') : history;
+    const answered = [...priorNotes, ...answeredGaps, ...changedSelection.filter((item) => item.answer)];
     const note = memo.trim();
-    const memoItem = note === '' ? [] : [{ question: `「${question.question}」에 쓰고 싶은 내용 (지원자 메모)`, answer: note }];
+    const memoItem: AnswerInput[] = note === '' ? [] : [
+      { question: `「${question.question}」에 쓰고 싶은 내용 (지원자 메모)`, answer: note, source_type: 'memo' }];
     setBusy(true);
     setError(null);
     try {
       const next = toResult(await request([...memoItem, ...answered]));
+      // A successful draft must not make an unsaved selection look persistent.
+      await onUpdate({ memo, notes: answered });
       setHistory(answered);
-      // 쓴 메모와 질문 답을 남긴다 — 다시 열어도 같은 근거로 이어 쓴다
       savedMemo.current = memo;
-      void onUpdate({ memo, notes: answered }).catch(() => undefined);
       setGapAnswers({});
       setResult(next);
+      const selectedId = [...answered].reverse().find((item) => item.source_type === 'selection')?.selected_experience_id;
+      if (selectedId) setChosenExperience(selectedId);
       // 아직 아무것도 안 쓴 칸이면 초안을 바로 넣는다. 쓴 글이 있으면 덮지 않고 고르게 한다
       if (text.trim() === '') setText(next.draft);
     } catch (err) {
@@ -165,7 +202,6 @@ function QuestionAnswerCard({
   };
 
   const labelOf = (id: string) => result?.requirements.find((r) => r.id === id)?.label ?? id;
-  const thin = result !== null && result.limit !== null && result.charCount < result.limit * 0.6;
 
   return (
     <section className="qa-card">
@@ -221,6 +257,17 @@ function QuestionAnswerCard({
 
       {result !== null && (
         <div className="qa-result">
+          {result.requirementsStatus === 'unavailable' &&
+            <p className="apply-note">공고 요건을 확인하지 못했습니다. 이 초안은 문항·이력서·답변을 기준으로 작성했으며 회사·직무 맞춤 검증은 제한됩니다.</p>}
+          {result.focus.labels.length > 0 &&
+            <p className="hint">중심 경험: {result.focus.labels.join(' · ')}{result.focus.reason && ` — ${result.focus.reason}`}</p>}
+          {result.experienceOptions.length > 1 && !result.gaps.some((gap) => gap.kind === 'experience_choice') &&
+            <label className="qa-gap">중심 경험 변경
+              <select aria-label="중심 경험 변경" value={chosenExperience} onChange={(event) => setChosenExperience(event.target.value)}>
+                <option value="">현재 초안의 선택 유지</option>
+                {result.experienceOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+              </select>
+            </label>}
           <div className="qa-result__head">
             <span className="apply-label">AI 초안 · 근거</span>
             <span className="hint">
@@ -236,7 +283,9 @@ function QuestionAnswerCard({
             )}
           </div>
           {result.sentences.length === 0 ? (
-            <p className="hint">이력서에서 이 문항에 쓸 근거를 찾지 못했어요. 아래 질문에 답해 주세요.</p>
+            <p className="hint">{result.gaps.length > 0
+              ? '중심 경험이나 중요한 정보를 먼저 확인한 뒤 초안을 작성할 수 있습니다.'
+              : '안전하게 제시할 초안을 만들지 못했습니다. 입력 근거를 확인하거나 다시 시도해 주세요.'}</p>
           ) : (
             <ol className="qa-sentences">
               {result.sentences.map((s, i) => (
@@ -244,7 +293,8 @@ function QuestionAnswerCard({
                   <span className={`qa-basis qa-basis--${s.basis}`}>{BASIS_LABEL[s.basis]}</span>
                   <div>
                     <span>{s.text}</span>
-                    <q className="qa-quote">{s.quote}</q>
+                    {(s.sources.length ? s.sources : [{basis:s.basis,quote:s.quote,source_id:''}]).map((ref, sourceIndex) =>
+                      <q key={sourceIndex} className="qa-quote">{ref.quote}</q>)}
                     {s.requirementIds.length > 0 && (
                       <span className="qa-reqs">
                         {s.requirementIds.map((id) => (
@@ -259,7 +309,6 @@ function QuestionAnswerCard({
               ))}
             </ol>
           )}
-          {thin && <p className="apply-note">근거가 모자라 짧게 썼어요. 지어서 채우지 않아요. 아래 질문에 답하면 그 답을 근거로 더 써요.</p>}
           {result.gaps.length > 0 && (
             <div className="qa-gaps">
               <span className="apply-label">더 쓰려면 알려 주세요</span>
@@ -268,12 +317,17 @@ function QuestionAnswerCard({
                   <span>
                     {g.requirementId !== '' && <span className="qa-req">{labelOf(g.requirementId)}</span>} {g.question}
                   </span>
-                  <TextArea
-                    rows={2}
-                    value={gapAnswers[g.question] ?? ''}
-                    placeholder="해 본 적이 없으면 비워 두세요. 없는 경험은 쓰지 않아요."
-                    onChange={(e) => setGapAnswers((a) => ({ ...a, [g.question]: e.target.value }))}
-                  />
+                  {g.kind === 'experience_choice' ? (
+                    <select aria-label="중심 경험 선택" value={gapAnswers[g.question] ?? ''}
+                      onChange={(event) => setGapAnswers((a) => ({ ...a, [g.question]: event.target.value }))}>
+                      <option value="">경험을 선택하세요</option>
+                      {g.options.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                    </select>
+                  ) : (
+                    <TextArea rows={2} value={gapAnswers[g.question] ?? ''}
+                      placeholder="해 본 적이 없으면 비워 두세요. 없는 경험은 쓰지 않아요."
+                      onChange={(e) => setGapAnswers((a) => ({ ...a, [g.question]: e.target.value }))} />
+                  )}
                 </label>
               ))}
               <div>

@@ -1,4 +1,5 @@
 import re
+from typing import Literal
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query
 from langchain_core.exceptions import LangChainException
@@ -204,6 +205,8 @@ def question_extract_as_user(request: ProxyQuestionExtractRequest, extractor=Dep
 class QuestionAnswerItem(StrictModel):
     question: str = Field(max_length=500)
     answer: str = Field(max_length=3000)
+    source_type: Literal['memo', 'answer', 'selection'] = 'answer'
+    selected_experience_id: str | None = Field(default=None, max_length=200)
 
 
 class ProxyQuestionAnswerRequest(StrictModel):

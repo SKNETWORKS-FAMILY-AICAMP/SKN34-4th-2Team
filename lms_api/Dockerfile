@@ -7,6 +7,8 @@ COPY lms_api/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY lms_api /app
+COPY chatbot/cohort_document_rag.py chatbot/database.py /app/chatbot/
+COPY vectordb/policy_ingestion.py vectordb/utills.py /app/vectordb/
 EXPOSE 8000
 
-CMD ["gunicorn", "lms_server.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "60"]
+CMD ["gunicorn", "lms_server.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "180"]
