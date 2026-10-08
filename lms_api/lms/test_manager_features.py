@@ -315,7 +315,8 @@ class AlertEndDateAndReadTests(TestCase):
 
         cur = Mock()
         cur.fetchone.return_value = (77,)
-        op_upsert_alert(cur, STAFF, {"title": "t", "endDate": "2026-09-30", "action": "insert"})
+        with patch('lms.commands._assert_cohort_writable'):
+            op_upsert_alert(cur, STAFF, {"title": "t", "endDate": "2026-09-30", "action": "insert"})
         insert = next(c.args for c in cur.execute.call_args_list if "INSERT INTO alert_popups" in c.args[0])
         self.assertIn("end_date", insert[0])
         self.assertEqual(insert[1][-1], date(2026, 9, 30))
@@ -326,7 +327,8 @@ class AlertEndDateAndReadTests(TestCase):
         from lms.commands import op_upsert_alert
 
         cur = Mock()
-        op_upsert_alert(cur, STAFF, {"id": "77", "title": "t", "isActive": False})
+        with patch('lms.commands._assert_cohort_writable'):
+            op_upsert_alert(cur, STAFF, {"id": "77", "title": "t", "isActive": False})
         update = next(c.args for c in cur.execute.call_args_list if "UPDATE alert_popups" in c.args[0])
         self.assertEqual(update[1][7:9], [True, None])
 

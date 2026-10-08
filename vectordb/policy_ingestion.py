@@ -332,7 +332,7 @@ def upsert_vectors(
     return len(records)
 
 
-def upload_records(records: Sequence[ChunkRecord], *, namespace: str = NAMESPACE) -> dict[str, Any]:
+def upload_records(records: Sequence[ChunkRecord], *, namespace: str = NAMESPACE, index_name: str = INDEX_NAME) -> dict[str, Any]:
     """Upsert all batches before deleting stale IDs of these documents/cohorts.
 
     No delete_all or local manifest. Prefixes isolate different documents/cohorts.
@@ -356,7 +356,7 @@ def upload_records(records: Sequence[ChunkRecord], *, namespace: str = NAMESPACE
     model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
     dimensions = int(os.getenv("OPENAI_EMBEDDING_DIMENSION", "1536"))
     pc = Pinecone(api_key=key)
-    description = retry(lambda: pc.describe_index(INDEX_NAME))
+    description = retry(lambda: pc.describe_index(index_name))
     if description.dimension != dimensions or description.metric != "cosine":
         raise ValueError(f"student 인덱스는 dimension={dimensions}, metric=cosine이어야 합니다")
     index = pc.Index(host=description.host)
@@ -378,7 +378,7 @@ def upload_records(records: Sequence[ChunkRecord], *, namespace: str = NAMESPACE
     for start in range(0, len(stale), 1000):
         batch = stale[start:start + 1000]
         retry(lambda: index.delete(ids=batch, namespace=namespace))
-    return {"index": INDEX_NAME, "namespace": namespace, "upserted": upserted, "deleted_stale": len(stale)}
+    return {"index": index_name, "namespace": namespace, "upserted": upserted, "deleted_stale": len(stale)}
 
 
 def ingest_policy_docx(file: Path | bytes, *, dry_run: bool = False, **kwargs: Any) -> dict[str, Any]:

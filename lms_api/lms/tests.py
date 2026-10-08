@@ -19,6 +19,33 @@ from lms.seating_layout import seating_payload
 from lms.services import sync_notice_vector
 
 
+class CurriculumPdfTests(SimpleTestCase):
+    def lookup(self, cohort_id=1, row=('cohorts/cohort_34/curriculum/a.pdf', 'a.pdf'), url='https://example.test/signed'):
+        from lms.api import curriculum_pdf
+        request = Mock(auth={'id': 7, 'cohort_id': 1, 'role': 'student', 'is_active': True})
+        with patch('lms.api.connection') as connection, patch('lms.api.resolve_cohort', return_value=cohort_id), patch('lms.storage.read_url', return_value=url) as signer:
+            cur = connection.cursor.return_value.__enter__.return_value
+            cur.fetchone.return_value = row
+            result = curriculum_pdf(request, 'cohort_34')
+            return result, cur, signer
+
+    def test_own_published_pdf_gets_fresh_url(self):
+        result, cur, signer = self.lookup()
+        self.assertEqual(result['filename'], 'a.pdf')
+        self.assertIn('published=true', cur.execute.call_args.args[0])
+        signer.assert_called_once_with('cohorts/cohort_34/curriculum/a.pdf')
+
+    def test_other_cohort_cannot_read_or_sign_pdf(self):
+        result, cur, signer = self.lookup(cohort_id=2)
+        self.assertEqual(result[0], 403)
+        cur.execute.assert_not_called()
+        signer.assert_not_called()
+
+    def test_missing_or_unavailable_pdf_is_explicit(self):
+        self.assertEqual(self.lookup(row=None)[0][0], 404)
+        self.assertEqual(self.lookup(url=None)[0][0], 503)
+
+
 class AttendanceUpsertTests(TestCase):
     @patch("lms.commands._prepare_row", return_value={
         "user_id": 9, "cohort_id": 2, "attendance_date": "2026-09-24",
@@ -31,10 +58,11 @@ class AttendanceUpsertTests(TestCase):
     def test_repeated_daily_insert_updates_existing_row(self, _columns, _prepare):
         cur = Mock()
         cur.fetchone.return_value = (17,)
-        result = op_upsert_sql(cur, {"role": "admin", "id": 1}, {
-            "table": "attendances", "action": "insert", "userId": "student-uid",
-            "dateKey": "2026-09-24", "status": "late",
-        })
+        with patch('lms.commands._assert_cohort_writable'):
+            result = op_upsert_sql(cur, {"role": "admin", "id": 1}, {
+                "table": "attendances", "action": "insert", "userId": "student-uid",
+                "dateKey": "2026-09-24", "status": "late",
+            })
         sql, values = cur.execute.call_args.args
         self.assertEqual(result, {"id": "17"})
         self.assertIn("ON CONFLICT (user_id, attendance_date) DO UPDATE SET", sql)
@@ -46,7 +74,7 @@ class AttendanceUpsertTests(TestCase):
 class SeatPresenceTests(TestCase):
     def test_repeat_mark_upserts_same_student_period(self):
         cur = Mock()
-        cur.fetchone.side_effect = [(8, 2), (17,)]
+        cur.fetchone.side_effect = [(8, 2), (2,), None, (17,)]
         actor = {"id": 4, "role": "instructor", "cohort_id": 2, "is_active": True}
         result = op_set_seat_presence(cur, actor, {
             "userId": "student-uid", "dateKey": "2026-09-24", "period": 9,
@@ -366,7 +394,7 @@ class CohortPeriodTests(SimpleTestCase):
 
     def _update(self, payload, current_start=None):
         cur = Mock()
-        cur.fetchone.return_value = (7, current_start)
+        cur.fetchone.side_effect = [(7, current_start), (7,), None]
         op_update_cohort(cur, self.ADMIN, {"cohortId": "cohort_34", **payload})
         sql, args = cur.execute.call_args_list[-1].args
         return sql, args
@@ -400,7 +428,8 @@ class CohortPeriodTests(SimpleTestCase):
     def test_create_saves_period(self):
         from datetime import date
         cur = Mock()
-        cur.fetchone.return_value = (9,)
+        cur.fetchone.side_effect = [None, (9,)]
+        cur.fetchall.return_value = []
         op_create_cohort(cur, self.ADMIN, {"cohortId": "cohort_36", "startDate": "2026-11-02", "endDate": "2027-04-30"})
         sql, args = cur.execute.call_args.args
         self.assertIn("start_date, end_date", sql)

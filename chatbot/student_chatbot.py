@@ -85,7 +85,7 @@ _IMPLICIT_PERSONAL_ATTENDANCE = re.compile(
     r"(?:출석률|출결\s*(?:집계|현황|기록)|출석\s*현황)"
 )
 _CONTENT_CREATION = re.compile(r"대신\s*(?:써|작성)|(?:써|작성|만들어)\s*줘|대필")
-_COHORT = re.compile(r"일정|시간표|좌석|게시글|과제|평가|기수\s*정보|링크")
+_COHORT = re.compile(r"일정|시간표|좌석|게시글|과제|평가|기수\s*정보|단위\s*기간|링크")
 # 공부방 복습 문제 현황 — 「오늘 복습 문제 나왔어?」「다시 풀 문제」
 _STUDY_ROOM = re.compile(r"복습\s*문제|오늘\s*복습|복습\s*(?:몇|세트|진도)|다시\s*풀\s*문제|공부방")
 _CURRICULUM_FILE = re.compile(r"커리큘럼\s*(?:파일|pdf)|교육과정\s*(?:파일|pdf)", re.IGNORECASE)
@@ -211,6 +211,9 @@ ANSWER_PROMPT = """
 - 일정에서 PDF에 없는 프로젝트 주제를 추측하지 말고 실제 project_reference 제출물 근거가 있을 때만 답한다.
 
 [진행 중 출석]
+- 단위기간 날짜는 제공된 periods와 current_unit_period를 사용한다. 개강일부터 매 1개월이고 마지막 기간은
+  종강일까지만 포함한다. 커리큘럼 PDF·수업 일정·출석 기록이 없어도 이 날짜는 안내할 수 있다.
+  날짜만 제공된 경우 출석률이나 장려금 충족 여부까지 추정하지 않는다.
 - 단위기간·출석은 신뢰 가능한 계산 결과를 우선한다. in_progress_estimate가 있으면 횟수만 나열하지 말고
   attendance_rate를 "현재까지 기록이 확인된 수업일 기준 인정 출석률"로, requirement_met_so_far를
   현재 80% 충족 여부로, remaining_scheduled_days를 남은 수업일로 설명한다.
@@ -761,15 +764,21 @@ class LmsStudentChatbot:
         required_filter: dict[str, Any] = {}
         if namespace in ("notice", "policy"):
             cohort = cohort.strip()
-            if not re.fullmatch(r"cohort_\d{1,3}", cohort):
+            from chatbot.cohort_document_rag import valid_cohort_code
+            if not valid_cohort_code(cohort):
                 raise ValueError("기수별 검색에 사용할 학생 기수 형식이 올바르지 않습니다")
             required_filter = {"cohort": {"$eq": cohort}}
+
+        search_namespace = namespace
+        if namespace == 'policy':
+            from chatbot.cohort_document_rag import active_policy_namespace
+            search_namespace = active_policy_namespace(cohort)
 
         store = ScopedPineconeVectorStore(
             index=self.index,
             embedding=self.embeddings,
             text_key="page_content",
-            namespace=namespace,
+            namespace=search_namespace,
             required_filter=required_filter,
             on_query=on_query,
         )

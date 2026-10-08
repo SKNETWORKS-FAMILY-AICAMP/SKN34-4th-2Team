@@ -135,10 +135,15 @@ def _ready_chatbot() -> LmsStudentChatbot:
 
 def _chat_inputs(request: InitRequest, session: dict[str, Any]) -> dict[str, Any]:
     uid_key = hashlib.sha256(session["uid"].encode()).hexdigest()[:24]
+    try:
+        unit_context = _load_unit_context(session, include_attendance=False)
+    except Exception:
+        unit_context = {"unavailable_reason": "기수 날짜 조회에 실패했습니다. 날짜를 추측하지 마세요."}
     return {
         "thread_id": f"{uid_key}.{request.thread_id}",
         "student_uid": session["uid"],
         "cohort": session["cohort"],
+        "unit_period_context": unit_context,
     }
 
 

@@ -61,6 +61,7 @@ export interface Database {
   studySources: StudySource[];
   studyNotes: StudyNote[];
   curriculumSheets: CurriculumSheet[];
+  curriculumPdfs: { cohortId: string; filename: string }[];
   formTasks: FormTask[];
   formResponses: FormResponse[];
   mileageProducts: MileageProduct[];
@@ -118,6 +119,7 @@ export function emptyDb(): Database {
     studySources: [],
     studyNotes: [],
     curriculumSheets: [],
+    curriculumPdfs: [],
     formTasks: [],
     formResponses: [],
     mileageProducts: [],

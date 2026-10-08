@@ -434,6 +434,25 @@ class Cohorts(models.Model):
         db_table = 'cohorts'
 
 
+class CohortDeletionJobs(models.Model):
+    """Durable cleanup manifest; deliberately no FK so the completed audit survives cohort deletion."""
+
+    id = models.BigAutoField(primary_key=True)
+    cohort_id = models.BigIntegerField(unique=True)
+    cohort_code = models.CharField()
+    cohort_name = models.CharField()
+    state = models.CharField(default='preparing')
+    targets = models.JSONField(blank=True, null=True, default=None)
+    deleted_vectors = models.JSONField(default=list)
+    deleted_objects = models.JSONField(default=list)
+    error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'cohort_deletion_jobs'
+
+
 class CurriculumPdfs(models.Model):
     cohort = models.OneToOneField(Cohorts, models.PROTECT, primary_key=True)
     storage_key = models.CharField(blank=True, null=True)

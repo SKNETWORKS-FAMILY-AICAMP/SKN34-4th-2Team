@@ -73,6 +73,7 @@ function initial(): Database {
     studySources: seedStudySources,
     studyNotes: seedStudyNotes,
     curriculumSheets: seedCurriculumSheets,
+    curriculumPdfs: [],
     formTasks: seedFormTasks,
     formResponses: seedFormResponses,
     mileageProducts: seedMileageProducts,

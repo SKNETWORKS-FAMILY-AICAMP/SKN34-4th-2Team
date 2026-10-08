@@ -146,7 +146,8 @@ export const reviewApi = {
   extractQuestionsFromLink: (url: string) => post('/resume-review/question-extract-link', { url }),
 
   /** 공고 맞춤 이력서의 회사 문항 하나에 답을 쓴다 — 공고 요건 · 이력서 근거로. 저장은 하지 않는다 */
-  questionAnswer: (resumeId: string, tailoredResumeId: string, questionId: string, answers: { question: string; answer: string }[]) =>
+  questionAnswer: (resumeId: string, tailoredResumeId: string, questionId: string,
+    answers: { question: string; answer: string; source_type?: 'memo' | 'answer' | 'selection'; selected_experience_id?: string }[]) =>
     post('/resume-review/question-answer', { resumeId, tailoredResumeId, questionId, answers }),
 
   /** 공고용 사본을 뜬다. apply(공고 맞춤 지원)는 이력서 관리의 맞춤 첨삭 사본(review)과 따로 뜬다 */
