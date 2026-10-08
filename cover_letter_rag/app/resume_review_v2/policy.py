@@ -1,6 +1,6 @@
 """Authoritative v2 policy. Role prompts reference these definitions, not overrides."""
 
-POLICY_VERSION = 'resume-policy-9-paragraph-recomposition'
+POLICY_VERSION = 'resume-policy-22-requirement-scope-review-state'
 PRECEDENCE = (
     'Factual safety', 'Applicant provenance', 'Target-section fitness',
     'Evidence value', 'Writing quality', 'Length',
@@ -35,6 +35,10 @@ preserved: narrowly selected active original meaning essential to identity, role
 central technical contribution or major result. Protect that meaning when editing;
 it is not an include-all list, a literal quote obligation or a separate clause quota.
 omitted: known but not approved for this revision; never use it to support claims.
+The brief protects propositions established by its source_refs, not generated
+semantic paraphrases or fact/intent labels. Read the approved quotes for actor,
+performed stages, certainty, conditions, relations and results. Rhetorical roles
+and grouping hints are not additional facts or one-sentence-per-meaning quotas.
 Preserve factual truth and high-value evidence. Select, merge, compress or omit
 other supported details according to the target section. Original sentence
 structure and all original details are not preservation targets.'''
@@ -56,8 +60,10 @@ content-free summary. Length alone, optional omission and restructured prose are
 not quality failures. Retain useful reasoning detail even when it needs more space.'''
 
 QUESTION_POLICY = '''The analysis call compares the original, answer history and
-target context to propose at most one clarification per experience whose expected
-editing benefit justifies the applicant's effort. Empty slots are not questions.
+target context to discover useful information needs separately from the next
+question. Retain worthwhile deferred needs and explicit review decisions; absent
+review data means unreviewed, not sufficient. Ask at most one active clarification
+per experience at a time whose editing benefit justifies effort. Empty slots are not questions.
 The server checks ownership, source references and exact-repeat identity, and
 exposes at most three questions across the resume. Semantic repetition and marginal
 value are judged from meaning, not lexical similarity or a mandatory checklist.'''
@@ -111,15 +117,29 @@ PROJECT_TYPE_PRIORITY = {
 REWRITE_POLICY = '''When a prior draft and validation issues are supplied, repair
 those blockers using the same evidence roles, section policy and precedence as the
 initial draft. Do not restore omitted or unused optional details to satisfy a
-preservation quota. A prior draft is not evidence. Keep valid, valuable reasoning
-and technical signal; never solve a writing issue by inventing or weakening facts.'''
+preservation quota. A prior draft is not evidence or approval of its unflagged parts.
+Use rewrite_source_review to revisit the approved sources behind the brief's
+protected meanings. Its prior_draft_coverage identifies meanings expressed in the
+previous candidate; while repairing the reported defect, retain their supported
+propositions or revise them only when the source or reported issue requires it.
+Coverage metadata is not proof of correctness, a sentence template or a quota.
+Repair the paragraph while keeping important action stages, decisions, conditions,
+measurement subjects and results. A compressed label cannot replace a precise
+source relation.
+Re-ground any changed agency, outcome or causal connection against the same approved
+quotes; keep claim tags consistent with the actual wording. Recheck the complete
+draft, including possible omissions the first pass did not find. Never fix a prose
+defect by inventing scope, promoting a test into success, or weakening core meaning.'''
 
 SOURCE_POLICY = ('resume_text source_id is experience_id for current_text or a declared '
                  'resume_sources source_id; user_answer source_id is answer_source_id')
 TARGET_POLICY = 'original_quote must equal current_text as an apply locator, not a prose-preservation instruction'
 BATCH_POLICY = '''Process keyed items independently and return the same item keys.
-Never transfer applicant evidence between experiences. Shared job requirements
-are the same target context for each item; use the canonical applicant provenance policy.'''
+Never transfer applicant evidence between experiences. shared_job_requirements,
+shared_target_context and shared_allowed_target_context (when present) replace
+only the corresponding target-context field for each item. Their requirement IDs
+and quotes are unchanged; never treat shared context as applicant evidence.
+When a field remains inside an item it belongs only to that item.'''
 
 # Shared quality thresholds; none is a sentence-count or length rejection limit.
 ENUMERATION_LIMIT = 5

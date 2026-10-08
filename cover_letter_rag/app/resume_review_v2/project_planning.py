@@ -42,15 +42,31 @@ def active_facts(evidence):
         and eid not in blocked}
 
 
-def merge_facets(active, previous, extracted):
+_PERFORMED_ACTION = re.compile(
+    r'(?:직접\s*)?(?:구현|개발|작성|분석|처리|연동|구축|적용|호출|수행|제작)'
+    r'(?:했|하였|한|하여|해서|했습니다|하였습니다|했다|한\s*경험)', re.I)
+
+
+def merge_facets(active, previous, extracted, diagnostics=None):
     facets = {}
     for facet in [*previous, *extracted]:
         if facet.evidence_id not in active:
             continue
         if len(set(facet.slots)) != len(facet.slots):
             raise ContractError('duplicate profile slot')
-        if active[facet.evidence_id].fact_type == FactType.TECHNOLOGY and set(facet.slots) - {S.TECHNOLOGIES}:
-            raise ContractError('technology names cannot establish role/action/validation')
+        fact = active[facet.evidence_id]
+        if fact.fact_type == FactType.TECHNOLOGY:
+            extra = set(facet.slots) - {S.TECHNOLOGIES}
+            # Facets are derived labels. Keep a sourced performed action, but
+            # never promote a technology inventory into work or ownership.
+            allowed={S.TECHNOLOGIES}
+            if not fact.source_id.endswith(':techStack') and _PERFORMED_ACTION.search(fact.evidence_quote):
+                allowed.add(S.ACTIONS)
+            if extra - allowed and diagnostics is not None:
+                diagnostics.append(dict(evidence_id=facet.evidence_id,
+                    removed_slots=sorted(slot.value for slot in extra-allowed),
+                    reason='technology_facet_without_performed_source'))
+            facet=facet.model_copy(update={'slots':[slot for slot in facet.slots if slot in allowed] or [S.TECHNOLOGIES]})
         facets[facet.evidence_id] = facet
     for eid, fact in active.items():
         if eid not in facets:
@@ -136,87 +152,30 @@ def detect_gaps(profile, evidence, unavailable=()):
                                      0 if g.priority == 'HIGH' else 1))
 
 
-OPEN_QUESTIONS = {
-    S.ROLE: '프로젝트에서 본인이 직접 한 작업은 무엇인가요? 팀 작업이라면 다른 구성원의 작업과 구분해 알려주세요.',
-    S.ACTIONS: '프로젝트에서 직접 구현하거나 분석한 핵심 작업은 무엇인가요?',
-    S.PURPOSE: '이 프로젝트로 해결하거나 분석하려던 문제는 무엇인가요?',
-    S.VALIDATION: '구현이나 분석 결과는 어떤 방법 또는 기준으로 확인했나요? 정량 수치가 없어도 괜찮습니다.',
-    S.DECISIONS: '직접 수행한 작업 중 방법이나 구조를 선택할 때 고려한 점이 있다면 알려주세요.',
-}
-CLARIFICATION_QUESTIONS = {
-    S.OBSERVATION: '클래스 불균형은 어떤 데이터나 분포를 보고 확인했나요?',
-    S.DECISIONS: '이미 수행한 threshold 또는 임계값 비교는 어떤 기준으로 진행했고, 확인한 결과가 있다면 무엇인가요?',
-}
-TYPE_QUESTIONS = {
-    'model_evaluation': '모델 성능을 평가한 적이 있나요? 있다면 어떤 기준이나 지표를 사용했나요? 정량 수치가 없어도 괜찮습니다.',
-    'analysis_validation': '분석 결과나 발견한 패턴은 어떤 방법 또는 기준으로 확인했나요?',
-}
-
-
 def question_for_gap(experience_id, gap, evidence, experience_title=''):
+    """Offline diagnostic suggestions only; live candidate=null never calls this."""
+    from .models import QuestionNeed
+    from .question_planning import render_question
     active = active_facts(evidence)
     basis = [eid for eid in gap.existing_evidence_ids if eid in active]
-    if gap.gap_type == 'clarification' and not basis:
-        raise ContractError('question premise has no active applicant evidence')
-    premises = [QuestionPresupposition(fact=active[eid].normalized_fact, evidence_ids=[eid]) for eid in basis]
-    if gap.focus == 'observation_basis':
-        if not any(re.search(r'불균형|imbalanc', active[eid].normalized_fact, re.I) for eid in basis):
-            raise ContractError('unbacked imbalance premise')
-        text = CLARIFICATION_QUESTIONS[S.OBSERVATION]
-    elif gap.focus == 'comparison_basis':
-        if not any(re.search(r'threshold|임계값', active[eid].normalized_fact, re.I)
-                   and re.search(r'비교|조정|변경|바꿔|compare', active[eid].normalized_fact, re.I) for eid in basis):
-            raise ContractError('unbacked threshold comparison premise')
-        text = CLARIFICATION_QUESTIONS[S.DECISIONS]
-    else:
-        text = TYPE_QUESTIONS.get(gap.focus) or OPEN_QUESTIONS[gap.target_slot]
-    fingerprint = '\n'.join(sorted(p.fact for p in premises))
-    suffix = hashlib.sha256(fingerprint.encode()).hexdigest()[:12] if premises else 'open'
-    question = GapQuestion(experience_id=experience_id, experience_title=experience_title,
-        question=text, gap_type=gap.gap_type, target_slot=gap.target_slot,
-        evidence_basis=basis, priority=gap.priority, why_needed=gap.why_needed,
-        presuppositions=premises, focus=gap.focus,
+    suffix = hashlib.sha256('\n'.join(sorted(basis)).encode()).hexdigest()[:12] if basis else 'open'
+    need = QuestionNeed(experience_id=experience_id, gap_type=gap.gap_type,
+        target_slot=gap.target_slot, evidence_basis=basis, priority=gap.priority,
+        why_needed=gap.why_needed, focus=gap.focus,
         dedupe_key=f'{experience_id}:{gap.target_slot.value}:{gap.focus}:{suffix}')
-    validate_question(question, evidence)
+    presentation,issue=render_question(need,evidence)
+    if issue:raise ContractError(issue)
+    question = GapQuestion(**need.model_dump(),experience_title=experience_title,**presentation)
+    validate_question(question,evidence)
     return question
 
 
-def validate_question(question, evidence):
-    """No freely generated text: both premises AND wording must match safe builder."""
-    active = active_facts(evidence)
-    if any(f.experience_id != question.experience_id for f in evidence.values()):
-        raise ContractError('question experience does not match evidence')
-    for premise in question.presuppositions:
-        if not premise.evidence_ids or any(eid not in active for eid in premise.evidence_ids):
-            raise ContractError('unsupported question presupposition')
-        if not any(premise.fact == active[eid].normalized_fact for eid in premise.evidence_ids):
-            raise ContractError('question presupposition does not match evidence')
-    if any(eid not in active for eid in question.evidence_basis):
-        raise ContractError('unapproved question evidence')
-    if question.gap_type == 'missing':
-        allowed = TYPE_QUESTIONS.get(question.focus) or OPEN_QUESTIONS.get(question.target_slot)
-        if question.presuppositions or question.evidence_basis or question.question != allowed:
-            raise ContractError('open gap question must not introduce premises')
-        expected_type = {'model_evaluation': 'machine_learning', 'analysis_validation': 'data_analysis'}.get(question.focus)
-        if expected_type and (question.target_slot != S.VALIDATION or project_type(active) != expected_type):
-            raise ContractError('type-specific question has no applicant planning basis')
-    elif not question.presuppositions:
-        raise ContractError('clarification requires supported premises')
-    else:
-        if question.question != CLARIFICATION_QUESTIONS.get(question.target_slot):
-            raise ContractError('question wording contains unvalidated premises')
-        pattern = r'불균형|imbalanc' if question.target_slot == S.OBSERVATION else r'threshold|임계값'
-        if not any(re.search(pattern, p.fact, re.I) for p in question.presuppositions):
-            raise ContractError('unsupported clarification subject')
-        for premise in question.presuppositions:
-            if not any(re.search(pattern, active[eid].evidence_quote, re.I) for eid in premise.evidence_ids):
-                raise ContractError('question subject absent from source quote')
-        if question.target_slot == S.DECISIONS and not any(
-                re.search(r'비교|조정|변경|바꿔|compare', active[eid].evidence_quote, re.I)
-                and active[eid].fact_type in {FactType.ACTION, FactType.IMPLEMENTATION, FactType.TECHNICAL_DECISION, FactType.VERIFICATION}
-                for eid in question.evidence_basis):
-            raise ContractError('comparison absent from source quote')
-    return question
+def validate_question(question,evidence):
+    """Same ID/neutral-body contract as live selection; no copied premise gate."""
+    from .question_planning import question_approval_issue
+    issue = question_approval_issue(question,evidence)
+    if issue:
+        raise ContractError(issue)
 
 
 def plan_questions(experience_id, gaps, evidence, previous_keys=(), experience_title=''):
@@ -246,7 +205,8 @@ def select_evidence(request, profile, evidence, facets, semantic_units=()):
     if not profile.outcome.evidence_ids:
         core_slots.append(S.INSIGHT)
     for slot in core_slots:
-        candidates = sorted((eid for eid in getattr(profile, slot.value).evidence_ids if eid in material), key=score)
+        candidates = sorted((eid for eid in getattr(profile, slot.value).evidence_ids if eid in material
+            and not active[eid].source_id.endswith(':techStack')), key=score)
         if candidates and not any(eid in core for eid in candidates):
             core.append(candidates[0])
         support.extend(eid for eid in candidates if eid not in core)
@@ -273,13 +233,9 @@ def select_evidence(request, profile, evidence, facets, semantic_units=()):
     preserved = [eid for eid in [*core, *support] if active[eid].source_type == 'resume_text'
                  and active[eid].source_id == request.experience.experience_id
                  and (eid in core or eid in identity)]
-    # An explicitly extracted action meaning can describe performed work even
-    # when its atomic source received a different taxonomy label. Source quote
-    # validation and independent entailment review still decide its truth.
-    action_meaning = any(u.semantic_role in {'action', 'actions'} and any(
-        r.type == 'applicant_evidence' and r.id in active for r in u.source_refs)
-        for u in semantic_units)
-    can_write = bool(core and (profile.actions.evidence_ids or action_meaning or target_section(request.experience) != 'project'))
+    # Selection makes sources available, not a writing decision. The validated
+    # section meaning plan below decides whether there is an editing opportunity.
+    can_write = bool(core or support)
     return RevisionPlan(objective='근거 있는 핵심 기여·기술적 판단·검증을 보여주는 제출 문장',
         operation='replace_field' if can_write else 'no_change', core_evidence_ids=core if can_write else [],
         supporting_evidence_ids=support if can_write else [], preserved_evidence_ids=preserved if can_write else [],
@@ -299,38 +255,137 @@ class PreparedReview:
     intents: list
     section_profile: object
     sentence_plan: object
+    requirement_matches: object = None
+    requirement_warnings: object = None
+    question_selection: object = None
+    semantic_preparation: object = None
+
+
+def _discard_duplicate_future_facts(request, extraction, diagnostics):
+    """Do not approve a future plan twice as a performed applicant fact.
+
+    Recovery is limited to a source-validated active Intent with the same
+    owning quote. Any downstream reference to the would-be fact remains a
+    contract failure rather than silently changing the model's meaning graph.
+    """
+    from .section_semantics import validate_intents
+    from .validation import is_explicit_intention
+    if target_section(request.experience) != 'future_plan':
+        return extraction
+    candidates=[fact for fact in extraction.extracted_evidence
+        if is_explicit_intention(fact.evidence_quote)
+        or re.search(r'하겠습니다|되겠습니다|싶습니다|계획입니다|예정입니다', fact.evidence_quote)]
+    if not candidates:
+        return extraction
+    try:
+        intents=validate_intents(request,extraction.intent_claims)
+    except ContractError:
+        return extraction
+    referenced={facet.evidence_id for facet in extraction.facets}
+    referenced.update(ref.id for unit in extraction.semantic_units for ref in unit.source_refs
+        if ref.type=='applicant_evidence')
+    referenced.update(eid for match in extraction.requirement_matches or [] for eid in match.evidence_ids)
+    if extraction.question is not None:
+        referenced.update(extraction.question.evidence_basis)
+    if extraction.question_review is not None:
+        referenced.update(eid for row in extraction.question_review.items for eid in row.evidence_ids)
+        referenced.update(eid for row in extraction.question_review.items if row.need
+            for eid in row.need.evidence_basis)
+    dropped=[]
+    for fact in candidates:
+        if fact.evidence_id in referenced:
+            continue
+        if any(claim.state in {AssertionState.RESUME_STATED,AssertionState.USER_ASSERTED}
+                and claim.source_section_id==request.experience.experience_id
+                and claim.source_type==fact.source_type and claim.source_id==fact.source_id
+                and fact.evidence_quote==claim.evidence_quote for claim in intents.values()):
+            dropped.append(fact.evidence_id)
+    if not dropped:
+        return extraction
+    diagnostics['future_fact_recovery']=dict(dropped_fact_ids=dropped,
+        reason='same_source_validated_applicant_intent')
+    return extraction.model_copy(update={'extracted_evidence':[
+        fact for fact in extraction.extracted_evidence if fact.evidence_id not in dropped]})
 
 
 def prepare_review(request, extraction):
     if not isinstance(extraction, ExtractionOutput):
         raise ContractError('live extraction must not contain a revision plan')
     from .planning_state import reconcile_extraction
-    extraction = reconcile_extraction(request, extraction)
+    reconciliation = {}
+    try:
+        extraction, replaced_semantics = reconcile_extraction(request, extraction, with_replacements=True, diagnostics=reconciliation)
+    except ContractError as exc:
+        normalized=getattr(exc,'reconciled_extraction',None)
+        if normalized is not None:
+            # Evidence IDs were already reconciled. An Intent/semantic duplicate
+            # is a separate boundary; approve facts only through the real source
+            # and correction validator, never through raw reconciliation.
+            neutral=AnalystOutput(experience_id=normalized.experience_id,extracted_evidence=normalized.extracted_evidence,
+                plan=RevisionPlan(objective='출처 검증',operation='no_change'))
+            try:
+                evidence,_=validate_analysis(request,neutral)
+            except ContractError as source_error:
+                source_error.diagnostics['derived_failure']=exc.diagnostics
+                raise source_error
+            exc.approved_evidence=evidence
+            exc.approved_extracted=[evidence[f.evidence_id] for f in normalized.extracted_evidence]
+        raise
+    extraction = _discard_duplicate_future_facts(request, extraction, reconciliation)
     # Reuse existing source/state/correction validation without selecting anything.
     neutral = AnalystOutput(experience_id=extraction.experience_id,
         extracted_evidence=extraction.extracted_evidence,
         plan=RevisionPlan(objective='출처와 상태 검증', operation='no_change'))
-    evidence, _ = validate_analysis(request, neutral)
-    if any(f.evidence_id not in evidence for f in extraction.facets):
-        raise ContractError('unknown profile evidence')
+    try:
+        evidence, _ = validate_analysis(request, neutral)
+    except ContractError as exc:
+        if extraction.question is not None:
+            exc.diagnostics['question_reference_normalization'] = reconciliation['question_references']
+        raise
+    try:
+        return _prepare_validated(request,extraction,evidence,replaced_semantics,reconciliation)
+    except ContractError as exc:
+        # Facts have passed the common source/correction validation. A derived
+        # facet/semantic failure must not erase them or authorize partial writing.
+        exc.approved_evidence = {k:v.model_copy(deep=True) for k,v in evidence.items()}
+        exc.approved_extracted = [evidence[f.evidence_id].model_copy(deep=True) for f in extraction.extracted_evidence]
+        raise
+
+
+def _prepare_validated(request,extraction,evidence,replaced_semantics,reconciliation):
+    unknown = sorted({f.evidence_id for f in extraction.facets if f.evidence_id not in evidence})
+    if unknown:
+        raise ContractError('unknown profile evidence', {'phase':'facet_sources',
+            'unknown_reference_ids':unknown, 'available_evidence_ids':sorted(evidence)})
     if len({f.evidence_id for f in extraction.facets}) != len(extraction.facets):
         raise ContractError('duplicate profile classification')
     active = active_facts(evidence)
-    facets = merge_facets(active, request.previous_facets, extraction.facets)
+    facet_repairs=[]
+    facets = merge_facets(active, request.previous_facets, extraction.facets, facet_repairs)
     project = target_section(request.experience) == 'project'
     profile = build_profile(request.experience, evidence, facets) if project else None
     gaps = detect_gaps(profile, evidence, request.unavailable_slots) if project else []
     plan = select_evidence(request, profile, evidence, facets,
         [*request.previous_semantic_units, *extraction.semantic_units]) if project else RevisionPlan(objective='섹션 의미 보존', operation='no_change')
     from .section_semantics import prepare_section
-    request, intents, section_profile, sentence_plan = prepare_section(request, extraction, evidence, plan)
-    from .question_planning import select_question
-    questions = select_question(request, extraction.question, evidence)
+    semantic_preparation = {'facet_repairs':facet_repairs} if facet_repairs else {}
+    if reconciliation.get('future_fact_recovery'):
+        semantic_preparation['future_fact_recovery']=reconciliation['future_fact_recovery']
+    request, intents, section_profile, sentence_plan = prepare_section(request, extraction, evidence, plan,
+        replaced_semantic_ids=replaced_semantics, diagnostics=semantic_preparation)
+    from .question_planning import review_information
+    questions,question_selection = review_information(request,extraction,evidence,gaps)
+    if reconciliation.get('duplicate_rows'):
+        semantic_preparation['duplicate_rows']=reconciliation['duplicate_rows']
+    if extraction.question is not None:
+        question_selection['reference_normalization'] = reconciliation['question_references']
     first = questions[0] if questions else None
     analysis = AnalystOutput(experience_id=request.experience.experience_id,
         extracted_evidence=[evidence[f.evidence_id] for f in extraction.extracted_evidence], plan=plan,
         question=QuestionProposal(question=first.question, missing_fact_type=SLOT_FACT_TYPE[first.target_slot],
             improvement_hypothesis=first.why_needed, dedupe_key=first.dedupe_key) if first else None)
     validate_analysis(request, analysis)  # One common approval contract for live/offline.
+    from .requirement_matching import ground_matches
+    matches, warnings = ground_matches(request, extraction.requirement_matches, evidence)
     return PreparedReview(analysis, evidence, profile, facets, gaps, questions,
-                          request, intents, section_profile, sentence_plan)
+                          request, intents, section_profile, sentence_plan, matches, warnings, question_selection, semantic_preparation)

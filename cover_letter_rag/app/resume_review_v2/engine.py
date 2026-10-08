@@ -7,7 +7,7 @@ from .models import (
     RevisionCandidate, RevisionPlan, Usage, ValidationIssue, ValidationResult,
     WriterOutput,
 )
-from .validation import validate_candidate
+from .validation import validate_candidate, ContractError
 from .project_planning import prepare_review
 
 
@@ -31,6 +31,30 @@ def _add_usage(total: Usage, added: Usage) -> None:
     total.latency_ms += added.latency_ms
 
 
+def unwritten_validation(plan: RevisionPlan) -> ValidationResult:
+    """A skipped writing gate is not a comparison verdict, even without a question."""
+    return ValidationResult(status='NEEDS_EVIDENCE', quality_issues=[ValidationIssue(
+        code='writing_not_attempted',
+        detail=plan.reason or '안전한 편집 근거가 부족해 Writer 후보를 생성하지 않았습니다.')])
+
+
+def failed_preparation(request,extraction,error,usage=None):
+    """Shared Engine/Batch terminal plan failure; only approved facts survive."""
+    from .planning_state import extraction_diagnostics
+    facts=getattr(error,'approved_evidence',{})
+    plan=RevisionPlan(objective='분석 계약 검증 실패로 원문 유지',operation='no_change')
+    validation=ValidationResult(status='REJECTED',factual_issues=[ValidationIssue(code='analysis_contract_invalid',detail=str(error))])
+    diagnostic=extraction_diagnostics(request,extraction,error)
+    diagnostic.update(facts_approved=hasattr(error,'approved_evidence'),approved_fact_ids=sorted(facts),
+        failure_boundary='planning' if hasattr(error,'approved_evidence') else 'evidence_validation')
+    trace=trace_review(request,facts,plan,None,validation)
+    trace.update(extraction_failure=diagnostic,question_selection={'state':'analysis_failed','reason':'analysis_contract_invalid'},
+        semantic_preparation={'state':'analysis_failed','reason':'analysis_contract_invalid'})
+    return ReviewResult(experience=request.experience,question=request.question,answer=request.answer,
+        extracted_evidence=getattr(error,'approved_extracted',[]),selected_evidence=[],omitted_evidence=[],plan=plan,
+        proposed_question=None,candidate=None,validation=validation,usage=usage or Usage(),debug_trace=trace)
+
+
 class ReviewEngineV2:
     """One experience in, one validated proposal or a high-value question out."""
 
@@ -43,13 +67,17 @@ class ReviewEngineV2:
         usage = Usage()
         extraction, step_usage = self.llm.analyze(request)
         _add_usage(usage, step_usage)
-        prepared = prepare_review(request, extraction)
+        try:
+            prepared = prepare_review(request, extraction)
+        except ContractError as exc:
+            return failed_preparation(request,extraction,exc,usage)
         analysis, evidence, plan = prepared.analysis, prepared.evidence, prepared.analysis.plan
         request = prepared.request.model_copy(update={'previous_facets': prepared.facets})
         planning = dict(project_profile=prepared.profile, evidence_facets=prepared.facets,
             evidence_gaps=prepared.gaps, gap_questions=prepared.questions,
             unavailable_slots=request.unavailable_slots, intent_claims=prepared.intents,
-            section_profile=prepared.section_profile, sentence_plan=prepared.sentence_plan)
+            section_profile=prepared.section_profile, sentence_plan=prepared.sentence_plan,
+            requirement_matches=prepared.requirement_matches, requirement_warnings=prepared.requirement_warnings)
         extracted = [evidence[item.evidence_id] for item in analysis.extracted_evidence]
         selected = [evidence[eid] for eid in [*plan.core_evidence_ids, *plan.supporting_evidence_ids]]
         permitted = [evidence[eid] for eid in dict.fromkeys(
@@ -57,14 +85,15 @@ class ReviewEngineV2:
         )]
 
         if plan.operation == "no_change":
-            validation = ValidationResult(status="NEEDS_EVIDENCE" if analysis.question else "READY")
+            validation = unwritten_validation(plan)
             return ReviewResult(
                 experience=request.experience, question=request.question, answer=request.answer,
                 extracted_evidence=extracted, selected_evidence=selected,
                 omitted_evidence=plan.omitted_evidence, plan=plan,
                 proposed_question=analysis.question, candidate=None, validation=validation,
                 usage=usage,
-                debug_trace=trace_review(request, evidence, plan, None, validation),
+                debug_trace=trace_review(request, evidence, plan, None, validation,
+                    question_selection=prepared.question_selection, semantic_preparation=prepared.semantic_preparation),
                 **planning,
             )
 
@@ -100,7 +129,8 @@ class ReviewEngineV2:
             omitted_evidence=plan.omitted_evidence, plan=plan,
             proposed_question=analysis.question, candidate=candidate,
             validation=validation, usage=usage,
-            debug_trace=trace_review(request, evidence, plan, writer, validation, attempts),
+            debug_trace=trace_review(request, evidence, plan, writer, validation, attempts,
+                question_selection=prepared.question_selection, semantic_preparation=prepared.semantic_preparation),
             **planning,
         )
 
@@ -135,11 +165,13 @@ class ReviewEngineV2:
         return validate_candidate(request, writer, plan, evidence, verification)
 
 
-def trace_review(request, evidence, plan, writer, validation, attempts=()):
+def trace_review(request, evidence, plan, writer, validation, attempts=(), question_selection=None, semantic_preparation=None):
     """Internal offline/local result only; production endpoints do not expose v2."""
     from .section_semantics import section_contract
     from .writing_policy import target_section
     return dict(target_section=target_section(request.experience),
+        question_selection=question_selection if question_selection is not None else {'state':'not_recorded'},
+        semantic_preparation=semantic_preparation if semantic_preparation is not None else {'state':'not_recorded'},
         evidence_claims=[e.model_dump(mode='json') for e in evidence.values()],
         intent_claims=[c.model_dump(mode='json') for c in request.approved_intents],
         selected_claims=dict(evidence_ids=plan.core_evidence_ids + plan.supporting_evidence_ids,

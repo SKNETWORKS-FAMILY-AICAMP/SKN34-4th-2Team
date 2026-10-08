@@ -167,6 +167,72 @@ def test_golden_unsupported_intent_and_target_contamination_blocked():
     assert verdict.intent_issues
 
 
+@pytest.mark.parametrize('label',['evidence','technology','supporting_experience'])
+def test_growth_source_transition_not_generic_label_controls_protection(label):
+    identity='selfIntroduction.growth'
+    transition='기초 실습에서 시작해 ToolA, ToolB를 학습하며 사용자 서비스 구현 과정까지 경험했습니다.'
+    activity='세미나에 참석했습니다.'
+    req=ReviewInput(experience=Experience(experience_id=identity,kind='other',title='성장',
+        current_text=transition+' '+activity,field_path=identity+'.body',content_hash='h'))
+    facts=[Evidence(evidence_id=eid,experience_id=identity,fact_type='action',normalized_fact=quote,
+        evidence_quote=quote,source_type='resume_text',source_id=identity,assertion_state='resume_stated')
+        for eid,quote in [('transition',transition),('activity',activity)]]
+    extraction=ExtractionOutput(experience_id=identity,extracted_evidence=facts,semantic_units=[
+        SemanticUnit(id='transition',semantic_role=label,meaning='기초 실습을 사용자 서비스 구현으로 확장한 경험',
+            source_refs=[SourceRef(type='applicant_evidence',id='transition')],optional_details=['ToolA, ToolB']),
+        unit('activity','evidence',activity,'applicant_evidence','activity')])
+    prepared=prepare_review(req,extraction)
+    assert 'transition' in prepared.section_profile.required_semantics
+    assert 'activity' in prepared.section_profile.optional_semantics
+    from app.resume_review_v2.section_semantics import editorial_brief
+    brief=editorial_brief(prepared.request)
+    assert brief['compressible_details'][0]['details']==['ToolA, ToolB']
+    from app.resume_review_v2.models import WriterOutput
+    writer=WriterOutput(experience_id=identity,operation='replace_field',original_quote=req.experience.current_text,
+        sentences=[RevisionSentence(text='기초 실습에서 사용자 서비스 구현으로 경험을 넓혔습니다.',
+            evidence_ids=['transition'],semantic_unit_ids=['transition'])])
+    assert not validate_candidate(prepared.request,writer,prepared.analysis.plan,prepared.evidence).section_issues
+
+
+def test_value_normalization_keeps_exact_source_formation_without_new_intent():
+    identity='selfIntroduction.motivation'
+    quote='현장 실습을 통해 데이터를 실제 문제 해결에 적용하는 것이 중요하다는 점을 배웠습니다.'
+    req=ReviewInput(experience=Experience(experience_id=identity,kind='other',title='지원동기',
+        current_text=quote,field_path=identity+'.body',content_hash='h'))
+    claim=intent('value',quote,'work_value',identity)
+    claim.text='데이터를 문제 해결에 적용하는 것을 중요하게 여깁니다.'
+    extraction=ExtractionOutput(experience_id=identity,extracted_evidence=[],intent_claims=[claim],
+        semantic_units=[unit('value','motivation',claim.text,'applicant_intent','value')])
+    prepared=prepare_review(req,extraction)
+    assert prepared.intents[0].text==claim.text
+    assert prepared.intents[0].evidence_quote==quote
+    origin=next(u for u in prepared.section_profile.original_semantic_units if u.id=='origin:value')
+    assert origin.meaning==quote and origin.id in prepared.section_profile.required_semantics
+    from app.resume_review_v2.models import WriterOutput
+    writer=WriterOutput(experience_id=identity,operation='replace_field',original_quote=quote,
+        sentences=[RevisionSentence(text=claim.text,intent_ids=['value'],semantic_unit_ids=['value'])])
+    assert validate_candidate(prepared.request,writer,prepared.analysis.plan,prepared.evidence).section_issues
+    writer.sentences[0].text=quote;writer.sentences[0].semantic_unit_ids.append(origin.id)
+    assert not validate_candidate(prepared.request,writer,prepared.analysis.plan,prepared.evidence).section_issues
+
+
+def test_absent_formation_story_is_not_created_and_pure_inventory_stays_optional():
+    identity='selfIntroduction.motivation';quote='데이터를 활용한 문제 해결에 관심이 있습니다.'
+    req=ReviewInput(experience=Experience(experience_id=identity,kind='other',title='지원',
+        current_text=quote,field_path=identity+'.body',content_hash='h'))
+    extraction=ExtractionOutput(experience_id=identity,extracted_evidence=[],intent_claims=[intent('value',quote,'work_value',identity)])
+    prepared=prepare_review(req,extraction)
+    assert all(u.semantic_role!='motivation_origin' for u in prepared.section_profile.original_semantic_units)
+    req.experience.experience_id='selfIntroduction.growth';req.experience.field_path='selfIntroduction.growth.body'
+    req.experience.current_text='ToolA, ToolB를 학습했습니다.'
+    fact=Evidence(evidence_id='tools',experience_id=req.experience.experience_id,fact_type='technology',
+        normalized_fact=req.experience.current_text,evidence_quote=req.experience.current_text,
+        source_type='resume_text',source_id=req.experience.experience_id,assertion_state='resume_stated')
+    prepared=prepare_review(req,ExtractionOutput(experience_id=req.experience.experience_id,extracted_evidence=[fact],
+        semantic_units=[unit('tools','technology',fact.normalized_fact,'applicant_evidence','tools')]))
+    assert 'tools' in prepared.section_profile.optional_semantics
+
+
 def test_golden_intent_quote_and_cross_section_source_validation():
     req, extraction, _, _ = golden_case('B-1')
     extraction.intent_claims[0].evidence_quote = '없는 포부'
@@ -193,6 +259,11 @@ def test_no_past_fact_created_from_future_intent():
     extraction.extracted_evidence = [Evidence(evidence_id='fabricated-past', experience_id=req.experience.experience_id,
         fact_type='action', normalized_fact='Python으로 실무 기여', evidence_quote=extraction.intent_claims[2].evidence_quote,
         source_type='resume_text', source_id=req.experience.experience_id, assertion_state='resume_stated')]
+    prepared = prepare_review(req, extraction)
+    assert 'fabricated-past' not in prepared.evidence
+    assert prepared.semantic_preparation['future_fact_recovery']['dropped_fact_ids']==['fabricated-past']
+    extraction.intent_claims = [c for c in extraction.intent_claims if c.id != 'contribution']
+    extraction.semantic_units = [u for u in extraction.semantic_units if u.id != 'contribution']
     with pytest.raises(ContractError, match='intent cannot be'): prepare_review(req, extraction)
 
 

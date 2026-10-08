@@ -2,7 +2,7 @@
 import pytest
 from test_project_live_pipeline import pipeline, post
 from test_section_golden import golden_case
-from app.resume_review_v2.models import (Evidence, ExtractionOutput, GapQuestion,
+from app.resume_review_v2.models import (Evidence, ExtractionOutput, QuestionNeed,
     SemanticUnit, SourceRef, JobRequirement, WriterDraft, FactVerification, Usage, AssertionState)
 from app.resume_review_v2.project_planning import prepare_review
 from app.resume_review_v2.llm import LangChainReviewLLM
@@ -10,8 +10,7 @@ from app.resume_review_v2.validation import ContractError
 
 
 def candidate(req, **changes):
-    return GapQuestion(**dict(dict(experience_id=req.experience.experience_id,
-        question='관심 있는 업무에서 먼저 해결해 보고 싶은 구체적인 문제는 무엇인가요?',
+    return QuestionNeed(**dict(dict(experience_id=req.experience.experience_id,
         gap_type='missing', target_slot='purpose_or_problem', priority='HIGH',
         why_needed='분석을 업무에 연결하려는 이유는 이미 있습니다. 실제 해결할 문제를 알면 기여 방향을 구체화할 수 있습니다.',
         dedupe_key='specific-contribution'), **changes))
@@ -40,7 +39,7 @@ def test_invalid_question_does_not_abort_valid_editing(mode):
     extraction.question = candidate(req)
     if mode == 'owner': extraction.question.experience_id = 'another-section'
     if mode == 'source': extraction.question.evidence_basis = ['job-requirement']
-    if mode == 'repeat': req.question_history = [extraction.question.question]
+    if mode == 'repeat': req.previous_question_keys = [req.experience.experience_id+':value:'+extraction.question.dedupe_key]
     if mode == 'unavailable': req.unavailable_slots = [extraction.question.target_slot]
     prepared = prepare_review(req, extraction)
     assert prepared.questions == []
@@ -129,7 +128,7 @@ def test_metric_selection_is_not_misclassified_as_unsupported_design_ownership()
     assert agency_issues(sentence, {'choice': fact})
 
 
-def test_failed_followup_keeps_state_and_answer_for_retry_and_reaches_writer(pipeline, monkeypatch):
+def test_failed_followup_reuses_failure_until_corrected_answer_reaches_writer(pipeline, monkeypatch):
     client, reviews, calls, db = pipeline
     req, extraction, valid, _ = golden_case('B-2')
     db.get_owned_resume.return_value['content'] = {'selfIntroduction': {'motivation': {'body': req.experience.current_text}}}
@@ -173,10 +172,20 @@ def test_failed_followup_keeps_state_and_answer_for_retry_and_reaches_writer(pip
     assert record['intent_claims'] == first['telemetry']['v2_results'][0]['intent_claims']
     assert record['section_profile'] == first['telemetry']['v2_results'][0]['section_profile']
     before = len(calls)
-    retried = post(client, 'retry', previous_review_id='failed', review_phase='gap_audit')
+    held = post(client, 'same-failure', previous_review_id='failed', review_phase='gap_audit')
+    assert len(calls)==before
+    assert held['telemetry']['v2_results'][0]['candidate'] is None
+    # Identical failure is not an implicit model retry. An explicit answer edit
+    # changes the contract and enables the existing Analyze stage again.
+    db.latest_review_response.side_effect=lambda *args:reviews[next(reversed(reviews))]
+    db.answer_was_applied.return_value=False
+    revised='비교 화면을 구현하고 추가 기능을 확인했습니다.'
+    post(client,'corrected',previous_review_id='same-failure',answer_changes=[{
+        'question_id':q['question_id'],'operation':'replace','expected_answer':'비교 화면을 구현했습니다.','answer':revised}])
+    retried = post(client, 'retry', previous_review_id='corrected', review_phase='gap_audit')
     assert len(calls) > before
-    assert captured[-1]['user_answer'] == '비교 화면을 구현했습니다.'
-    assert captured[-1]['question_history'] == [q['question']]
+    assert captured[-1]['user_answer'] == revised
+    assert any(q['question'] in item for item in captured[-1]['question_history'])
     assert len(captured[-1]['existing_intents']) == 2
     assert retried['questions'] == []
     assert retried['telemetry']['v2_results'][0]['candidate'] is not None

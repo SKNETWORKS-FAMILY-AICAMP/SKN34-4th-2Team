@@ -506,9 +506,9 @@ def test_quality_rewrite_is_at_most_once_then_rejected():
 def test_no_supported_action_needs_no_writer():
     class NoChange(FakeLLM):
         def analyze(self, req):
-            from app.resume_review_v2.models import GapQuestion
-            ask = GapQuestion(experience_id=req.experience.experience_id,
-                question="직접 수행한 작업이 있다면 무엇인가요?", target_slot='personal_role',
+            from app.resume_review_v2.models import QuestionNeed
+            ask = QuestionNeed(experience_id=req.experience.experience_id,
+                target_slot='personal_role',
                 gap_type='missing', priority='HIGH', why_needed='직접 기여 근거가 있어야 작성할 수 있습니다.', dedupe_key='contribution')
             return ExtractionOutput(experience_id=req.experience.experience_id, extracted_evidence=[], question=ask), Usage(calls=1)
 

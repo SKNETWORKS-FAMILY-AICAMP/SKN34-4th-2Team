@@ -13,6 +13,9 @@ from .policy import (REPRESENTATIVE_COLLECTION_MIN,
 
 class ContractError(ValueError):
     """The model violated a structural/source contract; never silently recover."""
+    def __init__(self, message, diagnostics=None):
+        super().__init__(message)
+        self.diagnostics = diagnostics or {}
 
 
 ALLOWED_STATES = {AssertionState.RESUME_STATED, AssertionState.USER_ASSERTED}
@@ -61,31 +64,40 @@ def validate_analysis(request: ReviewInput, analysis: AnalystOutput) -> tuple[di
     for original_fact in [*experience.existing_evidence, *analysis.extracted_evidence]:
         fact = original_fact.model_copy(deep=True)
         if fact.experience_id != experience.experience_id:
-            raise ContractError(f"cross-experience evidence: {fact.evidence_id}")
+            raise ContractError(f"cross-experience evidence: {fact.evidence_id}",
+                {'phase':'evidence_sources', 'reference_category':'wrong_experience', 'reference_id':fact.evidence_id})
         if fact.evidence_id in evidence:
             raise ContractError(f"duplicate evidence_id: {fact.evidence_id}")
         if fact.evidence_id in extracted_ids:
+            if fact.source_type == 'resume_text' and fact.assertion_state in ALLOWED_STATES and any(
+                    old.assertion_state in {AssertionState.SUPERSEDED, AssertionState.RETRACTED, AssertionState.CONTRADICTED}
+                    and (_normalized(old.evidence_quote) == _normalized(fact.evidence_quote)
+                         or _normalized(old.normalized_fact) == _normalized(fact.normalized_fact))
+                    for old in experience.existing_evidence):
+                raise ContractError('inactive source assertion cannot be reactivated by extraction')
             if fact.source_type == "resume_text":
                 sources = {item.source_id: item.text for item in request.resume_sources}
                 if len(sources) != len(request.resume_sources) or experience.experience_id in sources:
                     raise ContractError('duplicate resume source_id')
-                sources[experience.experience_id] = experience.current_text
+                sources = request.factual_resume_sources()
                 source = sources.get(fact.source_id)
                 if source is None:
-                    raise ContractError("resume source_id mismatch")
+                    raise ContractError("resume source_id mismatch",
+                        {'phase':'evidence_sources', 'reference_category':'wrong_source', 'reference_id':fact.evidence_id})
             elif fact.source_type == "user_answer":
                 source = request.answer
                 if not request.answer or fact.source_id != request.answer_source_id:
-                    raise ContractError("answer source_id mismatch")
+                    raise ContractError("answer source_id mismatch",
+                        {'phase':'evidence_sources', 'reference_category':'wrong_source', 'reference_id':fact.evidence_id})
             else:
                 raise ContractError("uploaded document source is not available in offline v2")
             exact_quote = _exact_source_quote(source, fact.evidence_quote)
             if exact_quote is None:
-                raise ContractError(f"evidence quote absent from source: {fact.evidence_id}")
+                raise ContractError(f"evidence quote absent from source: {fact.evidence_id}",
+                    {'phase':'evidence_sources', 'reference_category':'quote_absent', 'reference_id':fact.evidence_id})
             fact.evidence_quote = exact_quote
-            if fact.fact_type in {FactType.ACTION, FactType.IMPLEMENTATION, FactType.ROLE,
-                    FactType.TECHNICAL_DECISION, FactType.RESULT, FactType.VERIFICATION} and re.search(
-                    r'하고 싶|계획입니다|예정입니다|기여하겠|성장하겠', exact_quote):
+            if re.search(
+                    r'하고 싶|싶습니다|계획입니다|예정입니다|하겠습니다|되겠습니다|기여하겠|성장하겠', exact_quote):
                 raise ContractError('applicant intent cannot be a performed factual claim')
         evidence[fact.evidence_id] = fact
 
@@ -186,6 +198,7 @@ def validate_candidate(
     from .section_semantics import agency_issues, ACTIVE
     units = {u.id: u for u in request.section_profile.original_semantic_units} if request.section_profile else {}
     covered = set()
+    paragraph_refs = {uid: set() for uid in units}
     for sentence in writer.sentences:
         if not sentence.text.strip():
             factual.append(ValidationIssue(code="empty_sentence", detail="Writer returned a blank sentence"))
@@ -199,10 +212,12 @@ def validate_candidate(
                 mapped_ids.add(evidence_id)
                 sentence_ids.add(evidence_id)
         source_text = " ".join(
-            f"{evidence[eid].normalized_fact} {evidence[eid].evidence_quote}"
+            evidence[eid].evidence_quote
             for eid in sentence_ids
         )
-        factual.extend(agency_issues(sentence, evidence, request.approved_intents))
+        factual.extend(agency_issues(sentence, {eid:evidence[eid] for eid in sentence_ids},
+            request.approved_intents, experience.model_copy(update={
+                'current_text':request.factual_resume_sources()[experience.experience_id]}), request.resume_sources))
         typed_sources = {evidence[eid].fact_type for eid in sentence_ids}
         requires_fact = {
             ClaimType.ACTION: {FactType.ACTION, FactType.IMPLEMENTATION},
@@ -221,7 +236,7 @@ def validate_candidate(
             if cid not in intents or intents[cid].state not in ACTIVE:
                 intent.append(ValidationIssue(code='unapproved_intent', detail=cid))
             else:
-                source_text += ' ' + intents[cid].text + ' ' + intents[cid].evidence_quote
+                source_text += ' ' + intents[cid].evidence_quote
         for rid in sentence.target_context_ids:
             if rid not in targets:
                 factual.append(ValidationIssue(code='unapproved_target_context', detail=rid))
@@ -232,22 +247,33 @@ def validate_candidate(
             ('target_context', rid) for rid in sentence.target_context_ids if rid in targets}
         for uid in sentence.semantic_unit_ids:
             unit = units.get(uid)
-            # Optional examples may be represented by a subset of their sources.
-            # Required meanings still need the complete citation basis.
             refs = {(r.type, r.id) for r in unit.source_refs} if unit else set()
-            optional = unit and request.section_profile and uid in request.section_profile.optional_semantics
-            if unit is None or (not (refs & supplied) if optional else not refs <= supplied):
+            if unit is None or not refs & supplied:
                 section.append(ValidationIssue(code='unapproved_semantic_coverage', detail=uid))
             else:
-                covered.add(uid)
+                paragraph_refs[uid].update(refs & supplied)
         # Legacy/project factual provenance remains valid without copying unit IDs.
         if request.section_profile and request.section_profile.section_type == 'project':
-            covered.update(uid for uid, unit in units.items() if all((r.type, r.id) in supplied for r in unit.source_refs))
+            for uid, unit in units.items():
+                paragraph_refs[uid].update({(r.type, r.id) for r in unit.source_refs} & supplied)
         intent.extend(validate_intent_sentence(sentence, intents))
         for number in sorted(_numbers(sentence.text) - _numbers(source_text)):
             factual.append(ValidationIssue(code="unsupported_number", detail=number))
         for tech in sorted(_technologies(sentence.text) - _technologies(source_text)):
             factual.append(ValidationIssue(code="unsupported_technology", detail=tech))
+    for uid, refs in paragraph_refs.items():
+        from .section_semantics import coverage_context_refs
+        try:
+            contextual = coverage_context_refs(request, units[uid], evidence)
+        except ContractError:
+            contextual = set()
+            section.append(ValidationIssue(code='invalid_context_reference', detail=uid))
+        expected = {(r.type, r.id) for r in units[uid].source_refs} - contextual
+        if expected <= refs or (refs and uid in request.section_profile.optional_semantics):
+            covered.add(uid)
+    # This is citation completeness across the paragraph, not entailment.
+    # Sentence fact gates above and the independent semantic verifier remain.
+    editorial_advice = []
     if verification is not None:
         for text in verification.unsupported_claims:
             factual.append(ValidationIssue(code="semantic_unsupported_claim", detail=text))
@@ -258,10 +284,18 @@ def validate_candidate(
         for text in verification.critical_technical_signal_loss:
             quality.append(ValidationIssue(code="critical_technical_signal_loss", detail=text))
         quality.extend(verification.quality_issues)
+        editorial_advice = list(verification.editorial_advice)
         intent.extend(ValidationIssue(code='unsupported_intent', detail=t) for t in verification.unsupported_intents)
         section.extend(ValidationIssue(code='SECTION_MEANING_LOSS', detail=t) for t in verification.section_meaning_loss)
 
-    section.extend(validate_section_coverage(request.section_profile, covered))
+    coverage_issues = validate_section_coverage(request.section_profile, covered)
+    for issue in coverage_issues:
+        unit = units.get(issue.detail)
+        if unit is not None:
+            expected = {(r.type,r.id) for r in unit.source_refs} - {(r.type,r.id) for r in unit.context_source_refs}
+            missing = expected - paragraph_refs.get(unit.id,set())
+            issue.detail = f'{unit.id}: incomplete_reference_coverage; missing=' + ','.join(f'{typ}:{eid}' for typ,eid in sorted(missing))
+    section.extend(coverage_issues)
 
     # The live section profile is the meaning contract, not a second per-fact
     # checklist. Legacy offline requests without it retain their ID-based gate.
@@ -298,14 +332,22 @@ def validate_candidate(
         quality.append(ValidationIssue(code='no_clear_improvement',
             detail=verification.comparison_reason or '원문보다 명확한 개선이 없어 원문을 유지합니다.'))
     return ValidationResult(status=status, factual_issues=factual, intent_issues=intent,
-                            section_issues=section, quality_issues=quality)
+                            section_issues=section, quality_issues=quality,
+                            editorial_advice=editorial_advice)
+
+
+def is_explicit_intention(text):
+    return bool(re.search(r'싶|계획입니다|계획하고 있|예정입니다|목표로 하|목표입니다|성장하겠|기여하겠|이해하겠|하고자|지원하고자',text))
 
 
 def validate_intent_sentence(sentence, intents):
     """Intent presence/state gate; novel semantic goals use verifier findings."""
     from .section_semantics import ACTIVE
-    is_intent = bool(re.search(r'싶|계획|목표|성장하|기여하겠|이해하겠|하고자|지원하', sentence.text)) or bool(
-        set(sentence.claim_types) & {ClaimType.MOTIVATION, ClaimType.PLAN})
+    # A plan/goal noun can describe past work or an observed limitation. Only
+    # explicit intention predicates trigger this mechanical presence check;
+    # the independent verifier still judges untagged or novel semantic goals.
+    is_intent = is_explicit_intention(sentence.text) or (not sentence.evidence_ids and bool(
+        set(sentence.claim_types) & {ClaimType.MOTIVATION, ClaimType.PLAN}))
     if is_intent and not any(cid in intents and intents[cid].state in ACTIVE for cid in sentence.intent_ids):
         return [ValidationIssue(code='unsupported_intent', detail=sentence.text)]
     return []

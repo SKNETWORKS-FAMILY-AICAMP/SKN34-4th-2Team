@@ -4,7 +4,7 @@ from enum import StrEnum
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
 
 
 class StrictModel(BaseModel):
@@ -137,9 +137,11 @@ class SourceRef(StrictModel):
 
 class SemanticUnit(StrictModel):
     id: str
-    semantic_role: str
+    semantic_role: str = Field(description='Use an exact role from the supplied section_contract.high_value_semantics; do not invent compound or project-specific role names. Legacy labels are normalized from their approved source references.')
     meaning: str
     source_refs: list[SourceRef] = Field(min_length=1)
+    optional_details: list[str] = Field(default_factory=list, description='Exact excerpts or comma-separated exact terms from cited source quotes: dispensable examples, redundant explanations or experiment/model lists. The meaning must independently retain the important conclusion, actor, measurement subject, conditions, comparison scope, limitations and uncertainty. Do not move those protections here.')
+    context_source_refs: list[SourceRef] = Field(default_factory=list, description='Subset of source_refs retained only as prior resume context when new evidence fully specifies the same proposition. Never use for a separate necessary clause, role, condition, limitation or applicant intent. Empty means all source_refs remain mandatory for citation coverage.')
 
 
 class SectionContract(StrictModel):
@@ -206,18 +208,59 @@ class QuestionPresupposition(StrictModel):
     evidence_ids: list[str]
 
 
-class GapQuestion(StrictModel):
+class QuestionTarget(StrictModel):
+    evidence_id: str
+    anchor: str | None = Field(default=None, description='Optional exact term/expression from this evidence_quote, shown only alongside its full safe source context. Not a paraphrase or factual assertion.')
+
+
+class QuestionNeed(StrictModel):
+    """Model chooses an information need, not a factual premise or public prose."""
+    contract: Literal['evidence-need-v2'] = 'evidence-need-v2'
+    targets: list[QuestionTarget] = Field(default_factory=list)
+    request_aspect: Literal['experience_presence','technology_application','selection_result','decision_basis','comparison_result','relationship_interpretation',
+        'verification_method','verification_result_and_limits','implementation_scope','role_scope','purpose'] | None = None
     experience_id: str = Field(min_length=1)
-    experience_title: str = ''
-    question: str
     gap_type: Literal['missing', 'clarification']
     target_slot: ProjectSlot
     evidence_basis: list[str] = Field(default_factory=list)
     priority: Literal['HIGH', 'MEDIUM']
     why_needed: str
-    presuppositions: list[QuestionPresupposition] = Field(default_factory=list)
     dedupe_key: str
     focus: Literal['open', 'observation_basis', 'comparison_basis', 'model_evaluation', 'analysis_validation'] = 'open'
+    requirement_id: str | None = None
+    owner_scope: Literal['experience', 'unassigned'] = 'experience'
+    requirement_anchor: str | None = None
+
+
+class GapQuestion(QuestionNeed):
+    """Server-rendered question; legacy fields are read-only compatibility data."""
+    contract: Literal['legacy', 'evidence-need-v1', 'evidence-need-v2'] = 'legacy'
+    # Already issued combined questions remain read-only; new model proposals
+    # must distinguish the missing choice from its still-unknown rationale.
+    request_aspect: Literal['selection_and_basis','experience_presence','technology_application','selection_result','decision_basis','comparison_result','relationship_interpretation',
+        'verification_method','verification_result_and_limits','implementation_scope','role_scope','purpose'] | None = None
+    experience_title: str = ''
+    question: str
+    presuppositions: list[QuestionPresupposition] = Field(default_factory=list)
+    target_contexts: list[dict] = Field(default_factory=list)
+    information_fingerprint: str = ''
+
+
+class InformationReview(StrictModel):
+    state: Literal['proposed','deferred','sufficient','low_value','answered','unavailable','not_reviewed']
+    need: QuestionNeed | None = None
+    target_slot: ProjectSlot | None = None
+    requirement_id: str | None = None
+    evidence_ids: list[str] = Field(default_factory=list)
+    reason: str = Field(default='',max_length=240)
+    information_need_id: str | None = None
+    request_aspect: str | None = None
+
+
+class QuestionReview(StrictModel):
+    experience_state: Literal['reviewed','not_reviewed']
+    reason: str = Field(default='',max_length=240)
+    items: list[InformationReview] = Field(default_factory=list,max_length=5)
 
 
 class ReviewInput(StrictModel):
@@ -229,10 +272,13 @@ class ReviewInput(StrictModel):
     previous_question_keys: list[str] = Field(default_factory=list)
     question_history: list[str] = Field(default_factory=list)
     resume_sources: list[SourceDocument] = Field(default_factory=list)
+    historical_resume_sources: list[SourceDocument] = Field(default_factory=list)
     previous_facets: list[EvidenceFacet] = Field(default_factory=list)
     unavailable_slots: list[ProjectSlot] = Field(default_factory=list)
     existing_intents: list[ApplicantIntentClaim] = Field(default_factory=list)
     previous_semantic_units: list[SemanticUnit] = Field(default_factory=list)
+    requirement_review_context: dict | None = None
+    prior_information_needs: list[dict] = Field(default_factory=list)
     section_profile: SectionSemanticProfile | None = None
     sentence_plan: SentencePlan | None = None
     approved_intents: list[ApplicantIntentClaim] = Field(default_factory=list)
@@ -242,6 +288,13 @@ class ReviewInput(StrictModel):
         if self.answer.strip() and not self.answer_source_id:
             raise ValueError("answer_source_id required when answer is present")
         return self
+
+    def factual_resume_sources(self):
+        """Internal server-proven apply provenance, not generated editing prose."""
+        sources={s.source_id:s.text for s in self.resume_sources}
+        sources[self.experience.experience_id]=self.experience.current_text
+        sources.update({s.source_id:s.text for s in self.historical_resume_sources})
+        return sources
 
 
 class OmittedEvidence(StrictModel):
@@ -280,6 +333,13 @@ class AnalystOutput(StrictModel):
     question: QuestionProposal | None = None
 
 
+class RequirementEvidenceMatch(StrictModel):
+    requirement_id: str
+    status: Literal['met', 'partial', 'unconfirmed']
+    evidence_ids: list[str] = Field(default_factory=list)
+    assertion_scope: Literal['mentioned', 'used', 'owned', 'result', 'proficiency', 'context'] = 'context'
+
+
 class ExtractionOutput(StrictModel):
     """Source extraction and one optional editorial clarification; no revision plan."""
     experience_id: str
@@ -287,7 +347,17 @@ class ExtractionOutput(StrictModel):
     facets: list[EvidenceFacet] = Field(default_factory=list)
     intent_claims: list[ApplicantIntentClaim] = Field(default_factory=list)
     semantic_units: list[SemanticUnit] = Field(default_factory=list)
-    question: GapQuestion | None = None
+    question: QuestionNeed | None = None
+    question_review: QuestionReview | None = None
+    # None means not assessed (including historical checkpoints); [] means assessed with no matches.
+    requirement_matches: list[RequirementEvidenceMatch] | None = None
+
+    @field_validator('question', mode='before')
+    @classmethod
+    def reject_rendered_or_legacy_model_question(cls, value):
+        if isinstance(value, GapQuestion):
+            raise ValueError('model output must be QuestionNeed, not a rendered/legacy question')
+        return value
 
 
 class RevisionSentence(StrictModel):
@@ -319,10 +389,11 @@ class FactVerification(StrictModel):
     """Independent semantic check; the server still runs deterministic checks."""
 
     unsupported_claims: list[str] = Field(default_factory=list)
-    weakened_original_facts: list[str] = Field(default_factory=list)
+    weakened_original_facts: list[str] = Field(default_factory=list, description='Substantive losses only. For each explain source proposition -> candidate proposition -> changed role/scope/certainty/condition/result/limitation in paragraph context. Equivalent wording, merged meanings or rhetorical preference alone are not weakening. Do not drop actual negation, uncertainty or scope.')
     unclaimed_factual_content: list[str] = Field(default_factory=list)
     critical_technical_signal_loss: list[str] = Field(default_factory=list)
     quality_issues: list['ValidationIssue'] = Field(default_factory=list)
+    editorial_advice: list['EditorialAdvice'] = Field(default_factory=list)
     unsupported_intents: list[str] = Field(default_factory=list)
     section_meaning_loss: list[str] = Field(default_factory=list)
     revision_quality: Literal['improved', 'no_better', 'worse'] = 'improved'
@@ -334,10 +405,16 @@ class ValidationIssue(StrictModel):
     detail: str
 
 
+class EditorialAdvice(StrictModel):
+    kind: Literal['redundancy', 'wording', 'minor_length', 'rhythm']
+    detail: str
+
+
 class ValidationResult(StrictModel):
     status: Literal["READY", "REWRITE", "NEEDS_EVIDENCE", "REJECTED", "UNCHANGED"]
     factual_issues: list[ValidationIssue] = Field(default_factory=list)
     quality_issues: list[ValidationIssue] = Field(default_factory=list)
+    editorial_advice: list[EditorialAdvice] = Field(default_factory=list)
     intent_issues: list[ValidationIssue] = Field(default_factory=list)
     section_issues: list[ValidationIssue] = Field(default_factory=list)
 
@@ -385,3 +462,5 @@ class ReviewResult(StrictModel):
     section_profile: SectionSemanticProfile | None = None
     sentence_plan: SentencePlan | None = None
     debug_trace: dict = Field(default_factory=dict)
+    requirement_matches: list[RequirementEvidenceMatch] | None = None
+    requirement_warnings: list[str] = Field(default_factory=list)

@@ -2,7 +2,7 @@
 import pytest
 from pydantic import ValidationError
 from app.resume_review_v2.models import (Evidence, EvidenceFacet, ExtractionOutput,
-    Experience, ReviewInput, ProjectSlot as S, GapQuestion, QuestionPresupposition,
+    Experience, ReviewInput, ProjectSlot as S, GapQuestion, QuestionNeed, QuestionPresupposition,
     FactVerification, SourceDocument, RevisionSentence, WriterOutput, RevisionPlan)
 from app.resume_review_v2.project_planning import (prepare_review, build_profile,
     active_facts, detect_gaps, plan_questions, validate_question)
@@ -33,6 +33,29 @@ METRICS = ('verification', '불균형 때문에 Accuracy와 F1, PR-AUC로 평가
 THRESHOLD = ('action', 'XGBoost threshold를 여러 값으로 비교함', [S.ACTIONS, S.ROLE])
 
 
+@pytest.mark.parametrize('mode,expected,reason', [
+    ('null', 'model_not_proposed', 'no_candidate_returned'),
+    ('valid', 'selected', None),
+    ('basis', 'server_filtered', 'inactive_or_unknown_evidence_basis'),
+    ('repeat', 'server_filtered', 'exact_repeat'),
+    ('unavailable', 'server_filtered', 'unavailable_slot'),
+])
+def test_question_diagnostics_distinguish_absence_from_filter_without_policy_change(mode, expected, reason):
+    req, extraction = case(MINIMAL)
+    candidate = QuestionNeed(experience_id='project',
+        target_slot=S.ROLE, gap_type='missing', priority='HIGH', why_needed='기여 범위를 확인합니다.', dedupe_key='role')
+    if mode == 'null': candidate = None
+    elif mode == 'basis':candidate.evidence_basis=['missing']
+    elif mode == 'repeat':req.previous_question_keys=['project:value:role']
+    elif mode == 'unavailable': req.unavailable_slots = [S.ROLE]
+    extraction.question = candidate
+    prepared = prepare_review(req, extraction)
+    diagnostic = prepared.question_selection
+    assert diagnostic['state'] == expected and diagnostic['reason'] == reason
+    assert diagnostic['candidate'] == (candidate.model_dump(mode='json') if candidate else None)
+    assert bool(prepared.questions) == (mode == 'valid')
+
+
 def questions(rows):
     req, output = case(rows)
     prepared = prepare_review(req, output)
@@ -55,7 +78,7 @@ def test_minimal_ml_does_not_assume_metrics_imbalance_or_comparison():
 def test_imbalance_enables_only_supported_observation_followup():
     prepared = questions([*MINIMAL, IMBALANCE])
     assert prepared.questions[0].target_slot == S.OBSERVATION
-    assert prepared.questions[0].presuppositions[0].evidence_ids == ['ev-2']
+    assert prepared.questions[0].evidence_basis == ['ev-2']
     assert all('Accuracy 대신' not in q.question and 'threshold' not in q.question for q in prepared.questions)
 
 
@@ -96,7 +119,7 @@ def test_fabricated_question_premises_or_wording_rejected(text, basis):
 def test_forged_wording_with_real_premise_still_rejected():
     prepared = questions([*MINIMAL, IMBALANCE])
     q = prepared.questions[0].model_copy(update={'question': '불균형을 해결한 성과는 몇 퍼센트인가요?'})
-    with pytest.raises(ContractError, match='wording'): validate_question(q, prepared.evidence)
+    with pytest.raises(ContractError, match='noncanonical_question_body'): validate_question(q, prepared.evidence)
 
 
 def sufficient_rows():
@@ -156,8 +179,9 @@ def test_inactive_and_unresolved_conflicts_do_not_populate_profile():
 
 
 def test_extraction_can_propose_one_question_but_not_a_revision_plan():
-    assert set(ExtractionOutput.model_fields) == {'experience_id', 'extracted_evidence', 'facets', 'intent_claims', 'semantic_units', 'question'}
+    assert set(ExtractionOutput.model_fields) == {'experience_id', 'extracted_evidence', 'facets', 'intent_claims', 'semantic_units', 'question', 'question_review', 'requirement_matches'}
     req, output = case(MINIMAL)
+    assert output.requirement_matches is None  # Historical extraction is not a completed assessment.
     with pytest.raises(ValidationError):
         ExtractionOutput.model_validate({**output.model_dump(), 'plan': {}})
 
@@ -232,7 +256,11 @@ def test_team_comparison_context_is_not_an_applicant_action_premise():
 def test_technology_facet_cannot_invent_role_or_action():
     req, output = case(MINIMAL)
     output.facets[-1].slots = [S.TECHNOLOGIES, S.ACTIONS]
-    with pytest.raises(ContractError, match='technology names'): prepare_review(req, output)
+    prepared = prepare_review(req, output)
+    assert not prepared.profile.actions.evidence_ids
+    assert not prepared.profile.personal_role.evidence_ids
+    assert prepared.analysis.plan.operation == 'no_change'
+    assert prepared.semantic_preparation['facet_repairs'][0]['removed_slots']==['actions']
 
 
 def test_qualitative_outcome_is_sufficient_without_kpi():
