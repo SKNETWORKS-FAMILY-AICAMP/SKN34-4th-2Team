@@ -171,20 +171,34 @@ class ResumeExperienceStoreTests(TestCase):
     def test_adapter_input_runs_in_offline_engine(self):
         binding = ensure_resume_item_binding(user_id=self.user.pk, resume_id=self.resume.pk,
                                              section='projects', index=0)
-        evidence = self._evidence(binding.experience)
+        evidence = self._evidence(binding.experience, quote='모델 학습을 직접 수행했습니다.')
+        evidence.source_id = str(binding.experience_id)
+        evidence.save(update_fields=['source_id'])
         request = build_v2_review_input(user_id=self.user.pk, resume_id=self.resume.pk,
                                         item_key=binding.item_key)
         from app.resume_review_v2.engine import ReviewEngineV2
-        from app.resume_review_v2.models import AnalystOutput, RevisionPlan, Usage
+        from app.resume_review_v2.models import ExtractionOutput, FactVerification, WriterOutput, Usage
 
         class OfflineLLM:
             def analyze(self, incoming):
                 assert [e.evidence_id for e in incoming.experience.existing_evidence] == [str(evidence.pk)]
-                return AnalystOutput(
+                return ExtractionOutput(
                     experience_id=incoming.experience.experience_id, extracted_evidence=[],
-                    plan=RevisionPlan(objective='No edit', operation='no_change'),
                 ), Usage(calls=1)
 
+            def write(self, incoming, plan, permitted):
+                assert str(evidence.pk) in [item.evidence_id for item in permitted]
+                return WriterOutput(
+                    experience_id=incoming.experience.experience_id, operation='replace_field',
+                    original_quote=incoming.experience.current_text,
+                    sentences=[dict(text=incoming.experience.current_text, evidence_ids=[str(evidence.pk)])],
+                ), Usage(calls=1)
+
+            def verify(self, *args):
+                return FactVerification(revision_quality='no_better'), Usage(calls=1)
+
         result = ReviewEngineV2(OfflineLLM()).run(request)
-        self.assertEqual(result.validation.status, 'READY')
-        self.assertEqual(result.usage.calls, 1)
+        # A source-grounded candidate that adds no improvement is not apply-ready.
+        self.assertEqual(result.validation.status, 'UNCHANGED')
+        self.assertIsNotNone(result.candidate)
+        self.assertEqual(result.usage.calls, 3)

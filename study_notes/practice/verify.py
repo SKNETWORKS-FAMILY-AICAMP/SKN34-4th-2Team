@@ -141,10 +141,16 @@ def _clean_stdout(stdout: str) -> str:
 def _jobs_for(index: int, problem: PracticeProblem) -> list[Job]:
     key = f"p{index}"
     if problem.kind == "sql_query":
-        return [
-            Job(f"{key}:reference", [sql_problem.harness_code(problem.setup_sql, problem.reference_solution)], RUN_TIMEOUT_MS),
-            Job(f"{key}:starter", [sql_problem.harness_code(problem.setup_sql, problem.starter_code)], RUN_TIMEOUT_MS),
+        after = problem.check_sql
+        jobs = [
+            Job(f"{key}:reference", [sql_problem.harness_code(problem.setup_sql, problem.reference_solution, after)], RUN_TIMEOUT_MS),
+            Job(f"{key}:starter", [sql_problem.harness_code(problem.setup_sql, problem.starter_code, after)], RUN_TIMEOUT_MS),
         ]
+        if after:
+            # 제약을 뺀 테이블로도 같은 표가 나오면 제약을 묻지 않는 문제
+            loose = sql_problem.loosened(problem.reference_solution)
+            jobs.append(Job(f"{key}:loose", [sql_problem.harness_code(problem.setup_sql, loose, after)], RUN_TIMEOUT_MS))
+        return jobs
     if problem.kind == "code_output":
         return [
             Job(f"{key}:run1", [problem.starter_code], RUN_TIMEOUT_MS),
@@ -180,13 +186,15 @@ def _judge_output(problem: PracticeProblem, r1: RunResult, r2: RunResult) -> Ver
     return Verdict(problem, True)
 
 
-def _judge_sql(problem: PracticeProblem, reference: RunResult, starter: RunResult) -> Verdict:
+def _judge_sql(problem: PracticeProblem, reference: RunResult, starter: RunResult, loose: RunResult | None = None) -> Verdict:
     if reference.timed_out:
         return Verdict(problem, False, "모범 조회문이 시간 제한 초과")
     if not reference.ok:
-        return Verdict(problem, False, f"준비 스크립트나 모범 조회문 실행 오류 — {reference.describe()}")
+        what = "준비 스크립트 · 모범 CREATE TABLE · 확인 문장" if problem.check_sql else "준비 스크립트나 모범 조회문"
+        return Verdict(problem, False, f"{what} 실행 오류 — {reference.describe()}")
     expected, reason = sql_problem.judge_result(
         problem.reference_solution, reference.stdout, starter.stdout if starter.ok else None,
+        after=problem.check_sql, loose_stdout=loose.stdout if loose is not None and loose.ok else None,
     )
     if reason:
         return Verdict(problem, False, reason)
@@ -218,7 +226,7 @@ def verify_problems(problems: list[PracticeProblem], runner: Runner) -> list[Ver
             verdicts[i] = Verdict(problem, True)
             continue
         if problem.kind == "sql_query":
-            reason = sql_problem.static_check(problem.setup_sql, problem.reference_solution)
+            reason = sql_problem.static_check(problem.setup_sql, problem.reference_solution, problem.check_sql)
             if reason:
                 verdicts[i] = Verdict(problem, False, f"실행 전 거름 — {reason}")
                 continue
@@ -278,7 +286,7 @@ def verify_problems(problems: list[PracticeProblem], runner: Runner) -> list[Ver
         if problem.kind == "code_output":
             verdicts[i] = _judge_output(problem, results[f"{key}:run1"], results[f"{key}:run2"])
         elif problem.kind == "sql_query":
-            verdicts[i] = _judge_sql(problem, results[f"{key}:reference"], results[f"{key}:starter"])
+            verdicts[i] = _judge_sql(problem, results[f"{key}:reference"], results[f"{key}:starter"], results.get(f"{key}:loose"))
         elif problem.kind == "web_task":
             passed, reason = web_problem.judge(problem, results[f"{key}:starter"], results[f"{key}:reference"])
             verdicts[i] = Verdict(problem, passed, reason)

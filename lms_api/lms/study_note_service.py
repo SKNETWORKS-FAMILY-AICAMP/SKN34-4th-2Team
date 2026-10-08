@@ -17,7 +17,6 @@ import re
 import threading
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any, Callable
 
@@ -51,6 +50,16 @@ def _ai_base() -> str:
 
 
 def _call(path: str, payload: dict, timeout: int) -> dict:
+    """AI 서버 호출. 폴더 올리기 과목이면 먼저 서버 안 저장소가 있는지 보고 없으면 보관본으로 되살린다(lms/folder_upload.py)."""
+    source = payload.get("source")
+    if isinstance(source, dict) and str(source.get("repoUrl") or "").startswith("upload://") and payload.get("cohortId"):
+        from lms.folder_upload import ensure_repo
+
+        ensure_repo(str(payload["cohortId"]), source)
+    return _post(path, payload, timeout)
+
+
+def _post(path: str, payload: dict, timeout: int) -> dict:
     base = _ai_base()
     if not base:
         raise StudyNoteError(503, "공부방 서버가 연결되어 있지 않습니다(STUDY_NOTES_URL).")
@@ -422,18 +431,29 @@ def publish_lesson_notes(source: dict, dates: list[str]) -> dict:
 
 
 # ── 과목 전체 요약 ────────────────────────────────────────────────
-# 과목(수업 저장소) 하나를 한 장으로. 파일을 통째로 넣기엔 너무 많아서 날짜별 노트를 모아 한 번 더 정리한다.
-# 날짜 노트가 없는 날은 먼저 만든다(같은 기수가 같은 자료로 만든 것이 있으면 그것). 그래서 처음엔 오래 걸린다.
+# 과목(수업 저장소) 하나를 한 장으로 — AI 서버가 수업 파일을 직접 읽어 주제(맨 위 폴더)별로 정리한다(study_notes/subject.py).
+# 예전엔 날짜 노트를 모아 다시 요약했는데, 날짜 노트가 6천 자에서 잘리고 없으면 먼저 만들어야 했다(2026-10-04 바꿈).
+# 과목이 끝나면 18:30 자동 출제 뒤에 한 번 만들어 기수 학생 모두에게 넣는다(publish_subject_note).
 
-SUBJECT_LOCK = timedelta(minutes=40)  # 날짜 노트를 여럿 만들 수 있어 날짜 노트(10분)보다 길게
+SUBJECT_LOCK = timedelta(minutes=40)  # 주제 묶음이 많은 과목은 몇 분 걸린다
 SUBJECT_MAX_DAYS = 40
-DAY_WORKERS = 3
+SUBJECT_TIMEOUT = 1200
+# 파일 직접 · 주제별로 만든 요약에만 있는 소제목 — 예전 방식(날짜 노트를 모아 다시 요약) 요약은 다시 만든다
+SUBJECT_FORMAT_MARK = "## 주제별 핵심 정리"
 
 
 def _subject_dates(row: dict | None) -> list[str] | None:
     """요약을 만들 때 쓴 수업 날짜들 — 끝난 요약 행의 scope_value 에 적어 둔다."""
     value = _json(row.get("scope_value")) if row else None
     return sorted(value) if isinstance(value, list) else None
+
+
+def _current_subject(row: dict | None, dates: list[str] | None) -> bool:
+    """지금 쓸 수 있는 과목 요약인가 — 다 만들어졌고, 새 형식이고, 수업 날짜가 그대로(새 수업이 없음)"""
+    return bool(
+        row and row.get("status") in READY and SUBJECT_FORMAT_MARK in (row.get("report_markdown") or "")
+        and (dates is None or _subject_dates(row) == dates)
+    )
 
 
 def _lesson_dates(source: dict) -> list[str] | None:
@@ -481,21 +501,29 @@ def subject_finished(cur, source: dict, dates: list[str] | None = None) -> bool:
     return cur.fetchone() is not None
 
 
+def _shared_subject(cur, source_id: int, dates: list[str] | None, except_user: int | None = None) -> dict | None:
+    """같은 기수가 같은 수업 날짜로 이미 만든 새 형식 과목 요약"""
+    cur.execute(
+        """SELECT * FROM study_notes WHERE source_id = %s AND scope_key = %s AND status IN ('ready', 'done')
+             AND COALESCE(report_markdown, '') <> '' AND user_id <> %s ORDER BY id DESC LIMIT 30""",
+        [source_id, SUBJECT_KEY, except_user or 0],
+    )
+    return next((r for r in _dicts(cur) if _current_subject(r, dates)), None)
+
+
 def start_subject_note(user: dict, source_key: str) -> dict:
-    """과목 전체 요약. 있으면 그것, 같은 기수가 같은 수업 날짜로 만든 것이 있으면 사본, 아니면 뒤에서 만든다.
+    """과목 전체 요약 — 수업 파일을 직접 읽어 주제(맨 위 폴더)별로(AI 서버 study_notes/subject.py).
+    있으면 그것, 같은 기수가 같은 수업 날짜로 만든 것이 있으면 사본, 아니면 뒤에서 만든다.
 
     끝난 과목만(subject_finished) — 진행 중인 과목은 409. 반쯤 배운 상태의 「전체」 요약은 헷갈리게 하고,
-    수업이 늘 때마다 다시 만들어 비용만 든다.
-
-    수업 날짜가 늘었으면(새 수업) 다시 만든다. 날짜 안의 파일이 고쳐진 것까지는 보지 않는다 —
-    그걸 보려면 날짜마다 저장소를 확인해야 해서 누를 때마다 수십 초가 걸린다.
+    수업이 늘 때마다 다시 만들어 비용만 든다. 수업 날짜가 아예 없는 과목(폴더로 올린 지난 자료뿐)은 파일만으로 만든다.
+    수업 날짜가 늘었으면(새 수업) 다시 만든다.
     """
     with connection.cursor() as cur:
         source = _load_source(cur, user, source_key)
     public_source = _public_id(source)
     dates = _lesson_dates(source)
-    # 수업 날짜가 아예 없으면 아래에서 그렇다고 알린다(「아직 수업 날짜가 없어요」)
-    if dates != []:
+    if dates:
         with connection.cursor() as cur:
             if not subject_finished(cur, source, dates):
                 raise StudyNoteError(409, SUBJECT_NOT_FINISHED)
@@ -503,110 +531,84 @@ def start_subject_note(user: dict, source_key: str) -> dict:
     with transaction.atomic(), connection.cursor() as cur:
         row = _own_note(cur, user["id"], source["id"], SUBJECT_KEY)
         row_id = row["id"] if row else None
-        if row and row.get("status") in READY and (dates is None or _subject_dates(row) == dates):
+        if _current_subject(row, dates):
             return serialize(row, public_source)
         started = row.get("created_at") if row else None
         if row and row.get("status") == "generating" and started and timezone.now() - started < SUBJECT_LOCK:
             return serialize(row, public_source)
-        if dates == []:
-            row = _put(cur, row_id, user["id"], source["id"], "subject", "all", SUBJECT_KEY, status="failed",
-                       error="이 저장소에는 아직 수업 날짜가 없어요.")
+        shared = _shared_subject(cur, source["id"], dates, except_user=user["id"]) if dates else None
+        if shared is not None:
+            row = _put(cur, row_id, user["id"], source["id"], "subject", dates, SUBJECT_KEY, status="ready",
+                       message="", report=shared.get("report_markdown") or "", review="",
+                       files=_json(shared.get("files")) or [])
             return serialize(row, public_source)
-        if dates:
-            cur.execute(
-                """SELECT * FROM study_notes WHERE source_id = %s AND scope_key = %s AND status IN ('ready', 'done')
-                     AND COALESCE(report_markdown, '') <> '' AND user_id <> %s ORDER BY id DESC LIMIT 30""",
-                [source["id"], SUBJECT_KEY, user["id"]],
-            )
-            shared = next((r for r in _dicts(cur) if _subject_dates(r) == dates), None)
-            if shared is not None:
-                row = _put(cur, row_id, user["id"], source["id"], "subject", dates, SUBJECT_KEY, status="ready",
-                           message="", report=shared.get("report_markdown") or "", review="",
-                           files=_json(shared.get("files")) or [])
-                return serialize(row, public_source)
-
         row = _put(cur, row_id, user["id"], source["id"], "subject", "all", SUBJECT_KEY, status="generating",
-                   message="과목 전체를 정리하고 있어요. 날짜별 노트가 없으면 먼저 만들어서 몇 분 넘게 걸려요.")
+                   message="과목의 수업 파일을 모두 읽어 주제별로 정리하고 있어요. 몇 분 걸려요.")
         note_id = row["id"]
-        transaction.on_commit(lambda: _spawn(lambda: _finish_subject(note_id, user["id"], source, dates)))
+        transaction.on_commit(lambda: _spawn(lambda: _finish_subject(note_id, source)))
     return serialize(row, public_source)
 
 
-def _day_note(source: dict, date: str) -> tuple[dict | None, dict | None]:
-    """(이미 있는 같은 자료의 날짜 노트, 새로 만들 때 넘길 payload). 둘 다 None 이면 그날은 뺀다(파일이 너무 많음 등)."""
-    payload = {"cohortId": source["cohort_code"], "source": _source_payload(source), "scopeType": "date", "scopeValue": date}
-    current = _resolve(payload)
-    if current is None or current.get("status") != "ready":
-        return None, None
-    with connection.cursor() as cur:
-        shared = _shared_note(cur, source["id"], scope_key("date", date), current["files"])
-    if shared is not None:
-        return {"report": shared.get("report_markdown") or "", "files": _json(shared.get("files")) or current["files"]}, None
-    return None, {**payload, "previous": _previous_notes(source["id"], "date", date)}
+def _subject_from_files(source: dict) -> dict:
+    """AI 서버가 수업 파일을 직접 읽어 만든 과목 요약 {status, reportMarkdown, dates, files} — 몇 분 걸린다"""
+    return _call("/proxy/subject-files", {"cohortId": source["cohort_code"], "source": _source_payload(source)}, SUBJECT_TIMEOUT)
 
 
-def _finish_subject(note_id: int, user_id: int, source: dict, dates: list[str] | None) -> None:
-    """날짜 노트를 모으고(없으면 만들고) AI 서버에 과목 요약을 받는다. 스레드 안이라 DB 연결을 직접 닫는다."""
+def _finish_subject(note_id: int, source: dict) -> None:
+    """AI 서버에 과목 요약을 받아 행을 채운다. 스레드 안이라 DB 연결을 직접 닫는다."""
     try:
-        dates = dates if dates is not None else _lesson_dates(source)
-        if not dates:
-            _save(note_id, "failed", error="수업 날짜를 읽지 못했습니다. 잠시 후 다시 시도하세요.")
-            return
-        days: dict[str, dict] = {}
-        todo: dict[str, dict] = {}
-        for date in dates:
-            found, payload = _day_note(source, date)
-            if found is not None:
-                days[date] = found
-            elif payload is not None:
-                todo[date] = payload
-
-        def make(date: str) -> tuple[str, dict | None]:
-            try:
-                result = _call("/proxy/generate", todo[date], GENERATE_TIMEOUT)
-            except StudyNoteError:
-                return date, None
-            if result.get("status") != "ready" or not result.get("reportMarkdown"):
-                return date, None
-            return date, {"report": str(result["reportMarkdown"]), "files": result.get("files") or []}
-
-        with ThreadPoolExecutor(max_workers=DAY_WORKERS) as pool:
-            for date, made in pool.map(make, list(todo)):
-                if made is None:
-                    continue
-                days[date] = made
-                # 만든 날짜 노트는 이 학생의 날짜 노트로도 남긴다 — 다음에 그 날짜를 열면 기다리지 않는다
-                key = scope_key("date", date)
-                with transaction.atomic(), connection.cursor() as cur:
-                    own = _own_note(cur, user_id, source["id"], key)
-                    if not (own and own.get("status") in READY and same_material(own.get("files"), made["files"])):
-                        _put(cur, own["id"] if own else None, user_id, source["id"], "date", date, key, status="ready",
-                             message="", report=made["report"], review="", files=made["files"])
-        if not days:
-            _save(note_id, "failed", error="요약할 날짜 노트를 만들지 못했습니다. 날짜마다 파일이 너무 많거나 저장소를 읽지 못했어요.")
-            return
         try:
-            result = _call(
-                "/proxy/subject",
-                {"subject": source.get("title") or "과목", "days": [{"date": d, "report": days[d]["report"]} for d in sorted(days)]},
-                GENERATE_TIMEOUT,
-            )
+            result = _subject_from_files(source)
         except StudyNoteError as exc:
             _save(note_id, "failed", error=exc.detail)
             return
-        skipped = [d for d in dates if d not in days]
-        files = [f for d in sorted(days) for f in days[d]["files"]]
+        if result.get("status") != "ready" or not result.get("reportMarkdown"):
+            _save(note_id, "failed", error=str(result.get("message") or "요약할 수업 파일이 없어요."))
+            return
+        dates = sorted(result.get("dates") or [])[-SUBJECT_MAX_DAYS:]
         with connection.cursor() as cur:
             cur.execute(
-                """UPDATE study_notes SET status = 'ready', scope_value = %s::jsonb, error_message = NULL, message = %s,
+                """UPDATE study_notes SET status = 'ready', scope_value = %s::jsonb, error_message = NULL, message = '',
                           report_markdown = %s, review_markdown = '', files = %s::jsonb WHERE id = %s""",
-                [json.dumps(dates), f"{len(skipped)}일은 파일이 너무 많거나 읽지 못해 빠졌어요." if skipped else "",
-                 str(result.get("reportMarkdown") or ""), json.dumps(files, ensure_ascii=False), note_id],
+                [json.dumps(dates), str(result["reportMarkdown"]), json.dumps(result.get("files") or [], ensure_ascii=False), note_id],
             )
     except Exception as exc:  # noqa: BLE001 — 「정리 중」으로 남기지 않는다
         _save(note_id, "failed", error=f"과목 요약을 만들지 못했습니다: {str(exc)[:200]}")
     finally:
         connection.close()
+
+
+def publish_subject_note(source: dict) -> str:
+    """과목이 끝나면 전체 요약을 한 번 만들어 기수 학생 모두의 공부방에 넣는다(18:30 자동 출제 뒤).
+    이미 같은 수업 날짜 · 새 형식 요약이 있으면 LLM 없이 없는 학생에게만 넣는다. 돌려주는 값: made · copied · running · skip"""
+    dates = _lesson_dates(source)
+    if not dates:
+        return "skip"
+    with connection.cursor() as cur:
+        if not subject_finished(cur, source, dates):
+            return "running"
+        shared = _shared_subject(cur, source["id"], dates)
+        cur.execute(
+            "SELECT id FROM users WHERE cohort_id = %s AND role = 'student' AND is_active ORDER BY id",
+            [source["cohort_id"]],
+        )
+        students = [r[0] for r in cur.fetchall()]
+    if shared is not None:
+        report, files, how = shared.get("report_markdown") or "", _json(shared.get("files")) or [], "copied"
+    else:
+        result = _subject_from_files(source)
+        if result.get("status") != "ready" or not result.get("reportMarkdown"):
+            return "skip"
+        report, files, how = str(result["reportMarkdown"]), result.get("files") or [], "made"
+        dates = sorted(result.get("dates") or [])[-SUBJECT_MAX_DAYS:]
+    for student in students:
+        with transaction.atomic(), connection.cursor() as cur:
+            row = _own_note(cur, student, source["id"], SUBJECT_KEY)
+            if _current_subject(row, dates):
+                continue
+            _put(cur, row["id"] if row else None, student, source["id"], "subject", dates, SUBJECT_KEY,
+                 status="ready", message="", report=report, review="", files=files)
+    return how
 
 
 def _finish(note_id: int, payload: dict) -> None:

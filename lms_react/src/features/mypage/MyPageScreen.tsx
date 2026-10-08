@@ -2,21 +2,23 @@ import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { homeFor } from '../../app/routePaths';
-import { updateUser } from '../../data/repository';
+import { updateUser, useMyResumes } from '../../data/repository';
 import { JobPreferencePresets } from '../../domain/constants';
-import type { User } from '../../domain/types';
+import type { ProfileTechItem, Resume, ResumeTechStackItem, User } from '../../domain/types';
 import { tourFor } from '../../tour/tours';
 import { useTour } from '../../tour/useTour';
 import { Icon } from '../../ui/Icon';
 import { PageHeader } from '../../ui/components';
 import { formatDateTime } from '../../utils/format';
 import { useCurrentUser, useSession } from '../auth/session';
+import { TechStackEditor } from '../resume/skills/TechStackEditor';
+import { sameSkill } from '../resume/skills/skillCatalog';
 import { PreferenceTagEditor } from './PreferenceTagEditor';
 
 /**
  * 마이페이지 — features/my_page/presentation/my_page_screen.dart
  *
- * 가운데 좁은 줄기(560px)에 카드 넷이 쌓인다: 프로필 요약, 개인 정보, 취업 희망
+ * 가운데 좁은 줄기(560px)에 카드 다섯이 쌓인다: 프로필 요약, 개인 정보, 기술 스택, 취업 희망
  * 조건, 비밀번호. 항목은 표가 아니라 「라벨·값·연필」 한 줄이고, 연필을 누르면
  * 그 자리에서 고친다.
  */
@@ -28,10 +30,11 @@ export function MyPageScreen() {
   return (
     <div className="mypage">
       <div className="mypage__column">
-        <PageHeader title="마이페이지" description="프로필 · 연락처 · 취업 희망 조건 · 비밀번호를 관리합니다." />
+        <PageHeader title="마이페이지" description="프로필 · 연락처 · 기술 스택 · 취업 희망 조건 · 비밀번호를 관리합니다." />
 
         <ProfileOverviewCard user={user} />
         <PersonalInfoCard user={user} />
+        <TechStackCard user={user} />
         <JobPreferencesCard user={user} />
         <PasswordCard />
 
@@ -240,6 +243,63 @@ function EditableRow({
       )}
     </div>
   );
+}
+
+/**
+ * 기술 스택 — 학생이 기술을 적는 원본. 이력서 기술스택은 「마이페이지에서 불러오기」로 여기서 가져간다
+ * (이력서마다 하나씩 다시 적지 않게). 편집기는 이력서와 같은 것을 쓴다.
+ * 이미 이력서에 적어 둔 학생은 「이력서에서 가져오기」로 한 번에 옮긴다.
+ */
+function TechStackCard({ user }: { user: User }) {
+  const resumes = useMyResumes(user.uid).data ?? [];
+  // 편집기는 id 로 고른 칸을 기억한다. 서버에서 다시 받아 id 가 바뀌지 않게 이 화면에서 들고 있는다
+  const [items, setItems] = useState<ResumeTechStackItem[]>(() =>
+    (user.techStack ?? user.skills.map((name) => ({ name, level: '' }))).map((t) => ({ id: techId(), ...t })),
+  );
+  const save = (next: ResumeTechStackItem[]) => {
+    setItems(next);
+    const techStack: ProfileTechItem[] = next.filter((t) => t.name.trim() !== '').map(({ name, level }) => ({ name, level }));
+    updateUser(user.uid, { techStack, skills: techStack.map((t) => t.name) });
+  };
+
+  const source = resumeWithTech(resumes);
+  const fresh = (source?.content.techStack ?? []).filter(
+    (t) => t.name.trim() !== '' && !items.some((mine) => sameSkill(mine.name, t.name)),
+  );
+
+  return (
+    <section className="panel mycard">
+      <header className="mycard__head">
+        <h2 className="mycard__title">기술 스택</h2>
+        <span className="spacer" />
+        {fresh.length > 0 && (
+          <button
+            type="button"
+            className="btn btn--text btn--sm"
+            title={`「${source?.title}」의 기술스택 중 여기 없는 ${fresh.length}개를 숙련도와 함께 가져옵니다`}
+            onClick={() => save([...items, ...fresh.map((t) => ({ id: techId(), name: t.name, level: t.level }))])}
+          >
+            <Icon name="download" size={18} />
+            이력서에서 가져오기 ({fresh.length})
+          </button>
+        )}
+      </header>
+      <p className="mycard__sub">
+        여기 적어 두면 이력서 기술스택에서 「마이페이지에서 불러오기」로 한 번에 넣을 수 있어요.
+      </p>
+      <TechStackEditor items={items} readOnly={false} onChange={save} newId={techId} />
+    </section>
+  );
+}
+
+const techId = () => `pt${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+
+/** 가져올 이력서 — 원본(기본) 이력서 중 가장 최근에 고친 것, 없으면 아무 이력서 중 가장 최근. 기술스택이 있는 것만 */
+function resumeWithTech(resumes: Resume[]): Resume | undefined {
+  const withTech = resumes.filter((r) => r.content.techStack.some((t) => t.name.trim() !== ''));
+  const latest = (list: Resume[]) =>
+    [...list].sort((a, b) => (b.updatedAt?.getTime() ?? 0) - (a.updatedAt?.getTime() ?? 0))[0];
+  return latest(withTech.filter((r) => r.isBaseResume)) ?? latest(withTech);
 }
 
 function JobPreferencesCard({ user }: { user: User }) {

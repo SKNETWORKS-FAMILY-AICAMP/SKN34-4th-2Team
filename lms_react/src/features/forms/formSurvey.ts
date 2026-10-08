@@ -1,4 +1,5 @@
 import type { FormAnswer, FormQuestion, FormQuestionType, FormResponse, FormTask, User } from '../../domain/types';
+import { toCsv, type ExportTable } from '../export/tableExport';
 
 /** 서버(lms/form_surveys.py)와 같은 한도 */
 export const MAX_QUESTIONS = 50;
@@ -136,21 +137,17 @@ export function summarize(q: FormQuestion, responses: FormResponse[]): QuestionS
   return { kind: 'text', answered: values.length, texts: values.map((v) => ({ userId: v.userId, text: String(v.value) })) };
 }
 
-function csvCell(value: string): string {
-  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
 function stamp(at: Date | undefined): string {
   if (at === undefined) return '';
   return at.toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 16);
 }
 
-/** 학생마다 한 줄 — 미제출자도 넣는다. 엑셀에서 바로 열리게 BOM 을 붙인다 */
-export function responsesToCsv(task: FormTask, responses: FormResponse[], students: User[]): string {
+/** 학생마다 한 줄 — 미제출자도 넣는다 */
+export function responsesTable(task: FormTask, responses: FormResponse[], students: User[]): ExportTable {
   const questions = task.mode === 'builtin' ? task.questions : [];
   const header = ['이름', '이메일', '제출', '제출 시각', ...questions.map((q) => q.title)];
   const byUser = new Map(responses.filter((r) => r.taskId === task.id).map((r) => [r.userId, r]));
-  const lines = [...students]
+  const rows = [...students]
     .sort((a, b) => a.displayName.localeCompare(b.displayName, 'ko'))
     .map((s) => {
       const r = byUser.get(s.uid);
@@ -160,9 +157,12 @@ export function responsesToCsv(task: FormTask, responses: FormResponse[], studen
         r ? '제출' : '미제출',
         stamp(r?.submittedAt),
         ...questions.map((q) => formatAnswer(q, r?.answers?.[q.id])),
-      ]
-        .map(csvCell)
-        .join(',');
+      ];
     });
-  return `\uFEFF${[header.map(csvCell).join(','), ...lines].join('\r\n')}`;
+  return { title: task.title, header, rows };
+}
+
+/** 엑셀에서 바로 열리게 BOM 을 붙인다 */
+export function responsesToCsv(task: FormTask, responses: FormResponse[], students: User[]): string {
+  return toCsv(responsesTable(task, responses, students));
 }

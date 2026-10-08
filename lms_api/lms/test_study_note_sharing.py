@@ -29,15 +29,20 @@ class FakeAi:
         self.calls: list[str] = []
         self.dates = [DATE]
         self.subject_days: list[str] = []
+        self.subject_files = True
         self.previous: list[list[str]] = []  # /proxy/generate 마다 넘긴 이전 노트 날짜
 
     def __call__(self, path: str, payload: dict, timeout: int) -> dict:
         self.calls.append(path)
         if path == "/proxy/tree":
             return {"dates": self.dates, "entries": []}
-        if path == "/proxy/subject":
-            self.subject_days = [d["date"] for d in payload["days"]]
-            return {"status": "ready", "reportMarkdown": "과목 요약 " + ",".join(self.subject_days)}
+        if path == "/proxy/subject-files":
+            # 과목 요약은 수업 파일을 직접 읽는다 — 날짜 노트를 모으지 않는다
+            if not self.subject_files:
+                return {"status": "empty", "message": "아직 수업 파일이 올라오지 않은 저장소예요."}
+            self.subject_days = list(self.dates)
+            return {"status": "ready", "dates": list(self.dates), "files": [{"path": "01_cnn/a.py", "commit": "h1"}],
+                    "reportMarkdown": "## 과목 한눈에 보기\n과목 요약 " + ",".join(self.dates) + "\n## 주제별 핵심 정리\n### 01_cnn"}
         if path == "/proxy/resolve":
             if self.resolve_fails:
                 raise notes.StudyNoteError(503, "연결 실패")
@@ -239,38 +244,63 @@ class SubjectSummaryTests(SharingTestCase):
             cur.execute("SELECT * FROM study_notes WHERE user_id = %s AND scope_key = 'subject'", [self.users[who]["id"]])
             return notes._one(cur)
 
-    def test_summary_reuses_day_notes_and_makes_missing_ones(self) -> None:
-        self.open(0)  # 가 학생이 9/11 노트를 만들어 둠
+    def test_summary_reads_lesson_files_without_day_notes(self) -> None:
         self.ai.dates = [DATE, "2026-09-12"]
-        before = self.ai.generated()
         out = self.open_subject(1)
         self.assertEqual("generating", out["status"])
         row = self.subject_row(1)
         self.assertEqual("ready", row["status"])
-        self.assertEqual([DATE, "2026-09-12"], self.ai.subject_days, "두 날짜 노트로 요약")
-        self.assertEqual(1, self.ai.generated() - before, "없던 9/12 만 새로 만든다")
+        self.assertIn("/proxy/subject-files", self.ai.calls)
+        self.assertNotIn("/proxy/generate", self.ai.calls, "날짜 노트를 만들지 않는다")
         self.assertEqual([DATE, "2026-09-12"], notes._subject_dates(row))
-        with connection.cursor() as cur:
-            cur.execute("SELECT count(*) FROM study_notes WHERE user_id = %s AND scope_key = '2026-09-12' AND status = 'ready'",
-                        [self.users[1]["id"]])
-            self.assertEqual(1, cur.fetchone()[0], "만든 날짜 노트는 그 학생 노트로도 남는다")
+        self.assertIn(notes.SUBJECT_FORMAT_MARK, row["report_markdown"])
 
     def test_classmate_gets_the_summary_instantly_until_a_new_lesson_day(self) -> None:
         self.open_subject(0)
         calls = len(self.ai.calls)
         copied = self.open_subject(1)
         self.assertEqual("ready", copied["status"])
-        self.assertTrue(copied["reportMarkdown"].startswith("과목 요약"))
+        self.assertTrue(copied["reportMarkdown"].startswith("## 과목 한눈에 보기"))
         self.assertEqual(["/proxy/tree"], self.ai.calls[calls:], "날짜만 확인하고 LLM 은 안 부른다")
 
         self.ai.dates = [DATE, "2026-09-12"]
         self.assertEqual("generating", self.open_subject(1)["status"], "수업 날짜가 늘면 다시 만든다")
 
-    def test_repo_without_lesson_days_says_so(self) -> None:
+    def test_old_format_summary_is_made_again(self) -> None:
+        # 예전 방식(날짜 노트를 모아 다시 요약) 요약 — 수업 날짜가 같아도 새 형식으로 다시 만든다
+        with connection.cursor() as cur:
+            notes._put(cur, None, self.users[0]["id"], self.source_id, "subject", [DATE], "subject", status="ready",
+                       message="", report="## 과목 한눈에 보기\n예전 요약\n## 핵심 개념 정리\n…", review="", files=[])
+        self.assertEqual("generating", self.open_subject(0)["status"])
+        self.assertIn(notes.SUBJECT_FORMAT_MARK, self.subject_row(0)["report_markdown"])
+
+    def test_repo_without_lesson_files_says_so(self) -> None:
         self.ai.dates = []
-        out = self.open_subject(0)
-        self.assertEqual("failed", out["status"])
-        self.assertIn("수업 날짜", out["errorMessage"])
+        self.ai.subject_files = False
+        self.open_subject(0)
+        row = self.subject_row(0)
+        self.assertEqual("failed", row["status"])
+        self.assertIn("수업 파일", row["error_message"])
+
+    def test_finished_subject_is_published_to_every_student_once(self) -> None:
+        source = {**self.source_row(), "cohort_code": "t34"}
+        self.assertEqual("made", notes.publish_subject_note(source))
+        for i in range(3):
+            self.assertIn(notes.SUBJECT_FORMAT_MARK, self.subject_row(i)["report_markdown"])
+        calls = self.ai.calls.count("/proxy/subject-files")
+        self.assertEqual("copied", notes.publish_subject_note(source), "두 번째는 LLM 없이")
+        self.assertEqual(calls, self.ai.calls.count("/proxy/subject-files"))
+
+    def test_running_subject_is_not_published(self) -> None:
+        source = {**self.source_row(), "cohort_code": "t34"}
+        with mock.patch.object(notes, "subject_finished", return_value=False):
+            self.assertEqual("running", notes.publish_subject_note(source))
+        self.assertNotIn("/proxy/subject-files", self.ai.calls)
+
+    def source_row(self) -> dict:
+        with connection.cursor() as cur:
+            cur.execute("SELECT * FROM study_sources WHERE id = %s", [self.source_id])
+            return notes._one(cur)
 
 
 class AllowedPrefixesTests(TestCase):

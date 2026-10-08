@@ -1039,6 +1039,20 @@ class AlertPopupTargets(models.Model):
         indexes = [models.Index(fields=['user'])]
 
 
+class PushTokens(models.Model):
+    """앱(Expo)이 등록한 기기 푸시 토큰 — 한 사람이 여러 기기를 쓸 수 있다."""
+
+    user = models.ForeignKey('Users', models.CASCADE, related_name='push_tokens')
+    token = models.CharField(unique=True)
+    platform = models.CharField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'push_tokens'
+        indexes = [models.Index(fields=['user'], name='idx_push_token_user')]
+
+
 class AlertPopupReads(models.Model):
     """학생이 알림을 처음 확인한 때 — 관리자 화면의 「읽음 n/m」"""
 

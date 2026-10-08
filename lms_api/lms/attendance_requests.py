@@ -364,6 +364,15 @@ def op_review_attendance_request(cur, user, p):
             [decision, json.dumps(details, ensure_ascii=False),
              None if decision == "submitted" else user["id"], decision, row["id"]],
         )
+        if decision != row["status"] and decision in ("approved", "rejected"):
+            from lms.push import notify_users
+
+            notify_users(
+                [row["user_id"]],
+                "출결 신청 " + ("승인" if decision == "approved" else "반려"),
+                f"{row['attendance_date']} 출결 신청이 {'승인' if decision == 'approved' else '반려'}됐습니다. {comment or ''}",
+                "/(student)/attendance",
+            )
         if not apply_status:
             continue
         if decision == "approved":

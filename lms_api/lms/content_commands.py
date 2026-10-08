@@ -104,6 +104,17 @@ def op_review_record(cur, user, p):
            WHERE id = %s""",
         [status, p.get("reviewComment") or None, user["id"], json.dumps(details), row["id"]],
     )
+    if status != row["status"] and status in ("approved", "rejected"):
+        from lms.push import notify_users
+
+        amount = int(details.get("mileage_amount") or 0)
+        verdict = f"승인됐습니다 (+{amount:,}P)" if status == "approved" and amount else "승인됐습니다" if status == "approved" else "반려됐습니다"
+        notify_users(
+            [row["user_id"]],
+            f"기록실 · {label}",
+            f"{title or label} 제출이 {verdict}. {p.get('reviewComment') or ''}",
+            "/(student)/records",
+        )
     return {"id": str(p["id"]), "mileageAmount": int(details.get("mileage_amount") or 0)}
 
 

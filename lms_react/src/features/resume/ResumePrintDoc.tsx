@@ -5,18 +5,22 @@ import type { Resume, ResumeContent } from '../../domain/types';
  * 인쇄용 이력서 — features/resume/services/resume_pdf_exporter.dart
  *
  * 화면(Doc 보기)을 그대로 인쇄하지 않는다. 원본은 PDF를 따로 조판한다: 네모 칸
- * 없이 이름·연락처 한 줄로 시작하고, 섹션 제목 아래 실선을 긋고, 항목은
+ * 없이 이력서 제목(큰 글씨) · 이름 · 연락처로 시작하고, 섹션 제목 아래 실선을 긋고, 항목은
  * 「이름 · 부제 ......... 기간」 한 줄과 본문으로만 적는다. 종이에는 카드 테두리도
  * 라벨(「항목 1」, 「회사명」)도 없다.
  *
- * 치수는 pt 상수 그대로다 — 본문 9.5, 작은 글씨 8.6, 섹션 제목 11, 이름 20.
+ * 치수는 pt 상수 그대로다 — 본문 9.5, 작은 글씨 8.6, 섹션 제목 11, 이력서 제목 19.
  */
-function contactLine(c: ResumeContent): string {
+/** 연락처는 라벨을 붙여 한 줄에 늘어놓는다. 주소는 https:// 와 끝 / 를 떼어 짧게 */
+function contactItems(c: ResumeContent): { label: string; value: string }[] {
   const i = c.basicInfo;
-  return [i.email, i.phone, i.githubUrl, i.blogUrl]
-    .map((v) => v.trim())
-    .filter((v) => v !== '')
-    .join('  ·  ');
+  const short = (url: string) => url.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+  return [
+    { label: '이메일', value: i.email.trim() },
+    { label: '연락처', value: i.phone.trim() },
+    { label: 'GitHub', value: short(i.githubUrl) },
+    { label: 'Blog', value: short(i.blogUrl) },
+  ].filter((item) => item.value !== '');
 }
 
 /** 기간 표기 — period(startDate, endDate) */
@@ -74,26 +78,40 @@ function Item({
 export function ResumePrintDoc({ resume }: { resume: Resume }) {
   const c = resume.content;
   const name = c.basicInfo.name.trim();
-  const heading = name === '' ? resume.title : name;
-  const showTitle = name !== '' && resume.title !== '' && resume.title !== '새 이력서';
-  const contact = contactLine(c);
+  // 큰 글씨는 이력서 제목, 그 아래 이름. 제목을 안 정했으면(「새 이력서」) 이름이 큰 글씨가 된다
+  const title = resume.title.trim();
+  const hasTitle = title !== '' && title !== '새 이력서';
+  const heading = hasTitle ? title : name;
+  const byline = hasTitle ? name : '';
+  const contact = contactItems(c);
 
   // 기술스택은 숙련도별로 한 줄씩 묶는다 — skillRows와 같은 방식.
-  const levels = ['고급', '중급', '초급'];
-  const techRows = levels
-    .map((level) => ({
-      level,
-      names: c.techStack.filter((t) => t.level === level).map((t) => t.name).join(', '),
-    }))
-    .filter((row) => row.names !== '');
+  // 「입문」과 숙련도를 안 고른 기술은 예전에 빠졌다. 입문은 제 줄, 안 고른 것은 「기타」 줄에 둔다
+  const levels = ['고급', '중급', '초급', '입문'];
+  const named = c.techStack.filter((t) => t.name.trim() !== '');
+  const techRows = [
+    ...levels.map((level) => ({ level, names: named.filter((t) => t.level === level).map((t) => t.name).join(', ') })),
+    { level: '기타', names: named.filter((t) => !levels.includes(t.level)).map((t) => t.name).join(', ') },
+  ].filter((row) => row.names !== '');
 
   const intro = SelfIntroKeys.filter((key) => c.selfIntroduction[key].body.trim() !== '');
 
   return (
     <div className="print-doc" aria-hidden>
-      <h1 className="print-doc__name">{heading}</h1>
-      {showTitle && <p className="print-doc__subtitle">{resume.title}</p>}
-      {contact !== '' && <p className="print-doc__contact">{contact}</p>}
+      <header className="print-doc__header">
+        <h1 className="print-doc__heading">{heading}</h1>
+        {byline !== '' && <p className="print-doc__byline">{byline}</p>}
+        {contact.length > 0 && (
+          <ul className="print-doc__contact">
+            {contact.map((item) => (
+              <li key={item.label}>
+                <span className="print-doc__contact-label">{item.label}</span>
+                {item.value}
+              </li>
+            ))}
+          </ul>
+        )}
+      </header>
 
       {c.coreCompetencies.text.trim() !== '' && (
         <Section title="핵심역량/강점">
@@ -192,17 +210,20 @@ export function ResumePrintDoc({ resume }: { resume: Resume }) {
         </Section>
       )}
 
+      {/* 문항(자기소개 · 지원동기 …)은 자기소개서 한 섹션 안의 소제목이다. 학력 · 기술스택과 같은 급으로 세우지 않는다 */}
       {intro.length > 0 && (
-        <div className="print-doc__intro">
-          {intro.map((key) => (
-            <Section key={key} title={SelfIntroLabels[key]}>
-              <Item
-                sub={c.selfIntroduction[key].subtitle}
-                body={c.selfIntroduction[key].body}
-              />
-            </Section>
-          ))}
-        </div>
+        <Section title="자기소개서">
+          {intro.map((key) => {
+            const { subtitle, body } = c.selfIntroduction[key];
+            return (
+              <div key={key} className="print-doc__qa">
+                <h3 className="print-doc__question">{SelfIntroLabels[key]}</h3>
+                {subtitle.trim() !== '' && <p className="print-doc__answer-title">{subtitle}</p>}
+                <p className="print-doc__body">{body}</p>
+              </div>
+            );
+          })}
+        </Section>
       )}
     </div>
   );

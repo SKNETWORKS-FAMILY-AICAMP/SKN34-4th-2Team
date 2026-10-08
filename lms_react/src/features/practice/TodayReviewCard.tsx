@@ -1,10 +1,9 @@
 import { useMyPracticeAttempts, usePracticeSets } from '../../data/repository';
 import { todayKey } from '../../data/store';
-import type { PracticeKind, PracticeProblem } from '../../domain/types';
+import type { PracticeProblem } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { PracticeLink } from './PracticeDock';
 import { useCurrentUser } from '../auth/session';
-import { KIND_LABEL } from './practiceLabels';
 import { useIsHidden } from './useIsHidden';
 import {
   dueRetries,
@@ -37,7 +36,6 @@ export function TodayReviewCard() {
   const retries = dueRetries(retryItems(sets, attempts).filter((i) => !isHidden(i.set.id, i.index)), today);
 
   const { set, daysAgo, state, passed, total, minutes, continuesFrom } = review;
-  const kinds = countKinds(set.problems.map((p) => p.kind));
   const when = daysAgo === 0 ? `오늘 수업 · ${shortDate(set.lessonDate)}` : `지난 수업 · ${shortDate(set.lessonDate)} (${daysAgo}일 전)`;
   const action = state === 'done' ? '다시 보기' : state === 'partial' ? '이어서 풀기' : '복습 시작';
 
@@ -47,14 +45,23 @@ export function TodayReviewCard() {
         <div className="today-review__eyebrow">
           <Icon name="replay" size={16} />
           <strong>오늘 복습</strong>
-          <span>{when}</span>
+          <span>
+            {when} · {set.dayLabel}
+          </span>
         </div>
-        <h2 className="today-review__title">
-          {set.dayLabel} · {set.title}
-        </h2>
-        <p className="today-review__meta">
-          {total}문제 · {kinds} · 약 {minutes}분
-        </p>
+        <h2 className="today-review__title">{set.title}</h2>
+        {/* 진행 막대 옆에 한 줄로 — 몇 문제 · 몇 분, 풀기 시작했으면 몇 개 통과했는지 */}
+        <div className="today-review__progress" aria-label={`통과 ${passed} / ${total}`}>
+          <span className="today-review__bar">
+            {set.problems.map((_, i) => {
+              const a = attempts.find((x) => x.setId === set.id && x.index === i);
+              return <i key={i} className={a?.passed ? 'ok' : a ? 'no' : ''} />;
+            })}
+          </span>
+          <span>
+            {state === 'done' ? '모두 통과했어요' : state === 'partial' ? `통과 ${passed} / ${total}` : `${total}문제`} · 약 {minutes}분
+          </span>
+        </div>
         {continuesFrom && (
           <p className="today-review__continue">
             <Icon name="subdirectory_arrow_right" size={15} />
@@ -73,21 +80,10 @@ export function TodayReviewCard() {
           </PracticeLink>
         )}
       </div>
-      <div className="today-review__side">
-        <div className="today-review__progress" aria-label={`통과 ${passed} / ${total}`}>
-          <span className="today-review__bar">
-            {set.problems.map((_, i) => {
-              const a = attempts.find((x) => x.setId === set.id && x.index === i);
-              return <i key={i} className={a?.passed ? 'ok' : a ? 'no' : ''} />;
-            })}
-          </span>
-          <span>{state === 'done' ? '모두 통과했어요' : state === 'partial' ? `통과 ${passed} / ${total}` : '아직 안 풀었어요'}</span>
-        </div>
-        <PracticeLink className={`btn ${state === 'done' ? 'btn--outline' : 'btn--filled'} btn--md`} setId={set.id}>
-          {action}
-          <Icon name="arrow_forward" size={18} />
-        </PracticeLink>
-      </div>
+      <PracticeLink className={`btn ${state === 'done' ? 'btn--outline' : 'btn--filled'} btn--md today-review__go`} setId={set.id}>
+        {action}
+        <Icon name="arrow_forward" size={18} />
+      </PracticeLink>
     </section>
   );
 }
@@ -96,11 +92,4 @@ export function TodayReviewCard() {
 function continuedTopic(problems: PracticeProblem[], files: string[]): string {
   const topics = [...new Set(problems.filter((p) => p.sourceFiles.some((f) => files.includes(f))).map((p) => p.topic))];
   return topics.length ? topics.slice(0, 2).join(', ') : files.map(lessonFileLabel).join(', ');
-}
-
-/** ['concept','concept','code_blank'] → '개념 2 · 빈칸 채우기 1' (문제 순서대로) */
-function countKinds(kinds: PracticeKind[]): string {
-  const counts = new Map<PracticeKind, number>();
-  for (const k of kinds) counts.set(k, (counts.get(k) ?? 0) + 1);
-  return [...counts].map(([k, n]) => `${KIND_LABEL[k]} ${n}`).join(' · ');
 }

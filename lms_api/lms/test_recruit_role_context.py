@@ -4,7 +4,7 @@ from threading import Barrier
 from unittest import skipUnless
 import uuid
 
-from django.db import connection, connections, IntegrityError, ProgrammingError, transaction
+from django.db import connection, connections, IntegrityError, OperationalError, ProgrammingError, transaction
 from django.db.models.deletion import Collector, SET_NULL
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
@@ -95,7 +95,8 @@ class RecruitRoleTests(TestCase):
     def test_existing_global_user_delete_is_blocked_by_missing_legacy_table(self):
         user = Users.objects.create(password='unused', display_name='Temporary', role='student',
                                     is_active=True, must_change_password=False)
-        with self.assertRaisesMessage(ProgrammingError, 'assignment_submissions'), transaction.atomic():
+        missing_table_error = OperationalError if connection.vendor == 'sqlite' else ProgrammingError
+        with self.assertRaisesMessage(missing_table_error, 'assignment_submissions'), transaction.atomic():
             user.delete()
 
     def test_new_set_null_handlers_retain_distinct_private_scopes(self):

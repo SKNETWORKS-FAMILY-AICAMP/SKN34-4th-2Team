@@ -23,7 +23,15 @@ from django.db import connection, transaction
 from django.utils import timezone
 
 from lms.practice_service import get_coverage, insert_problems, save_coverage
-from lms.study_note_service import StudyNoteError, _call, _dicts, _one, _source_payload, publish_lesson_notes
+from lms.study_note_service import (
+    StudyNoteError,
+    _call,
+    _dicts,
+    _one,
+    _source_payload,
+    publish_lesson_notes,
+    publish_subject_note,
+)
 from lms.study_source_service import StudySourceError, _check_schema, _cohort, _repo_key
 
 logger = logging.getLogger(__name__)
@@ -202,6 +210,22 @@ def run_daily(today: str | None = None) -> dict:
             out[source["repo_url"]] = run_source(source, today=today)
         except Exception as exc:  # noqa: BLE001
             out[source["repo_url"]] = {"status": "failed", "message": str(exc)[:200]}
+    out["subjects"] = publish_finished_subjects()
+    return out
+
+
+def publish_finished_subjects() -> dict[str, str]:
+    """끝난 과목의 전체 요약을 한 번 만들어 학생 모두에게(study_note_service.publish_subject_note).
+    출제를 끈 저장소도 — 요약은 출제와 따로다. 과목 하나가 실패해도 나머지는 돈다."""
+    with connection.cursor() as cur:
+        sources = _sources(cur)
+    out: dict[str, str] = {}
+    for source in sources:
+        try:
+            out[source.get("title") or source["repo_url"]] = publish_subject_note(source)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("subject note failed: %s", source.get("repo_url"))
+            out[source.get("title") or source["repo_url"]] = f"failed: {str(exc)[:120]}"
     return out
 
 

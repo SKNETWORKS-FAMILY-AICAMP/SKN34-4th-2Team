@@ -12,12 +12,13 @@ import type { SeatPresenceState, SpotCheck, SpotCheckItem, SpotCheckPeriod, Spot
 import { Badge, Button, Row, Select, Spacer, TextInput } from '../../ui/components';
 import { formatDateTime } from '../../utils/format';
 import { FitWidth, SeatGrid } from '../seating/SeatingScreen';
-import { SpotCheckPeriodLabels, downloadText, spotChecksToCsv } from './studentFilters';
+import { ExportMenu } from '../export/ExportMenu';
+import { SpotCheckPeriodLabels, spotChecksTable } from './studentFilters';
 import './manager.css';
 
 /**
  * 불시 자리 점검 — 매니저가 오전 · 오후에 불시에 돌며 학생마다 자리에 있는지(유/무) 적는다.
- * 저장하면 점검 시각 · 점검자와 함께 남고, 이력에서 CSV(엑셀)로 받는다.
+ * 저장하면 점검 시각 · 점검자와 함께 남고, 이력에서 Excel · CSV · Word · PDF 로 받는다.
  */
 
 export const ABSENT_REASONS = ['외출', '조퇴', '병원', '화장실 · 휴식', '상담 · 면담', '결석'] as const;
@@ -420,8 +421,13 @@ export function SpotCheckHistory({
     })
     .sort((a, b) => b.checkedAt.getTime() - a.checkedAt.getTime());
 
-  const exportCsv = (list: SpotCheck[], label: string) =>
-    downloadText(`불시점검_${cohortName || cohortId}_${label}.csv`, spotChecksToCsv(list, students, seatLabelOf));
+  const exportProps = (list: SpotCheck[], label: string) => ({
+    fileName: `불시점검_${cohortName || cohortId}_${label}`,
+    build: () => {
+      const table = spotChecksTable(list, students, seatLabelOf);
+      return { ...table, title: `${table.title} · ${cohortName || cohortId} · ${label}` };
+    },
+  });
 
   const remove = (check: SpotCheck) => {
     if (!window.confirm(`${formatDateTime(check.checkedAt)} 점검 기록을 지울까요? 되돌릴 수 없습니다.`)) return;
@@ -441,9 +447,7 @@ export function SpotCheckHistory({
           <TextInput type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} />
         </label>
         <Spacer />
-        <Button size="sm" variant="outline" disabled={shown.length === 0} onClick={() => exportCsv(shown, `${from}~${to}`)}>
-          기간 전체 CSV
-        </Button>
+        <ExportMenu label="기간 전체 내려받기" disabled={shown.length === 0} {...exportProps(shown, `${from}~${to}`)} />
       </div>
       {error !== null && (
         <p className="field__error" role="alert">
@@ -466,9 +470,7 @@ export function SpotCheckHistory({
                   <Badge tone="warning">무 {absentItems.length}</Badge>
                   {check.checkedByName !== undefined && <span className="hint">점검 {check.checkedByName}</span>}
                   <Spacer />
-                  <Button size="sm" variant="outline" onClick={() => exportCsv([check], dateKeyOf(check.checkedAt))}>
-                    CSV
-                  </Button>
+                  <ExportMenu {...exportProps([check], dateKeyOf(check.checkedAt))} />
                   <Button size="sm" variant="outline" onClick={() => onEdit(check)}>
                     수정
                   </Button>

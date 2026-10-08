@@ -21,6 +21,7 @@ from study_notes.git_tools import (
     LEARNING_FILES_TEXT,
     GitToolError,
     RepoCache,
+    is_empty_repo,
     is_learning_file,
     notebook_to_text,
     parse_repo_url,
@@ -472,6 +473,33 @@ def build_note(cohort_id: str, source: StudySource, scope_type: ScopeType,
         "files": files,
         "reportMarkdown": report,
         "reviewMarkdown": review,
+    }
+
+
+def subject_from_files_for_lms(cohort_id: str, source: StudySource) -> dict[str, Any]:
+    """LMS 창구 — 과목 전체 요약을 수업 파일에서 직접(study_notes/subject.py). 저장은 LMS 가 한다.
+    {status: ready, reportMarkdown, dates(수업 날짜 전부 — LMS 가 「새 수업이 생겼나」를 견준다), topics, files}"""
+    from study_notes.subject import generate_subject_from_files, subject_topics
+
+    cache = repo_cache(cohort_id, source)
+    try:
+        topics, dates, head = subject_topics(cache, source.allowed_prefixes)
+    except GitToolError as exc:
+        if is_empty_repo(exc):
+            return {"status": "empty", "message": "아직 수업 파일이 올라오지 않은 저장소예요."}
+        raise
+    files = [{"path": p, "commit": head} for t in topics for p in t.files]
+    if not files:
+        return {"status": "empty", "message": "요약할 수업 파일이 없어요."}
+    materials = _load_materials(cache, files)
+    report, check = generate_subject_from_files(subject=source.title or source.id, topics=topics, materials=materials)
+    print(f"[과목 요약] {source.title}: 주제 {len(topics)}개 · 파일 {len(files)}개 · {check}")
+    return {
+        "status": "ready",
+        "reportMarkdown": report,
+        "dates": dates,
+        "topics": [{"name": t.name, "dates": t.dates, "files": t.files} for t in topics],
+        "files": files,
     }
 
 

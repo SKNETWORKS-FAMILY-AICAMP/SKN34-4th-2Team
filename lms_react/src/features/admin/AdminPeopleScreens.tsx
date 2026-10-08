@@ -862,10 +862,18 @@ export function AdminCohortFormScreen() {
   const [endDate, setEndDate] = useState(toInputDate(existing?.endDate));
   const [status, setStatus] = useState<CohortStatus>(existing?.status ?? 'planned');
   const [error, setError] = useState<string | null>(null);
+  const [periodError, setPeriodError] = useState<string | null>(null);
+  // 개강한 기수는 시작일을 잠근다 — 출석 단위기간(장려금 판정)이 시작일부터 한 달씩 나뉘어, 바꾸면 지난 기간까지 다시 계산된다.
+  // 종료일은 마지막 기간만 바뀌어 열어 둔다. 서버(op_update_cohort)도 같은 규칙으로 거절한다
+  const started = existing?.startDate !== undefined && toInputDate(existing.startDate) <= dateKeyOf(new Date());
 
   const save = () => {
     if (name.trim() === '') {
       setError('기수 이름을 입력해 주세요.');
+      return;
+    }
+    if (startDate !== '' && endDate !== '' && endDate < startDate) {
+      setPeriodError('종료일이 시작일보다 앞이에요.');
       return;
     }
     const cohort: Cohort = {
@@ -903,11 +911,18 @@ export function AdminCohortFormScreen() {
           <Field label="강의장">
             <TextInput value={classroomName} onChange={(e) => setClassroomName(e.target.value)} />
           </Field>
-          <Field label="시작일">
-            <TextInput type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          <Field label="시작일" hint={started ? '개강한 기수는 시작일을 바꿀 수 없어요. 출석 단위기간이 시작일부터 나뉩니다.' : undefined}>
+            <TextInput type="date" value={startDate} disabled={started} onChange={(e) => setStartDate(e.target.value)} />
           </Field>
-          <Field label="종료일">
-            <TextInput type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          <Field label="종료일" error={periodError ?? undefined}>
+            <TextInput
+              type="date"
+              value={endDate}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setPeriodError(null);
+              }}
+            />
           </Field>
         </div>
         <Field label="상태">

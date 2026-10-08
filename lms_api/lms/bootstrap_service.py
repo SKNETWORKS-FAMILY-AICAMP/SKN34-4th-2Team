@@ -112,10 +112,10 @@ def build_bootstrap(user: dict) -> dict:
                 visible_args,
             )),
             ("skills", (
-                f"""SELECT us.user_id, s.canonical_name
+                f"""SELECT us.user_id, s.canonical_name, us.proficiency, us.evidence
                     FROM user_skills us JOIN skills s ON s.id = us.skill_id
                     JOIN users u ON u.id = us.user_id
-                    WHERE {visible} ORDER BY s.canonical_name""",
+                    WHERE {visible} ORDER BY us.id""",  # 학생이 추가한 순서 그대로
                 visible_args,
             )),
             ("preferences", (
@@ -131,12 +131,16 @@ def build_bootstrap(user: dict) -> dict:
         uid_by_pk = {r["id"]: r["firebase_uid"] for r in first["uids"]}
         code_by_pk = {r["id"]: r["code"] for r in first["codes"]}
         users = first["users"]
-        skills_by_user = {}
+        # 기술 스택 — 화면에는 저장할 때의 표기(evidence.label, 「Python」)를, 없으면(예전 행) 소문자 이름을
+        tech_by_user = {}
         for row in first["skills"]:
-            skills_by_user.setdefault(row["user_id"], []).append(row["canonical_name"])
+            evidence = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+            label = str(evidence.get("label") or row["canonical_name"])
+            tech_by_user.setdefault(row["user_id"], []).append({"name": label, "level": row.get("proficiency") or ""})
         preferences_by_user = {r["user_id"]: r["preferences"] for r in first["preferences"]}
         for row in users:
-            row["skills"] = skills_by_user.get(row["id"], [])
+            row["tech_stack"] = tech_by_user.get(row["id"], [])
+            row["skills"] = [item["name"] for item in row["tech_stack"]]
             row["job_preferences"] = preferences_by_user.get(row["id"], {})
         cohorts = first["cohorts"]
         cohort_ids = [c["id"] for c in cohorts] or [-1]
@@ -287,11 +291,37 @@ def build_bootstrap(user: dict) -> dict:
                 cohort_filter,
             )
             specs["logs"] = (
-                # AI 품질 화면은 건수 · 성공률 · 지연만 본다. details(대화 · 도구 기록)는 크고 쓰지 않는다
-                """SELECT id, legacy_id, type, cohort_id, created_by, prompt_version, model, status,
-                          latency_ms, created_at
-                   FROM ai_generation_logs WHERE cohort_id = ANY(%s)""",
+                # details(대화 · 도구 기록)는 크므로 통째로 보내지 않고 생성 문항 수만 꺼낸다.
+                # 로그는 계속 쌓이므로 최근 것만 보낸다
+                """WITH recent AS (
+                       SELECT id, legacy_id, type, cohort_id, created_by, prompt_version, model, status,
+                              LEFT(error_message, 500) AS error_message, latency_ms, token_in, token_out,
+                              CASE WHEN jsonb_typeof(details->'generatedCount') = 'number'
+                                   THEN (details->>'generatedCount')::numeric::int ELSE 0 END AS generated_count,
+                              created_at
+                       FROM ai_generation_logs WHERE cohort_id = ANY(%s)
+                       ORDER BY created_at DESC NULLS LAST LIMIT 500
+                   )
+                   SELECT r.*, u.display_name AS created_by_name,
+                          COALESCE(f.adopted, 0) AS adopted_count,
+                          COALESCE(f.edited, 0) AS edited_count,
+                          COALESCE(f.useful, 0) AS useful_count
+                   FROM recent r
+                   LEFT JOIN users u ON u.id = r.created_by
+                   LEFT JOIN LATERAL (
+                       SELECT COUNT(*) FILTER (WHERE fb.outcome = 'adopted') AS adopted,
+                              COUNT(*) FILTER (WHERE fb.outcome = 'edited') AS edited,
+                              COUNT(*) FILTER (WHERE fb.outcome = 'helpful') AS useful
+                       FROM ai_question_feedback fb WHERE fb.log_id = r.id
+                   ) f ON TRUE
+                   ORDER BY r.created_at DESC NULLS LAST""",
                 cohort_filter,
+            )
+            specs["evals"] = (
+                """SELECT id, legacy_id, prompt_version, model, source, total_cases, passed, accuracy,
+                          avg_latency_ms, created_at
+                   FROM ai_eval_runs ORDER BY created_at DESC NULLS LAST LIMIT 50""",
+                [],
             )
         if not is_student:
             specs["seat_presences"] = ("SELECT * FROM seat_presences WHERE cohort_id = ANY(%s)", cohort_filter)
@@ -413,6 +443,7 @@ def build_bootstrap(user: dict) -> dict:
         assess_subs = fetched["assess_subs"]
         assess_answers = fetched["assess_answers"]
         logs = fetched.get("logs", [])
+        evals = fetched.get("evals", [])
         published = None
         seating = None
         if cohorts:
@@ -511,6 +542,7 @@ def build_bootstrap(user: dict) -> dict:
         "weeklyProgress": pub(progress),
         "missionProgress": pub(missions),
         "aiGenerationLogs": pub(logs),
+        "aiEvalRuns": pub(evals),
         "publishedSeatingRoomId": published,
         "seating": seating,
         **practice,

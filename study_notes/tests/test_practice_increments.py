@@ -6,10 +6,13 @@ import json
 import unittest
 
 from study_notes.practice.increments import (
+    BATCH,
     DAY_QUOTA,
     KIND_MIX,
-    MAX_PER_FILE,
+    MAX_DAY,
+    MIN_DAY,
     FileCoverage,
+    day_quota,
     diff_file,
     kind_mix,
     plan_day,
@@ -80,20 +83,19 @@ class DiffTests(unittest.TestCase):
 
 
 class PlanTests(unittest.TestCase):
-    def test_quota_follows_new_content_and_sums_to_day_quota(self) -> None:
+    def test_quota_follows_new_content(self) -> None:
         big = notebook(("code", LONG * 4))
         mid = notebook(("code", LONG * 2))
         small = notebook(("code", LONG))
-        plan = plan_day("d", [("big.ipynb", "c", big), ("mid.ipynb", "c", mid), ("small.ipynb", "c", small)], {})
+        plan = plan_day("d", [("big.ipynb", "c", big), ("mid.ipynb", "c", mid), ("small.ipynb", "c", small)], {}, quota=DAY_QUOTA)
         quotas = {f.path: f.quota for f in plan.targets}
         self.assertEqual(sum(quotas.values()), DAY_QUOTA)
-        # 새 내용 4 : 2 : 1 — 큰 파일이 파일당 상한(8)까지 받는다
+        # 새 내용 4 : 2 : 1 — 파일당 상한 없이 새 내용이 많은 파일이 더
         self.assertEqual(quotas, {"big.ipynb": 8, "mid.ipynb": 3, "small.ipynb": 1})
-        self.assertTrue(all(1 <= q <= MAX_PER_FILE for q in quotas.values()))
 
-    def test_one_file_caps_at_max(self) -> None:
+    def test_one_small_file_gets_the_day_minimum(self) -> None:
         plan = plan_day("d", [("only.ipynb", "c", notebook(("code", LONG)))], {})
-        self.assertEqual(plan.targets[0].quota, MAX_PER_FILE)
+        self.assertEqual(plan.targets[0].quota, MIN_DAY)
 
     def test_materials_mark_new_part_and_coverage_grows(self) -> None:
         first = plan_day("2026-09-14", [("f.ipynb", "c1", notebook(*DAY1))], {})
@@ -104,7 +106,7 @@ class PlanTests(unittest.TestCase):
         self.assertIn("def extract_frames", text)  # 요약에 정의 이름만
         self.assertNotIn("cv2.VideoCapture", text)  # 앞부분 본문은 넘기지 않는다
         self.assertIn("extract_frame_no", text)
-        self.assertIn(f"f.ipynb: {MAX_PER_FILE}개", second.focus_note())
+        self.assertIn(f"f.ipynb: {MIN_DAY}개", second.focus_note())
         after = second.coverage_after(cov)["f.ipynb"]
         self.assertEqual(len(after.fingerprints), 5)
         self.assertEqual(after.last_date, "2026-09-15")
@@ -136,9 +138,9 @@ class QuotaTests(unittest.TestCase):
         self.assertEqual({k: _FILL_ORDER.count(k) for k in set(_FILL_ORDER)}, KIND_MIX)
 
     def test_plan_kind_counts_match_total(self) -> None:
-        # 파일 하나면 파일당 상한(8)에 걸려 8문제 — 구성도 8개짜리, 처음부터 문제가 하나 들어간다
+        # 작은 파일 하나면 하한 8문제 — 구성도 8개짜리, 처음부터 문제가 하나 들어간다
         plan = plan_day("d", [("only.ipynb", "c", notebook(("code", LONG)))], {})
-        self.assertEqual(plan.total, MAX_PER_FILE)
+        self.assertEqual(plan.total, MIN_DAY)
         self.assertEqual(sum(kind_mix(plan.total).values()), plan.total)
         self.assertEqual(kind_mix(plan.total).get("code_scratch"), 1)
 
@@ -160,7 +162,8 @@ class QuotaTests(unittest.TestCase):
         plan = plan_day("d", [("01_overview.ipynb", "c", overview), ("02_sllm.ipynb", "c", lesson)], {})
         quota = {f.path: f.quota for f in plan.targets}
         self.assertEqual(quota["01_overview.ipynb"], 2)
-        self.assertEqual(plan.total, 2 + MAX_PER_FILE)
+        # 나머지는 코드 있는 수업 파일이 — 하루 몫은 새 내용 양으로
+        self.assertEqual(plan.total, day_quota(sum(f.new_chars for f in plan.targets)))
         counts = plan.kind_counts()
         self.assertIn("concept 2개", counts)
         self.assertIn("01_overview.ipynb: 2개 (코드 없음 — concept 문제만)", plan.focus_note())
@@ -189,3 +192,51 @@ class QuotaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DayQuotaTests(unittest.TestCase):
+    """하루 문제 수 — 새 내용 양으로(8 ~ 25). 34기 실제 수업일 새 내용으로 맞춘 값"""
+
+    def test_real_days(self) -> None:
+        real = {3331: 8, 4177: 8, 9626: 9, 16578: 12, 34056: 18, 46517: 20, 82318: 25}
+        self.assertEqual(real, {n: day_quota(n) for n in real})
+        self.assertEqual(0, day_quota(0))
+
+    def test_late_commit_adds_only_what_it_brought(self) -> None:
+        # 같은 날 12문제를 낸 뒤 조금 더 올림 — 하한 8 을 다시 채우지 않는다
+        self.assertEqual(2, day_quota(500, already=12))
+        self.assertEqual(MAX_DAY - 20, day_quota(80_000, already=20))
+        self.assertEqual(0, day_quota(5_000, already=MAX_DAY))
+
+    def test_big_mix_keeps_the_ratio(self) -> None:
+        mix = kind_mix(25)
+        self.assertEqual(25, sum(mix.values()))
+        self.assertEqual(KIND_MIX.keys(), mix.keys())
+        self.assertTrue(all(mix[k] >= 2 * KIND_MIX[k] for k in KIND_MIX))
+        js = kind_mix(25, js=True)
+        self.assertEqual(25, sum(js.values()))
+        self.assertEqual(8, js["concept"])
+
+    def test_big_day_is_split_into_batches(self) -> None:
+        files = [(f"f{i}.ipynb", "c", notebook(("code", LONG * 12))) for i in range(5)]
+        plan = plan_day("d", files, {})
+        self.assertGreater(plan.total, BATCH)
+        parts = plan.batches()
+        self.assertGreater(len(parts), 1)
+        self.assertTrue(all(p.total <= BATCH for p in parts))
+        self.assertEqual(plan.total, sum(p.total for p in parts))
+        # 출제 기록은 나누기 전 계획 그대로
+        self.assertEqual(5, len(plan.coverage_after({})))
+
+    def test_one_huge_file_is_cut_by_cells_and_later_part_sees_the_earlier(self) -> None:
+        # 셀끼리 90% 넘게 같으면 같은 셀로 본다 — 서로 다른 내용으로
+        cells = [("code", "".join(f"step{i}_{j} = {i * j} + {j}\n" for j in range(150))) for i in range(10)]
+        plan = plan_day("d", [("big.ipynb", "c", notebook(*cells))], {})
+        self.assertGreater(plan.total, BATCH)
+        parts = plan.batches()
+        self.assertEqual(2, len(parts))
+        self.assertEqual(plan.total, sum(p.total for p in parts))
+        first, second = parts[0].targets[0], parts[1].targets[0]
+        self.assertEqual(10, len(first.new_cells) + len(second.new_cells))
+        self.assertEqual(first.new_cells, second.seen_cells)
+        self.assertIn("[앞서 배운 부분", parts[1].materials()[0]["content"])

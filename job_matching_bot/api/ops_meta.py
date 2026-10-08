@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 
-JOB_CHAT_PROMPT_VERSION = os.environ.get("JOB_CHAT_PROMPT_VERSION", "job_chat_v1")
+JOB_CHAT_PROMPT_VERSION = os.environ.get("JOB_CHAT_PROMPT_VERSION", "job_chat_v2")
 JOB_RECOMMEND_PROMPT_VERSION = os.environ.get(
     "JOB_RECOMMEND_PROMPT_VERSION", "job_recommend_v1"
 )

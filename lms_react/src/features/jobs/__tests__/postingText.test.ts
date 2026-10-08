@@ -195,6 +195,28 @@ describe('수집 글의 찌꺼기와 조각', () => {
     ]);
   });
 
+  it('깨진 이모지 「??」 · 한정어 붙은 섹션 이름 · 「포지션」 뒤 인원 · 영어 항목', () => {
+    expect(lines('ㆍ현실적인 기획안을 중요하게 평가합니다.\n?? 우대사항\n* PM 경험')).toEqual([
+      'item:현실적인 기획안을 중요하게 평가합니다.',
+      'heading:우대사항',
+      'item:PM 경험',
+    ]);
+    expect(lines('근무지\nㆍ서울\n공통 자격요건\nㆍ경력 2년 이상')).toEqual(['heading:근무지', 'item:서울', 'heading:공통 자격요건', 'item:경력 2년 이상']);
+    expect(lines('포지션 및 자격요건\n포지션\n( 1명 )\n담당업무\nㆍ서버 개발')).toEqual(['heading:담당업무', 'item:서버 개발']);
+    expect(
+      lines(
+        '•    Lead major brand collaboration or awareness-building initiatives\nExperience & Education:\nBachelor Degree in Business or Marketing preferred\n10+ years of experience in marketing or product management',
+      ),
+    ).toEqual([
+      'item:Lead major brand collaboration or awareness-building initiatives',
+      'sub:Experience & Education',
+      'text:Bachelor Degree in Business or Marketing preferred',
+      'text:10+ years of experience in marketing or product management',
+    ]);
+    // 영어 낱말 조각은 지금처럼 잇는다
+    expect(lines('•\nLLM API\nintegration')).toEqual(['item:LLM API integration']);
+  });
+
   it('수집 때 받은 사이트 안내 페이지(깨진 글자)를 알아본다', () => {
     expect(isBrokenBody('ë³´ìì ì±\nì´ë©ì¼: helpdesk@albamon.com')).toBe(true);
     expect(isBrokenBody('ë³´ìì ì± '.repeat(10))).toBe(true);

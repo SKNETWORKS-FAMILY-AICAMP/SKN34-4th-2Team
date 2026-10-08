@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import date
+import json
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth.hashers import make_password
 from django.db import connection, transaction
 
 from lms.permissions import can_access_cohort
 from lms.practice_service import PRACTICE_OPS
+from lms.push import notify_alert_popup, notify_new_notice
 from lms.services import schedule_notice_vector
+
+KST = ZoneInfo("Asia/Seoul")
 
 
 def _one(cur):
@@ -81,6 +86,32 @@ def dispatch(user: dict, op: str, payload: dict) -> dict:
             return handler(cur, user, payload) or {"ok": True}
 
 
+def _save_user_skills(cur, user_id: int, items) -> None:
+    """프로필 기술 스택을 통째로 바꾼다. 이름은 소문자로 맞춰 skills 에 두고(찾기용),
+    화면에 보일 원래 표기(「Python」)는 evidence.label, 숙련도(고급 · 중급 · 초급 · 입문)는 proficiency 에 둔다."""
+    cur.execute("DELETE FROM user_skills WHERE user_id = %s", [user_id])
+    for item in items or []:
+        if isinstance(item, dict):
+            label, level = " ".join(str(item.get("name") or "").split()), str(item.get("level") or "").strip()
+        else:
+            label, level = " ".join(str(item).split()), ""
+        name = label.casefold()
+        if not name:
+            continue
+        cur.execute(
+            """INSERT INTO skills (canonical_name,created_at) VALUES (%s,now())
+               ON CONFLICT (canonical_name) DO UPDATE SET canonical_name=EXCLUDED.canonical_name
+               RETURNING id""",
+            [name],
+        )
+        skill_id = cur.fetchone()[0]
+        cur.execute(
+            """INSERT INTO user_skills (user_id,skill_id,proficiency,source,evidence,updated_at)
+               VALUES (%s,%s,%s,'profile',%s,now()) ON CONFLICT DO NOTHING""",
+            [user_id, skill_id, level or None, json.dumps({"label": label}, ensure_ascii=False)],
+        )
+
+
 def op_update_profile(cur, user, p):
     uid = p.get("uid") or user["firebase_uid"]
     if user["role"] != "admin" and uid != user["firebase_uid"]:
@@ -118,24 +149,9 @@ def op_update_profile(cur, user, p):
     target_user_id = resolve_user(cur, uid)
     if target_user_id is None:
         raise KeyError("user")
-    if "skills" in p:
-        cur.execute("DELETE FROM user_skills WHERE user_id = %s", [target_user_id])
-        for raw_skill in p.get("skills") or []:
-            name = " ".join(str(raw_skill).split()).casefold()
-            if not name:
-                continue
-            cur.execute(
-                """INSERT INTO skills (canonical_name,created_at) VALUES (%s,now())
-                   ON CONFLICT (canonical_name) DO UPDATE SET canonical_name=EXCLUDED.canonical_name
-                   RETURNING id""",
-                [name],
-            )
-            skill_id = cur.fetchone()[0]
-            cur.execute(
-                """INSERT INTO user_skills (user_id,skill_id,source,updated_at)
-                   VALUES (%s,%s,'profile',now()) ON CONFLICT DO NOTHING""",
-                [target_user_id, skill_id],
-            )
+    if "techStack" in p or "skills" in p:
+        # 마이페이지 「기술 스택」 — techStack 은 [{name, level}], 예전 skills 는 이름 목록. 둘 다 오면 techStack
+        _save_user_skills(cur, target_user_id, p["techStack"] if "techStack" in p else p.get("skills"))
     if "jobPreferences" in p:
         import json
         cur.execute(
@@ -236,6 +252,7 @@ def op_create_notice(cur, user, p):
     )
     pk = cur.fetchone()[0]
     cur.execute("UPDATE notices SET legacy_id = %s WHERE id = %s", [str(pk), pk])
+    notify_new_notice(cur, cohort_id, pk, p.get("title") or "", p.get("content") or "", user["id"])
     schedule_notice_vector(
         cohort_code=code, notice_id=pk,
         data={"title": p.get("title"), "content": p.get("content"), "author_id": user["id"],
@@ -795,10 +812,11 @@ def op_create_cohort(cur, user, p):
     code = p.get("cohortId") or p.get("code")
     if not code:
         raise ValueError("cohort code required")
+    start, end = _cohort_period(p)
     cur.execute(
         """INSERT INTO cohorts (code, name, description, status, is_active, term_number,
-               classroom_name, created_at)
-           VALUES (%s,%s,%s,%s,%s,%s,%s, now()) RETURNING id""",
+               classroom_name, start_date, end_date, created_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s, now()) RETURNING id""",
         [
             code,
             p.get("name") or code,
@@ -807,6 +825,8 @@ def op_create_cohort(cur, user, p):
             bool(p.get("isActive", True)),
             p.get("termNumber"),
             p.get("classroomName"),
+            start,
+            end,
         ],
     )
     pk = cur.fetchone()[0]
@@ -816,7 +836,7 @@ def op_create_cohort(cur, user, p):
 def op_update_cohort(cur, user, p):
     _require_admin(user)
     code = p.get("cohortId") or p.get("code")
-    cur.execute("SELECT id FROM cohorts WHERE code = %s", [code])
+    cur.execute("SELECT id, start_date FROM cohorts WHERE code = %s", [code])
     row = cur.fetchone()
     if not row:
         raise KeyError("cohort")
@@ -834,11 +854,40 @@ def op_update_cohort(cur, user, p):
         if src in p:
             fields.append(f"{col} = %s")
             args.append(p[src])
+    # 기간은 관리자 화면 「기수 관리」에서 고친다. 학생 대시보드 D-day · 챗봇의 과정 기간이 이 값을 읽는다.
+    # 예전에는 화면이 보낸 날짜를 버려서 새로고침하면 옛 날짜로 돌아갔다
+    start, end = _cohort_period(p)
+    # 개강한 기수는 시작일을 못 바꾼다. 출석 단위기간이 시작일부터 한 달씩 나뉘어, 바꾸면 지난 기간 출석률이 다시 계산된다.
+    # 종료일은 마지막 기간만 바뀌어 연다. 화면은 저장할 때 같은 시작일을 그대로 보내므로 같은 값이면 통과
+    current_start = row[1]
+    if "startDate" in p and current_start and current_start <= datetime.now(KST).date() and start != current_start:
+        raise ValueError("개강한 기수는 시작일을 바꿀 수 없습니다.")
+    for src, col, value in (("startDate", "start_date", start), ("endDate", "end_date", end)):
+        if src in p:
+            fields.append(f"{col} = %s")
+            args.append(value)
     if not fields:
         return {"ok": True}
     args.append(row[0])
     cur.execute(f"UPDATE cohorts SET {', '.join(fields)} WHERE id = %s", args)
     return {"ok": True}
+
+
+def _cohort_period(p) -> tuple[date | None, date | None]:
+    """화면이 보낸 시작일 · 종료일(「2026-12-14」 또는 「2026-12-14T00:00:00.000Z」)을 날짜로. 종료가 시작보다 앞이면 거절."""
+
+    def day(value) -> date | None:
+        if value in (None, ""):
+            return None
+        try:
+            return date.fromisoformat(str(value)[:10])
+        except ValueError as error:
+            raise ValueError(f"날짜 형식이 아닙니다: {value}") from error
+
+    start, end = day(p.get("startDate")), day(p.get("endDate"))
+    if start and end and end < start:
+        raise ValueError("종료일이 시작일보다 앞입니다.")
+    return start, end
 
 
 def _hhmm(value) -> str | None:
@@ -960,6 +1009,8 @@ def op_upsert_alert(cur, user, p):
     cur.execute("UPDATE alert_popups SET legacy_id = %s WHERE id = %s", [str(pk), pk])
     if targets:
         set_alert_targets(cur, pk, cohort_id, targets)
+    if is_active:
+        notify_alert_popup(cur, pk, cohort_id, title, content)
     return {"id": str(pk)}
 
 

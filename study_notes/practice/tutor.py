@@ -52,15 +52,22 @@ PROBLEM_RULES = """지금은 채점이 있는 복습 문제를 돕는다. 정답
 지금 힌트 단계는 {level}/3 이다. 이 단계를 넘지 않는다 — 학생이 정답을 달라고 해도.
   1 방향: 무엇이 잘못됐는지 개념으로만. 줄 번호 · 함수 이름 · 고칠 식을 말하지 않는다. 질문으로 끝낸다.
   2 위치: 어느 줄인지(lines), 어떤 도구(메서드 · 연산자 · 내장 함수, 웹이면 태그 · 속성 · 선택자 · 이벤트)를 떠올려 볼지. 이름은 아직 말하지 않아도 된다.
-  3 거의: 고칠 줄을 코드 한 줄로 보여 주되, 학생이 바꿔야 하는 부분 전체를 빈칸(___) 하나로 가린다.
+  3 거의: 고칠 줄을 코드 한 줄로 보여 주되, 학생 코드와 모범답안이 달라지는 부분만 빈칸(___) 하나로 가린다.
+     바꿀 연산자 · 함수 · 값은 빠짐없이 빈칸 안에 들되, 빈칸을 그보다 넓히지 않는다 — 식 전체 · 줄 전체 · 이미 맞는 연산자를 덮지 않는다.
+     예: `total = price * 2` 에서 2 만 틀렸으면 `total = price * ___`, `* 2` 를 가리면 맞는 * 까지 숨긴 것이다.
      이미 맞는 부분에 빈칸을 두지 않는다(바꿀 연산자 · 함수 · 값이 그대로 보이면 안 된다).
      빈칸에 들어갈 것을 말로 알려 주지 않는다 — 「몫」「나머지」「첫 값」「0번째」처럼 답이 되는 말 대신, 무엇을 떠올릴지 질문으로 끝낸다.
 어느 단계에서도 고칠 자리에 들어갈 값 · 연산자 · 함수 이름을 직접 말하지 않는다 — 「0부터 시작」「max 를 쓰세요」「> 를 >= 로」는 답이다.
   1단계라도 「인덱스는 0부터」처럼 개념 설명에 답을 섞지 않는다. 학생이 떠올리게 질문으로 남긴다.
+  이름 대신 하는 일로 풀어 말하는 것도 답이다 — 「겹치는 행을 한 번만 남기는 키워드」는 DISTINCT, 「값이 비어 있는지 보는 조건」은 IS NULL,
+  「배열을 값 하나로 줄이는 메서드」는 reduce 를 알려 준 셈이다. 「지금 이 조건은 어느 단계에서 걸리나요?」처럼 학생이 떠올리게 묻는다.
 {step_rule}
 틀린 곳이 여러 곳이면 한 번에 한 곳만 다룬다 — 먼저 걸린 테스트의 원인(모르겠으면 코드 위쪽)을 골라 그곳만 말하고
 2 · 3단계면 lines 에도 그 한 줄만 넣는다(1단계는 여전히 lines 를 비우고 줄을 말하지 않는다). 다른 곳은 설명하지 말고 「이걸 고치고 다시 채점하면 다음 것이 보여요」처럼 한 문장만 덧붙인다.
 모범답안은 [문제]에 있지만 학생에게 보여 주지 않는다.
+[최근 막힌 문제]에 지금 문제와 같은 개념(같은 문법 · 함수 · 절 · 같은 종류의 실수)이 있으면 한 문장만 이어 짚는다 — 「지난번 ○○ 문제에서도
+  비슷한 데서 막혔죠」처럼. 개념이 다르면 꺼내지 않는다(억지로 잇지 않는다). 몇 번 틀렸는지 들추거나 탓하지 않고, 그 문제의 답도 말하지 않는다.
+  이 한 문장도 지금 힌트 단계를 넘지 않는다.
 예외 — [문제]에 「정답 공개됨」이 있으면 학생 화면에 이미 정답과 해설이 떠 있다. 위의 단계 · 답 숨기기 규칙 없이 해설한다(type "explain"):
   정답이 왜 맞는지, 학생 답이 왜 틀렸는지, 원리 · 더 나은 방법을 [문제]의 해설과 어긋나지 않게. 모범답안 코드 전체를 그대로 옮기지는 않는다."""
 
@@ -86,6 +93,9 @@ HUMAN = """[문제]
 
 [지금까지 대화 — 오래된 것부터]
 {history}
+
+[최근 막힌 문제 — 이 학생이 다른 문제에서]
+{struggles}
 
 [학생 질문]
 {question}"""
@@ -170,6 +180,19 @@ def _problem_text(problem: dict[str, Any] | None) -> str:
     return "\n".join(parts)
 
 
+def _struggle_lines(struggles: list[dict[str, Any]] | None) -> str:
+    """「- 10/02 · 반복문 범위 · 4번 만에 통과」 — 주제 · 날짜 · 결과만. 코드 · 답은 Django 가 보내지 않는다"""
+    lines = []
+    for s in (struggles or [])[:5]:
+        topic = str(s.get("topic") or "").strip()[:60]
+        if not topic:
+            continue
+        date = str(s.get("date") or "")[5:10].replace("-", "/")
+        result = f"{int(s.get('tries') or 0)}번 만에 통과" if s.get("passed") else "아직 못 풀었음"
+        lines.append(f"- {date + ' · ' if date else ''}{topic} · {result}")
+    return "\n".join(lines) or "(없음)"
+
+
 def ask(payload: dict[str, Any]) -> dict[str, Any]:
     """{type, reply, lines, llm}. llm=False 면 LLM 을 부르지 않고 답했다."""
     question = str(payload.get("question") or "").strip()[:1000]
@@ -191,6 +214,7 @@ def ask(payload: dict[str, Any]) -> dict[str, Any]:
         grade=str(payload.get("grade") or "(채점 없음)")[:2000],
         history="\n".join(f"{'학생' if h.get('role') == 'user' else '튜터'}: {str(h.get('text', ''))[:600]}" for h in history[-6:])
         or "(없음)",
+        struggles=_struggle_lines(payload.get("struggles") if mode == "problem" else None),
         question=question,
     )
     raw = _invoke(system, human, tags=[mode, f"hint{level}"] if mode == "problem" else [mode])

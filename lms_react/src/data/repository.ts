@@ -51,6 +51,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getDb, mutate as mutateStore, nextId, subscribe, type Database } from './store';
 import { dateKeyOf } from './seed';
 import { buildScopeKey, scopeLabel } from '../features/study/noteScope';
+import type { UploadRow } from '../features/study/folderFiles';
 import {
   requestLabel,
   resultingStatus,
@@ -2096,6 +2097,75 @@ export async function setStudySourceActive(sourceId: string, isActive: boolean):
   if (isTestMode()) return;
   await http.patch(`/study-sources/${encodeURIComponent(sourceId)}`, { isActive });
   await invalidateBootstrap();
+}
+
+// ── 폴더 올리기(GitHub 없이) — 서버 lms/folder_upload.py · study_notes/upload_plan.py ─────────
+
+export type { DailyPlan, ImportPlan } from '../features/study/folderUploadModel';
+
+/** 올리기 전 계획 — 파일 목록(경로 · 지문 · 앞부분 글)만 보낸다. 내용은 확정한 뒤 commitFolderUpload 로 */
+export async function planFolderUpload<T>(body: {
+  cohortId: string;
+  mode: 'import' | 'daily';
+  files: UploadRow[];
+  what?: 'subject' | 'cohort';
+  target?: string;
+  date?: string;
+  topics?: Record<string, string>;
+  starts?: Record<string, string>;
+  extraDays?: string[];
+}): Promise<T> {
+  if (isTestMode()) throw new Error('데모 화면에서는 폴더 올리기를 쓸 수 없어요.');
+  const { data } = await http.post<T>('/study-sources/upload/plan', body);
+  return data;
+}
+
+export interface FolderCommitResult {
+  source: { id: string; title: string; repoUrl: string; created: boolean };
+  commits: { date: string | null; sha: string | null; changed: string[]; skipped: string[] }[];
+  head: string | null;
+}
+
+/** 확정한 파일 한 묶음(100개까지). sourceId 가 없으면 name 으로 과목을 만든다 */
+export async function commitFolderUpload(args: {
+  cohortId: string;
+  sourceId?: string;
+  name?: string;
+  manifest: { paths: string[]; days: { date: string; files: number[] }[]; past: number[] };
+  files: File[];
+}): Promise<FolderCommitResult> {
+  if (isTestMode()) throw new Error('데모 화면에서는 폴더 올리기를 쓸 수 없어요.');
+  const form = new FormData();
+  form.append('cohortId', args.cohortId);
+  form.append('sourceId', args.sourceId ?? '');
+  form.append('name', args.name ?? '');
+  form.append('manifest', JSON.stringify(args.manifest));
+  for (const f of args.files) form.append('files', f);
+  // 기본 머리말이 JSON 이라 여기서 바꾼다 — 경계(boundary)는 브라우저가 붙인다
+  const { data } = await http.post<FolderCommitResult>('/study-sources/upload/commit', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 10 * 60 * 1000,
+  });
+  return data;
+}
+
+/** 올리기를 마친 뒤 — 새 과목이 목록에 보이게 */
+export async function refreshAfterFolderUpload(): Promise<void> {
+  if (!isTestMode()) await invalidateBootstrap();
+}
+
+export interface ScheduleIssue {
+  kind: string;
+  subject?: string;
+  dates?: string[];
+  text: string;
+}
+
+/** 커리큘럼 ↔ 실제 수업 날짜 어긋남(강사 · 관리자). 커리큘럼이 없으면 빈 목록 */
+export async function fetchStudySchedule(cohortId: string): Promise<{ issues: ScheduleIssue[]; message?: string }> {
+  if (isTestMode()) return { issues: [] };
+  const { data } = await http.get<{ issues: ScheduleIssue[]; message?: string }>('/study-sources/schedule', { params: { cohortId } });
+  return data;
 }
 
 /** 내 노트 지우기. 같은 범위를 다시 고르면 새로 만든다 */

@@ -94,6 +94,19 @@ class Liveness:
         self._paused_until: datetime | None = None
 
     # ── 바깥에서 쓰는 것 ──────────────────────────────────────
+    def warm(self) -> None:
+        """세션을 미리 연다. 처음 열 때 목록 페이지를 한 번 보고 3~5초 쉰다(`new_session`).
+
+        그냥 두면 서버가 뜬 뒤 **처음 검색한 사람**이 그 시간을 기다린다(2026-10-06 첫 검색의
+        마감 확인 6.6초, 그다음은 1.4~1.9초). 실패하면 그대로 둔다 — 첫 확인이 다시 연다.
+        """
+        if self._session is not None:
+            return
+        try:
+            self._session = self._session_factory()
+        except Exception as error:  # noqa: BLE001 — 준비 실패가 서버를 막을 이유는 없다
+            log.warning("링크 확인 세션을 미리 열지 못함: %s", type(error).__name__)
+
     def alive(self, job_ids: list[str]) -> list[str]:
         now = self._clock()
         if self._paused_until is not None and now < self._paused_until:

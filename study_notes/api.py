@@ -113,6 +113,8 @@ class ProxyTutorRequest(BaseModel):
     hintLevel: int = Field(default=1, ge=1, le=3)
     problem: dict[str, Any] | None = None
     history: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    # 이 학생이 최근 막힌 다른 문제(주제 · 날짜 · 결과) — 같은 개념이면 튜터가 이어 짚는다
+    struggles: list[dict[str, Any]] = Field(default_factory=list, max_length=10)
 class InternalTreeRequest(TreeRequest):
     userPk: int = Field(gt=0)
 
@@ -253,6 +255,20 @@ def proxy_subject(request: ProxySubjectRequest) -> dict[str, Any]:
     return {"status": "ready", "reportMarkdown": report}
 
 
+@router.post("/proxy/subject-files")
+def proxy_subject_files(request: ProxyTreeRequest) -> dict[str, Any]:
+    """과목 전체 요약 — 수업 파일을 직접 읽어 주제(맨 위 폴더)별로(study_notes/subject.py). 몇 분 걸린다. LLM 1회 ~ 묶음 수 + 1회."""
+    source = service.source_from_payload(request.source.model_dump())
+    try:
+        return service.subject_from_files_for_lms(request.cohortId, source)
+    except GitToolError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=service.failure_message(exc)) from exc
+
+
 @router.post("/proxy/repos")
 def proxy_repos(request: ProxyReposRequest) -> dict[str, Any]:
     """GitHub 계정·조직의 수업 저장소 목록 — LMS 가 새 저장소를 공부방에 자동으로 올릴 때 쓴다."""
@@ -350,6 +366,208 @@ def proxy_tutor(request: ProxyTutorRequest) -> dict[str, Any]:
     from study_notes.practice.tutor import ask
 
     return ask(request.model_dump())
+
+
+# ── 폴더 올리기(GitHub 없이) ────────────────────────────────────────
+_DAY = r"^\d{4}-\d{2}-\d{2}$"
+
+
+class ProxyUploadFile(BaseModel):
+    """올리기 전 목록의 한 줄 — 내용 없이 지문 · 앞부분 글만(upload_plan.UpFile)"""
+    path: str = Field(min_length=1, max_length=500)
+    blob: str = Field(pattern=r"^[0-9a-f]{40}$")
+    size: int = Field(default=0, ge=0)
+    mtime: int = Field(default=0, ge=0)
+    head: str = Field(default="", max_length=8_000)
+    cells: list[dict[str, str]] = Field(default_factory=list, max_length=400)
+
+
+class ProxyCalendar(BaseModel):
+    """Django 가 붙이는 기수 달력 — 기간 · 공휴일(lms/holidays.py) · 커리큘럼(날짜를 읽은 줄만) · 강사가 「수업 있었음」 한 날"""
+    today: str = Field(pattern=_DAY)
+    start: str = Field(default="", max_length=10)
+    end: str = Field(default="", max_length=10)
+    holidays: dict[str, str] = Field(default_factory=dict)
+    curriculum: list[dict[str, str]] = Field(default_factory=list, max_length=400)
+    unreadable: int = Field(default=0, ge=0)
+    extraDays: list[str] = Field(default_factory=list, max_length=100)
+
+
+class ProxyUploadSource(ProxySource):
+    kind: str = Field(pattern="^(upload|github)$")
+
+
+class ProxyUploadPlanRequest(BaseModel):
+    cohortId: str = Field(min_length=1, max_length=80)
+    mode: str = Field(pattern="^(import|daily)$")
+    what: str | None = Field(default=None, pattern="^(subject|cohort)$")  # 비우면 폴더 모양으로 정한다
+    date: str | None = Field(default=None, pattern=_DAY)  # 오늘 수업 올리기의 수업 날짜(기본 오늘)
+    target: str | None = Field(default=None, max_length=120)  # 오늘 수업 올리기 — 올릴 과목(소스 id)
+    files: list[ProxyUploadFile] = Field(min_length=1, max_length=3000)
+    sources: list[ProxyUploadSource] = Field(default_factory=list, max_length=200)  # 이 기수에 이미 있는 과목
+    topics: dict[str, str] = Field(default_factory=dict)  # 강사가 고른 커리큘럼 과목 {과목 이름: 커리큘럼 과목 id}
+    starts: dict[str, str] = Field(default_factory=dict)  # 강사가 고친 과목 시작일
+    calendar: ProxyCalendar
+
+
+class ProxyUploadContent(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
+    content: str = Field(max_length=8_000_000)  # base64
+
+
+class ProxyUploadDay(BaseModel):
+    date: str = Field(pattern=_DAY)
+    files: list[ProxyUploadContent] = Field(min_length=1, max_length=300)
+
+
+class ProxyUploadCommitRequest(BaseModel):
+    cohortId: str = Field(min_length=1, max_length=80)
+    source: ProxySource
+    days: list[ProxyUploadDay] = Field(default_factory=list, max_length=130)
+    past: list[ProxyUploadContent] = Field(default_factory=list, max_length=300)  # 날짜 없는 지난 자료
+    # 새 과목(저장소가 없어도 된다). 아니면 저장소가 없을 때 거절한다 — 빈 저장소에 커밋하면 그 보관본이
+    # S3 의 전체 기록을 덮어쓴다(서버를 새로 띄워 캐시가 사라졌는데 되살리지 못한 경우)
+    create: bool = False
+
+
+@router.post("/proxy/upload/plan", dependencies=[Depends(_proxy_auth_if_configured)])
+def proxy_upload_plan(request: ProxyUploadPlanRequest) -> dict[str, Any]:
+    """올리기 전 계획 — 과목 나누기 · 날짜 근거 · 지난번과 같은 파일 · 넣을 폴더 · 확인할 날. LLM 없음, 파일 내용 없음."""
+    from study_notes import upload_plan, upload_repo
+
+    cal = upload_plan.calendar_from(request.calendar.model_dump())
+    files = [f.model_dump() for f in request.files]
+    try:
+        if request.mode == "daily":
+            target = next((s for s in request.sources if s.id == request.target and s.kind == "upload"), None)
+            if target is None:
+                raise HTTPException(status_code=400, detail="폴더로 올린 과목을 골라 주세요.")
+            snap = upload_repo.snapshot(service.repo_cache(request.cohortId, service.source_from_payload(target.model_dump())))
+            topic = request.topics.get(target.title) or upload_plan.match_topic(target.title, snap["dates"], cal)["id"]
+            plan = upload_plan.plan_daily(
+                files, cal, day=request.date or cal.today, tree=snap["tree"], texts=snap["texts"], topic=topic,
+            )
+            return {**plan, "topic": topic, "topics": cal.topics()}
+        existing: dict[str, dict[str, Any]] = {}
+        for s in request.sources:
+            info: dict[str, Any] = {"kind": s.kind, "id": s.id}
+            if s.kind == "upload":
+                snap = upload_repo.snapshot(
+                    service.repo_cache(request.cohortId, service.source_from_payload(s.model_dump())), texts=False,
+                )
+                info.update(tree=snap["tree"], dates=snap["dates"])
+            existing[(s.title or s.id).lower()] = info
+        return upload_plan.plan_import(
+            files, cal, what=request.what, existing=existing, topics=request.topics, starts=request.starts,
+        )
+    except GitToolError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/proxy/upload/commit", dependencies=[Depends(_proxy_auth_if_configured)])
+def proxy_upload_commit(request: ProxyUploadCommitRequest) -> dict[str, Any]:
+    """확정한 파일을 서버 안 저장소에 — 지난 자료 커밋 하나 + 날짜별 커밋. 같은 내용은 건너뛴다. LLM 없음."""
+    import base64
+    import binascii
+    from datetime import datetime
+
+    from study_notes import upload_repo
+    from study_notes.git_tools import SEOUL, parse_repo_url
+
+    source = service.source_from_payload(request.source.model_dump())
+    if not parse_repo_url(source.repo_url).upload:
+        raise HTTPException(status_code=400, detail="폴더 올리기 과목이 아니에요.")
+    today = datetime.now(SEOUL).strftime("%Y-%m-%d")
+    if any(d.date > today for d in request.days):
+        raise HTTPException(status_code=400, detail="앞으로 올 날짜로는 올릴 수 없어요.")
+
+    def decode(items: list[ProxyUploadContent]) -> dict[str, bytes]:
+        try:
+            return {f.path: base64.b64decode(f.content, validate=True) for f in items}
+        except (binascii.Error, ValueError) as exc:
+            raise HTTPException(status_code=422, detail="파일 내용을 읽지 못했어요.") from exc
+
+    days: dict[str, dict[str, bytes]] = {}
+    for d in request.days:
+        days.setdefault(d.date, {}).update(decode(d.files))
+    if not request.create and upload_repo.head(service.repo_cache(request.cohortId, source)) is None:
+        raise HTTPException(status_code=409, detail="서버 안 저장소가 없어요. 보관본으로 되살린 뒤 다시 올려 주세요.")
+    try:
+        commits = upload_repo.import_all(
+            service.repo_cache(request.cohortId, source), days, decode(request.past) if request.past else None,
+        )
+    except GitToolError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    cache = service.repo_cache(request.cohortId, source)
+    changed = any(c.sha for c in commits)
+    return {
+        "commits": [
+            {"date": c.date or None, "sha": c.sha, "changed": c.changed, "skipped": c.skipped} for c in commits
+        ],
+        "head": upload_repo.head(cache),
+        # 바뀐 게 있으면 저장소 전체 보관본 — Django 가 S3 에 둔다(서버를 새로 띄워도 되살리게)
+        "bundle": base64.b64encode(upload_repo.bundle(cache)).decode() if changed else None,
+    }
+
+
+class ProxyUploadSourceRequest(BaseModel):
+    cohortId: str = Field(min_length=1, max_length=80)
+    source: ProxySource
+
+
+class ProxyUploadRestoreRequest(ProxyUploadSourceRequest):
+    bundle: str = Field(min_length=1, max_length=200_000_000)  # base64
+
+
+def _upload_cache(request: ProxyUploadSourceRequest):
+    from study_notes.git_tools import parse_repo_url
+
+    source = service.source_from_payload(request.source.model_dump())
+    if not parse_repo_url(source.repo_url).upload:
+        raise HTTPException(status_code=400, detail="폴더 올리기 과목이 아니에요.")
+    return service.repo_cache(request.cohortId, source)
+
+
+@router.post("/proxy/upload/head", dependencies=[Depends(_proxy_auth_if_configured)])
+def proxy_upload_head(request: ProxyUploadSourceRequest) -> dict[str, Any]:
+    """서버 안 저장소의 마지막 커밋 — 없으면 null(Django 가 보관본으로 되살린다)"""
+    from study_notes import upload_repo
+
+    return {"head": upload_repo.head(_upload_cache(request))}
+
+
+@router.post("/proxy/upload/restore", dependencies=[Depends(_proxy_auth_if_configured)])
+def proxy_upload_restore(request: ProxyUploadRestoreRequest) -> dict[str, Any]:
+    """보관본(git bundle)으로 서버 안 저장소를 되살린다. 이미 있으면 그대로."""
+    import base64
+    import binascii
+
+    from study_notes import upload_repo
+
+    try:
+        data = base64.b64decode(request.bundle, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="보관본을 읽지 못했어요.") from exc
+    try:
+        return {"head": upload_repo.restore(_upload_cache(request), data)}
+    except GitToolError as exc:
+        raise HTTPException(status_code=422, detail=f"보관본으로 되살리지 못했어요: {exc}") from exc
+
+
+class ProxyScheduleRequest(BaseModel):
+    calendar: ProxyCalendar
+    subjects: dict[str, dict[str, Any]] = Field(default_factory=dict)  # {과목 이름: {topic?, dates: [실제 수업 날짜]}}
+
+
+@router.post("/proxy/upload/schedule", dependencies=[Depends(_proxy_auth_if_configured)])
+def proxy_upload_schedule(request: ProxyScheduleRequest) -> dict[str, Any]:
+    """커리큘럼 ↔ 실제 수업 날짜 어긋남(강사 · 관리자 수업 저장소 화면). 저장소는 읽지 않는다 — 날짜는 Django 가 준다."""
+    from study_notes import upload_plan
+
+    cal = upload_plan.calendar_from(request.calendar.model_dump())
+    return {"issues": upload_plan.schedule_check(cal, request.subjects), "topics": cal.topics()}
+
+
 @router.post("/internal/tree", dependencies=[Depends(_internal_auth)])
 def internal_tree(request: InternalTreeRequest) -> dict[str, Any]:
     return _postgres_result(lambda: postgres_service.list_tree(request.userPk, request.cohortId, request.sourceId))

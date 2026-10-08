@@ -1126,7 +1126,12 @@ html {
   flex: 1 1 320px;
   min-width: 0;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
+}
+
+/* 옆 마일리지 카드는 신용카드 비율로 높이가 고정이다(159px). 넓은 화면에서는 그 높이 안에 들어가게 여백을 줄인다 */
+.dash__top .profile-card {
+  padding-block: 14px;
 }
 
 .profile-card__row {
@@ -1136,8 +1141,8 @@ html {
 }
 
 .profile-card__avatar {
-  width: 48px;
-  height: 48px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -1169,6 +1174,103 @@ html {
   flex-wrap: wrap;
 }
 
+/* 이름 줄 오른쪽 — 「수료 D-62」 */
+.profile-card__who {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-card__dday {
+  flex: none;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* 과정 진행 — 시작부터 오늘까지 지난 비율 */
+.profile-card__course {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.profile-card__course-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.profile-card__course-head strong {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.profile-card__course-pct {
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.profile-card__course-bar {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-secondary) 16%, transparent);
+  overflow: hidden;
+}
+
+.profile-card__course-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--primary) 70%, transparent), var(--primary));
+}
+
+.profile-card__course-dates {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-hint);
+}
+
+/* 이번 과정 출결 — 라벨 + 숫자 배지(이력서 관리 탭과 같은 모양). 색은 출석 달력 범례와 같다 */
+.profile-card__tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+
+.profile-card__stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.profile-card__stat b {
+  min-width: 21px;
+  height: 21px;
+  padding: 0 7px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--tone) 14%, transparent);
+  color: var(--tone);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+/* 0은 회색으로 물러나 있는다 — 자리는 지키되 눈에 띄지 않게 */
+.profile-card__stat--zero b {
+  background: color-mix(in srgb, var(--text-secondary) 10%, transparent);
+  color: var(--text-hint);
+}
+
 .skill-chip {
   padding: 4px 11px;
   border-radius: 999px;
@@ -1181,6 +1283,8 @@ html {
 /* 마일리지 카드 — 신용카드 모양 */
 .mileage-card-slot {
   flex: none;
+  /* 프로필 카드가 줄바꿈으로 조금 높아지는 폭(태블릿)에서도 위에 붙지 않고 가운데에 선다 */
+  align-self: center;
   perspective: 830px;
   cursor: pointer;
 }
@@ -2947,6 +3051,273 @@ html {
 
 .chip__remove:hover {
   opacity: 1;
+}
+
+/* 폴더 올리기(GitHub 없이) — FolderImport · 수업 저장소 패널 */
+.study-sources__mode {
+  display: flex;
+  gap: 6px;
+}
+
+.study-sources__kind {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.study-sources__issues {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fu {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fu__pick .hint,
+.fu__tip {
+  margin: 0;
+}
+
+.fu__what {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fu__subject {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.fu__head,
+.fu__topic {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.fu__topic .input {
+  width: auto;
+  max-width: 100%;
+}
+
+.fu__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fu__row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 2px 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border-left: 3px solid color-mix(in srgb, var(--primary) 55%, transparent);
+  background: color-mix(in srgb, var(--primary) 4%, transparent);
+}
+
+.fu__row--past {
+  border-left-color: var(--border);
+  background: transparent;
+}
+
+.fu__row--check {
+  border-left-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+}
+
+.fu__date {
+  grid-row: span 2;
+  min-width: 0;
+}
+
+.fu__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 13px;
+}
+
+.fu__basis {
+  font-weight: 600;
+}
+
+.fu__notice {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.fu__files {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.fu__more {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fu__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fu__done {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.fu__done li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.fu__splits {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+
+.fu__splits-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.fu__splits-note {
+  margin: 0;
+}
+
+.fu__split {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--primary) 4%, transparent);
+}
+
+.fu__split--check {
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+}
+
+.fu__split-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.fu__split-opt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.fu__split-opt .input,
+.fu__part .input {
+  width: auto;
+  max-width: 100%;
+  font-size: 13px;
+}
+
+.fu__parts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.fu__part {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.study-sources__upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.fu__day {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.fu__daily {
+  grid-template-columns: 20px minmax(120px, 0.8fr) minmax(0, 1.6fr);
+}
+
+.fu__choose {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.fu__choose .input {
+  width: auto;
+  max-width: 100%;
+  font-size: 13px;
+}
+
+.fu__daily-hint {
+  margin-right: auto;
+}
+
+@media (max-width: 600px) {
+  .fu__row,
+  .fu__daily {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fu__date {
+    grid-row: auto;
+  }
 }
 
 /* 저장소 한 줄 아래 — 복습 문제 자동 출제 */
@@ -7443,6 +7814,8 @@ body:has(.resume-edit__body--stack > .resume-panel:not([hidden])) .chatbot-launc
   display: flex;
   align-items: center;
   gap: 10px;
+  /* 격자 칸은 기본으로 내용보다 좁아지지 않는다 — 긴 주소가 옆 칸으로 넘쳐 겹쳤다 */
+  min-width: 0;
 }
 
 .contact-field__icon {
@@ -7466,6 +7839,21 @@ body:has(.resume-edit__body--stack > .resume-panel:not([hidden])) .chatbot-launc
   background: transparent;
   padding-left: 0;
   padding-right: 0;
+}
+
+/* 끊을 곳이 없는 주소 · 이메일도 칸 안에서 줄을 바꾼다 */
+.contact-field__box--read strong {
+  overflow-wrap: anywhere;
+}
+
+.contact-field__box--read a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.contact-field__box--read a:hover {
+  color: var(--primary);
+  text-decoration: underline;
 }
 
 .contact-field__label {
@@ -9116,6 +9504,7 @@ a.coach-ask__card-title:hover {
 
   .rail,
   .appbar,
+  .resume-edit__top,
   .resume-edit__progress,
   .resume-edit__chips,
   .resume-doc,
@@ -9135,24 +9524,49 @@ a.coach-ask__card-title:hover {
     color: #2a2f37;
     font-size: 9.5pt;
     line-height: 1.45;
+    /* 쪽 여백은 @page 대신 여기서 준다(아래 @page 참고). clone 이라 쪽마다 위아래 여백이 다시 생긴다 */
+    padding: 42pt 48pt 34pt;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
   }
 
-  .print-doc__name {
+  /* 머리 — 큰 글씨는 이력서 제목, 그 아래 이름과 연락처. 선은 긋지 않는다(첫 섹션 제목의 밑줄과 겹친다) */
+  .print-doc__header {
+    padding-bottom: 6pt;
+  }
+
+  .print-doc__heading {
     margin: 0;
-    font-size: 20pt;
+    font-size: 19pt;
     font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.2pt;
     color: #111111;
   }
 
-  .print-doc__subtitle {
-    margin: 3pt 0 0;
-    font-size: 9pt;
-    color: #5b6270;
+  .print-doc__byline {
+    margin: 6pt 0 0;
+    font-size: 11.5pt;
+    font-weight: 700;
+    color: #2a2f37;
   }
 
   .print-doc__contact {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3pt 14pt;
     margin: 6pt 0 0;
-    font-size: 8.6pt;
+    padding: 0;
+    list-style: none;
+    font-size: 8.8pt;
+    color: #2a2f37;
+  }
+
+  .print-doc__contact-label {
+    margin-right: 4pt;
+    font-size: 7.8pt;
+    font-weight: 600;
+    color: #8a909b;
   }
 
   .print-doc__section {
@@ -9224,13 +9638,34 @@ a.coach-ask__card-title:hover {
     color: #5b6270;
   }
 
-  .print-doc__intro .print-doc__section {
+  /* 자기소개서 문항. 섹션 제목보다 한 단계 아래라 밑줄 없이 굵게만 */
+  .print-doc__qa {
+    margin-top: 10pt;
     break-inside: avoid;
   }
 
+  .print-doc__qa:first-of-type {
+    margin-top: 0;
+  }
+
+  .print-doc__question {
+    margin: 0;
+    font-size: 10pt;
+    font-weight: 700;
+    color: #111111;
+    break-after: avoid;
+  }
+
+  .print-doc__answer-title {
+    margin: 1pt 0 0;
+    font-weight: 600;
+    color: #2a2f37;
+  }
+
+  /* 여백을 0 으로 두면 브라우저가 쪽마다 찍는 날짜 · 문서 제목 · 주소 · 쪽 번호가 들어갈 자리가 없어 빠진다 */
   @page {
     size: A4;
-    margin: 42pt 48pt 34pt;
+    margin: 0;
   }
 }
 
@@ -9300,13 +9735,16 @@ a.coach-ask__card-title:hover {
 .today-review__eyebrow {
   display: flex;
   align-items: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  word-break: keep-all;
   font-size: 12.5px;
   color: var(--text-secondary);
 }
 
 .today-review__eyebrow strong {
   color: var(--primary);
+  white-space: nowrap;
 }
 
 .today-review--done .today-review__eyebrow strong,
@@ -9323,12 +9761,8 @@ a.coach-ask__card-title:hover {
   font-size: 17px;
   font-weight: 700;
   line-height: 1.4;
-}
-
-.today-review__meta {
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--text-secondary);
+  /* 줄이 넘치면 단어째 넘긴다 — 「프 / 로젝트」처럼 낱말 중간에서 끊지 않는다 */
+  word-break: keep-all;
 }
 
 .today-review__continue {
@@ -9373,32 +9807,33 @@ a.coach-ask__card-title:hover {
   text-decoration: underline;
 }
 
-.today-review__side {
-  flex: 0 1 260px;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-}
-
+/* 진행 막대와 「18문제 · 약 40분」을 제목 아래 한 줄로 */
 .today-review__progress {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
   font-size: 12.5px;
   color: var(--text-secondary);
 }
 
 .today-review__bar {
   display: flex;
+  flex: 0 1 280px;
+  min-width: 60px;
   gap: 4px;
 }
 
+.today-review__progress > span:last-child {
+  white-space: nowrap;
+}
+
+/* 카드 배경이 옅게 물들어 있어 --divider 로는 칸이 안 보였다 */
 .today-review__bar i {
   flex: 1;
   height: 6px;
   border-radius: 3px;
-  background: var(--divider);
+  background: color-mix(in srgb, var(--text-secondary) 22%, transparent);
 }
 
 .today-review__bar i.ok {
@@ -9409,12 +9844,14 @@ a.coach-ask__card-title:hover {
   background: var(--warning);
 }
 
-.today-review__side .btn {
+/* 버튼은 글자만큼만. 예전에는 오른쪽 260px 칸을 꽉 채워 제목이 두 줄로 밀렸다 */
+.today-review__go {
+  flex: none;
   justify-content: center;
 }
 
 @media (max-width: 560px) {
-  .today-review__side {
+  .today-review__go {
     flex-basis: 100%;
   }
 }

@@ -24,7 +24,9 @@ from typing import Collection
 
 from job_matching_bot import config
 from job_matching_bot.matching.hard_filter import ENTRY_ONLY_MAX_YEARS
+from job_matching_bot.matching.role_normalize import canonical_roles
 from job_matching_bot.matching.skill_normalize import canonical_skill
+from job_matching_bot.retrieval.grouping import normalize_company, normalize_title
 from job_matching_bot.retrieval.training import sql_exclusion as training_exclusion
 
 KST = timezone(timedelta(hours=9))
@@ -349,20 +351,64 @@ def cache_key(
 
 def remember(key: tuple | None, compute):
     """열쇠가 있으면 10분 동안 결과를 다시 쓴다. 없으면 매번 계산한다."""
+    return _remember(_cache, _CACHE_SECONDS, _CACHE_MAX, key, compute)
+
+
+# 집계(market_stats)는 하루 동안 다시 쓴다. 공고는 밤에만 바뀌고 열쇠에 날짜가 들어 있어 날이 바뀌면 새로 센다.
+# 검색과 따로 둔다 — 같이 두면 미리 세 둔 집계가 검색 결과에 밀려 지워진다.
+_DAY_SECONDS = 86400.0
+_DAY_MAX = 1024
+_day_cache: "OrderedDict[tuple, tuple[float, object]]" = OrderedDict()
+
+
+def remember_day(key: tuple | None, compute):
+    """열쇠가 있으면 하루 동안 결과를 다시 쓴다. 집계용."""
+    return _remember(_day_cache, _DAY_SECONDS, _DAY_MAX, key, compute)
+
+
+# 검색도 하루 동안 다시 쓴다. 처음 하는 검색이 RDS 에서 7~12초였다(2026-10-06 정리 뒤, 문자열 검색 CPU).
+# 10분이던 때는 같은 조건을 하루에도 몇 번씩 다시 훑었다. 낮에 마감된 공고가 기억된 목록에 남을 수 있지만
+# 카드로 내보내기 전에는 늘 마감 확인을 거친다(`_find` · 에이전트 마무리) — 건수만 몇 건 어긋날 수 있다.
+# 한 번에 최대 `SCAN_LIMIT`(3,000)행이라 집계보다 무겁다. 개수를 작게 둔다.
+_SEARCH_MAX = 64
+_search_cache: "OrderedDict[tuple, tuple[float, object]]" = OrderedDict()
+
+
+def remember_search(key: tuple | None, compute):
+    """열쇠가 있으면 하루 동안 검색 결과를 다시 쓴다. 최대 `_SEARCH_MAX`개."""
+    return _remember(_search_cache, _DAY_SECONDS, _SEARCH_MAX, key, compute)
+
+
+def warm_searches(store_path: Path, items: list[tuple["JobFilters", tuple[str, ...]]],
+                  as_of: datetime | None = None, log=print) -> int:
+    """(조건, 앞에 둘 직무) 목록을 미리 찾아 하루 기억에 넣는다. 찾은 조합 수. 하나가 실패해도 나머지는 찾는다."""
+    started = time.monotonic()
+    done = 0
+    for filters, prefer in items:
+        try:
+            search(store_path, filters, limit=5, as_of=as_of, prefer=prefer)
+            done += 1
+        except Exception as error:  # noqa: BLE001 — 준비 실패가 서버를 막을 이유는 없다
+            log(f"[검색 미리 하기] {filters.summary()} 실패: {type(error).__name__}")
+    log(f"[검색 미리 하기] {done}개 조합 · {time.monotonic() - started:.0f}초")
+    return done
+
+
+def _remember(cache: "OrderedDict", seconds: float, limit: int, key: tuple | None, compute):
     if key is None:
         return compute()
     now = time.monotonic()
     with _cache_lock:
-        hit = _cache.get(key)
-        if hit is not None and now - hit[0] < _CACHE_SECONDS:
-            _cache.move_to_end(key)
+        hit = cache.get(key)
+        if hit is not None and now - hit[0] < seconds:
+            cache.move_to_end(key)
             return hit[1]
     value = compute()
     with _cache_lock:
-        _cache[key] = (now, value)
-        _cache.move_to_end(key)
-        while len(_cache) > _CACHE_MAX:
-            _cache.popitem(last=False)
+        cache[key] = (now, value)
+        cache.move_to_end(key)
+        while len(cache) > limit:
+            cache.popitem(last=False)
     return value
 
 
@@ -391,6 +437,11 @@ class JobFilters:
     keywords: list[str] = field(default_factory=list)       # 그 밖의 말
     exclude_keywords: list[str] = field(default_factory=list)  # 빼 달라는 말(스타트업, 파견)
     posted_within_days: int | None = None                   # 최근 올라온 것만. 0이면 오늘
+
+    def __post_init__(self) -> None:
+        # 같은 직무를 다르게 말해도 같은 조건이 되게(「AI엔지니어」 · 「인공지능 개발자」 → 「AI 개발자」).
+        # 검색 · 집계 · 기억 열쇠가 모두 이 값을 쓴다 — 미리 세어 둔 것도 어떻게 말하든 맞는다.
+        self.roles = canonical_roles(self.roles)
 
     @property
     def is_empty(self) -> bool:
@@ -758,14 +809,18 @@ def search(
     # 상수로 채우고, 해석은 상세와 같은 파서를 쓴다. 그래서 섞여도 결과가 안 어긋난다.
     #
     # `has_detail`이 0인 것은 늘 뒤에 세운다. 본문이 있는 쪽이 먼저 보여야 한다.
+    # `posting_group` · `image_only`는 사람인 · 잡코리아에 같이 올라온 공고를 하나로 줄일 때 쓴다(`_one_per_posting`).
+    # 묶음(`group_key`)은 상세가 있는 공고에만 있다. 목록 뷰에는 그 칸이 없어 빈 값으로 맞춘다.
     detail_part = (
         f"SELECT {_HIT_COLUMNS}, {relevance} AS relevance, {preferred} AS preferred, 1 AS has_detail, "
-        "keywords, first_seen_at FROM jobs WHERE " + " AND ".join(where)
+        "keywords, first_seen_at, group_key AS posting_group, COALESCE(body_is_image, false) AS image_only "
+        "FROM jobs WHERE " + " AND ".join(where)
     )
     listing_part = (
         # 목록에서만 본 공고는 늘 상세 뒤에 서므로 선호를 따지지 않는다(13만 건을 훑는 값을 아낀다)
         f"SELECT {_HIT_COLUMNS}, {relevance} AS relevance, 0 AS preferred, 0 AS has_detail, "
-        "keywords, first_seen_at FROM list_jobs_search WHERE " + " AND ".join(listing_where)
+        "keywords, first_seen_at, NULL::varchar AS posting_group, false AS image_only "
+        "FROM list_jobs_search WHERE " + " AND ".join(listing_where)
         # 상세를 받은 공고는 `jobs`에 있다. 같은 공고가 두 번 나오지 않게 뺀다.
         # 번호만으로 견주면 안 된다 — 사이트마다 따로 매긴 번호라, 사람인 상세가
         # 있다는 이유로 번호가 같은 잡코리아 목록이 통째로 사라진다.
@@ -808,7 +863,7 @@ def search(
             connection.close()
         return _one_per_posting(rows)
 
-    rows = remember(cache_key("search", store_path, filters, as_of, tuple(prefer_terms)), load)
+    rows = remember_search(cache_key("search", store_path, filters, as_of, tuple(prefer_terms)), load)
     seen = set(exclude_ids)
     remaining = [row for row in rows if row["job_id"] not in seen]
     jobs = [_to_hit(row, int(row["relevance"] or 0), bool(row["has_detail"]))
@@ -843,10 +898,71 @@ def posting_key(row) -> tuple:
     )
 
 
+def _name_key(row) -> tuple | None:
+    """묶는 규칙(retrieval/grouping)과 같게 정규화한 회사 · 제목. 둘 중 하나라도 비면 None — 견주지 않는다."""
+    company = normalize_company(_row_value(row, "company") or "")
+    title = normalize_title(_row_value(row, "title") or "")
+    return (company, title) if company and title else None
+
+
+def _row_value(row, name: str):
+    try:
+        return row[name]
+    except (KeyError, IndexError):
+        return None
+
+
 def _one_per_posting(rows: list) -> list:
-    """같은 공고는 순서가 앞선 한 건만 남긴다. 순서가 늘 같아 "이거 말고"에도 같은 한 건이 남는다."""
-    kept, keys = [], set()
+    """같은 공고는 순서가 앞선 한 건만 남긴다. 순서가 늘 같아 "이거 말고"에도 같은 한 건이 남는다.
+
+    사람인 · 잡코리아에 같이 올라온 공고는 밤 배치가 같은 `group_key`로 묶어 둔다(regroup). 회사 이름
+    (「(주)빈느」 「㈜빈느」)과 경력 · 고용형태 표기가 사이트마다 달라 `posting_key`로는 못 잡아, 코치 검색에
+    같은 공고가 두 번 떴다(2026-10-04 열린 공고의 11.4%). 묶음에서는 앞선 자리에 **글 본문이 있는 쪽**을
+    남긴다 — 이미지뿐인 공고는 원문 · 첨삭에 쓸 글이 없다.
+
+    목록에서만 본 공고(`has_detail` 0)에는 묶음이 없다. 그래서 묶는 규칙과 같은 정규화(회사 · 제목,
+    retrieval/grouping)로 같은 공고를 알아본다 — 목록 전용 21만 건 중 2,625건이 상세 공고와, 22,642건이
+    다른 사이트 목록 공고와 같은 공고였다(2026-10-04). 목록 공고가 낀 이름에만 쓴다. 상세 공고끼리는
+    regroup 이 본문까지 보고 가른 것을 따른다. 겹치면 상세 쪽(그중 글 본문)을 남긴다.
+    """
+    by_group: dict[str, list] = {}
     for row in rows:
+        group = _row_value(row, "posting_group")
+        if group:
+            by_group.setdefault(group, []).append(row)
+    chosen = {
+        group: next((r for r in members if not _row_value(r, "image_only")), members[0])
+        for group, members in by_group.items()
+    }
+
+    names = [_name_key(row) for row in rows]
+    listed = {name for row, name in zip(rows, names) if name is not None and _row_value(row, "has_detail") == 0}
+    by_name: dict[tuple, list] = {}
+    for row, name in zip(rows, names):
+        if name in listed:
+            by_name.setdefault(name, []).append(row)
+    detailed = lambda r: _row_value(r, "has_detail") != 0  # noqa: E731
+    chosen_by_name = {
+        name: next(
+            (r for r in members if detailed(r) and not _row_value(r, "image_only")),
+            next((r for r in members if detailed(r)), members[0]),
+        )
+        for name, members in by_name.items()
+    }
+
+    kept, keys, groups, seen_names = [], set(), set(), set()
+    for row, name in zip(rows, names):
+        if name in chosen_by_name:
+            if name in seen_names:
+                continue
+            seen_names.add(name)
+            row = chosen_by_name[name]
+        group = _row_value(row, "posting_group")
+        if group:
+            if group in groups:
+                continue
+            groups.add(group)
+            row = chosen[group]
         key = posting_key(row)
         if key in keys:
             continue

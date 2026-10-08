@@ -237,3 +237,39 @@
   color: var(--text-hint);
   font-size: 11px;
 }
+
+/* 「마이페이지에서 불러오기」 — 기술스택 섹션 맨 위 한 줄 */
+.tech-import {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.tech-import strong {
+  color: var(--text-primary);
+}
+
+.tech-import .btn {
+  margin-left: auto;
+}
+
+.tech-import--hint {
+  background: none;
+  padding: 0;
+}
+
+.tech-import--hint .icon {
+  color: var(--text-hint);
+}
+
+.tech-import--hint a {
+  color: var(--primary);
+  font-weight: 600;
+}
