@@ -1,5 +1,6 @@
 """공고 링크 → job_id. 공고 맞춤 지원 화면이 붙여 넣은 주소로 공고를 찾는다."""
 
+import json
 import urllib.error
 from unittest import TestCase
 from unittest.mock import patch
@@ -7,6 +8,17 @@ from unittest.mock import patch
 from django.test import Client, SimpleTestCase
 
 from lms.posting_link import job_id_from_link
+
+
+def office_zip(files: dict[str, str]) -> bytes:
+    import io
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name, body in files.items():
+            archive.writestr(name, body)
+    return buffer.getvalue()
 
 
 class JobIdFromLinkTests(TestCase):
@@ -124,12 +136,33 @@ class QuestionExtractRouteTests(SimpleTestCase):
         self.assertEqual(result.status_code, 400)
         call.assert_not_called()
 
-    def test_rejects_word_and_too_many(self):
-        result, call = self.upload(("form.docx", b"PK", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
-        self.assertEqual(result.status_code, 400)
-        call.assert_not_called()
+    def test_too_many(self):
         result, call = self.upload(*[(f"{i}.png", b"x", "image/png") for i in range(4)])
         self.assertEqual(result.status_code, 400)
+        call.assert_not_called()
+
+    def test_documents_by_extension_and_content(self):
+        """Word · PowerPoint · 한글(hwpx)은 확장자와 ZIP 속 구성이 맞아야 넘긴다. 브라우저가 종류를 비워 보내도 확장자로"""
+        docx = office_zip({"[Content_Types].xml": "<Types/>", "word/document.xml": "<w:document/>"})
+        result, call = self.upload(("양식.docx", docx, "application/octet-stream"))
+        self.assertEqual(result, {"questions": []})
+        self.assertTrue(call.call_args.args[1]["images"][0].startswith(
+            "data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,"))
+        hwpx = office_zip({"mimetype": "application/hwp+zip", "Contents/section0.xml": "<sec/>"})
+        result, call = self.upload(("양식.hwpx", hwpx, ""))
+        self.assertTrue(call.call_args.args[1]["images"][0].startswith("data:application/hwp+zip;base64,"))
+        # 확장자만 바꾼 파일 · ZIP 이 아닌 파일 · 캡처와 섞은 문서는 넘기지 않는다
+        for files in ([("양식.pptx", docx, "")], [("양식.docx", b"PK", "")], [("양식.docx", docx, ""), ("a.png", b"PNG", "image/png")]):
+            result, call = self.upload(*files)
+            self.assertEqual(result.status_code, 400, files[0][0])
+            call.assert_not_called()
+
+    def test_old_binary_formats_are_not_offered(self):
+        for name in ("양식.hwp", "양식.doc", "양식.ppt"):
+            result, call = self.upload((name, b"\xd0\xcf\x11\xe0", "application/octet-stream"))
+            self.assertEqual(result.status_code, 400)
+            self.assertIn("PDF", json.loads(result.content)["detail"])
+            call.assert_not_called()
 
 
 class QuestionLinkTests(SimpleTestCase):
@@ -162,6 +195,12 @@ class QuestionLinkTests(SimpleTestCase):
         self.assertEqual(result, {"questions": []})
         self.assertEqual(opened, [url])
         self.assertTrue(call.call_args.args[1]["images"][0].startswith("data:application/pdf;base64,"))
+
+    def test_hwpx_attachment_is_read_by_its_content(self):
+        hwpx = office_zip({"mimetype": "application/hwp+zip", "Contents/section0.xml": "<sec/>"})
+        result, call, _ = self.read("https://www.saramin.co.kr/zf_user/form/download/attach1", body=hwpx)
+        self.assertEqual(result, {"questions": []})
+        self.assertTrue(call.call_args.args[1]["images"][0].startswith("data:application/hwp+zip;base64,"))
 
     def test_other_hosts_plain_http_and_lookalikes_are_not_opened(self):
         for url in (

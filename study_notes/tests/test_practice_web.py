@@ -77,6 +77,16 @@ class GradeAuthTests(unittest.TestCase):
         self.assertFalse(self.check("secret-1", None))
         self.assertFalse(self.check("secret-1", "wrong"))
 
+    def test_every_proxy_route(self) -> None:
+        """/proxy/* 는 Django 만 부른다 — 튜터 · 노트 · 출제처럼 LLM 을 부르는 창구도 빠짐없이 토큰을 본다"""
+        from study_notes import api
+
+        routes = [r for r in api.router.routes if "/proxy/" in getattr(r, "path", "")]
+        self.assertGreater(len(routes), 10)
+        for route in routes:
+            calls = [d.call for d in route.dependant.dependencies]
+            self.assertIn(api._proxy_auth_if_configured, calls, route.path)
+
 
 class DayMixTests(unittest.TestCase):
     def test_web_day_is_a_third_concepts(self) -> None:

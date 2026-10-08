@@ -895,31 +895,82 @@ def resume_review_tailored(request, body: TailoredResumeIn):
 QUESTION_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp"}
 QUESTION_IMAGE_MAX_BYTES = 8 * 1024 * 1024
 QUESTION_PDF_MAX_BYTES = 10 * 1024 * 1024
+# 지원서 양식 문서 — 확장자 → 첨삭 서버에 넘길 종류. 셋 다 ZIP 이라 속 구성까지 본다(_office_kind).
+# 옛 한글(.hwp) · 옛 Word(.doc)는 ZIP 이 아니어서 받지 않는다
+QUESTION_DOCUMENT_TYPES = {
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".hwpx": "application/hwp+zip",
+}
+QUESTION_FILE_TYPES_TEXT = "PNG · JPG · WEBP 이미지나 PDF · Word(.docx) · PowerPoint(.pptx) · 한글(.hwpx) 파일만 올릴 수 있어요."
+
+
+def _office_kind(data: bytes) -> str | None:
+    """ZIP 속 구성으로 문서 형식(확장자)을 가린다. 확장자만 바꾼 파일은 None. 압축은 풀지 않고 목차만 본다."""
+    import io
+    import zipfile
+
+    if not data.startswith(b"PK\x03\x04"):
+        return None
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data))
+        names = set(archive.namelist())
+        if "[Content_Types].xml" in names and "word/document.xml" in names:
+            return ".docx"
+        if "[Content_Types].xml" in names and "ppt/presentation.xml" in names:
+            return ".pptx"
+        if "mimetype" in names and archive.getinfo("mimetype").file_size <= 64 and archive.read("mimetype").strip() == b"application/hwp+zip":
+            return ".hwpx"
+    except (zipfile.BadZipFile, zipfile.LargeZipFile, KeyError, ValueError, OSError):
+        return None
+    return None
+
+
+def _question_file_kind(name: str, content_type: str) -> str:
+    """'image' · 'pdf' · 문서 확장자(.docx …) · 'hwp' · ''(못 받음). 문서는 브라우저가 종류를 비워 보내기도 해 확장자로 본다."""
+    ext = os.path.splitext(name or "")[1].lower()
+    if ext in QUESTION_DOCUMENT_TYPES or content_type in QUESTION_DOCUMENT_TYPES.values():
+        return ext if ext in QUESTION_DOCUMENT_TYPES else next(e for e, t in QUESTION_DOCUMENT_TYPES.items() if t == content_type)
+    if ext in (".hwp", ".doc", ".ppt"):
+        return "hwp"
+    if content_type == "application/pdf":
+        return "pdf"
+    return "image" if content_type in QUESTION_IMAGE_TYPES else ""
 
 
 @api.post("/resume-review/question-extract")
 def resume_review_question_extract(request, files: list[UploadedFile] = File(...)):
-    """캡처한 자기소개서 문항 · 지원서 양식 PDF → 문항 목록. 파일은 저장하지 않고 첨삭 서버로만 넘긴다.
+    """캡처한 자기소개서 문항 · 지원서 양식 파일 → 문항 목록. 파일은 저장하지 않고 첨삭 서버로만 넘긴다.
 
     회사 채용 사이트는 로그인해야 문항이 보이거나 복사가 막힌 경우가 많아 학생이 캡처해 올린다.
-    이미지(png · jpeg · webp) 세 장까지 한 장 8MB, 또는 PDF 한 개 10MB. 뽑은 문항은 화면에서 학생이 확인하고 고친다.
+    이미지(png · jpeg · webp) 세 장까지 한 장 8MB, 또는 PDF · DOCX · PPTX · HWPX 한 개 10MB.
+    문서는 확장자와 ZIP 속 구성이 맞아야 넘긴다. 뽑은 문항은 화면에서 학생이 확인하고 고친다.
     """
     import base64
 
     _require_user(request)
     if not 1 <= len(files) <= 3:
         return Response({"detail": "캡처는 한 번에 세 장까지 올릴 수 있어요."}, status=400)
-    kinds = [(file.content_type or "").split(";")[0].strip().lower() for file in files]
-    if "application/pdf" in kinds and len(files) > 1:
-        return Response({"detail": "PDF 는 한 번에 한 개만 올릴 수 있어요."}, status=400)
+    kinds = [_question_file_kind(file.name, (file.content_type or "").split(";")[0].strip().lower()) for file in files]
+    if "hwp" in kinds:
+        return Response({"detail": "옛 한글(.hwp) · Word(.doc) · PowerPoint(.ppt) 파일은 읽지 못해요. PDF 나 HWPX · DOCX · PPTX 로 저장해 올려 주세요."}, status=400)
+    if "" in kinds:
+        return Response({"detail": QUESTION_FILE_TYPES_TEXT}, status=400)
+    if any(kind != "image" for kind in kinds) and len(files) > 1:
+        return Response({"detail": "PDF · 문서 파일은 한 번에 한 개만, 캡처와 따로 올려 주세요."}, status=400)
     images = []
-    for file, content_type in zip(files, kinds):
-        if content_type not in QUESTION_IMAGE_TYPES and content_type != "application/pdf":
-            return Response({"detail": "PNG · JPG · WEBP 이미지나 PDF 만 올릴 수 있어요. Word · 한글 양식은 PDF 로 저장해 올려 주세요."}, status=400)
-        limit = QUESTION_PDF_MAX_BYTES if content_type == "application/pdf" else QUESTION_IMAGE_MAX_BYTES
+    for file, kind in zip(files, kinds):
+        limit = QUESTION_IMAGE_MAX_BYTES if kind == "image" else QUESTION_PDF_MAX_BYTES
         data = file.read(limit + 1)
         if len(data) > limit:
-            return Response({"detail": f"{'PDF' if content_type == 'application/pdf' else '이미지'}는 {limit // (1024 * 1024)}MB 이하만 올릴 수 있어요."}, status=400)
+            what = {"image": "이미지", "pdf": "PDF"}.get(kind, "문서 파일")
+            return Response({"detail": f"{what}는 {limit // (1024 * 1024)}MB 이하만 올릴 수 있어요."}, status=400)
+        if kind in QUESTION_DOCUMENT_TYPES:
+            if _office_kind(data) != kind:
+                return Response({"detail": f"파일 내용이 {kind} 형식이 아니에요. 열 수 있는 원본을 올리거나 PDF 로 저장해 올려 주세요."}, status=400)
+            content_type = QUESTION_DOCUMENT_TYPES[kind]
+        else:
+            content_type = "application/pdf" if kind == "pdf" else (file.content_type or "").split(";")[0].strip().lower()
         images.append(f"data:{content_type};base64,{base64.b64encode(data).decode('ascii')}")
     return _review_call("/api/v1/resumes/question-extract/proxy", {"images": images}, timeout=120)
 
@@ -956,7 +1007,7 @@ def resume_review_question_extract_link(request, body: QuestionLinkIn):
     """공고에 첨부된 지원서 양식 링크 → 문항 목록. 내려받아 올리는 수고를 던다.
 
     서버가 대신 여는 주소라 사람인 · 잡코리아(https)만 연다. 아무 주소나 열면 내부망을 대신 두드리는 통로가 된다.
-    넘겨 가는 주소도 같은 규칙으로 본다. PDF 10MB · 이미지 8MB 까지, 종류는 파일 첫 바이트로 가린다.
+    넘겨 가는 주소도 같은 규칙으로 본다. PDF · 문서 10MB · 이미지 8MB 까지, 종류는 파일 첫 바이트(문서는 ZIP 속 구성)로 가린다.
     """
     import base64
 
@@ -974,8 +1025,11 @@ def resume_review_question_extract_link(request, body: QuestionLinkIn):
         return Response({"detail": "첨부파일이 10MB 보다 커요. 문항이 있는 쪽을 캡처해 올려 주세요."}, status=400)
     kinds = {b"%PDF-": "application/pdf", b"\x89PNG": "image/png", b"\xff\xd8\xff": "image/jpeg"}
     kind = next((k for magic, k in kinds.items() if data.startswith(magic)), None)
+    office = _office_kind(data)
+    if office is not None:
+        kind = QUESTION_DOCUMENT_TYPES[office]
     if kind is None:
-        return Response({"detail": "PDF 나 이미지 파일 링크가 아니에요. 한글 · Word 양식은 PDF 로 저장해 올려 주세요."}, status=400)
+        return Response({"detail": "PDF · 이미지 · Word · PowerPoint · 한글(hwpx) 파일 링크가 아니에요. 옛 한글(.hwp) 양식은 내려받아 PDF 로 저장해 올려 주세요."}, status=400)
     if kind != "application/pdf" and len(data) > QUESTION_IMAGE_MAX_BYTES:
         return Response({"detail": "이미지는 8MB 이하만 읽을 수 있어요."}, status=400)
     image = f"data:{kind};base64,{base64.b64encode(data).decode('ascii')}"
@@ -1339,11 +1393,11 @@ def _featured_cards(view: Literal["live", "past"]) -> list[dict]:
 def _load_featured_cards(view: Literal["live", "past"], today) -> list[dict]:
     norm = featured_postings.NORM_SQL
     with connection.cursor() as cur:
-        # 지원 방법 칸 · 회사 정보 표는 migration(recruit_roles_company_profiles) 뒤에 생긴다. 없으면 빈 값으로 읽는다
+        # 지원 방법 칸 · 회사 정보 표는 migration 0014 가 만든다(회사 표는 public 스키마). 없으면 빈 값으로 읽는다
         cur.execute(
             """SELECT EXISTS (SELECT 1 FROM information_schema.columns
                               WHERE table_schema = 'jobs' AND table_name = 'jobs' AND column_name = 'apply_method'),
-                      to_regclass('jobs.company_profiles') IS NOT NULL"""
+                      to_regclass('public.company_profiles') IS NOT NULL"""
         )
         has_apply, has_profiles = cur.fetchone()
         cur.execute(f"SELECT DISTINCT {norm} FROM jobs.jobs WHERE company_type ~* %s", [featured_postings.BIG_TYPE])
@@ -1368,7 +1422,7 @@ def _load_featured_cards(view: Literal["live", "past"], today) -> list[dict]:
                        {"j.apply_method" if has_apply else "NULL::varchar AS apply_method"},
                        {"p.logo_url" if has_profiles else "NULL::varchar AS logo_url"}
                 FROM jobs.jobs j
-                {f"LEFT JOIN jobs.company_profiles p ON p.company_key = {norm}" if has_profiles else ""}
+                {f"LEFT JOIN public.company_profiles p ON p.company_key = {featured_postings.PROFILE_KEY_SQL}" if has_profiles else ""}
                 WHERE {when} AND j.career_type IN ('ENTRY', 'ANY')
                   AND (j.company_type ~* %s OR j.company ~* %s OR {norm} = ANY(%s))""",
             [*params, featured_postings.COARSE_TYPE, featured_postings.COARSE_NAME, list(big_names)],

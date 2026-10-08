@@ -58,7 +58,15 @@ function failureMessage(status: number, detail: string | undefined): string {
     case '422:company_question_not_found':
       return '이 문항을 이력서에서 찾지 못했어요. 화면을 새로고침한 뒤 다시 시도해 주세요.';
     case '422:unsupported_image':
-      return 'PNG · JPG · WEBP 이미지나 PDF 만 읽을 수 있어요.';
+      return 'PNG · JPG · WEBP 이미지나 PDF · Word · PowerPoint · 한글(.hwpx) 파일만 읽을 수 있어요.';
+    case '422:document_unreadable':
+      return '파일을 열 수 없거나 형식이 맞지 않아요(암호 · 손상 · 확장자만 바꾼 파일). PDF 로 저장하거나 문항이 보이는 화면을 캡처해 올려 주세요.';
+    case '422:document_too_large':
+      return '압축을 풀면 너무 커지는 파일이에요. 문항이 있는 쪽만 PDF 로 저장하거나 캡처해 올려 주세요.';
+    case '422:document_no_text':
+      return '파일에서 글을 찾지 못했어요. 문항이 그림으로만 들어 있을 수 있으니 문항이 보이는 화면을 캡처해 올려 주세요.';
+    case '422:document_with_other_files':
+      return 'PDF · 문서 파일은 한 개만, 캡처와 따로 올려 주세요.';
     case '422:pdf_unreadable':
       return '암호가 걸렸거나 열 수 없는 PDF 예요. 문항이 보이는 화면을 캡처해 올려 주세요.';
     case '422:pdf_no_text':
@@ -120,7 +128,16 @@ export const reviewApi = {
   /** 캡처(이미지 세 장까지) · 지원서 양식 PDF(한 개) → 문항 목록. 파일은 저장하지 않는다 */
   extractQuestions: (images: Blob[]) => {
     const form = new FormData();
-    const ext = (type: string) => ({ 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf' })[type] ?? 'jpg';
+    // Django 는 문서를 확장자로도 가린다 — 종류에 맞는 확장자를 붙인다
+    const ext = (type: string) =>
+      ({
+        'image/png': 'png',
+        'image/webp': 'webp',
+        'application/pdf': 'pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+        'application/hwp+zip': 'hwpx',
+      })[type] ?? 'jpg';
     images.forEach((image, i) => form.append('files', image, `capture-${i + 1}.${ext(image.type)}`));
     return post('/resume-review/question-extract', form);
   },
