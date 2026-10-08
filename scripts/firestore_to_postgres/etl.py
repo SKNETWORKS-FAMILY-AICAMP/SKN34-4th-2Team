@@ -122,7 +122,9 @@ def as_date(value: Any) -> date | None:
         return value
     dt = ts(value)
     if dt:
-        return dt.date()
+        # Firestore 타임스탬프는 UTC 다. 앱이 넣은 「6/16 0시(KST)」는 UTC 로 6/15 15시라
+        # 그대로 .date() 하면 하루 앞당겨진다(34기 기간이 6/15~12/7 로 들어갔다)
+        return dt.astimezone(ZoneInfo("Asia/Seoul")).date()
     text = str(value).strip()[:10]
     try:
         return date.fromisoformat(text)
