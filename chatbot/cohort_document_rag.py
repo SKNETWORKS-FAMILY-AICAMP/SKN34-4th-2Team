@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from io import BytesIO
 from pathlib import Path
 import re
@@ -57,9 +58,34 @@ def document_records(data: bytes, filename: str, cohort: str, kind: str, key: st
         raise ValueError('커리큘럼은 PDF, 정책은 정책집 양식 DOCX 또는 PDF여야 합니다.')
     if not records:
         raise ValueError('검색 가능한 본문이 없습니다.')
-    return [replace(record, vector_id=f'doc-{i}', metadata={**record.metadata,
-        'doc_id': f'{document_namespace(key)}:{i}', 'cohort': cohort, 'kind': kind,
-        'source_name': filename, 'title': filename + (' · ' + record.source.section if record.source.section else ''), 'storage_key': key}) for i, record in enumerate(records)]
+    namespace = document_namespace(key)
+    # Vector IDs are local to this immutable upload namespace. Resolve links
+    # only among the articles indexed in this one uploaded document.
+    article_vectors: dict[str, list[str]] = {}
+    for i, record in enumerate(records):
+        article_id = record.metadata.get('article_id')
+        if article_id:
+            article_vectors.setdefault(str(article_id), []).append(f'doc-{i}')
+    result = []
+    for i, record in enumerate(records):
+        metadata = {**record.metadata,
+            'doc_id': f'{namespace}:{i}', 'cohort': cohort, 'kind': kind,
+            'source_name': filename, 'title': filename + (' · ' + record.source.section if record.source.section else ''),
+            'storage_key': key}
+        article_id = metadata.get('article_id')
+        if article_id:
+            metadata['article_vector_ids'] = article_vectors[str(article_id)]
+            prefix = f'{cohort}:{metadata["document_hash"]}:article:'
+            metadata['reference_vector_ids'] = [vector_id
+                for number in metadata.get('explicit_article_refs', [])
+                for vector_id in article_vectors.get(prefix + str(number), [])
+                if vector_id not in metadata['article_vector_ids']]
+        # Pinecone stores page_content alongside metadata (40 KB/vector).
+        # Reject oversized clauses before the S3 write and index activation.
+        if len(json.dumps({'page_content': record.page_content, **metadata}, ensure_ascii=False).encode('utf-8')) > 38000:
+            raise ValueError(f'조문 또는 메타데이터가 검색 색인 한도를 초과했습니다: {record.source.section}')
+        result.append(replace(record, vector_id=f'doc-{i}', metadata=metadata))
+    return result
 
 
 def index_document(records, key: str):
@@ -107,6 +133,93 @@ def active_policy_namespace(cohort: str) -> str:
             raise ValueError('활성 정책의 검색 연결이 유효하지 않습니다.')
         return document_namespace(key)
     return 'policy'
+
+
+def expand_policy_context(index, namespace: str, cohort: str, documents: list,
+                          max_extra: int = 8, max_chars: int = 6000) -> list:
+    """Restore bounded same-article context and explicit local references.
+
+    Every fetched vector must still match the authenticated cohort and the
+    upload version that supplied the search hit. No second vector search or
+    inferred policy relationship is used here.
+    """
+    if not valid_cohort_code(cohort):
+        raise ValueError('기수별 정책 검색 범위가 올바르지 않습니다.')
+    seeds = []
+    for doc in documents:
+        metadata = doc.metadata
+        if metadata.get('cohort') != cohort:
+            continue
+        if namespace.startswith('cohort-doc-'):
+            key = str(metadata.get('storage_key', ''))
+            if (not indexed_key(key) or document_namespace(key) != namespace
+                or not key.startswith(f'cohorts/{cohort}/policy/')
+                or metadata.get('kind') != 'policy'):
+                continue
+            if (metadata.get('structure') == 'article'
+                and not re.fullmatch(r'[a-f0-9]{64}', str(metadata.get('document_hash', '')))):
+                continue
+        seeds.append(doc)
+    if not namespace.startswith('cohort-doc-') or max_extra <= 0:
+        return seeds
+    requested: list[tuple[str, str]] = []
+    truncated = False
+    origins: dict[str, tuple[str, str]] = {}
+    seed_ids = {str(doc.id) for doc in seeds}
+    for doc in seeds:
+        metadata = doc.metadata
+        if metadata.get('kind') != 'policy' or metadata.get('structure') != 'article':
+            continue
+        key = str(metadata.get('storage_key', ''))
+        digest = str(metadata.get('document_hash', ''))
+        if not key.startswith(f'cohorts/{cohort}/policy/') or len(digest) != 64:
+            continue
+        for relation, ids in (('same_article', metadata.get('article_vector_ids', [])),
+                              ('explicit_reference', metadata.get('reference_vector_ids', []))):
+            for vector_id in ids:
+                if not isinstance(vector_id, str) or vector_id in seed_ids or any(vector_id == item[0] for item in requested):
+                    continue
+                if len(requested) >= max_extra:
+                    truncated = True
+                    break
+                requested.append((vector_id, relation))
+                origins[vector_id] = (key, digest)
+    if not requested:
+        if truncated:
+            for doc in seeds:
+                doc.metadata['context_truncated'] = True
+        return seeds
+    from langchain_core.documents import Document
+    fetched = index.fetch(ids=[item[0] for item in requested], namespace=namespace)
+    extra = []
+    added_chars = 0
+    vectors = fetched.vectors or {}
+    for vector_id, relation in requested:
+        vector = vectors.get(vector_id)
+        if vector is None:
+            truncated = True
+            continue
+        metadata = dict(vector.metadata or {})
+        key, digest = origins[vector_id]
+        if (metadata.get('cohort') != cohort or metadata.get('kind') != 'policy'
+            or metadata.get('storage_key') != key or metadata.get('document_hash') != digest
+            or metadata.get('structure') != 'article'):
+            truncated = True
+            continue
+        content = str(metadata.pop('page_content', '')).strip()
+        if not content:
+            truncated = True
+            continue
+        if added_chars + len(content) > max_chars:
+            truncated = True
+            continue
+        added_chars += len(content)
+        metadata['context_relation'] = relation
+        extra.append(Document(id=vector_id, page_content=content, metadata=metadata))
+    if truncated:
+        for doc in seeds:
+            doc.metadata['context_truncated'] = True
+    return seeds + extra
 
 
 def curriculum_context(cur, cid: int, cohort: str, query: str):

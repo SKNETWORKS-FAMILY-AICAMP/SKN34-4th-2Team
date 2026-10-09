@@ -1,4 +1,4 @@
-"""Numbered policy DOCX -> contextual chunks -> Pinecone student/policy.
+"""Numbered policy or chapter/article DOCX -> contextual Pinecone chunks.
 
 Preview: python -m vectordb.policy_ingestion ingest --dry-run
 Upload:  python -m vectordb.policy_ingestion ingest
@@ -50,6 +50,9 @@ LABEL_TO_TYPE = {label: kind for kind, label in POLICY_LABELS.items()}
 LABEL_TO_TYPE.update({"훈련 시간표": "Training_Schedule", "프로젝트": "Project", "최종프로젝트": "Final_Project"})
 ITEM_HEADING = re.compile(r"^(?:#{1,6}\s+)?(?P<number>\d+-\d+)\s+\S.*$")
 TYPE_LINE = re.compile(r"^정책\s*(?:번호\s*)?(\d+-\d+)\s*\|\s*(?:정책\s*타입\s*)?(.+?)\s*$")
+CHAPTER_HEADING = re.compile(r"^제\s*(?P<number>\d+)\s*장(?:\s+.+)?$")
+ARTICLE_HEADING = re.compile(r"^제\s*(?P<number>\d+)\s*조(?:의\s*(?P<sub>\d+))?\s*(?:\[.*\]|\(.*\)|.+)?$")
+ARTICLE_REFERENCE = re.compile(r"제\s*(?P<number>\d+)\s*조(?:의\s*(?P<sub>\d+))?(?:\s*제\s*(?P<paragraph>\d+)\s*항)?")
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,11 @@ class SourceSection:
     section: str = ""
     cohort: str = ""
     updated_at: str = ""
+    chapter: str = ""
+    chapter_number: str = ""
+    article_number: str = ""
+    document_hash: str = ""
+    approval_status: str = "unverified"
 
     @property
     def document_key(self) -> str:
@@ -99,7 +107,8 @@ def infer_cohort(text: str, explicit: str | None = None) -> str:
         value = str(explicit).strip()
         if not value:
             raise ValueError("기수(cohort)는 비어 있을 수 없습니다")
-        return re.sub(r"^(\d+)\s*기$", r"\1", value)
+        number = re.fullmatch(r"(\d{1,3})(?:\s*기)?", value)
+        return f"cohort_{number.group(1)}" if number else value
     matches = re.findall(r"(?i)SKN\s*(\d+)|(\d+)\s*기", text)
     cohorts = {a or b for a, b in matches}
     if len(cohorts) != 1:
@@ -123,7 +132,7 @@ def load_docx(
     """Read body items in document order, retaining paragraphs and body tables.
 
     Word has no fixed pages without rendering. Skip cover/TOC structurally:
-    start only at a Heading style matching N-N, ignoring preceding tables.
+    start at Heading-style N-N items or chapters/articles, ignoring cover tables.
     Bytes input supports an LMS UploadedFile.read() call.
     """
     from docx import Document as DocxDocument
@@ -134,25 +143,42 @@ def load_docx(
     if isinstance(file, bytes):
         if not source_name:
             raise ValueError("바이트 입력에는 source_name(원본 파일명)이 필요합니다")
-        document = DocxDocument(io.BytesIO(file))
+        data = file
     else:
         file = Path(file)
         if file.suffix.lower() != ".docx":
             raise ValueError("정책집은 DOCX 형식이어야 합니다")
         source_name = source_name or file.name
-        document = DocxDocument(file)
+        data = file.read_bytes()
+    document = DocxDocument(io.BytesIO(data))
 
     cover = [source_name]
-    items: list[tuple[str, list[str]]] = []
+    items: list[tuple[str, list[str], str, str, str]] = []
     title, lines = "", []
+    chapter, chapter_number, article_number = "", "", ""
+    formal = False
     for block in document.element.body.iterchildren():
         if block.tag == qn("w:p"):
             p = Paragraph(block, document)
             text = p.text.strip()
-            if p.style.name.startswith("Heading") and ITEM_HEADING.fullmatch(text):
+            if p.style.name.startswith("Heading") and (match := CHAPTER_HEADING.fullmatch(text)):
                 if title:
-                    items.append((title, lines))
+                    items.append((title, lines, chapter, chapter_number, article_number))
+                    title, lines, article_number = "", [], ""
+                chapter, chapter_number = text, match.group("number")
+                formal = True
+            elif p.style.name.startswith("Heading") and (match := ARTICLE_HEADING.fullmatch(text)):
+                if title:
+                    items.append((title, lines, chapter, chapter_number, article_number))
+                if not chapter:
+                    raise ValueError(f"장 제목 없이 조문이 시작됩니다: {text}")
+                article_number = match.group("number") + ("-" + match.group("sub") if match.group("sub") else "")
                 title, lines = text, []
+                formal = True
+            elif p.style.name.startswith("Heading") and ITEM_HEADING.fullmatch(text):
+                if title:
+                    items.append((title, lines, chapter, chapter_number, article_number))
+                title, lines, article_number = text, [], ""
             elif title and text:
                 prefix = "- " if p.style.name.startswith("List Bullet") else ""
                 lines.append(prefix + text)
@@ -162,15 +188,22 @@ def load_docx(
             for row in Table(block, document).rows:
                 lines.append(" | ".join(c.text.strip().replace("\n", "; ") for c in row.cells))
     if title:
-        items.append((title, lines))
+        items.append((title, lines, chapter, chapter_number, article_number))
     if not items:
-        raise ValueError("DOCX에서 '1-1 제목' 형식의 본문 제목을 찾지 못했습니다")
+        raise ValueError("DOCX에서 '1-1 제목' 또는 '제N장/제N조' 본문 제목을 찾지 못했습니다")
+    if formal and any(not number for _, _, _, _, number in items):
+        raise ValueError("규정 문서에는 모든 본문이 장/조 구조에 속해야 합니다")
     cohort_value = infer_cohort("\n".join(cover), cohort)
     timestamp = upload_timestamp(created_at)
+    digest = hashlib.sha256(data).hexdigest()
+    status_text = "\n".join(cover)
+    approval_status = "draft" if re.search(r"초안|검토\s*중|\(안\)|（안）|(?:^|[_\s])안(?:[_\s.]|$)", status_text) else "unverified"
     sections = [SourceSection(
         text="\n".join(body), source_type="docx", source_name=source_name,
         section=heading, cohort=cohort_value, updated_at=timestamp,
-    ) for heading, body in items]
+        chapter=chapter_title, chapter_number=chapter_id, article_number=article_id,
+        document_hash=digest, approval_status=approval_status,
+    ) for heading, body, chapter_title, chapter_id, article_id in items]
     build_records(sections)  # Validate every item before persisting any of them.
     return sections
 
@@ -261,17 +294,99 @@ def vector_prefix(source: SourceSection, cohort: str) -> str:
     return f"policy:{quote(cohort, safe='')}:{identity}:"
 
 
+def explicit_article_references(body: str, article_numbers: set[str]) -> tuple[list[str], list[str]]:
+    """Only link unqualified references to articles in this exact document version.
+
+    Numbered body paragraphs are not assumed to be legal ``항``. A reference to
+    one remains unresolved until a reviewed clause hierarchy is available.
+    """
+    resolved: list[str] = []
+    unresolved: list[str] = []
+    external_scope = False
+    previous_end = 0
+    for match in ARTICLE_REFERENCE.finditer(body):
+        if re.search(r"[.!?。\n]", body[previous_end:match.start()]):
+            external_scope = False
+        label = match.group()
+        number = match.group("number") + ("-" + match.group("sub") if match.group("sub") else "")
+        before = body[max(0, match.start() - 40):match.start()]
+        quoted_title = re.search(r"[「『][^」』]{1,40}[」』]\s*$", before)
+        external = re.search(
+            r"([가-힣A-Za-z0-9·]+)\s*(시행규칙|시행령|법률|법|고시|지침|규정집|규정|정책집|매뉴얼|가이드|기준)\s*[」』\]\)]?\s*$",
+            before,
+        )
+        local_label = external and external.group(1) in ("이", "본") and external.group(2) == "규정"
+        if local_label:
+            external_scope = False
+        elif quoted_title or external:
+            external_scope = True
+        if external_scope:
+            unresolved.append(label)
+        elif match.group("paragraph") or number not in article_numbers:
+            unresolved.append(label)
+        elif number not in resolved:
+            resolved.append(number)
+        previous_end = match.end()
+    return resolved, list(dict.fromkeys(unresolved))
+
+
+def formal_article_parts(source: SourceSection) -> list[tuple[str, list[str]]]:
+    """Keep the entire article, including its conditions and exceptions."""
+    header = source.chapter + "\n" + source.section + "\n"
+    lines = source.text.splitlines()
+    ids = [f"{source.article_number}:unit:{ordinal:03d}" for ordinal in range(1, len(lines) + 1)]
+    return [(header + "\n".join(lines), ids)]
+
+
 def build_records(
     sections: Iterable[SourceSection], model: Any | None = None,
     chunk_size: int = CHUNK_SIZE, chunk_overlap: int = CHUNK_OVERLAP,
 ) -> list[ChunkRecord]:
     if not 0 <= chunk_overlap < chunk_size:
         raise ValueError("0 <= chunk_overlap < chunk_size여야 합니다")
+    raw_sections = list(sections)
+    sources = [part for raw in raw_sections if not raw.article_number for part in split_heading_sections(raw)]
+    # Structured DOCX sections already represent complete articles; legacy
+    # Markdown and N-N policy headings continue through the original parser.
+    structured = [raw for raw in raw_sections if raw.article_number]
     records: list[ChunkRecord] = []
     seen = set()
     timestamp = upload_timestamp()
-    for raw in sections:
-        for source in split_heading_sections(raw):
+    numbers_by_version: dict[tuple[str, str, str], set[str]] = {}
+    for source in structured:
+        cohort = infer_cohort(source.source_name, source.cohort or None)
+        version = (source.document_key, cohort, source.document_hash)
+        numbers = numbers_by_version.setdefault(version, set())
+        if source.article_number in numbers:
+            raise ValueError("같은 규정 문서에 중복 조문 번호가 있습니다")
+        numbers.add(source.article_number)
+    for source in structured:
+        if not source.text.strip():
+            raise ValueError(f"{source.section}: 조문 본문이 비어 있습니다")
+        cohort = infer_cohort(source.source_name, source.cohort or None)
+        article_id = f"{cohort}:{source.document_hash}:article:{source.article_number}"
+        chapter_id = f"{cohort}:{source.document_hash}:chapter:{source.chapter_number}"
+        references, unresolved = explicit_article_references(
+            source.text, numbers_by_version[(source.document_key, cohort, source.document_hash)])
+        for index, (content, units) in enumerate(formal_article_parts(source)):
+            records.append(ChunkRecord(
+                page_content=content,
+                metadata={
+                    "doc_id": f"{article_id}:chunk:{index + 1}",
+                    "cohort": cohort, "created_at": upload_timestamp(source.updated_at) if source.updated_at else timestamp,
+                    "structure": "article", "chapter_id": chapter_id, "chapter_title": source.chapter,
+                    "article_id": article_id, "article_number": source.article_number,
+                    "unit_ids": [f"{article_id}:{unit}" for unit in units],
+                    "document_hash": source.document_hash,
+                    "approval_status": source.approval_status,
+                    "explicit_article_refs": references,
+                    "unresolved_article_refs": unresolved,
+                },
+                source=source,
+                content_hash=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                vector_id=f"{vector_prefix(source, cohort)}article:{source.article_number}:{index:04d}",
+            ))
+    for source in sources:
             title = source.section.strip()
             number, kind, body = item_body(source)
             cohort = infer_cohort(source.source_name, source.cohort or None)

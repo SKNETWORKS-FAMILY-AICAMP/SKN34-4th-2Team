@@ -186,6 +186,10 @@ ANSWER_PROMPT = """
 - 중요한 날짜·시간·조건·수치·결론 중 1~3개만 Markdown 굵게 표시하며 문장 전체는 굵게 쓰지 않는다. 항상 부드러운 해요체를 쓴다.
 
 [정책·공지]
+- 검색 정책의 approval_status가 draft 또는 unverified이면 확정·승인된 규정으로 단정하지 말고
+  검토 중인 자료임을 안내한다. 연결된 조문도 같은 상태로 취급한다.
+- context_truncated가 true이거나 unresolved_article_refs가 있으면 필요한 참조 근거가
+  일부 확보되지 않았음을 밝히고, 누락된 조건·예외를 추측하여 자격이나 적용 결과를 확정하지 않는다.
 - 정책은 기본 규칙, 공지는 변경·예외·시행 안내다. 공지가 있다는 이유만으로 우선하지 말고 같은 주제를
   직접 다루는지 확인한다. 같다면 작성일보다 본문의 시행일·적용 기간·철회 여부를 우선한다.
 - 현재 유효한 최신 공지가 정책을 변경·제한한다고 명시한 경우에만 공지를 우선하고, "기존 안내와 달리
@@ -483,6 +487,7 @@ class ScopedPineconeVectorStore(VectorStore):
         text_key: str = "page_content",
         required_filter: dict[str, Any] | None = None,
         on_query: Callable[[int, int], None] | None = None,
+        policy_context_cohort: str = "",
     ) -> None:
         self._index = index
         self._embedding = embedding
@@ -490,6 +495,7 @@ class ScopedPineconeVectorStore(VectorStore):
         self._text_key = text_key
         self.required_filter = required_filter or {}
         self.on_query = on_query
+        self.policy_context_cohort = policy_context_cohort
 
     @property
     def embeddings(self) -> Any:
@@ -520,6 +526,8 @@ class ScopedPineconeVectorStore(VectorStore):
         documents = []
         for match in response.matches:
             metadata = dict(match.metadata or {})
+            if self.policy_context_cohort and metadata.get('cohort') != self.policy_context_cohort:
+                continue
             page_content = str(metadata.pop(self._text_key, "")).strip()
             if page_content:
                 documents.append(
@@ -529,6 +537,9 @@ class ScopedPineconeVectorStore(VectorStore):
                         metadata=metadata,
                     )
                 )
+        if self.policy_context_cohort and self._namespace.startswith('cohort-doc-'):
+            from chatbot.cohort_document_rag import expand_policy_context
+            return expand_policy_context(self._index, self._namespace, self.policy_context_cohort, documents)
         return documents
 
     @classmethod
@@ -781,6 +792,7 @@ class LmsStudentChatbot:
             namespace=search_namespace,
             required_filter=required_filter,
             on_query=on_query,
+            policy_context_cohort=cohort if namespace == 'policy' else '',
         )
         search_kwargs: dict[str, Any] = {"k": _requested_k(query, default_k or self.k)}
         if namespace == "project_reference" and (metadata_filter := _project_filter(query)):

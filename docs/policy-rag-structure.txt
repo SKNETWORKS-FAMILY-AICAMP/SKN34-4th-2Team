@@ -1,0 +1,104 @@
+정책 규정집 구조 청킹 및 명시 참조 조회 — 1차 구현
+작성: 2026-10-09 / branch: refactor/calculation-rules / 배포 이미지 내 코드 포함 확인
+
+배포 상태 정정: 초기에는 미배포로 기록했으나 실제 API/AI 컨테이너에서 이 구조 청킹과
+참조 조회 코드가 확인됐다. 기존 Pinecone 문서의 재색인 여부는 확인하지 않았다.
+Git push 이전에도 로컬 미커밋 파일이 Docker 빌드에 포함될 수 있다.
+추적 근거와 이후 작업 원칙은 docs/policy-rag-delivery.txt를 참고한다.
+
+1. 이번에 구현한 범위
+기존 기수 문서 업로드 흐름에 제N장/제N조 DOCX 입력을 추가했다.
+장 제목과 장 ID는 부모 문맥, 조 전체는 검색 청크, 조문 안 원문 단락 위치는 unit_ids로 보존한다.
+현재 문서의 '1.' 번호를 법률상의 항 또는 호로 임의 확정하지 않는다.
+별도 GraphDB나 DB migration 없이 기존 업로드별 Pinecone namespace의 메타데이터에 관계를 저장한다.
+정확한 항·호 노드, 법령 연결, 의미를 해석해 만드는 예외 관계는 후속 범위다.
+
+2. 관련 파일과 업로드 흐름
+vectordb/policy_ingestion.py
+- load_docx: Heading 스타일의 제N장/제N조, 제N조의2 형식과 기존 N-N 정책집을 지원한다.
+- build_records: 규정집은 조 전체 청킹, 기존 정책집은 기존 500자/40자 겹침 경로를 유지한다.
+- explicit_article_references: 같은 문서 안에 실제 존재하는 명시 조문 참조를 연결한다.
+- 표의 셀 텍스트, 번호 문단, 조건과 예외를 조 본문에 함께 보존한다.
+- 장 없이 시작한 조, 중복 조문, 빈 조문은 거절한다.
+chatbot/cohort_document_rag.py
+- document_records: DOCX 파서 호출, 업로드 namespace/청크 ID 부여, 참조 대상 vector ID 연결.
+- page_content를 포함한 직렬화 메타데이터가 38,000바이트를 넘으면 업로드 사전검사에서 거절한다.
+- index_document: 기존 색인 가시성 확인 후 활성화하는 절차를 유지한다.
+- expand_policy_context: 검색 결과에 있는 명시 참조만 한 단계 fetch한다.
+chatbot/student_chatbot.py
+- 기존 정책 검색기에 문맥 확장을 연결한다. supervisor 라우팅은 유지한다.
+- 초안·미검증 상태와 불완전한 참조 근거를 답변 프롬프트에 전달한다.
+lms_api/lms/cohort_documents.py
+- 기존 API를 그대로 사용한다. 파싱 실패 시 S3 업로드/색인을 시작하지 않는다.
+lms_react/src/features/admin/AdminPeopleScreens.tsx
+- 기존 화면이 기수 저장 후 문서 업로드를 호출한다. 화면 변경은 필요하지 않았다.
+
+업로드 흐름:
+기수 저장 → 문서 해석/검증 → S3 원본 저장 → 업로드별 namespace 색인 → 검색 가시성 확인 → DB 활성 포인터 전환.
+코드 배포 후 이 형식의 문서를 새로 업로드하면 자동으로 적용된다.
+기존에 적재된 문서가 자동으로 재청킹되는 것은 아니다.
+CLI의 legacy policy namespace 적재는 구조 청크 생성까지만 지원하며 새 참조 확장은 cohort-doc namespace에서 동작한다.
+
+3. 데이터와 관계
+cohort: 인증된 조회 범위. 34/34기는 cohort_34로 정규화한다.
+document_hash: 업로드 원본 DOCX 바이트의 SHA256. 파일 내용 또는 저장 방식 변경 시 달라질 수 있다.
+chapter_id / article_id: 기수 + 원문 해시 + 장/조 번호. 개정 전후의 동일 규정을 연결하는 영구 ID는 아니다.
+unit_ids: 조문 안의 추출된 원문 줄 순서를 나타내는 위치 ID. 항·호의 의미 분류를 대신하지 않는다.
+doc_id / storage_key: 업로드 버전 식별자. 같은 파일을 다시 올려도 namespace는 분리된다.
+article_vector_ids: 같은 조에 속하는 청크 ID. 현재 구현에서는 조 전체 1개다.
+explicit_article_refs / reference_vector_ids: 명시된 내부 참조와 해당 업로드의 대상 vector ID.
+unresolved_article_refs: 외부 문헌, 미존재 조문, 아직 해석하지 않는 제N항 참조 등.
+approval_status: 표지/파일명에 초안·검토 중·(안) 표시가 있으면 draft, 그 외 unverified.
+created_at: 적재 일시이며 시행일이 아니다.
+
+4. 검색 흐름과 비용 제한
+인증된 기수 → 현재 활성 문서 namespace → 기존 벡터 검색 → 명시 참조 대상 fetch → 근거 답변.
+장 본문 전체를 덧붙이지 않고 각 조의 장/조 제목을 문맥으로 사용한다.
+검색 1회당 추가 fetch는 최대 1회, 추가 청크는 최대 8개, 추가 본문은 합계 6,000자로 제한한다.
+6,000자는 추가 근거에 대한 예산이다. 최초 검색 결과 및 여러 질문의 합산 전체 예산은 아니다.
+이미 검색된 대상은 다시 가져오지 않으며, 가져온 대상의 참조를 재귀적으로 따라가지 않는다.
+추가 임베딩 또는 LLM 호출 없이 vector ID로 조회한다. 실제 네트워크 응답시간/요금은 측정하지 않았다.
+조회된 seed와 추가 문서는 기수 및 업로드 namespace를 확인하고, 구조 문서는 원문 해시도 검증한다.
+추가 근거가 없거나 검증에 실패하거나 한도를 넘으면 context_truncated를 표시한다.
+불완전한 조문을 글자 수로 잘라 전달하지 않는다.
+기존 vector_calls/embedding_calls 지표는 query 호출을 세며, 새 fetch 호출의 별도 수치 계측은 후속 항목이다.
+
+5. 현재 문서에 적용한 검증
+SKN34/SKN40 운영규정(안) v0.5 각각 10장, 44조 → 각각 44개 청크.
+제1조 목적과 제2조 적용 대상을 포함한 모든 조문 본문을 보존했다.
+이전 로컬 미리보기의 42개 검색 청크와 달리, 이번 구현에서는 적용 범위도 검색할 수 있게 44개 모두 포함한다.
+제35조의 제29조 참조를 각 기수의 같은 업로드 안에서 복원했다.
+34기 수료 80%, 40기 수료 90%, 두 기수 장려금 80% 원문을 각각 보존했다.
+원문 보존 검사이며, 이 수치의 승인 여부나 개인 자격 계산 결과를 검증한 것은 아니다.
+기존 학생 정책집도 각각 44개 항목/57개 청크로 기존 입력 호환을 확인했다.
+문서당 청크 최대 본문 길이 754자, 직렬화 메타데이터 최대 3,474바이트였다.
+
+자동 테스트: 57개 통과 (챗봇/파서/참조 45개 + Django 업로드 12개).
+추가 테스트 파일:
+- chatbot/tests/test_regulation_ingestion.py
+- chatbot/tests/test_policy_reference_context.py
+- lms_api/lms/test_regulation_upload.py
+검증 항목: 본문/표/예외 보존, 긴 조문, 중복·빈·과대 조문 거절, 내부/외부 참조 구분,
+조의2, 기수·버전·해시 격리, 순환/중복/누락/조회 한도, 실제 retriever 연결,
+실제 DOCX 파서에서 업로드 API까지 연결, 실패한 업로드의 기존 활성 문서 보존.
+기존 latency 테스트는 단위기간 DB 조회가 실행되지 않도록 입력 구성 함수를 mock 처리했다.
+
+재현 명령 (저장소 루트, 로컬 Python 환경):
+python -m unittest chatbot.tests.test_regulation_ingestion chatbot.tests.test_policy_reference_context chatbot.tests.test_cohort_document_rag chatbot.tests.test_task_retrieval chatbot.tests.test_routing_regression chatbot.tests.test_latency_metrics -v
+python lms_api/manage.py test lms.test_cohort_documents lms.test_regulation_upload --settings=lms_server.resume_v2_test_settings
+테스트 외부 저장소는 mock, Django DB 설정은 메모리 SQLite다.
+
+6. 다음 단계와 남은 한계
+이 작업에서 운영 DB/S3/Pinecone을 변경하거나 재색인하지 않았다. 다만 별도 배포 빌드에
+작업 중 코드가 포함되어 실제 API/AI 서버에 존재함을 후속 확인했다.
+검토 상태 표시는 승인 워크플로/검색 차단을 구현한 것이 아니다. 현재 활성 포인터는 승인 상태와 독립적이다.
+draft를 운영 답변에서 완전히 제외하려면 승인 필드와 필터를 별도로 구현해야 한다.
+시행일/과거 버전 선택, 개인 기록의 계산 기준 변경, 실제 일정 DB 구조는 이번 범위에 포함하지 않았다.
+문서 스타일과 명시 텍스트를 기반으로 파싱한다. 임의 Word 자동번호·각주·텍스트상자·OCR은 지원하지 않는다.
+외부 문헌 판별은 보수적인 패턴이며 일반 법률 문서의 모든 인용 문법을 처리하는 파서는 아니다.
+장려금 지급/제외, 공가/증빙처럼 명시 참조가 없는 의미상 관계는 운영진 검토 후 별도 연결할 필요가 있다.
+후속 순서:
+1) 질문별 정답 조문 집합을 확정하고 기존 검색과 조문 청킹의 Recall@k/누락률을 비교.
+2) 참조 확장 유무의 정답률·추가 근거량·p50/p95 응답시간 및 호출비용 비교.
+3) 같은 기수·버전 필터를 적용한 BM25+벡터/RRF 실험.
+4) 필요할 때 reranking 실험. GraphDB는 다단계 관계 탐색 요구와 측정 결과를 보고 결정.

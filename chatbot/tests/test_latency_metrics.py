@@ -32,7 +32,7 @@ class FakeIndex:
     def query(self, **kwargs):
         self.calls.append(kwargs)
         return SimpleNamespace(matches=[SimpleNamespace(
-            id="doc-1", score=0.9, metadata={"doc_id": "doc-1", "page_content": "본문"},
+            id="doc-1", score=0.9, metadata={"doc_id": "doc-1", "page_content": "본문", "cohort": "cohort_34"},
         )])
 
 
@@ -97,6 +97,7 @@ class LatencyMetricsTests(unittest.TestCase):
         with (
             patch("chatbot.api.valid_proxy_token", return_value=True),
             patch("chatbot.api._session_from_uid", return_value={"uid": "demo", "cohort": "34"}),
+            patch("chatbot.api._chat_inputs", return_value={"thread_id": "test", "student_uid": "demo", "cohort": "34"}),
             patch("chatbot.api._ready_chatbot", return_value=bot),
             patch("chatbot.api.write_generation_log") as write_log,
         ):
