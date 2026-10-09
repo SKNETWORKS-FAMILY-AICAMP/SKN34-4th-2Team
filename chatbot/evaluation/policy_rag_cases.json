@@ -1,0 +1,936 @@
+[
+  {
+    "id": "34-completion",
+    "cohort": "cohort_34",
+    "category": "기수별 기준",
+    "question": "34기 문서 기준으로 수료하려면 몇 일, 몇 퍼센트를 출석해야 해?",
+    "required_articles": [
+      "13"
+    ],
+    "evidence": [
+      {
+        "article": "13",
+        "quote": "96일 이상(80% 이상)"
+      },
+      {
+        "article": "13",
+        "quote": "전체 훈련기간의 출석률"
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "수료 기준 96일/80%를 구분한다."
+    ]
+  },
+  {
+    "id": "34-incentive",
+    "cohort": "cohort_34",
+    "category": "기수별 기준",
+    "question": "34기 장려금 출석률 기준과 월 최대 합계, 일일 산정액은 얼마야?",
+    "required_articles": [
+      "16"
+    ],
+    "evidence": [
+      {
+        "article": "16",
+        "quote": "단위기간 출석률 80% 이상"
+      },
+      {
+        "article": "16",
+        "quote": "월 최대 합계는 300,000원"
+      },
+      {
+        "article": "16",
+        "quote": "일일 산정액은 인정 출석일마다 15,000원"
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "수료 출석률과 혼동하지 않는다.",
+      "지급 확정이 아닌 문서상 기준으로 설명한다."
+    ]
+  },
+  {
+    "id": "34-lounge",
+    "cohort": "cohort_34",
+    "category": "기수별 기준",
+    "question": "34기 캠퍼스에서 점심 도시락을 먹어도 돼? 장소와 제한을 알려줘.",
+    "required_articles": [
+      "42"
+    ],
+    "evidence": [
+      {
+        "article": "42",
+        "quote": "점심시간 12:50~14:00에 허용한다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "다른 기수의 허용/금지 규정을 섞지 않는다."
+    ]
+  },
+  {
+    "id": "34-late",
+    "cohort": "cohort_34",
+    "category": "환산 규칙",
+    "question": "34기 하루에 지각과 조퇴를 같이 하면 몇 회야? 결석 환산 기준도 알려줘.",
+    "required_articles": [
+      "6"
+    ],
+    "evidence": [
+      {
+        "article": "6",
+        "quote": "누적 3회는 결석 1일로 환산한다."
+      },
+      {
+        "article": "6",
+        "quote": "하루에 지각과 조퇴를 함께 하면 2회로 계산한다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "규칙 설명과 개인 출결 판정을 구분한다."
+    ]
+  },
+  {
+    "id": "34-leave",
+    "cohort": "cohort_34",
+    "category": "조건 예외",
+    "question": "34기 다음 달에 생길 휴가를 미리 쓸 수 있어? 남은 휴가는 이월돼?",
+    "required_articles": [
+      "11"
+    ],
+    "evidence": [
+      {
+        "article": "11",
+        "quote": "이월할 수 있지만 이후 단위기간의 휴가를 미리 사용할 수는 없다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "이월 가능과 선사용 불가를 함께 설명한다."
+    ]
+  },
+  {
+    "id": "34-sick",
+    "cohort": "cohort_34",
+    "category": "복수 근거",
+    "question": "34기 병가에 진료확인서만 내면 출석이 확정돼? 서류 요건과 최종 인정 절차를 알려줘.",
+    "required_articles": [
+      "10",
+      "9"
+    ],
+    "evidence": [
+      {
+        "article": "10",
+        "quote": "훈련생 이름, 내원 날짜, 병명과 질병코드, 병원 직인"
+      },
+      {
+        "article": "10",
+        "quote": "처방전만 제출하거나 병원 직인이 빠진 서류는 인정하지 않는다."
+      },
+      {
+        "article": "9",
+        "quote": "서류 제출만으로 출석 인정이 확정되는 것은 아니다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "서류 요건을 말하고 고용센터 점검 전 확정하지 않는다."
+    ]
+  },
+  {
+    "id": "34-exam_leave",
+    "cohort": "cohort_34",
+    "category": "복수 근거",
+    "question": "34기 자격시험 접수확인서로 공가 신청해도 돼?",
+    "required_articles": [
+      "12",
+      "9"
+    ],
+    "evidence": [
+      {
+        "article": "12",
+        "quote": "훈련과정 관련 자격시험"
+      },
+      {
+        "article": "9",
+        "quote": "접수확인서만으로는 인정되지 않는다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "응시확인서 필요를 설명한다."
+    ]
+  },
+  {
+    "id": "34-incentive_excluded",
+    "cohort": "cohort_34",
+    "category": "복수 근거",
+    "question": "34기 출석률 80%만 넘으면 일하면서도 장려금을 무조건 받을 수 있어?",
+    "required_articles": [
+      "16",
+      "17"
+    ],
+    "evidence": [
+      {
+        "article": "16",
+        "quote": "단위기간 출석률 80% 이상"
+      },
+      {
+        "article": "17",
+        "quote": "고용보험 가입 상태에서 주 15시간 이상 근로하는 경우"
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "출석률만으로 지급을 확정하지 않는다.",
+      "근로 상태별 제외 조건 확인이 필요하다."
+    ]
+  },
+  {
+    "id": "34-payment_process",
+    "cohort": "cohort_34",
+    "category": "절차",
+    "question": "34기 장려금은 단위기간이 끝나면 바로 입금돼? 어떤 절차가 남아?",
+    "required_articles": [
+      "18"
+    ],
+    "evidence": [
+      {
+        "article": "18",
+        "quote": "모든 훈련생의 공가 증빙이 출석으로 반영된 뒤 비용을 신청한다."
+      },
+      {
+        "article": "18",
+        "quote": "비용 지급(약 1~2주)"
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "예상 절차를 안내하고 실제 지급일은 확정하지 않는다."
+    ]
+  },
+  {
+    "id": "34-team_resources",
+    "cohort": "cohort_34",
+    "category": "명시 참조",
+    "question": "34기 최종 프로젝트 팀 활동과 멘토링 규정에 나오는 지원 리소스의 팀당 한도까지 알려줘.",
+    "required_articles": [
+      "35",
+      "29"
+    ],
+    "evidence": [
+      {
+        "article": "35",
+        "quote": "총 20시간 멘토링"
+      },
+      {
+        "article": "35",
+        "quote": "제29조를 확인하여야 한다."
+      },
+      {
+        "article": "29",
+        "quote": "RunPod 300달러, GPT API 300달러"
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "제35조와 참조 대상 제29조를 함께 근거로 사용한다."
+    ]
+  },
+  {
+    "id": "34-solo_project",
+    "cohort": "cohort_34",
+    "category": "조건 예외",
+    "question": "34기 최종 프로젝트를 혼자 하면 멘토링이랑 리소스 지원도 받을 수 있어?",
+    "required_articles": [
+      "35"
+    ],
+    "evidence": [
+      {
+        "article": "35",
+        "quote": "개인 프로젝트는 멘토링 및 리소스 지원 대상에서 제외한다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "개인 프로젝트 제외 조건을 누락하지 않는다."
+    ]
+  },
+  {
+    "id": "34-personal_resources",
+    "cohort": "cohort_34",
+    "category": "복수 근거",
+    "question": "34기 개인 실습 리소스 지원 받으려면 동의서와 결제 카드에 어떤 조건이 있어?",
+    "required_articles": [
+      "28",
+      "30"
+    ],
+    "evidence": [
+      {
+        "article": "28",
+        "quote": "동의서를 작성하지 않으면 지원받을 수 없다."
+      },
+      {
+        "article": "30",
+        "quote": "본인 명의의 해외 결제 가능 카드"
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "지원 한도만 설명하지 않고 동의서와 결제 조건을 포함한다."
+    ]
+  },
+  {
+    "id": "34-refund",
+    "cohort": "cohort_34",
+    "category": "복수 근거",
+    "question": "34기 리소스 결제 문자만으로 환급돼? 구독 해지 안 해서 생긴 초과 비용도 지원돼?",
+    "required_articles": [
+      "31",
+      "30"
+    ],
+    "evidence": [
+      {
+        "article": "31",
+        "quote": "문자·카카오톡 결제 내역과 통장 입출금 내역은 카드 영수증을 대신할 수 없다."
+      },
+      {
+        "article": "30",
+        "quote": "초과 비용은 지원하지 않으며 개인 부담으로 처리한다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "필요 영수증과 초과 비용 제외를 함께 설명한다."
+    ]
+  },
+  {
+    "id": "34-mileage_attendance",
+    "cohort": "cohort_34",
+    "category": "유사 숫자 구분",
+    "question": "34기 장려금 기준 80%를 채우면 출석률 마일리지도 받아?",
+    "required_articles": [
+      "16",
+      "25"
+    ],
+    "evidence": [
+      {
+        "article": "16",
+        "quote": "단위기간 출석률 80% 이상"
+      },
+      {
+        "article": "25",
+        "quote": "각각 출석률 100%"
+      },
+      {
+        "article": "25",
+        "quote": "지각·조퇴·외출·결석이 한 번이라도 있으면 해당 미션에서 제외한다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "80%와 100%를 구분하고 출석 미션 제외 조건을 설명한다."
+    ]
+  },
+  {
+    "id": "34-mileage_cert",
+    "cohort": "cohort_34",
+    "category": "조건 예외",
+    "question": "34기 PCCE로 마일리지 받은 다음 PCCP도 따면 5만 원을 또 받아?",
+    "required_articles": [
+      "24"
+    ],
+    "evidence": [
+      {
+        "article": "24",
+        "quote": "25,000원을 추가 지급해 총 50,000원"
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "추가 25,000원과 총 50,000원을 구분한다."
+    ]
+  },
+  {
+    "id": "34-study",
+    "cohort": "cohort_34",
+    "category": "조건 예외",
+    "question": "34기 팀원이 스터디 인증했으면 나도 인정돼? 혼자 공부한 건?",
+    "required_articles": [
+      "23"
+    ],
+    "evidence": [
+      {
+        "article": "23",
+        "quote": "개인 스터디는 인정하지 않는다."
+      },
+      {
+        "article": "23",
+        "quote": "같은 팀이어도 각자 인증해야 한다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "개별 인증 필요와 개인 스터디 불인정을 함께 설명한다."
+    ]
+  },
+  {
+    "id": "34-deadline",
+    "cohort": "cohort_34",
+    "category": "절차",
+    "question": "34기 공가 출석 입력 요청 대장은 언제까지 내고 서류 처리는 얼마나 걸려?",
+    "required_articles": [
+      "9"
+    ],
+    "evidence": [
+      {
+        "article": "9",
+        "quote": "다음 출석일 마지막 쉬는 시간인 오후 4시 50분까지 제출한다."
+      },
+      {
+        "article": "9",
+        "quote": "약 3~7일 소요될 수 있다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "제출기한과 예상 처리시간을 구분한다."
+    ]
+  },
+  {
+    "id": "34-book",
+    "cohort": "cohort_34",
+    "category": "일반 규정",
+    "question": "34기 도서는 얼마나 빌릴 수 있고 반납할 때 절차는 뭐야?",
+    "required_articles": [
+      "38"
+    ],
+    "evidence": [
+      {
+        "article": "38",
+        "quote": "14일 동안 대여"
+      },
+      {
+        "article": "38",
+        "quote": "반납 시에도 대여장을 작성하고 매니저 확인"
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "기간과 반납 절차를 함께 설명한다."
+    ]
+  },
+  {
+    "id": "34-unknown",
+    "cohort": "cohort_34",
+    "category": "근거 없음",
+    "question": "34기 수료하면 취업이 보장되고 초봉은 최소 얼마야?",
+    "required_articles": [],
+    "evidence": [],
+    "expected_behavior": "abstain",
+    "answer_checks": [
+      "취업 보장과 최소 연봉은 문서 근거가 없음을 명시한다.",
+      "취업지원 제도를 보장으로 확대 해석하지 않는다."
+    ]
+  },
+  {
+    "id": "34-private",
+    "cohort": "cohort_34",
+    "category": "개인 기록 경계",
+    "question": "나는 34기야. 이번 달 내 실제 출석률과 남은 휴가, 받을 장려금을 확정해줘.",
+    "required_articles": [],
+    "evidence": [],
+    "expected_behavior": "private_records_required",
+    "answer_checks": [
+      "권한 있는 개인 기록과 검증된 계산 결과가 필요함을 설명한다.",
+      "이 평가에는 개인 기록이 없으므로 임의 출석률·잔여 휴가·지급액을 만들지 않는다."
+    ]
+  },
+  {
+    "id": "40-completion",
+    "cohort": "cohort_40",
+    "category": "기수별 기준",
+    "question": "40기 문서 기준으로 수료하려면 몇 일, 몇 퍼센트를 출석해야 해?",
+    "required_articles": [
+      "13"
+    ],
+    "evidence": [
+      {
+        "article": "13",
+        "quote": "108일 이상(90% 이상)"
+      },
+      {
+        "article": "13",
+        "quote": "전체 훈련기간의 출석률"
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "수료 기준 108일/90%를 구분한다."
+    ]
+  },
+  {
+    "id": "40-incentive",
+    "cohort": "cohort_40",
+    "category": "기수별 기준",
+    "question": "40기 장려금 출석률 기준과 월 최대 합계, 일일 산정액은 얼마야?",
+    "required_articles": [
+      "16"
+    ],
+    "evidence": [
+      {
+        "article": "16",
+        "quote": "단위기간 출석률 80% 이상"
+      },
+      {
+        "article": "16",
+        "quote": "월 최대 합계는 400,000원"
+      },
+      {
+        "article": "16",
+        "quote": "일일 산정액은 인정 출석일마다 20,000원"
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "수료 출석률과 혼동하지 않는다.",
+      "지급 확정이 아닌 문서상 기준으로 설명한다."
+    ]
+  },
+  {
+    "id": "40-lounge",
+    "cohort": "cohort_40",
+    "category": "기수별 기준",
+    "question": "40기 캠퍼스에서 점심 도시락을 먹어도 돼? 장소와 제한을 알려줘.",
+    "required_articles": [
+      "42"
+    ],
+    "evidence": [
+      {
+        "article": "42",
+        "quote": "캠퍼스 내 식사는 금지한다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "다른 기수의 허용/금지 규정을 섞지 않는다."
+    ]
+  },
+  {
+    "id": "40-late",
+    "cohort": "cohort_40",
+    "category": "환산 규칙",
+    "question": "40기 하루에 지각과 조퇴를 같이 하면 몇 회야? 결석 환산 기준도 알려줘.",
+    "required_articles": [
+      "6"
+    ],
+    "evidence": [
+      {
+        "article": "6",
+        "quote": "누적 3회는 결석 1일로 환산한다."
+      },
+      {
+        "article": "6",
+        "quote": "하루에 지각과 조퇴를 함께 하면 2회로 계산한다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "규칙 설명과 개인 출결 판정을 구분한다."
+    ]
+  },
+  {
+    "id": "40-leave",
+    "cohort": "cohort_40",
+    "category": "조건 예외",
+    "question": "40기 다음 달에 생길 휴가를 미리 쓸 수 있어? 남은 휴가는 이월돼?",
+    "required_articles": [
+      "11"
+    ],
+    "evidence": [
+      {
+        "article": "11",
+        "quote": "이월할 수 있지만 이후 단위기간의 휴가를 미리 사용할 수는 없다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "이월 가능과 선사용 불가를 함께 설명한다."
+    ]
+  },
+  {
+    "id": "40-sick",
+    "cohort": "cohort_40",
+    "category": "복수 근거",
+    "question": "40기 병가에 진료확인서만 내면 출석이 확정돼? 서류 요건과 최종 인정 절차를 알려줘.",
+    "required_articles": [
+      "10",
+      "9"
+    ],
+    "evidence": [
+      {
+        "article": "10",
+        "quote": "훈련생 이름, 내원 날짜, 병명과 질병코드, 병원 직인"
+      },
+      {
+        "article": "10",
+        "quote": "처방전만 제출하거나 병원 직인이 빠진 서류는 인정하지 않는다."
+      },
+      {
+        "article": "9",
+        "quote": "서류 제출만으로 출석 인정이 확정되는 것은 아니다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "서류 요건을 말하고 고용센터 점검 전 확정하지 않는다."
+    ]
+  },
+  {
+    "id": "40-exam_leave",
+    "cohort": "cohort_40",
+    "category": "복수 근거",
+    "question": "40기 자격시험 접수확인서로 공가 신청해도 돼?",
+    "required_articles": [
+      "12",
+      "9"
+    ],
+    "evidence": [
+      {
+        "article": "12",
+        "quote": "훈련과정 관련 자격시험"
+      },
+      {
+        "article": "9",
+        "quote": "접수확인서만으로는 인정되지 않는다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "응시확인서 필요를 설명한다."
+    ]
+  },
+  {
+    "id": "40-incentive_excluded",
+    "cohort": "cohort_40",
+    "category": "복수 근거",
+    "question": "40기 출석률 80%만 넘으면 일하면서도 장려금을 무조건 받을 수 있어?",
+    "required_articles": [
+      "16",
+      "17"
+    ],
+    "evidence": [
+      {
+        "article": "16",
+        "quote": "단위기간 출석률 80% 이상"
+      },
+      {
+        "article": "17",
+        "quote": "고용보험 가입 상태에서 주 15시간 이상 근로하는 경우"
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "출석률만으로 지급을 확정하지 않는다.",
+      "근로 상태별 제외 조건 확인이 필요하다."
+    ]
+  },
+  {
+    "id": "40-payment_process",
+    "cohort": "cohort_40",
+    "category": "절차",
+    "question": "40기 장려금은 단위기간이 끝나면 바로 입금돼? 어떤 절차가 남아?",
+    "required_articles": [
+      "18"
+    ],
+    "evidence": [
+      {
+        "article": "18",
+        "quote": "모든 훈련생의 공가 증빙이 출석으로 반영된 뒤 비용을 신청한다."
+      },
+      {
+        "article": "18",
+        "quote": "비용 지급(약 1~2주)"
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "예상 절차를 안내하고 실제 지급일은 확정하지 않는다."
+    ]
+  },
+  {
+    "id": "40-team_resources",
+    "cohort": "cohort_40",
+    "category": "명시 참조",
+    "question": "40기 최종 프로젝트 팀 활동과 멘토링 규정에 나오는 지원 리소스의 팀당 한도까지 알려줘.",
+    "required_articles": [
+      "35",
+      "29"
+    ],
+    "evidence": [
+      {
+        "article": "35",
+        "quote": "총 20시간 멘토링"
+      },
+      {
+        "article": "35",
+        "quote": "제29조를 확인하여야 한다."
+      },
+      {
+        "article": "29",
+        "quote": "RunPod 300달러, GPT API 300달러"
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "제35조와 참조 대상 제29조를 함께 근거로 사용한다."
+    ]
+  },
+  {
+    "id": "40-solo_project",
+    "cohort": "cohort_40",
+    "category": "조건 예외",
+    "question": "40기 최종 프로젝트를 혼자 하면 멘토링이랑 리소스 지원도 받을 수 있어?",
+    "required_articles": [
+      "35"
+    ],
+    "evidence": [
+      {
+        "article": "35",
+        "quote": "개인 프로젝트는 멘토링 및 리소스 지원 대상에서 제외한다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "개인 프로젝트 제외 조건을 누락하지 않는다."
+    ]
+  },
+  {
+    "id": "40-personal_resources",
+    "cohort": "cohort_40",
+    "category": "복수 근거",
+    "question": "40기 개인 실습 리소스 지원 받으려면 동의서와 결제 카드에 어떤 조건이 있어?",
+    "required_articles": [
+      "28",
+      "30"
+    ],
+    "evidence": [
+      {
+        "article": "28",
+        "quote": "동의서를 작성하지 않으면 지원받을 수 없다."
+      },
+      {
+        "article": "30",
+        "quote": "본인 명의의 해외 결제 가능 카드"
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "지원 한도만 설명하지 않고 동의서와 결제 조건을 포함한다."
+    ]
+  },
+  {
+    "id": "40-refund",
+    "cohort": "cohort_40",
+    "category": "복수 근거",
+    "question": "40기 리소스 결제 문자만으로 환급돼? 구독 해지 안 해서 생긴 초과 비용도 지원돼?",
+    "required_articles": [
+      "31",
+      "30"
+    ],
+    "evidence": [
+      {
+        "article": "31",
+        "quote": "문자·카카오톡 결제 내역과 통장 입출금 내역은 카드 영수증을 대신할 수 없다."
+      },
+      {
+        "article": "30",
+        "quote": "초과 비용은 지원하지 않으며 개인 부담으로 처리한다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "필요 영수증과 초과 비용 제외를 함께 설명한다."
+    ]
+  },
+  {
+    "id": "40-mileage_attendance",
+    "cohort": "cohort_40",
+    "category": "유사 숫자 구분",
+    "question": "40기 장려금 기준 80%를 채우면 출석률 마일리지도 받아?",
+    "required_articles": [
+      "16",
+      "25"
+    ],
+    "evidence": [
+      {
+        "article": "16",
+        "quote": "단위기간 출석률 80% 이상"
+      },
+      {
+        "article": "25",
+        "quote": "각각 출석률 100%"
+      },
+      {
+        "article": "25",
+        "quote": "지각·조퇴·외출·결석이 한 번이라도 있으면 해당 미션에서 제외한다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "80%와 100%를 구분하고 출석 미션 제외 조건을 설명한다."
+    ]
+  },
+  {
+    "id": "40-mileage_cert",
+    "cohort": "cohort_40",
+    "category": "조건 예외",
+    "question": "40기 PCCE로 마일리지 받은 다음 PCCP도 따면 5만 원을 또 받아?",
+    "required_articles": [
+      "24"
+    ],
+    "evidence": [
+      {
+        "article": "24",
+        "quote": "25,000원을 추가 지급해 총 50,000원"
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "추가 25,000원과 총 50,000원을 구분한다."
+    ]
+  },
+  {
+    "id": "40-study",
+    "cohort": "cohort_40",
+    "category": "조건 예외",
+    "question": "40기 팀원이 스터디 인증했으면 나도 인정돼? 혼자 공부한 건?",
+    "required_articles": [
+      "23"
+    ],
+    "evidence": [
+      {
+        "article": "23",
+        "quote": "개인 스터디는 인정하지 않는다."
+      },
+      {
+        "article": "23",
+        "quote": "같은 팀이어도 각자 인증해야 한다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "개별 인증 필요와 개인 스터디 불인정을 함께 설명한다."
+    ]
+  },
+  {
+    "id": "40-deadline",
+    "cohort": "cohort_40",
+    "category": "절차",
+    "question": "40기 공가 출석 입력 요청 대장은 언제까지 내고 서류 처리는 얼마나 걸려?",
+    "required_articles": [
+      "9"
+    ],
+    "evidence": [
+      {
+        "article": "9",
+        "quote": "다음 출석일 마지막 쉬는 시간인 오후 4시 50분까지 제출한다."
+      },
+      {
+        "article": "9",
+        "quote": "약 3~7일 소요될 수 있다."
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "제출기한과 예상 처리시간을 구분한다."
+    ]
+  },
+  {
+    "id": "40-book",
+    "cohort": "cohort_40",
+    "category": "일반 규정",
+    "question": "40기 도서는 얼마나 빌릴 수 있고 반납할 때 절차는 뭐야?",
+    "required_articles": [
+      "38"
+    ],
+    "evidence": [
+      {
+        "article": "38",
+        "quote": "14일 동안 대여"
+      },
+      {
+        "article": "38",
+        "quote": "반납 시에도 대여장을 작성하고 매니저 확인"
+      }
+    ],
+    "expected_behavior": "answer",
+    "answer_checks": [
+      "초안 자료임을 밝히고 승인된 공식 규정으로 단정하지 않는다.",
+      "기간과 반납 절차를 함께 설명한다."
+    ]
+  },
+  {
+    "id": "40-unknown",
+    "cohort": "cohort_40",
+    "category": "근거 없음",
+    "question": "40기 수료하면 취업이 보장되고 초봉은 최소 얼마야?",
+    "required_articles": [],
+    "evidence": [],
+    "expected_behavior": "abstain",
+    "answer_checks": [
+      "취업 보장과 최소 연봉은 문서 근거가 없음을 명시한다.",
+      "취업지원 제도를 보장으로 확대 해석하지 않는다."
+    ]
+  },
+  {
+    "id": "40-private",
+    "cohort": "cohort_40",
+    "category": "개인 기록 경계",
+    "question": "나는 40기야. 이번 달 내 실제 출석률과 남은 휴가, 받을 장려금을 확정해줘.",
+    "required_articles": [],
+    "evidence": [],
+    "expected_behavior": "private_records_required",
+    "answer_checks": [
+      "권한 있는 개인 기록과 검증된 계산 결과가 필요함을 설명한다.",
+      "이 평가에는 개인 기록이 없으므로 임의 출석률·잔여 휴가·지급액을 만들지 않는다."
+    ]
+  }
+]
