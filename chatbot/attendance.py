@@ -34,6 +34,14 @@ def enrich_unit_period_context(context: dict[str, Any]) -> dict[str, Any]:
         remaining = max(scheduled - recorded, 0)
         required = rules.required_days(scheduled)
         allowance = max(recognized + remaining - required, 0)
+        partitions = [period.get(key) for key in (
+            'unrecorded_past_days', 'unrecorded_today_days', 'unrecorded_future_days', 'future_recorded_days')]
+        partition_valid = (all(type(value) is int and value >= 0 for value in partitions)
+                           and sum(partitions[:3]) == remaining)
+        reliable_projection = (scheduled > 0 and recorded > 0 and partition_valid
+                               and partitions[0] == 0 and partitions[1] == 0 and partitions[3] == 0)
+        needed = max(required - recognized, 0) if scheduled > 0 and recorded > 0 else None
+        until_conversion = rules.exceptions_per_absence - (exceptions % rules.exceptions_per_absence)
 
         period["in_progress_estimate"] = {
             "basis": "현재까지 출결 기록이 확인된 수업일",
@@ -43,9 +51,20 @@ def enrich_unit_period_context(context: dict[str, Any]) -> dict[str, Any]:
             "requirement_met_so_far": rules.requirement_met(recognized, recorded),
             "full_period_required_recognized_days": required,
             "remaining_scheduled_days": remaining,
+            "unrecorded_past_days": period.get('unrecorded_past_days'),
+            "unrecorded_today_days": period.get('unrecorded_today_days'),
+            "unrecorded_future_days": period.get('unrecorded_future_days'),
+            "future_recorded_days": period.get('future_recorded_days'),
+            "additional_recognized_days_needed": needed,
+            "additional_normal_attendance_days_needed": needed if reliable_projection else None,
+            "reachable_with_future_normal_attendance": (
+                needed <= partitions[2] if reliable_projection else None),
+            "projection_status": 'conditional_estimate' if reliable_projection else 'records_need_review',
+            "projection_assumption": '앞으로 정상 출석하며 추가 결석 환산이 발생하지 않는다는 가정',
+            "additional_absence_equivalent_if_one_more_exception": 1 if until_conversion == 1 else 0,
             "max_additional_absent_days_within_remaining": min(remaining, allowance),
             "exception_count": exceptions,
-            "exception_count_until_next_absence_equivalent": rules.exceptions_per_absence - (exceptions % rules.exceptions_per_absence),
+            "exception_count_until_next_absence_equivalent": until_conversion,
             "absence_equivalent_days": absence_equivalent,
             "final_rate_if_all_remaining_present": (
                 round((recognized + remaining) / scheduled * 100, 1) if scheduled else None

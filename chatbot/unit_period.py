@@ -65,6 +65,9 @@ def calculate_unit_period_context(
             if day in days and status in ATTENDANCE_STATUSES
         )
         recorded_days = sum(statuses.values())
+        recorded_dates = {day for day, status in attendance.items()
+                          if day in days and status in ATTENDANCE_STATUSES}
+        unrecorded_dates = days - recorded_dates
         scheduled_days = len(days)
         complete = scheduled_days > 0 and recorded_days >= scheduled_days
         exception_count = statuses["late"] + statuses["earlyLeave"] + statuses["outing"]
@@ -74,6 +77,10 @@ def calculate_unit_period_context(
         period.update({
             "scheduled_days": scheduled_days or None,
             "recorded_days": recorded_days,
+            "unrecorded_past_days": sum(day < today for day in unrecorded_dates),
+            "unrecorded_today_days": sum(day == today for day in unrecorded_dates),
+            "unrecorded_future_days": sum(day > today for day in unrecorded_dates),
+            "future_recorded_days": sum(day > today for day in recorded_dates),
             "status_counts": dict(statuses),
             "absence_equivalent_days": absence_equivalent if complete else None,
             "recognized_attendance_days": recognized_days,

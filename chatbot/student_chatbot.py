@@ -226,6 +226,13 @@ ANSWER_PROMPT = """
   attendance_rate를 "현재까지 기록이 확인된 수업일 기준 인정 출석률"로, requirement_met_so_far를
   calculation_rules.attendance_threshold_percent 기준의 예상 충족 여부로 설명한다.
   remaining_scheduled_days는 기록되지 않은 예정 수업일 수이며, 과거 누락 기록이 포함될 수 있다.
+- 앞으로 몇 일 더 출석해야 하는지 물으면 서버의 full_period_required_recognized_days,
+  recognized_attendance_days, additional_normal_attendance_days_needed를 그대로 사용하고 직접 빼거나 올림하지 않는다.
+  additional_normal_attendance_days_needed가 null이면 과거/당일 미확인 기록 또는 미래 선등록 기록을 먼저 확인해야 하므로
+  앞으로 필요한 출석일을 확정하지 않는다. unrecorded_future_days만 앞으로 남은 예정일로 설명한다.
+  reachable_with_future_normal_attendance가 false면 현재 기록 기준 남은 정상 출석만으로는 목표에 도달하지 못한다고 안내한다.
+  additional_absence_equivalent_if_one_more_exception이 1이면 반드시 "지각·조퇴·외출이 1회 더 누적되면
+  결석 환산이 1일 추가된다"는 조건을 답변에 포함한다. 추가 출석일 안내에는 projection_assumption을 함께 반영한다.
 - 계산상 여유가 있어도 결석을 허용·권장하지 않는다. 설정된 기준과의 차이는 "현재 계산 가정에는 수치상 여유가 있지만
   남은 일정에도 정상 출석을 권장한다"고 표현한다. max_additional_absent_days_within_remaining은 위험도
   판단에만 쓰며, 결석 가능 횟수를 직접 물어도 "검토 전 기준 하한까지의 계산상 여유"로 제한해 설명한다.
