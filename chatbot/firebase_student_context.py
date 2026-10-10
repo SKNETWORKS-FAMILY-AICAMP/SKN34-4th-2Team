@@ -110,16 +110,6 @@ def load_unit_period_context(
         start, end = _to_kst_date(cohort_data.get("start_date")), _to_kst_date(cohort_data.get("end_date"))
         if not start or not end:
             return {"unavailable_reason": "기수의 개강일 또는 종강일이 등록되지 않았습니다"}
-        if not include_attendance:
-            # Calendar boundaries do not depend on a PDF, lesson schedule or attendance.
-            context = calculate_unit_period_context(start, end, today=today or datetime.now(KST).date())
-            context["periods"] = [
-                {key: period[key] for key in ("number", "start_date", "end_date")}
-                for period in context["periods"]
-            ]
-            context["calculation_notes"] = context["calculation_notes"][:1]
-            return context
-        user_id = _user_id(cur, uid)
         scheduled_dates: set[date] = set()
         sheet = cur.execute(
             "SELECT id FROM curriculum_sheets WHERE cohort_id = %s ORDER BY uploaded_at DESC NULLS LAST LIMIT 1",
@@ -133,6 +123,21 @@ def load_unit_period_context(
                 parsed = parse_schedule_date(str(row.get("date_label") or ""), start)
                 if parsed and start <= parsed <= end:
                     scheduled_dates.add(parsed)
+        if not include_attendance:
+            # Shared schedule counts do not require access to personal attendance.
+            context = calculate_unit_period_context(start, end, today=today or datetime.now(KST).date(),
+                                                    scheduled_dates=scheduled_dates)
+            context['scheduled_days_source'] = 'curriculum_rows' if scheduled_dates else 'unavailable'
+            context["periods"] = [
+                {key: period[key] for key in ("number", "start_date", "end_date", "scheduled_days")}
+                for period in context["periods"]
+            ]
+            context["calculation_notes"] = context["calculation_notes"][:1] + [
+                'scheduled_days는 등록 커리큘럼에서 날짜를 중복 제거해 집계한 수업 예정일 수다. '
+                '기간 경계의 검토 상태와 별개이며, 일정 등록의 완전성·승인을 뜻하지 않는다.'
+            ]
+            return context
+        user_id = _user_id(cur, uid)
         attendance: dict[date, str] = {}
         if user_id:
             for row in cur.execute(

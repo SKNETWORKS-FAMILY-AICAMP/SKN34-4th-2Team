@@ -217,6 +217,9 @@ ANSWER_PROMPT = """
 [진행 중 출석]
 - 단위기간 날짜는 제공된 periods와 current_unit_period를 사용한다.
   schedule_status가 generated_unconfirmed이면 반드시 "검토 전 계산 일정"으로 안내하고 확정 일정으로 단정하지 않는다.
+  이는 단위기간 경계의 상태다. scheduled_days_source가 curriculum_rows이고 해당 기간의 scheduled_days가 있으면
+  "등록 커리큘럼 기준 수업 예정일 N일"로 안내한다. 기간 경계가 검토 전이라는 이유로 이 수치를 무시하지 않는다.
+  수업일수는 단순 평일 수나 예시 20일로 대체하지 않는다. scheduled_days가 없으면 임의의 날짜 수를 가정하지 않는다.
   날짜만 제공된 경우 출석률이나 장려금 충족 여부까지 추정하지 않는다.
 - calculation_rules.review_status가 unverified이면 계산 기준도 미검증임을 밝힌다. RAG에서 찾은 숫자로
   서버 결과를 재계산하거나 수료·수당 자격을 판정하지 않는다. in_progress_estimate가 있으면
