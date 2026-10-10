@@ -7,6 +7,8 @@ import json
 import os
 import re
 import time
+import logging
+import traceback
 from functools import lru_cache
 from typing import Any, Iterator
 
@@ -31,6 +33,15 @@ from chatbot.ops_log import (
 from chatbot.student_chatbot import LmsStudentChatbot, create_student_chatbot
 
 router = APIRouter(prefix="/api/v1/student-chatbot", tags=["student-chatbot"])
+logger = logging.getLogger(__name__)
+
+
+def _log_generation_failure(exc: Exception) -> None:
+    # Keep request text, student records, credentials and exception payloads out
+    # of logs; record exception type and code locations for diagnosis instead.
+    frames = traceback.extract_tb(exc.__traceback__)
+    logger.error('Chat generation failed: %s; frames=%s', type(exc).__name__,
+                 ' > '.join(f'{os.path.basename(f.filename)}:{f.lineno}:{f.name}' for f in frames))
 THREAD_RE = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
 
 
@@ -175,7 +186,8 @@ def _ndjson_chat(
             if chunk and first_token_ms is None:
                 first_token_ms = max(0, round((time.perf_counter() - started) * 1000))
             yield json.dumps({"type": "token", "content": chunk}, ensure_ascii=False) + "\n"
-    except Exception:
+    except Exception as exc:
+        _log_generation_failure(exc)
         status = "error"
         error_message = "답변 생성 중 오류가 발생했습니다"
         yield json.dumps({"type": "error", "message": error_message}, ensure_ascii=False) + "\n"
@@ -245,7 +257,8 @@ def proxy_chat(
                 if first_token_ms is None:
                     first_token_ms = max(0, round((time.perf_counter() - started) * 1000))
                 parts.append(str(chunk))
-    except Exception:
+    except Exception as exc:
+        _log_generation_failure(exc)
         err = "답변 생성 중 오류가 발생했습니다"
     answer = "".join(parts).strip()
     if not answer:

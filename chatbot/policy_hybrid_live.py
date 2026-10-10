@@ -25,7 +25,12 @@ def corpus(index, namespace, cohort):
             return deepcopy(entry[1])
         ids = []
         for page in index.list(namespace=namespace):
-            ids.extend(page)
+            # SDK versions expose either ID strings or ListItem(id=...) objects.
+            for item in page:
+                vector_id = item if isinstance(item, str) else getattr(item, 'id', None)
+                if not isinstance(vector_id, str) or not vector_id:
+                    raise ValueError('Invalid vector ID returned by Pinecone listing')
+                ids.append(vector_id)
             if len(ids) > 5000:
                 raise ValueError('Local hybrid preview corpus exceeds 5000 vectors')
         rows = []
