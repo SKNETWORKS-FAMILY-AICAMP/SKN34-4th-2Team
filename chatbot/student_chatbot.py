@@ -6,6 +6,7 @@ import json
 import os
 import re
 import time
+from threading import Lock
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator, Literal
@@ -520,6 +521,40 @@ def _merge_filters(required: dict[str, Any], generated: dict[str, Any] | None) -
     return {"$and": [required, generated]}
 
 
+class RequestQueryEmbeddings:
+    """Batch unique queries once per retrieval request; never cache across users/turns."""
+
+    def __init__(self, embedding, queries):
+        self.embedding = embedding
+        self.queries = list(dict.fromkeys(queries))
+        self.vectors = None
+        self.error = None
+        self.lock = Lock()
+        self.calls = 0
+        self.elapsed_ms = 0
+
+    def embed_query(self, query):
+        if query not in self.queries:
+            raise ValueError('Query outside request batch')
+        with self.lock:
+            if self.error is not None:
+                raise self.error
+            if self.vectors is None:
+                started = time.perf_counter()
+                self.calls += 1
+                try:
+                    vectors = self.embedding.embed_documents(self.queries)
+                    if len(vectors) != len(self.queries):
+                        raise ValueError('Incomplete embedding batch')
+                    self.vectors = dict(zip(self.queries, vectors))
+                except Exception as exc:
+                    self.error = exc
+                    raise
+                finally:
+                    self.elapsed_ms = _elapsed_ms(started)
+            return self.vectors[query]
+
+
 class ScopedPineconeVectorStore(VectorStore):
     """질문 필터와 서버의 cohort 범위를 결합하는 조회 전용 VectorStore."""
 
@@ -779,10 +814,17 @@ class LmsStudentChatbot:
             requests.append((missing or state["student_scopes"], state["query"]))
         try:
             context: dict[str, Any] = {}
+            # These DB snapshots do not depend on task query text. File searches do.
+            loaded_snapshots: set[str] = set()
             for scopes, query in requests:
+                scopes = [scope for scope in scopes if scope not in loaded_snapshots]
+                if not scopes:
+                    continue
                 part = self.student_context_loader(
                     state.get("student_uid", ""), state.get("cohort", ""), scopes, query,
                 )
+                loaded_snapshots.update(scope for scope in scopes if scope in (
+                    'student_private', 'cohort_shared', 'study_room') and scope in part.get('data', {}))
                 if not context:
                     context = part
                     continue
@@ -823,6 +865,7 @@ class LmsStudentChatbot:
         default_k: int | None = None,
         on_query: Callable[[int, int], None] | None = None,
         expected_policy_key: str = '',
+        embedding_override: Any = None,
     ) -> Any:
         required_filter: dict[str, Any] = {}
         if namespace in ("notice", "policy"):
@@ -843,7 +886,7 @@ class LmsStudentChatbot:
 
         store = ScopedPineconeVectorStore(
             index=self.index,
-            embedding=self.embeddings,
+            embedding=embedding_override if embedding_override is not None else self.embeddings,
             text_key="page_content",
             namespace=search_namespace,
             required_filter=required_filter,
@@ -877,6 +920,8 @@ class LmsStudentChatbot:
             for namespace in namespaces
             for query in self._queries_for_namespace(state, namespace)
         ]
+        embedding_batch = RequestQueryEmbeddings(self.embeddings, [query for _, query in searches]) if (
+            searches and hasattr(self, 'embeddings')) else None
 
         def search(item: tuple[Namespace, str]) -> tuple[Namespace, list[Document], list[tuple[int, int]]]:
             namespace, query = item
@@ -885,6 +930,8 @@ class LmsStudentChatbot:
                                .get('unit_period_context', {}).get('policy_calculation', {}))
             policy_options = {'expected_policy_key': policy_snapshot['storage_key']} if (
                 namespace == 'policy' and policy_snapshot.get('storage_key')) else {}
+            if embedding_batch is not None:
+                policy_options['embedding_override'] = embedding_batch
             retriever = self._retriever(
                 namespace, state.get("cohort", ""), query, default_k,
                 on_query=lambda embedding_ms, vector_ms: timings.append((embedding_ms, vector_ms)),
@@ -908,9 +955,9 @@ class LmsStudentChatbot:
             "documents": documents,
             "retrieval_ms": int(state.get("retrieval_ms", 0) or 0) + _elapsed_ms(started),
             # Namespace queries above may run concurrently; these are call-time sums, not wall time.
-            "embedding_ms": int(state.get("embedding_ms", 0) or 0) + sum(e for _, _, timings in results for e, _ in timings),
+            "embedding_ms": int(state.get("embedding_ms", 0) or 0) + (embedding_batch.elapsed_ms if embedding_batch else sum(e for _, _, timings in results for e, _ in timings)),
             "vector_query_ms_sum": int(state.get("vector_query_ms_sum", 0) or 0) + sum(v for _, _, timings in results for _, v in timings),
-            "embedding_calls": int(state.get("embedding_calls", 0) or 0) + sum(len(timings) for _, _, timings in results),
+            "embedding_calls": int(state.get("embedding_calls", 0) or 0) + (embedding_batch.calls if embedding_batch else sum(len(timings) for _, _, timings in results)),
             "vector_calls": int(state.get("vector_calls", 0) or 0) + sum(len(timings) for _, _, timings in results),
         }
 
