@@ -126,7 +126,7 @@ def load_unit_period_context(
         if not include_attendance:
             # Shared schedule counts do not require access to personal attendance.
             context = calculate_unit_period_context(start, end, today=today or datetime.now(KST).date(),
-                                                    scheduled_dates=scheduled_dates)
+                                                    scheduled_dates=scheduled_dates, require_policy=True)
             context['scheduled_days_source'] = 'curriculum_rows' if scheduled_dates else 'unavailable'
             context["periods"] = [
                 {key: period[key] for key in ("number", "start_date", "end_date", "scheduled_days")}
@@ -150,13 +150,36 @@ def load_unit_period_context(
                 status = str(row.get("status") or "")
                 if day and status:
                     attendance[day] = status
-        return calculate_unit_period_context(
+        from chatbot.active_policy_rules import load_active_snapshot, allowance_rules
+        snapshot, rules = None, None
+        try:
+            snapshot = load_active_snapshot(cur, _code)
+            rules = allowance_rules(snapshot)
+        except Exception:
+            # No legacy 80%/3 fallback on the authenticated runtime path.
+            pass
+        context = calculate_unit_period_context(
             start,
             end,
             today=today or datetime.now(KST).date(),
             scheduled_dates=scheduled_dates,
             attendance_records=attendance,
+            rules=rules,
+            require_policy=True,
         )
+        context['scheduled_days_source'] = 'curriculum_rows' if scheduled_dates else 'unavailable'
+        context['policy_calculation'] = snapshot or {'status': 'unavailable', 'criteria': {}}
+        context['calculation_purpose'] = 'allowance'
+        if snapshot:
+            from chatbot.active_policy_rules import completion_progress
+            context['completion_progress'] = completion_progress(snapshot, start, end,
+                today or datetime.now(KST).date(), scheduled_dates, attendance)
+        # An active upload is not an effective-date history. Do not rejudge past periods.
+        for period in context['periods']:
+            if period['number'] != context['current_unit_period']:
+                for field in ('requirement_met', 'attendance_rate', 'absence_equivalent_days', 'recognized_attendance_days'):
+                    period[field] = None
+        return context
 
 
 def _safe(value: Any) -> Any:

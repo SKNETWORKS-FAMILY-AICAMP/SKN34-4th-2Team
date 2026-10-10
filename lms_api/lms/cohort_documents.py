@@ -1,5 +1,6 @@
 """Admin cohort attachments; activate only fully indexed document versions."""
 import logging
+import json
 import sys
 from io import BytesIO
 from pathlib import Path
@@ -134,4 +135,10 @@ def upload_document(request, cohortId: str = Form(...), kind: str = Form(...), f
     except Exception:
         logging.getLogger(__name__).exception("Cohort document indexing failed")
         return Response({'detail': '문서 저장 또는 검색 색인을 완료하지 못했습니다. 기존 문서는 유지됩니다. 다시 업로드해 주세요.'}, status=502)
-    return {'kind': kind, 'filename': name, 'policyPending': False, 'ragStatus': 'ready', 'chunks': len(records)}
+    result = {'kind': kind, 'filename': name, 'policyPending': False, 'ragStatus': 'ready', 'chunks': len(records)}
+    if kind == 'policy' and records and hasattr(records[0], 'metadata'):
+        snapshot = json.loads(records[0].metadata.get('calculation_criteria_json', '{}'))
+        result['calculationStatus'] = snapshot.get('status', 'unavailable')
+        result['calculationIssues'] = snapshot.get('issues', {})
+        result['calculationCriteria'] = snapshot.get('criteria', {})
+    return result

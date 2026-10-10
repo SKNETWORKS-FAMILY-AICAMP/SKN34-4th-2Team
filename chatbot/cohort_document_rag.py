@@ -85,6 +85,15 @@ def document_records(data: bytes, filename: str, cohort: str, kind: str, key: st
         if len(json.dumps({'page_content': record.page_content, **metadata}, ensure_ascii=False).encode('utf-8')) > 38000:
             raise ValueError(f'조문 또는 메타데이터가 검색 색인 한도를 초과했습니다: {record.source.section}')
         result.append(replace(record, vector_id=f'doc-{i}', metadata=metadata))
+    if kind == 'policy':
+        from chatbot.active_policy_rules import criteria_snapshot
+        snapshot = criteria_snapshot(result, cohort, key)
+        # Immutable upload metadata: the same namespace activates both RAG and criteria.
+        encoded = json.dumps(snapshot, ensure_ascii=False)
+        metadata = {**result[0].metadata, 'calculation_criteria_json': encoded}
+        if len(json.dumps({'page_content': result[0].page_content, **metadata}, ensure_ascii=False).encode('utf-8')) > 38000:
+            raise ValueError('계산 기준 메타데이터가 검색 색인 한도를 초과했습니다.')
+        result[0] = replace(result[0], metadata=metadata)
     return result
 
 

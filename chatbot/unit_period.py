@@ -45,9 +45,10 @@ def calculate_unit_period_context(
     scheduled_dates: Iterable[date] = (),
     attendance_records: dict[date, str] | None = None,
     rules: CalculationRules | None = None,
+    require_policy: bool = False,
 ) -> dict[str, Any]:
     """검토 전 설정으로 기간·출석 예상치를 계산한다. 확정 판정이 아니다."""
-    rules = rules if rules is not None else load_calculation_rules()
+    rules = rules if rules is not None or require_policy else load_calculation_rules()
     periods = _periods(start, end)
     schedule = {day for day in scheduled_dates if start <= day <= end}
     attendance = attendance_records or {}
@@ -71,9 +72,9 @@ def calculate_unit_period_context(
         scheduled_days = len(days)
         complete = scheduled_days > 0 and recorded_days >= scheduled_days
         exception_count = statuses["late"] + statuses["earlyLeave"] + statuses["outing"]
-        absence_equivalent = statuses["absent"] + exception_count // rules.exceptions_per_absence
-        recognized_days = max(scheduled_days - absence_equivalent, 0) if complete else None
-        attendance_rate = round(recognized_days / scheduled_days * 100, 1) if complete else None
+        absence_equivalent = statuses["absent"] + exception_count // rules.exceptions_per_absence if rules else None
+        recognized_days = max(scheduled_days - absence_equivalent, 0) if complete and rules else None
+        attendance_rate = round(recognized_days / scheduled_days * 100, 1) if complete and rules else None
         period.update({
             "scheduled_days": scheduled_days or None,
             "recorded_days": recorded_days,
@@ -85,13 +86,14 @@ def calculate_unit_period_context(
             "absence_equivalent_days": absence_equivalent if complete else None,
             "recognized_attendance_days": recognized_days,
             "attendance_rate": attendance_rate,
-            "requirement_met": rules.requirement_met(recognized_days, scheduled_days) if complete else None,
+            "requirement_met": rules.requirement_met(recognized_days, scheduled_days) if complete and rules else None,
             "attendance_data_complete": complete,
         })
 
     state = "in_progress" if current else ("upcoming" if today < start else "completed")
     return {
-        "calculation_rules": rules.metadata(),
+        "calculation_rules": rules.metadata() if rules else None,
+        "calculation_unavailable_reason": None if rules else '활성 기수 정책에서 계산 기준을 확인하지 못했습니다.',
         "schedule_status": "generated_unconfirmed",
         "is_provisional": True,
         "timezone": "Asia/Seoul",
@@ -104,7 +106,7 @@ def calculate_unit_period_context(
         "calculation_notes": [
             "확정 일정이 아닌 검토 전 계산 일정이다. 기존 월별 산정 방식으로 생성하고 마지막 기간을 종강일에서 자른다.",
             "출석률은 실제 수업일과 모든 출석 상태가 확인된 기간에만 계산한다.",
-            f"검토 전 계산 가정: 지각·조퇴·외출 합계 {rules.exceptions_per_absence}회당 결석 1일로 환산한다.",
-            f"requirement_met은 검토 전 {rules.attendance_threshold_percent:g}% 기준의 예상값이다. 확정 출결 검증·수료·지급 판정이 아니다.",
+            (f"검토 전 계산 가정: 지각·조퇴·외출 합계 {rules.exceptions_per_absence}회당 결석 1일로 환산한다." if rules else '정책 계산 기준 미확인. 공통값으로 대신 계산하지 않는다.'),
+            (f"requirement_met은 검토 전 {rules.attendance_threshold_percent:g}% 기준의 예상값이다. 확정 출결 검증·수료·지급 판정이 아니다." if rules else '출결 기록과 수업일수만 안내할 수 있다.'),
         ],
     }

@@ -216,6 +216,14 @@ ANSWER_PROMPT = """
 - 일정에서 PDF에 없는 프로젝트 주제를 추측하지 말고 실제 project_reference 제출물 근거가 있을 때만 답한다.
 
 [진행 중 출석]
+- policy_calculation의 criteria는 로그인 기수의 현재 활성 정책 파일에서 추출한 기준이다.
+  allowance는 단위기간 장려금, completion은 전체 훈련기간 수료 기준이며 서로 바꾸어 쓰지 않는다.
+  수료 예상 질문은 completion_progress가 제공하는 전체 훈련기간 계산값만 사용한다.
+  completion_progress는 현재 정책을 전체 기록에 적용한 예상 비교이며 과거 정책 이력 검증이나 수료 확정이 아니다.
+  개인 student_private.unit_period_context의 calculation_unavailable_reason이 있거나 calculation_rules가 없으면
+  장려금 기준 개인 계산을 하지 않는다. 별도로 제공된 completion_progress의 수료 예상값은 사용할 수 있다.
+  공용 일정 컨텍스트에 계산 기준이 없는 것은 정상이며 개인 컨텍스트의 유효한 계산을 막지 않는다.
+  개인 계산값이 없으면 숫자 기준을 RAG 또는 과거 대화에서 대신 가져와 계산하지 않고 원본 기록만 안내한다.
 - "이번 단위기간 출석 어때?" 같은 단순 현황 질문은 짧은 3문단과 마지막 주의 문장으로 답한다.
   첫 문단: 기간과 예정 수업일. 둘째 문단: 기록된 날 중 인정 출석일(출석률)과 추가 정상 출석 필요일.
   셋째 문단: 현재 예외 출결 누적과 추가 결석 환산 조건. 각 문단은 1~2개의 짧은 문장으로 쓴다.
@@ -814,6 +822,7 @@ class LmsStudentChatbot:
         query: str = "",
         default_k: int | None = None,
         on_query: Callable[[int, int], None] | None = None,
+        expected_policy_key: str = '',
     ) -> Any:
         required_filter: dict[str, Any] = {}
         if namespace in ("notice", "policy"):
@@ -827,6 +836,10 @@ class LmsStudentChatbot:
         if namespace == 'policy':
             from chatbot.cohort_document_rag import active_policy_namespace
             search_namespace = active_policy_namespace(cohort)
+            if expected_policy_key:
+                from chatbot.cohort_document_rag import document_namespace
+                if search_namespace != document_namespace(expected_policy_key):
+                    raise ValueError('정책이 요청 처리 중 변경됐습니다. 다시 질문해 주세요.')
 
         store = ScopedPineconeVectorStore(
             index=self.index,
@@ -868,9 +881,14 @@ class LmsStudentChatbot:
         def search(item: tuple[Namespace, str]) -> tuple[Namespace, list[Document], list[tuple[int, int]]]:
             namespace, query = item
             timings: list[tuple[int, int]] = []
+            policy_snapshot = (state.get('student_context', {}).get('data', {}).get('student_private', {})
+                               .get('unit_period_context', {}).get('policy_calculation', {}))
+            policy_options = {'expected_policy_key': policy_snapshot['storage_key']} if (
+                namespace == 'policy' and policy_snapshot.get('storage_key')) else {}
             retriever = self._retriever(
                 namespace, state.get("cohort", ""), query, default_k,
                 on_query=lambda embedding_ms, vector_ms: timings.append((embedding_ms, vector_ms)),
+                **policy_options,
             )
             return namespace, retriever.invoke(query), timings
 

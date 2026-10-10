@@ -253,13 +253,16 @@ export async function updateCohort(cohortId: string, patch: Partial<Cohort>): Pr
   }));
 }
 
-export async function uploadCohortDocument(cohortId: string, kind: 'curriculum' | 'policy', file: File): Promise<void> {
+export async function uploadCohortDocument(cohortId: string, kind: 'curriculum' | 'policy', file: File): Promise<{
+  calculationStatus?: string; calculationIssues?: Record<string, string>;
+}> {
   const form = new FormData();
   form.append('cohortId', cohortId);
   form.append('kind', kind);
   form.append('file', file);
-  await http.post('/cohorts/documents', form, { timeout: 180_000, headers: { 'Content-Type': 'multipart/form-data' } });
+  const { data } = await http.post('/cohorts/documents', form, { timeout: 180_000, headers: { 'Content-Type': 'multipart/form-data' } });
   await invalidateBootstrap();
+  return data;
 }
 
 export async function setCohortStatus(cohortId: string, status: 'planned' | 'active' | 'closed'): Promise<void> {
