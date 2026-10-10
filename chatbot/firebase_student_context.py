@@ -125,11 +125,29 @@ def load_unit_period_context(
                 parsed = parse_schedule_date(str(row.get("date_label") or ""), start)
                 if parsed and start <= parsed <= end:
                     scheduled_dates.add(parsed)
+        from chatbot.active_policy_rules import load_active_snapshot, allowance_rules, validated_calendar_basis
+        snapshot, rules, calendar_basis = None, None, None
+        try:
+            snapshot = load_active_snapshot(cur, _code)
+            calendar_basis = validated_calendar_basis(snapshot)
+        except Exception:
+            # Keep source dates/raw schedule; never substitute a common calendar.
+            pass
+        if snapshot and calendar_basis:
+            try:
+                rules = allowance_rules(snapshot)
+            except Exception:
+                # Missing numeric criteria do not invalidate an extracted calendar.
+                pass
         if not include_attendance:
             # Shared schedule counts do not require access to personal attendance.
             context = calculate_unit_period_context(start, end, today=today or datetime.now(KST).date(),
-                                                    scheduled_dates=scheduled_dates, require_policy=True)
+                scheduled_dates=scheduled_dates, require_policy=True,
+                calendar_basis=calendar_basis, cohort=_code)
             context['scheduled_days_source'] = 'curriculum_rows' if scheduled_dates else 'unavailable'
+            context['policy_calculation'] = snapshot or {'status': 'unavailable', 'criteria': {}}
+            # A shared schedule carries no personal attendance or allowance estimate.
+            context.pop('raw_attendance', None)
             context["periods"] = [
                 {key: period[key] for key in ("number", "start_date", "end_date", "scheduled_days")}
                 for period in context["periods"]
@@ -152,14 +170,6 @@ def load_unit_period_context(
                 status = str(row.get("status") or "")
                 if day and status:
                     attendance[day] = status
-        from chatbot.active_policy_rules import load_active_snapshot, allowance_rules
-        snapshot, rules = None, None
-        try:
-            snapshot = load_active_snapshot(cur, _code)
-            rules = allowance_rules(snapshot)
-        except Exception:
-            # No legacy 80%/3 fallback on the authenticated runtime path.
-            pass
         context = calculate_unit_period_context(
             start,
             end,
@@ -168,6 +178,8 @@ def load_unit_period_context(
             attendance_records=attendance,
             rules=rules,
             require_policy=True,
+            calendar_basis=calendar_basis,
+            cohort=_code,
         )
         context['scheduled_days_source'] = 'curriculum_rows' if scheduled_dates else 'unavailable'
         context['policy_calculation'] = snapshot or {'status': 'unavailable', 'criteria': {}}

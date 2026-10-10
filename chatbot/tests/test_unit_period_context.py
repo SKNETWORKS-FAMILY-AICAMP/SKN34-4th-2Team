@@ -6,6 +6,7 @@ from chatbot.api import InitRequest, _chat_inputs
 from chatbot.firebase_student_context import load_unit_period_context
 from chatbot.student_chatbot import detect_routing_signals
 from chatbot.unit_period import calculate_unit_period_context
+from chatbot.tests.test_active_policy_rules import uploaded
 
 
 class UnitPeriodContextTests(TestCase):
@@ -23,13 +24,14 @@ class UnitPeriodContextTests(TestCase):
         conn = MagicMock()
         cur = conn.cursor.return_value
         cur.execute.return_value.fetchone.side_effect = [
-            {'id': 40, 'code': 'cohort-test'},
+            {'id': 40, 'code': 'cohort_40'},
             {'start_date': date(2026, 10, 7), 'end_date': date(2027, 3, 31)},
             None,
         ]
-        with patch('chatbot.firebase_student_context._connect') as connect:
+        with patch('chatbot.firebase_student_context._connect') as connect, \
+             patch('chatbot.active_policy_rules.load_active_snapshot', return_value=uploaded('cohort_40')):
             connect.return_value.__enter__.return_value = conn
-            result = load_unit_period_context({'cohort': 'cohort-test', 'uid': 'student'}, include_attendance=False)
+            result = load_unit_period_context({'cohort': 'cohort_40', 'uid': 'student'}, include_attendance=False)
         self.assertEqual(cur.execute.call_count, 3)
         self.assertFalse(any('FROM attendances' in call.args[0] for call in cur.execute.call_args_list))
         self.assertEqual(len(result['periods']), 6)

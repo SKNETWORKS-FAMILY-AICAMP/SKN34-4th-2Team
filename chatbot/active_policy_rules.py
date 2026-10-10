@@ -1,18 +1,82 @@
 """Read calculation criteria from the exact active cohort policy upload."""
 from functools import lru_cache
 import os
+import re
 
-from chatbot.calculation_rules import CalculationRules
+from chatbot.calculation_rules import CalculationRules, calendar_method_from_basis
 from chatbot.document_calculation_rules import extract_candidates
 
 
+def extract_calendar_basis(records, cohort):
+    """Extract explicit calendar clauses from one scoped article, not defaults.
+
+    Split ChunkRecords retain the complete SourceSection.text. Reuse that
+    source rather than joining fragments or combining different documents.
+    This is provenance extraction, not approval or month-end interpretation.
+    """
+    clauses = (
+        '단위기간은 훈련 시작일을 기준으로 매월 같은 일자부터 다음 달 같은 일자의 전날까지로 한다.',
+        '마지막 단위기간은 훈련 종료일에 종료한다.',
+        '단위기간 내 실제 수업일수는 해당 기수의 수업 일정에 따라 산정한다.',
+    )
+    articles, hashes = {}, set()
+    invalid_scope = False
+    for record in records:
+        metadata, source = record.metadata, record.source
+        if (metadata.get('structure') != 'article' or metadata.get('kind') != 'policy'
+                or metadata.get('cohort') != cohort):
+            continue
+        digest = str(metadata.get('document_hash') or '')
+        article = str(metadata.get('article_number') or '')
+        # SourceSection is the parser's complete article, even when records
+        # have been split. Do not silently fall back to unscoped chunk text.
+        text = source.text
+        normalized = re.sub(r'\s+', ' ', text).strip()
+        relevant = any(clause in normalized for clause in clauses)
+        if (not re.fullmatch(r'[a-f0-9]{64}', digest) or not article
+                or source.cohort != cohort or source.document_hash != digest
+                or source.article_number != article):
+            invalid_scope = invalid_scope or relevant
+            continue
+        hashes.add(digest)
+        identity = (digest, article, source.chapter_number, source.source_name)
+        articles.setdefault(identity, {})[normalized] = text
+    candidates = [(identity, texts) for identity, texts in articles.items()
+                  if any(any(clause in text for clause in clauses) for text in texts)]
+    if not candidates:
+        return {'status': 'missing', 'cohort': cohort,
+                'reason': 'invalid_source_scope' if invalid_scope else 'calendar_clauses_not_found'}
+    if invalid_scope or len(hashes) != 1 or len(candidates) != 1:
+        return {'status': 'conflicting', 'cohort': cohort,
+                'reason': 'calendar_source_scope_conflict'}
+    (digest, article, chapter, source_name), texts = candidates[0]
+    if len(texts) != 1:
+        return {'status': 'conflicting', 'cohort': cohort,
+                'reason': 'differing_duplicate_calendar_article'}
+    normalized, original_text = next(iter(texts.items()))
+    missing = [clause for clause in clauses if clause not in normalized]
+    if missing:
+        return {'status': 'missing', 'cohort': cohort, 'document_hash': digest,
+                'article': article, 'reason': 'incomplete_calendar_article',
+                'missing_clauses': missing}
+    return {'status': 'extracted', 'cohort': cohort, 'document_hash': digest,
+            'article': article, 'chapter': chapter, 'source_name': source_name,
+            'anchor': 'course_start', 'cycle': 'calendar_month',
+            'end': 'next_start_minus_one_day', 'last_period': 'course_end',
+            'class_days': 'cohort_schedule', 'month_end_handling': 'unspecified',
+            'evidence': original_text}
+
+
 def criteria_snapshot(records, cohort, key):
+    records = list(records)
+    calendar_basis = extract_calendar_basis(records, cohort)
     rows = [{'page_content': r.page_content, 'metadata': r.metadata} for r in records]
     try:
         candidates = extract_candidates(rows)
     except ValueError:
         return {'cohort': cohort, 'storage_key': key, 'status': 'unavailable',
-                'reason': '정책 조문 또는 계산 기준이 중복되거나 유효하지 않습니다.', 'criteria': {}}
+                'reason': '정책 조문 또는 계산 기준이 중복되거나 유효하지 않습니다.', 'criteria': {},
+                'calendar_basis': calendar_basis}
     criteria, issues = {}, {}
     for purpose in ('completion', 'allowance', 'absence_conversion'):
         matches = [c for c in candidates if c.purpose == purpose and c.cohort == cohort]
@@ -22,7 +86,7 @@ def criteria_snapshot(records, cohort, key):
         else:
             issues[purpose] = 'missing' if not matches else 'conflicting'
     return {'cohort': cohort, 'storage_key': key, 'status': 'unverified',
-            'criteria': criteria, 'issues': issues,
+            'criteria': criteria, 'issues': issues, 'calendar_basis': calendar_basis,
             'application_basis': 'current_active_upload; not an approved effective-date history'}
 
 
@@ -59,7 +123,23 @@ def load_active_snapshot(cur, cohort):
     return deepcopy(_read_snapshot(cohort, key, filename))
 
 
+def validated_calendar_basis(snapshot):
+    """Calendar and any numeric criteria must belong to the same snapshot."""
+    from copy import deepcopy
+    basis = snapshot.get('calendar_basis')
+    cohort = snapshot.get('cohort')
+    if not cohort:
+        raise ValueError('단위기간 산정 정책의 기수 미확인')
+    calendar_method_from_basis(basis, cohort=cohort)
+    for criterion in snapshot.get('criteria', {}).values():
+        if (criterion.get('cohort') != cohort
+                or criterion.get('document_hash') != basis['document_hash']):
+            raise ValueError('단위기간과 수치 기준의 정책 출처 불일치')
+    return deepcopy(basis)
+
+
 def allowance_rules(snapshot):
+    basis = validated_calendar_basis(snapshot)
     criteria = snapshot['criteria']
     allowance, conversion = criteria.get('allowance'), criteria.get('absence_conversion')
     if not allowance or not conversion:
@@ -69,9 +149,10 @@ def allowance_rules(snapshot):
                for c in (allowance, conversion))):
         raise ValueError('Policy scope mismatch')
     return CalculationRules(version=allowance['document_hash'], review_status='unverified',
-        source=f"{snapshot['storage_key']} / 제{allowance['article']}조·제{conversion['article']}조",
+        source=f"{snapshot['storage_key']} / 제{basis['article']}조·제{allowance['article']}조·제{conversion['article']}조",
         attendance_threshold_percent=float(allowance['value']), exceptions_per_absence=int(conversion['value']),
-        calendar_method='anchored_month_clamped', final_period_method='clip_to_course_end')
+        calendar_method=calendar_method_from_basis(basis, cohort=snapshot['cohort'],
+            document_hash=allowance['document_hash']), final_period_method='clip_to_course_end')
 
 
 def completion_progress(snapshot, start, end, today, scheduled_dates, attendance):
@@ -92,11 +173,18 @@ def completion_progress(snapshot, start, end, today, scheduled_dates, attendance
     if (threshold['document_hash'] != conversion['document_hash']
         or any(c['cohort'] != snapshot['cohort'] for c in (threshold, conversion))):
         return {'unavailable_reason': '수료 계산 정책 출처 불일치'}
+    try:
+        basis = validated_calendar_basis(snapshot)
+        method = calendar_method_from_basis(basis, cohort=snapshot['cohort'],
+                                            document_hash=threshold['document_hash'])
+        periods = _periods(start, end, calendar_method=method)
+    except ValueError as exc:
+        return {'unavailable_reason': str(exc)}
     schedule = {d for d in scheduled_dates if start <= d <= end}
     if not schedule:
         return {'unavailable_reason': '전체 수업 예정일 미확인'}
     recorded, recognized = 0, 0
-    for period in _periods(start, end):
+    for period in periods:
         lo, hi = date.fromisoformat(period['start_date']), date.fromisoformat(period['end_date'])
         states = [s for d,s in attendance.items() if d in schedule and lo <= d <= hi
                   and d <= today and s in ATTENDANCE_STATUSES]
@@ -107,7 +195,7 @@ def completion_progress(snapshot, start, end, today, scheduled_dates, attendance
     missing = sum(d <= today and attendance.get(d) not in ATTENDANCE_STATUSES for d in schedule)
     future_registered = sum(d > today and attendance.get(d) in ATTENDANCE_STATUSES for d in schedule)
     return {'purpose':'completion','is_provisional':True,'threshold_percent':threshold['value'],
-        'rule':threshold,'scheduled_days':len(schedule),'recorded_days':recorded,
+        'rule':threshold,'calendar_basis':basis,'scheduled_days':len(schedule),'recorded_days':recorded,
         'recognized_attendance_days':recognized,'required_recognized_days':target,
         'unrecorded_past_or_today_days':missing,
         'additional_normal_attendance_days_needed':max(target-recognized,0) if not missing and not future_registered and recorded else None,

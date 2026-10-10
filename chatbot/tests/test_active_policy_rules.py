@@ -11,6 +11,11 @@ from chatbot.attendance import enrich_unit_period_context
 
 def uploaded(cohort='cohort_34', threshold=80, conversion=3, upload='a'):
     data = regulation_bytes([
+        ('제5조(단위기간의 산정)', [
+            '단위기간은 훈련 시작일을 기준으로 매월 같은 일자부터 다음 달 같은 일자의 전날까지로 한다.',
+            '마지막 단위기간은 훈련 종료일에 종료한다.',
+            '단위기간 내 실제 수업일수는 해당 기수의 수업 일정에 따라 산정한다.',
+        ]),
         ('제6조(출결)',[f'단위기간 내 지각·조퇴·외출 누적 {conversion}회는 결석 1일로 환산한다.']),
         ('제13조(수료)', ['108일 이상(90% 이상) 이수하면 수료 기준을 충족한다. 전체 훈련기간의 출석률.']),
         ('제16조(장려금)', [f'단위기간 출석률 {threshold}% 이상이면 훈련장려금 지급 대상이다.']),
@@ -89,9 +94,10 @@ class ActivePolicyRulesTests(TestCase):
     def test_runtime_missing_policy_retains_raw_records_only(self):
         context=self.runtime(None)
         self.assertIsNone(context['calculation_rules'])
-        self.assertEqual(context['periods'][0]['recorded_days'],10)
-        self.assertIsNone(context['periods'][0]['requirement_met'])
-        self.assertNotIn('in_progress_estimate',context['periods'][0])
+        self.assertEqual(context['periods'], [])
+        self.assertIsNone(context['current_unit_period'])
+        self.assertEqual(context['schedule_status'], 'unavailable')
+        self.assertTrue(context['calendar_unavailable_reason'])
 
     def test_completion_and_allowance_have_separate_denominators(self):
         s=uploaded(threshold=80)

@@ -3,6 +3,7 @@ from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
 from chatbot.firebase_student_context import load_unit_period_context
+from chatbot.tests.test_active_policy_rules import uploaded
 
 
 class SharedScheduleCountsTests(TestCase):
@@ -22,6 +23,7 @@ class SharedScheduleCountsTests(TestCase):
         cursor.execute.side_effect = execute
         with patch('chatbot.firebase_student_context._connect') as connect, \
              patch('chatbot.firebase_student_context._cohort_ids', return_value=(1,'cohort_34')), \
+             patch('chatbot.active_policy_rules.load_active_snapshot', return_value=uploaded()), \
              patch('chatbot.firebase_student_context._user_id') as user_lookup:
             connect.return_value.__enter__.return_value.cursor.return_value = cursor
             result = load_unit_period_context({'cohort':'cohort_34','uid':'fixture'},
