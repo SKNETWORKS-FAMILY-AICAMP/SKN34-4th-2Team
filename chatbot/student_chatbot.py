@@ -44,6 +44,7 @@ def _student_pinecone_api_key() -> str:
 
 Namespace = Literal["policy", "notice", "project_reference"]
 StudentDataScope = Literal[
+    "student_attendance",
     "student_private",
     "cohort_shared",
     "curriculum_files",
@@ -82,9 +83,12 @@ _PRIVATE = re.compile(
     r"할\s*일|진도|제출|과제|상담|이력서|마일리지|학습\s*기록)"
 )
 _IMPLICIT_PERSONAL_ATTENDANCE = re.compile(
+    r"이번\s*단위\s*기간\s*(?:출석|출결|결석|장려금)|"
     r"(?:이번\s*(?:달|월)|현재|지금|누적)?\s*(?:내\s*)?"
     r"(?:출석률|출결\s*(?:집계|현황|기록)|출석\s*현황)"
 )
+_ATTENDANCE_TOPIC = re.compile(r"출석|출결|결석|지각|조퇴|외출|공가|장려금|수료")
+_OTHER_PRIVATE_TOPIC = re.compile(r"프로필|이름|좌석|할\s*일|진도|제출|과제|상담|이력서|마일리지|학습\s*기록|전부|모든")
 _CONTENT_CREATION = re.compile(r"대신\s*(?:써|작성)|(?:써|작성|만들어)\s*줘|대필")
 _COHORT = re.compile(r"일정|시간표|좌석|게시글|과제|평가|기수\s*정보|단위\s*기간|링크")
 # 공부방 복습 문제 현황 — 「오늘 복습 문제 나왔어?」「다시 풀 문제」
@@ -122,7 +126,8 @@ SUPERVISOR_PROMPT = """
 [LMS 조회 범위]
 - namespaces: policy=정책/FAQ/규정/출결/훈련/가이드, notice=기수별 운영 공지,
   project_reference=전 기수 단위·최종 프로젝트의 주제/기획/데이터/기술/GitHub.
-- student_scopes: student_private=본인 프로필/할 일/출결/제출/진도/이력서/마일리지,
+- student_scopes: student_attendance=본인 출결·단위기간 일정·수료/장려금 계산과 정책 기준,
+  student_private=본인 프로필/할 일/출결/제출/진도/이력서/마일리지,
   cohort_shared=기수 일정/게시글/좌석/과제/평가/링크, curriculum_files=기수 커리큘럼 PDF,
   material_files=기수 강의자료, record_files=본인 학습 기록·증빙 파일,
   assignment_files=본인 과제 제출 파일,
@@ -134,7 +139,12 @@ SUPERVISOR_PROMPT = """
 - "내 일정"처럼 본인 표현이 있어도 시간·장소·배정 정보가 기수 공지의 안내문이나 표에
   있을 수 있으면 notice를 고른다. 표에서 본인 항목을 찾는 데 프로필이 필요하면
   student_private도 함께 고른다. 개인 출결률·제출 내역처럼 본인 기록만 묻는다면
-  student_private만 고른다.
+  출결만 물으면 student_attendance, 제출 내역 등 다른 개인 기록은 student_private를 고른다.
+- 본인 출석 현황, 추가 출석 필요일, 다음 지각 가정, 장려금·수료 계산은 student_attendance를 고른다.
+  이 scope에 단위기간·등록 수업일·활성 정책 계산값이 모두 있으므로 단위기간이라는 이유만으로
+  cohort_shared나 student_private를 추가하지 않는다. 일반 정책 설명은 policy로 검색한다.
+  출석과 마일리지·과제·프로필 등 다른 기록을 함께 물으면 student_private를 함께 유지한다.
+  별도 행사·수업 주제·좌석 등 기수 정보 요청이 있으면 cohort_shared 등 해당 scope도 유지한다.
 - 공지·최근 안내·운영 변경은 notice를 포함한다. 시설·음식물·라운지·강의장처럼 변경 가능한
   운영 규칙은 policy를 고르고, 로그인 기수가 있으면 notice도 함께 고른다.
 
@@ -154,10 +164,10 @@ SUPERVISOR_PROMPT = """
   각 task에 query, namespaces, student_scopes, reason을 넣고 최상위 선택값은 tasks의 합집합으로 둔다.
   단일 요청도 task 하나로 표현하며, 복합 요청인데 하나뿐이면 누락을 다시 확인한다.
 - "내가 낸 파일과 비슷한 이전 팀 결과물"=assignment_files+project_reference,
-  "빠진 날을 반영해 장려금을 받을 수 있는지"=student_private+policy.
+  "빠진 날을 반영해 장려금을 받을 수 있는지"=student_attendance+policy.
 
 [경계 예시]
-- "오늘 결석하면?"=lms/policy, "내 출석률"=lms/student_private,
+- "오늘 결석하면?"=lms/policy, "내 출석률"=lms/student_attendance,
   "공가 증빙과 최근 변경 공지"=lms/policy+notice.
 - "34기 최종 프로젝트 RAG 팀"=lms/project_reference,
   "2차 프로젝트 사례"=lms/project_reference/query:"1~28기 2차 프로젝트 사례".
@@ -221,7 +231,8 @@ ANSWER_PROMPT = """
   allowance는 단위기간 장려금, completion은 전체 훈련기간 수료 기준이며 서로 바꾸어 쓰지 않는다.
   수료 예상 질문은 completion_progress가 제공하는 전체 훈련기간 계산값만 사용한다.
   completion_progress는 현재 정책을 전체 기록에 적용한 예상 비교이며 과거 정책 이력 검증이나 수료 확정이 아니다.
-  개인 student_private.unit_period_context의 calculation_unavailable_reason이 있거나 calculation_rules가 없으면
+  개인 student_attendance.unit_period_context 또는 student_private.unit_period_context의
+  calculation_unavailable_reason이 있거나 calculation_rules가 없으면
   장려금 기준 개인 계산을 하지 않는다. 별도로 제공된 completion_progress의 수료 예상값은 사용할 수 있다.
   공용 일정 컨텍스트에 계산 기준이 없는 것은 정상이며 개인 컨텍스트의 유효한 계산을 막지 않는다.
   개인 계산값이 없으면 숫자 기준을 RAG 또는 과거 대화에서 대신 가져와 계산하지 않고 원본 기록만 안내한다.
@@ -346,7 +357,7 @@ class SupervisorGuardrailMiddleware:
         scopes = list(dict.fromkeys(
             scope for scope in decision.student_scopes
             if scope in (
-                "student_private", "cohort_shared", "curriculum_files", "material_files",
+                "student_attendance", "student_private", "cohort_shared", "curriculum_files", "material_files",
                 "record_files", "assignment_files", "study_room",
             )
         ))
@@ -375,8 +386,9 @@ def detect_routing_signals(question: str) -> RoutingSignals:
     if _PROJECT.search(question):
         namespaces.append("project_reference")
     if private_data:
-        scopes.append("student_private")
-    if _COHORT.search(question) and not private_data:
+        scopes.append("student_attendance" if _ATTENDANCE_TOPIC.search(question)
+                      and not _OTHER_PRIVATE_TOPIC.search(question) else "student_private")
+    if _COHORT.search(question) and (not private_data or _COHORT.search(re.sub(r'단위\s*기간', '', question))):
         scopes.append("cohort_shared")
     if _CURRICULUM_FILE.search(question) or _CURRICULUM_SCHEDULE.search(question):
         scopes.append("curriculum_files")
@@ -407,10 +419,14 @@ def reconcile_decision(question: str, decision: SupervisorDecision) -> Superviso
         })
     if not signals.lms:
         return decision
+    signal_scopes = list(signals.student_scopes)
+    if ('student_attendance' in decision.student_scopes
+        and not _COHORT.search(re.sub(r'단위\s*기간', '', question))):
+        signal_scopes = [scope for scope in signal_scopes if scope != 'cohort_shared']
     return decision.model_copy(update={
         "route": "lms",
         "namespaces": list(dict.fromkeys([*decision.namespaces, *signals.namespaces])),
-        "student_scopes": list(dict.fromkeys([*decision.student_scopes, *signals.student_scopes])),
+        "student_scopes": list(dict.fromkeys([*decision.student_scopes, *signal_scopes])),
         "query": decision.query.strip() or question,
     })
 
@@ -824,7 +840,7 @@ class LmsStudentChatbot:
                     state.get("student_uid", ""), state.get("cohort", ""), scopes, query,
                 )
                 loaded_snapshots.update(scope for scope in scopes if scope in (
-                    'student_private', 'cohort_shared', 'study_room') and scope in part.get('data', {}))
+                    'student_attendance', 'student_private', 'cohort_shared', 'study_room') and scope in part.get('data', {}))
                 if not context:
                     context = part
                     continue
@@ -926,8 +942,9 @@ class LmsStudentChatbot:
         def search(item: tuple[Namespace, str]) -> tuple[Namespace, list[Document], list[tuple[int, int]]]:
             namespace, query = item
             timings: list[tuple[int, int]] = []
-            policy_snapshot = (state.get('student_context', {}).get('data', {}).get('student_private', {})
-                               .get('unit_period_context', {}).get('policy_calculation', {}))
+            personal_data = state.get('student_context', {}).get('data', {})
+            personal_context = personal_data.get('student_attendance') or personal_data.get('student_private', {})
+            policy_snapshot = personal_context.get('unit_period_context', {}).get('policy_calculation', {})
             policy_options = {'expected_policy_key': policy_snapshot['storage_key']} if (
                 namespace == 'policy' and policy_snapshot.get('storage_key')) else {}
             if embedding_batch is not None:

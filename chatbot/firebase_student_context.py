@@ -21,6 +21,7 @@ DATE_RE = re.compile(
     r"(\d{1,2})\s*(?:월|[./-])\s*(\d{1,2})\s*일?"
 )
 ALLOWED_SCOPES = {
+    "student_attendance",
     "student_private",
     "cohort_shared",
     "curriculum_files",
@@ -96,6 +97,7 @@ def _user_id(cur, uid: str) -> int | None:
 
 def load_unit_period_context(
     session: dict[str, Any], today: date | None = None, *, include_attendance: bool = True,
+    include_record_details: bool = False,
 ) -> dict[str, Any]:
     cohort = session["cohort"]
     uid = session["uid"]
@@ -170,6 +172,11 @@ def load_unit_period_context(
         context['scheduled_days_source'] = 'curriculum_rows' if scheduled_dates else 'unavailable'
         context['policy_calculation'] = snapshot or {'status': 'unavailable', 'criteria': {}}
         context['calculation_purpose'] = 'allowance'
+        if include_record_details:
+            context['attendance_records'] = [
+                {'date': day.isoformat(), 'status': status}
+                for day, status in sorted(attendance.items()) if start <= day <= end
+            ]
         if snapshot:
             from chatbot.active_policy_rules import completion_progress
             context['completion_progress'] = completion_progress(snapshot, start, end,
@@ -566,6 +573,9 @@ def load_student_context(
                 "errors": {"cohort": "not_found"},
             }
         loaders: dict[str, Callable[[], Any]] = {
+            "student_attendance": lambda: {
+                "unit_period_context": load_unit_period_context({"cohort": code, "uid": uid}, include_record_details=True)
+            },
             "student_private": lambda: _student_private(cur, cid, uid, user_id),
             "cohort_shared": lambda: _cohort_shared(cur, cid, code),
             "curriculum_files": lambda: curriculum_context(cur, cid, code, query),

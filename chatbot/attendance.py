@@ -102,7 +102,8 @@ def enrich_unit_period_context(context: dict[str, Any]) -> dict[str, Any]:
 
 def enrich_student_context(context: dict[str, Any]) -> dict[str, Any]:
     result = deepcopy(context)
-    private = result.get("data", {}).get("student_private")
-    if isinstance(private, dict) and isinstance(private.get("unit_period_context"), dict):
-        private["unit_period_context"] = enrich_unit_period_context(private["unit_period_context"])
+    for scope in ('student_private', 'student_attendance'):
+        private = result.get("data", {}).get(scope)
+        if isinstance(private, dict) and isinstance(private.get("unit_period_context"), dict):
+            private["unit_period_context"] = enrich_unit_period_context(private["unit_period_context"])
     return result

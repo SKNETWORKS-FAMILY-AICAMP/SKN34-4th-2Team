@@ -19,17 +19,19 @@ class UnitPeriodContextTests(TestCase):
         ])
         self.assertTrue(all(p['attendance_rate'] is None for p in context['periods']))
 
-    def test_calendar_load_never_queries_schedule_or_attendance(self):
+    def test_calendar_load_reads_schedule_without_personal_attendance(self):
         conn = MagicMock()
         cur = conn.cursor.return_value
         cur.execute.return_value.fetchone.side_effect = [
             {'id': 40, 'code': 'cohort-test'},
             {'start_date': date(2026, 10, 7), 'end_date': date(2027, 3, 31)},
+            None,
         ]
         with patch('chatbot.firebase_student_context._connect') as connect:
             connect.return_value.__enter__.return_value = conn
             result = load_unit_period_context({'cohort': 'cohort-test', 'uid': 'student'}, include_attendance=False)
-        self.assertEqual(cur.execute.call_count, 2)
+        self.assertEqual(cur.execute.call_count, 3)
+        self.assertFalse(any('FROM attendances' in call.args[0] for call in cur.execute.call_args_list))
         self.assertEqual(len(result['periods']), 6)
         self.assertNotIn('attendance_rate', result['periods'][0])
 

@@ -24,6 +24,10 @@ class FakeEmbeddings:
         self.calls += 1
         return [0.1, 0.2]
 
+    def embed_documents(self, queries: list[str]) -> list[list[float]]:
+        self.calls += 1
+        return [[0.1, 0.2] for _ in queries]
+
 
 class FakeIndex:
     def __init__(self) -> None:
@@ -53,10 +57,10 @@ class LatencyMetricsTests(unittest.TestCase):
         with patch("chatbot.cohort_document_rag.active_policy_namespace", return_value="policy"):
             result = bot._retrieve_namespaces(state, ["policy", "notice"])
 
-        self.assertEqual(result["embedding_calls"], 2)
+        self.assertEqual(result["embedding_calls"], 1)
         self.assertEqual(result["vector_calls"], 2)
         self.assertEqual(len(result["documents"]), 2)
-        self.assertEqual(bot.embeddings.calls, 2)
+        self.assertEqual(bot.embeddings.calls, 1)
         self.assertEqual(len(bot.index.calls), 2)
         self.assertTrue(all(call["include_metadata"] for call in bot.index.calls))
         self.assertEqual({call["namespace"] for call in bot.index.calls}, {"policy", "notice"})
