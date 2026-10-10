@@ -1,0 +1,27 @@
+하이브리드 로컬 사이트 (2026-10-10)
+
+브랜치 refactor/calculation-rules. 운영 배포나 데이터 재적재 없음.
+기존 React 사이트 127.0.0.1:5173 → Django 127.0.0.1:18010
+→ chatbot.main FastAPI 127.0.0.1:18011.
+POLICY_HYBRID_LOCAL_PREVIEW=1일 때만 정책 retriever에 BM25/RRF 결합 적용.
+unset/0이면 기존 벡터 검색. 공지·개인 조회·supervisor 경로는 기존 코드 사용.
+현재 작업 트리의 미커밋 계산·인증 변경도 로컬 실행에 포함됨.
+
+활성 정책 namespace를 DB에서 읽고 Pinecone query/list/fetch만 사용한다.
+기수 범위와 업로드 namespace를 확인한 정책 corpus에 BM25를 적용한다.
+legacy policy namespace도 기수 필터를 적용한다. 예전 청크는 예전 형태로 사용하며
+현재 문서가 새 조 단위 청크로 재적재됐다는 의미가 아니다.
+키워드 corpus 캐시는 프로세스 메모리에서 namespace/기수별 60초 보관한다.
+전체 namespace가 5000 vectors를 초과하거나 scoped corpus가 비면 오류로 중단한다.
+실패를 벡터-only로 숨기지 않는다. 첫 요청에는 목록과 metadata 조회 지연이 추가된다.
+로컬 실험 기능이며 대규모 운영용 색인 동기화 구현은 아니다.
+
+실행 환경: LMS_INLINE_PUBLISH=0, LANGSMITH_TRACING=false,
+LANGCHAIN_TRACING_V2=false. Celery worker/beat는 시작하지 않음.
+사용자는 로그인 시간·인증 세션·챗봇 로그 저장을 명시적으로 허용했다.
+정책·출결 변경, S3/Pinecone 쓰기는 이 작업에서 실행하지 않았다.
+화면에는 기존 수정 기능이 남아 있으므로 정책 업로드 등은 이 테스트 범위 밖이다.
+
+실행 로그와 PID: 작업 문서 폴더 output/hybrid-local-site/.
+서버 시작·웹 HTTP 200·AI health만 확인했다. 새 통합 코드의 자동 테스트나
+실제 챗봇 질문 호출은 실행하지 않았다. 사용자가 직접 학생 계정으로 확인한다.

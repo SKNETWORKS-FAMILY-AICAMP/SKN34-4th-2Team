@@ -511,10 +511,13 @@ class ScopedPineconeVectorStore(VectorStore):
         started = time.perf_counter()
         vector = self._embedding.embed_query(query)
         embedding_ms = _elapsed_ms(started)
+        hybrid_preview = bool(self.policy_context_cohort) and os.getenv('POLICY_HYBRID_LOCAL_PREVIEW') == '1'
+        if hybrid_preview and filter:
+            raise ValueError('Local hybrid preview does not support additional policy filters')
         started = time.perf_counter()
         response = self._index.query(
             vector=vector,
-            top_k=k,
+            top_k=max(k, 12) if hybrid_preview else k,
             namespace=self._namespace,
             filter=_merge_filters(self.required_filter, filter),
             include_metadata=True,
@@ -537,6 +540,9 @@ class ScopedPineconeVectorStore(VectorStore):
                         metadata=metadata,
                     )
                 )
+        if hybrid_preview:
+            from chatbot.policy_hybrid_live import fuse
+            documents = fuse(self._index, self._namespace, self.policy_context_cohort, query, documents, k)
         if self.policy_context_cohort and self._namespace.startswith('cohort-doc-'):
             from chatbot.cohort_document_rag import expand_policy_context
             return expand_policy_context(self._index, self._namespace, self.policy_context_cohort, documents)
