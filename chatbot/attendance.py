@@ -2,14 +2,24 @@
 
 from __future__ import annotations
 
-import math
 from copy import deepcopy
 from typing import Any
+
+from chatbot.calculation_rules import CalculationRules
 
 
 def enrich_unit_period_context(context: dict[str, Any]) -> dict[str, Any]:
     """완료 전 단위기간에도 확인된 기록 기준의 예상치와 주의값을 추가한다."""
     result = deepcopy(context)
+    # Use exactly the same rule snapshot as the base calculation, never a new
+    # config read or a fallback that could silently apply a different threshold.
+    for period in result.get("periods", []):
+        period.pop("in_progress_estimate", None)
+    try:
+        rules = CalculationRules(**result["calculation_rules"])
+    except (KeyError, TypeError, ValueError):
+        result["estimate_unavailable_reason"] = "계산 기준이 없거나 유효하지 않습니다."
+        return result
     current_number = result.get("current_unit_period")
     for period in result.get("periods", []):
         if period.get("number") != current_number:
@@ -19,10 +29,10 @@ def enrich_unit_period_context(context: dict[str, Any]) -> dict[str, Any]:
         recorded = int(period.get("recorded_days") or 0)
         counts = period.get("status_counts") or {}
         exceptions = sum(int(counts.get(key, 0)) for key in ("late", "earlyLeave", "outing"))
-        absence_equivalent = int(counts.get("absent", 0)) + exceptions // 3
+        absence_equivalent = int(counts.get("absent", 0)) + exceptions // rules.exceptions_per_absence
         recognized = max(recorded - absence_equivalent, 0)
         remaining = max(scheduled - recorded, 0)
-        required = math.ceil(scheduled * 0.8) if scheduled else 0
+        required = rules.required_days(scheduled)
         allowance = max(recognized + remaining - required, 0)
 
         period["in_progress_estimate"] = {
@@ -30,12 +40,12 @@ def enrich_unit_period_context(context: dict[str, Any]) -> dict[str, Any]:
             "recorded_scheduled_days": recorded,
             "recognized_attendance_days": recognized,
             "attendance_rate": round(recognized / recorded * 100, 1) if recorded else None,
-            "requirement_met_so_far": recognized / recorded >= 0.8 if recorded else None,
+            "requirement_met_so_far": rules.requirement_met(recognized, recorded),
             "full_period_required_recognized_days": required,
             "remaining_scheduled_days": remaining,
             "max_additional_absent_days_within_remaining": min(remaining, allowance),
             "exception_count": exceptions,
-            "exception_count_until_next_absence_equivalent": 3 - (exceptions % 3),
+            "exception_count_until_next_absence_equivalent": rules.exceptions_per_absence - (exceptions % rules.exceptions_per_absence),
             "absence_equivalent_days": absence_equivalent,
             "final_rate_if_all_remaining_present": (
                 round((recognized + remaining) / scheduled * 100, 1) if scheduled else None

@@ -215,15 +215,17 @@ ANSWER_PROMPT = """
 - 일정에서 PDF에 없는 프로젝트 주제를 추측하지 말고 실제 project_reference 제출물 근거가 있을 때만 답한다.
 
 [진행 중 출석]
-- 단위기간 날짜는 제공된 periods와 current_unit_period를 사용한다. 개강일부터 매 1개월이고 마지막 기간은
-  종강일까지만 포함한다. 커리큘럼 PDF·수업 일정·출석 기록이 없어도 이 날짜는 안내할 수 있다.
+- 단위기간 날짜는 제공된 periods와 current_unit_period를 사용한다.
+  schedule_status가 generated_unconfirmed이면 반드시 "검토 전 계산 일정"으로 안내하고 확정 일정으로 단정하지 않는다.
   날짜만 제공된 경우 출석률이나 장려금 충족 여부까지 추정하지 않는다.
-- 단위기간·출석은 신뢰 가능한 계산 결과를 우선한다. in_progress_estimate가 있으면 횟수만 나열하지 말고
+- calculation_rules.review_status가 unverified이면 계산 기준도 미검증임을 밝힌다. RAG에서 찾은 숫자로
+  서버 결과를 재계산하거나 수료·수당 자격을 판정하지 않는다. in_progress_estimate가 있으면
   attendance_rate를 "현재까지 기록이 확인된 수업일 기준 인정 출석률"로, requirement_met_so_far를
-  현재 80% 충족 여부로, remaining_scheduled_days를 남은 수업일로 설명한다.
-- 계산상 여유가 있어도 결석을 허용·권장하지 않는다. 80%와의 차이는 "현재 기준에는 수치상 여유가 있지만
+  calculation_rules.attendance_threshold_percent 기준의 예상 충족 여부로 설명한다.
+  remaining_scheduled_days는 기록되지 않은 예정 수업일 수이며, 과거 누락 기록이 포함될 수 있다.
+- 계산상 여유가 있어도 결석을 허용·권장하지 않는다. 설정된 기준과의 차이는 "현재 계산 가정에는 수치상 여유가 있지만
   남은 일정에도 정상 출석을 권장한다"고 표현한다. max_additional_absent_days_within_remaining은 위험도
-  판단에만 쓰며, 결석 가능 횟수를 직접 물어도 "80% 하한까지의 계산상 여유"로 제한해 설명한다.
+  판단에만 쓰며, 결석 가능 횟수를 직접 물어도 "검토 전 기준 하한까지의 계산상 여유"로 제한해 설명한다.
 - final_rate_if_all_remaining_absent는 그 상황을 직접 물을 때만 제공한다. 지각·조퇴·외출의 결석 환산 규칙과
   exception_count_until_next_absence_equivalent만큼 더 누적되면 결석 환산 1일이 추가됨을 경고한다.
 - attendance_rate가 null이고 in_progress_estimate도 없으면 수치나 충족 여부를 추측하지 않는다.

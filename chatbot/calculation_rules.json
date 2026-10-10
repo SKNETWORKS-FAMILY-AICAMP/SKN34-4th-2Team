@@ -1,0 +1,9 @@
+{
+  "version": "legacy-calculation-v1",
+  "review_status": "unverified",
+  "source": "Extracted from existing code; not an approved cohort policy",
+  "attendance_threshold_percent": 80,
+  "exceptions_per_absence": 3,
+  "calendar_method": "anchored_month_clamped",
+  "final_period_method": "clip_to_course_end"
+}
