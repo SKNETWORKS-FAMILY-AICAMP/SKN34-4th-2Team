@@ -41,9 +41,9 @@ class FakeIndex:
 
 
 class FakeAnswerChain:
-    def invoke(self, inputs: dict, config: dict) -> AIMessage:
+    def stream(self, inputs: dict, config: dict):
         config["callbacks"][0].on_llm_new_token("답")
-        return AIMessage(content="답변", usage_metadata={"input_tokens": 21, "output_tokens": 3, "total_tokens": 24})
+        yield AIMessage(content="답변", usage_metadata={"input_tokens": 21, "output_tokens": 3, "total_tokens": 24})
 
 
 class LatencyMetricsTests(unittest.TestCase):

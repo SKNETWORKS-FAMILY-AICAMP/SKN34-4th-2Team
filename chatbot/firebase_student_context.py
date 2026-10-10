@@ -560,6 +560,16 @@ def load_student_context(
     selected = list(dict.fromkeys(scope for scope in scopes if scope in ALLOWED_SCOPES))
     data: dict[str, Any] = {}
     errors: dict[str, str] = {}
+    # The attendance loader already resolves cohort/user and reads the schedule.
+    # Avoid an outer connection and repeated identity queries for this one scope.
+    from chatbot.cohort_document_rag import valid_cohort_code
+    if selected == ['student_attendance'] and valid_cohort_code(cohort):
+        _put(data, errors, 'student_attendance', lambda: {
+            'unit_period_context': load_unit_period_context(
+                {'cohort': cohort, 'uid': uid}, include_record_details=True)
+        })
+        return {'cohort': cohort, 'as_of': datetime.now(KST).isoformat(),
+                'requested_scopes': selected, 'data': data, 'errors': errors}
     with _connect() as conn:
         cur = conn.cursor()
         cid, code = _cohort_ids(cur, cohort)

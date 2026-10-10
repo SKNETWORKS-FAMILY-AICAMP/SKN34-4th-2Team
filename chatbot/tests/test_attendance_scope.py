@@ -17,6 +17,7 @@ class AttendanceScopeTests(TestCase):
         self.assertEqual(set(result['data']),{'student_attendance'})
         unit.assert_called_once_with({'cohort':'cohort-test003','uid':'test'},include_record_details=True)
         private.assert_not_called(); shared.assert_not_called()
+        conn.assert_not_called()
         conn.return_value.__enter__.return_value.cursor.return_value.execute.assert_not_called()
         enriched=enrich_student_context(result)
         self.assertIn('estimate_unavailable_reason',enriched['data']['student_attendance']['unit_period_context'])

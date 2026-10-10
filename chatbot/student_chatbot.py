@@ -18,6 +18,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.vectorstores import VectorStore
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, MessagesState, StateGraph
 from pinecone import Pinecone
 from pydantic import BaseModel, Field
@@ -1139,14 +1140,22 @@ class LmsStudentChatbot:
             prompt_build_ms = _elapsed_ms(prompt_started)
             model_started = time.perf_counter()
             first_token_timer = _FirstAnswerTokenTimer(model_started)
-            response = self.answer_chain.invoke({
+            try:
+                writer = get_stream_writer()
+            except RuntimeError:
+                writer = lambda _event: None  # Direct node tests have no graph context.
+            response = None
+            for chunk in self.answer_chain.stream({
                 "history": history,
                 "context": context_text,
                 "question": state["question"],
-            }, config={"callbacks": [first_token_timer]})
+            }, config={"callbacks": [first_token_timer]}):
+                response = chunk if response is None else response + chunk
+                if chunk.text:
+                    writer({'type': 'answer_delta', 'text': chunk.text})
             answer_model_ms = _elapsed_ms(model_started)
             answer_ttft_ms = first_token_timer.first_token_ms or 0
-            answer = response.text.strip() or "답변을 생성하지 못했습니다. LMS 담당자에게 확인해 주세요."
+            answer = (response.text.strip() if response is not None else '') or "답변을 생성하지 못했습니다. LMS 담당자에게 확인해 주세요."
             token_in, token_out = _message_tokens(response)
         update: dict[str, Any] = {
             "answer": answer,
@@ -1217,14 +1226,10 @@ class LmsStudentChatbot:
         """답변 노드의 생성 토큰만 순서대로 반환한다."""
         graph_input, config = self._prepare_call(inputs)
         emitted = False
-        for message, metadata in self.graph.stream(graph_input, config, stream_mode="messages"):
-            if (
-                metadata.get("langgraph_node") == "answer"
-                and isinstance(message, AIMessageChunk)
-                and message.text
-            ):
+        for event in self.graph.stream(graph_input, config, stream_mode="custom"):
+            if isinstance(event, dict) and event.get('type') == 'answer_delta' and event.get('text'):
                 emitted = True
-                yield message.text
+                yield event['text']
         if not emitted:
             answer = str(self.graph.get_state(config).values.get("answer", ""))
             if answer:
