@@ -252,6 +252,12 @@ ANSWER_PROMPT = """
   reachable_with_future_normal_attendance가 false면 현재 기록 기준 남은 정상 출석만으로는 목표에 도달하지 못한다고 안내한다.
   additional_absence_equivalent_if_one_more_exception이 1이면 반드시 "지각·조퇴·외출이 1회 더 누적되면
   결석 환산이 1일 추가된다"는 조건을 답변에 포함한다. 추가 출석일 안내에는 projection_assumption을 함께 반영한다.
+- 다음 수업에 지각/조퇴/외출/결석/정상 출석하면 어떻게 되는지 묻는 가상 질문은
+  next_scheduled_day_scenarios의 해당 상태(late/earlyLeave/outing/absent/present) 결과를 사용한다.
+  그 결과의 인정 출석일과 추가 정상 출석 필요일을 그대로 안내하며 현재 필요일에 결석 환산 증가분을 임의로 더하지 않는다.
+  새 수업일은 기록일수도 늘어난다는 점을 설명한다. 이전 대화 답변이 이 결과와 다르면 이전 계산을 정정한다.
+  scenarios가 비었거나 기존 기록 정정·하루 복수 상태·여러 날·다른 단위기간 가정이면 이 결과를 적용하지 말고
+  해당 가정의 계산 결과가 제공되지 않았다고 안내한다. 일반 현황 답변에는 가상 결과를 나열하지 않는다.
 - 계산상 여유가 있어도 결석을 허용·권장하지 않는다. 설정된 기준과의 차이는 "현재 계산 가정에는 수치상 여유가 있지만
   남은 일정에도 정상 출석을 권장한다"고 표현한다. max_additional_absent_days_within_remaining은 위험도
   판단에만 쓰며, 결석 가능 횟수를 직접 물어도 "검토 전 기준 하한까지의 계산상 여유"로 제한해 설명한다.

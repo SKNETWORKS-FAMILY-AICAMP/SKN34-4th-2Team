@@ -42,6 +42,25 @@ def enrich_unit_period_context(context: dict[str, Any]) -> dict[str, Any]:
                                and partitions[0] == 0 and partitions[1] == 0 and partitions[3] == 0)
         needed = max(required - recognized, 0) if scheduled > 0 and recorded > 0 else None
         until_conversion = rules.exceptions_per_absence - (exceptions % rules.exceptions_per_absence)
+        scenarios = {}
+        if reliable_projection and partitions[2] > 0:
+            # A new scheduled day adds a record as well as any absence conversion.
+            # Never reuse this for correcting an already recorded day.
+            for status in ('present', 'late', 'earlyLeave', 'outing', 'absent'):
+                next_exceptions = exceptions + int(status in ('late', 'earlyLeave', 'outing'))
+                next_absence = (int(counts.get('absent', 0)) + int(status == 'absent')
+                                + next_exceptions // rules.exceptions_per_absence)
+                next_recognized = max(recorded + 1 - next_absence, 0)
+                next_needed = max(required - next_recognized, 0)
+                scenarios[status] = {
+                    'recorded_days': recorded + 1,
+                    'exception_count': next_exceptions,
+                    'absence_equivalent_days': next_absence,
+                    'recognized_attendance_days': next_recognized,
+                    'additional_normal_attendance_days_needed': next_needed,
+                    'remaining_future_days': partitions[2] - 1,
+                    'reachable_with_future_normal_attendance': next_needed <= partitions[2] - 1,
+                }
 
         period["in_progress_estimate"] = {
             "basis": "현재까지 출결 기록이 확인된 수업일",
@@ -61,6 +80,10 @@ def enrich_unit_period_context(context: dict[str, Any]) -> dict[str, Any]:
                 needed <= partitions[2] if reliable_projection else None),
             "projection_status": 'conditional_estimate' if reliable_projection else 'records_need_review',
             "projection_assumption": '앞으로 정상 출석하며 추가 결석 환산이 발생하지 않는다는 가정',
+            "next_scheduled_day_scenarios": scenarios,
+            "scenario_scope": '현재 단위기간의 다음 미기록 미래 수업일에 한 가지 출결 상태를 신규 기록한 가정. '
+                              '기존 기록 정정·하루 복수 예외·다음 단위기간에는 적용 불가. '
+                              '그 이후에는 정상 출석하고 추가 결석 환산이 없다고 가정. 실제 기록 변경 아님.',
             "additional_absence_equivalent_if_one_more_exception": 1 if until_conversion == 1 else 0,
             "max_additional_absent_days_within_remaining": min(remaining, allowance),
             "exception_count": exceptions,

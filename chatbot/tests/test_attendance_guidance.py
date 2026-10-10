@@ -41,3 +41,29 @@ class AttendanceGuidanceTests(TestCase):
                 e = self.estimate(statuses,today_offset=offset)
                 self.assertIsNone(e['additional_normal_attendance_days_needed'])
                 self.assertEqual(e['projection_status'],'records_need_review')
+
+    def test_next_day_scenarios_match_engine_with_new_record(self):
+        statuses = ['late']*5+['present']*8+['officialLeave']
+        original = self.estimate(statuses,today_offset=13)
+        for status, scenario in original['next_scheduled_day_scenarios'].items():
+            with self.subTest(status=status):
+                actual = self.estimate(statuses+[status],today_offset=14)
+                for key in ('exception_count','absence_equivalent_days','recognized_attendance_days',
+                            'additional_normal_attendance_days_needed','reachable_with_future_normal_attendance'):
+                    self.assertEqual(scenario[key],actual[key])
+        late = original['next_scheduled_day_scenarios']['late']
+        self.assertEqual(late['recorded_days'],15)
+        self.assertEqual(late['recognized_attendance_days'],13)
+        self.assertEqual(late['additional_normal_attendance_days_needed'],2)
+
+    def test_incomplete_or_finished_schedule_has_no_scenarios(self):
+        for statuses,offset in ((['present']*12+[None,'present'],13),
+                                (['present']*14,14), (['present']*15,13), (['present']*18,17)):
+            with self.subTest(offset=offset,statuses=statuses):
+                self.assertEqual(self.estimate(statuses,today_offset=offset)['next_scheduled_day_scenarios'],{})
+
+    def test_next_day_can_make_target_unreachable(self):
+        statuses=['absent']*3+['present']*13
+        scenarios=self.estimate(statuses,today_offset=15)['next_scheduled_day_scenarios']
+        self.assertTrue(scenarios['present']['reachable_with_future_normal_attendance'])
+        self.assertFalse(scenarios['absent']['reachable_with_future_normal_attendance'])
