@@ -2305,10 +2305,9 @@ export function deleteInflearnPackage(id: string): void {
   if (!isTestMode()) void runCommand('upsert', { table: 'inflearn_packages', id, action: 'delete' });
 }
 
-export function replaceCurriculumSheet(sheet: import('../domain/types').CurriculumSheet): void {
-  mutate(() => ({ curriculumSheets: [sheet] }));
+export async function replaceCurriculumSheet(sheet: import('../domain/types').CurriculumSheet): Promise<void> {
   if (!isTestMode()) {
-    void runCommand('replaceCurriculumSheet', {
+    await runCommand('replaceCurriculumSheet', {
       id: sheet.id,
       cohortId: apiCohortId(),
       title: sheet.title,
@@ -2316,6 +2315,7 @@ export function replaceCurriculumSheet(sheet: import('../domain/types').Curricul
       rows: sheet.rows,
     });
   }
+  mutate(() => ({ curriculumSheets: [sheet] }));
 }
 
 // ── 설문 · 제출 ────────────────────────────────────────
