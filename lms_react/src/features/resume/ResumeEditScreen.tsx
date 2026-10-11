@@ -453,15 +453,20 @@ export function ResumeEditScreen() {
               <button
                 type="button"
                 className="resume-doc__fill"
-                onClick={() =>
+                onClick={() => {
+                  const info = resume.content.basicInfo;
                   patch({
                     basicInfo: {
-                      ...resume.content.basicInfo,
-                      name: resume.content.basicInfo.name || user.displayName,
-                      email: resume.content.basicInfo.email || user.email,
+                      ...info,
+                      name: info.name || user.displayName,
+                      // 로그인 아이디보다 마이페이지의 개인 이메일이 연락받을 주소다
+                      email: info.email || user.personalEmail || user.email,
+                      birthDate: info.birthDate || (user.birthDate ?? '').replace(/-/g, '.'),
+                      githubUrl: info.githubUrl || (user.socialLinks.github ?? ''),
+                      blogUrl: info.blogUrl || (user.socialLinks.blog ?? ''),
                     },
-                  })
-                }
+                  });
+                }}
               >
                 <Icon name="person" size={16} />
                 마이페이지 정보로 빈 칸 채우기

@@ -152,7 +152,7 @@ export function ResumeScreen() {
         </p>
       )}
 
-      <section className="panel panel--flush">
+      <section className="panel panel--flush resume-others">
         <h2 className="resume-others__title">다른 이력서</h2>
         {shown.length === 0 ? (
           <p className="hint" style={{ padding: '0 18px 18px' }}>
