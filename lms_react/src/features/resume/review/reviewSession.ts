@@ -111,6 +111,11 @@ export interface ReviewDockStatus {
   stageIndex: number | null;
   stageCount: number | null;
   failed: boolean;
+  /**
+   * 이 첨삭이 고치는 이력서. 일반 첨삭은 원본, 공고 맞춤은 맞춤 이력서(첨삭 도중 새로 만들 수도 있다).
+   * 그동안 편집기는 이 이력서를 잠근다.
+   */
+  editingResumeId: string | null;
 }
 
 export interface ReviewSessionOptions {
@@ -637,6 +642,7 @@ export class ReviewSession {
       stageIndex: staged ? stage : null,
       stageCount: staged ? steps.length : null,
       failed: this.error !== null,
+      editingResumeId: this.opts.generalReview ? this.opts.resumeId : this.tailoredResumeId,
     });
   }
 
@@ -702,6 +708,8 @@ export class ReviewSession {
       throw new Error('공고별 이력서를 준비하지 못했습니다. 다시 시도해 주세요.');
     }
     this.tailoredResumeId = tailoredId;
+    // 새 맞춤 이력서가 생겼다 — 편집기가 바로 잠그게 알린다
+    this.reportDock();
     this.preview = content as Json;
     const session = tailored.review_session;
     this.restoreSession(session !== null && typeof session === 'object' ? (session as Json) : {});

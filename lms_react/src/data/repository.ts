@@ -1416,7 +1416,17 @@ export async function createResume(resume: Omit<Resume, 'id' | 'updatedAt'>): Pr
 }
 
 const pendingResumeWrites = new Map<string, Promise<unknown>>();
+/** 앞 쓰기를 기다리는 중이라 아직 보내지 않은 쓰기 — 이력서마다 많아야 하나 */
+const queuedResumeWrites = new Map<string, { patch: Partial<Resume>; request: Promise<void> }>();
 
+/**
+ * 이력서 쓰기. 편집 화면은 글자마다 부른다.
+ *
+ * 한 이력서의 쓰기는 차례대로 보내되, 앞 쓰기가 가는 동안 들어온 것은 하나로 합쳐 최신 것만 보낸다.
+ * 예전에는 글자마다 「쓰기 + 전체 다시 읽기」가 한 줄로 쌓여 수백 개가 밀렸다 — 「저장」이 그 끝에서
+ * 몇 초씩 기다렸고, 그사이 새로고침하면 못 보낸 입력이 통째로 사라졌다.
+ * 다시 읽기는 기다리지 않는다. 화면 캐시는 위에서 이미 고쳐 두었다.
+ */
 export function updateResume(id: string, patch: Partial<Resume>): Promise<void> {
   const update = (db: Database): Database => ({
     ...db,
@@ -1427,15 +1437,45 @@ export function updateResume(id: string, patch: Partial<Resume>): Promise<void> 
     return Promise.resolve();
   }
   queryClient.setQueryData<Database>(queryKeys.bootstrap, (db) => db && update(db));
+  const queued = queuedResumeWrites.get(id);
+  if (queued !== undefined) {
+    queued.patch = { ...queued.patch, ...patch };
+    return queued.request;
+  }
+  const entry = { patch, request: Promise.resolve() };
   const previous = pendingResumeWrites.get(id) ?? Promise.resolve();
-  const request = previous.catch(() => undefined).then(async () => {
-    await runCommand('upsert', { table: 'resumes', id, action: 'update', ...resumeForServer(patch) });
+  entry.request = previous.catch(() => undefined).then(async () => {
+    // 보내기 시작하면 이 뒤의 입력은 새 쓰기로 줄 선다
+    queuedResumeWrites.delete(id);
+    await http.post('/command', {
+      op: 'upsert',
+      payload: { table: 'resumes', id, action: 'update', ...resumeForServer(entry.patch) },
+    });
+    void invalidateBootstrap();
   });
+  queuedResumeWrites.set(id, entry);
+  const request = entry.request;
   pendingResumeWrites.set(id, request);
   void request.finally(() => {
     if (pendingResumeWrites.get(id) === request) pendingResumeWrites.delete(id);
   }).catch(() => undefined);
   return request;
+}
+
+/** 서버로 가는 중이거나 줄 선 이력서 쓰기가 있는가 — 창을 닫기 전에 묻는 데 쓴다 */
+export function hasPendingResumeWrites(id: string): boolean {
+  return pendingResumeWrites.has(id);
+}
+
+/**
+ * 이 이력서의 쓰기가 다 끝날 때까지 기다린다. 첨삭 · 추천처럼 서버의 이력서를 읽는 일 앞에 둔다.
+ * 실패한 쓰기는 여기서 막지 않는다(편집 화면이 「저장 실패」로 따로 알린다).
+ */
+export async function waitForResumeWrites(id: string): Promise<void> {
+  for (let p = pendingResumeWrites.get(id); p !== undefined; p = pendingResumeWrites.get(id)) {
+    await p.catch(() => undefined);
+    if (pendingResumeWrites.get(id) === p) break;
+  }
 }
 
 /**

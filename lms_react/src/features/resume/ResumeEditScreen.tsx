@@ -13,9 +13,11 @@ import { jobApplyPath, jobApplyPostingPath, RoutePaths } from '../../app/routePa
 import {
   addResumeFeedback,
   applyBootstrap,
+  hasPendingResumeWrites,
   updateResume,
   useResume,
   useResumeFeedbacks,
+  waitForResumeWrites,
 } from '../../data/repository';
 import {
   ResumeSectionKeys,
@@ -191,14 +193,25 @@ export function ResumeEditScreen() {
     widthRange.initial,
   );
   const [panelHeight, setPanelHeight] = useStoredSize('resume_edit_panel_height', PANEL.initialHeight);
+  // 서버로 아직 못 보낸 입력이 있으면 창을 닫거나 새로고침할 때 묻는다(보내기 전에 닫으면 사라진다)
+  useEffect(() => {
+    if (resumeId === undefined) return undefined;
+    const warn = (e: BeforeUnloadEvent) => {
+      if (!hasPendingResumeWrites(resumeId)) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [resumeId]);
 
-  const [mode, setMode] = useState<'doc' | 'edit'>(reviewer ? 'doc' : 'edit');
+  const [chosenMode, setMode] = useState<'doc' | 'edit'>(reviewer ? 'doc' : 'edit');
   const [panel, setPanel] = useState<'coach' | 'jobs'>('coach');
   // 코치에게 묻기는 코치 패널을 통째로 차지한다. 돌아오면 보던 첫 화면(추천 목록 등)이 그대로다
   const [asking, setAsking] = useState(false);
   // 대화에서 받은 추천을 「근거 전체 보기」로 열 때 목록을 새로 읽게 한다
   const [jobsView, setJobsView] = useState(0);
-  const { openReview } = useReviewDock();
+  const { openReview, reviewingResumeId } = useReviewDock();
   const [current, setCurrent] = useState<string>(search.get('section') ?? 'basicInfo');
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const listPath = reviewer ? (user.role === 'admin' ? RoutePaths.adminResumes : RoutePaths.instructorResumes) : RoutePaths.resume;
@@ -214,6 +227,9 @@ export function ResumeEditScreen() {
     );
   }
 
+  // 이 이력서를 첨삭하는 동안은 읽기만 한다. 첨삭도 이 이력서를 고치므로 둘이 서로 덮어쓰지 않게
+  const reviewLocked = reviewingResumeId === resume.id;
+  const mode = reviewLocked ? 'doc' : chosenMode;
   const done = computeSections(resume.content);
   const filled = ResumeSectionKeys.filter((k) => done[k]).length;
   const patch = (change: Partial<ResumeContent>) => {
@@ -232,12 +248,29 @@ export function ResumeEditScreen() {
         content: resume.content,
         revisionCount: resume.revisionCount + 1,
       });
-      // updateResume waits for the command's bootstrap invalidation/refetch.
+      // 화면 캐시는 updateResume 이 이미 고쳐 두었다. 서버에 닿았으니 편집본을 내려놓는다
       finishSave(version);
       setSaveState('saved');
     } catch {
       setSaveState('error');
     }
+  };
+
+  // 첨삭은 서버의 이력서를 읽고 고친다. 방금 친 글이 다 도착한 뒤에 연다
+  const openGeneralReview = async () => {
+    await waitForResumeWrites(resume.id);
+    openReview(`general-review-${resume.id}`, {
+      resumeId: resume.id,
+      generalReview: true,
+      // 서버가 이미 저장했다. 편집 화면이 바뀐 이력서를 다시 받아 그린다.
+      // 편집본을 들고 있으면 그게 서버 것을 가려 반영이 안 보인다 — 첨삭 중엔 편집을 잠그므로 내려놓는다
+      onChanged: () => {
+        const version = saveVersion();
+        void waitForResumeWrites(resume.id)
+          .then(() => applyBootstrap())
+          .then(() => finishSave(version));
+      },
+    });
   };
 
   const headActions = (
@@ -275,7 +308,7 @@ export function ResumeEditScreen() {
             type="button"
             className={`seg__btn${mode === m ? ' seg__btn--on' : ''}`}
             onClick={() => setMode(m)}
-            disabled={reviewer && m === 'edit'}
+            disabled={(reviewer || reviewLocked) && m === 'edit'}
           >
             {m === 'doc' ? 'Doc' : 'Edit'}
           </button>
@@ -376,6 +409,11 @@ export function ResumeEditScreen() {
           <i style={{ width: `${(filled / ResumeSectionKeys.length) * 100}%` }} />
         </span>
   
+        {reviewLocked && (
+          <p className="resume-edit__banner resume-edit__banner--wait">
+            첨삭 중인 이력서라 고칠 수 없어요 — 첨삭 창을 닫으면 다시 고칠 수 있어요.
+          </p>
+        )}
         {!reviewer && resume.status === 'feedbackRequested' && (
           <p className="resume-edit__banner resume-edit__banner--wait">
             피드백 요청됨 — 계속 수정할 수 있습니다.
@@ -557,14 +595,7 @@ export function ResumeEditScreen() {
                 <button
                   type="button"
                   className="coach-action"
-                  onClick={() =>
-                    openReview(`general-review-${resume.id}`, {
-                      resumeId: resume.id,
-                      generalReview: true,
-                      // 서버가 이미 저장했다. 편집 화면이 바뀐 이력서를 다시 받아 그린다
-                      onChanged: () => void applyBootstrap(),
-                    })
-                  }
+                  onClick={() => void openGeneralReview()}
                 >
                   <Icon name="edit" size={22} className="coach-action__icon coach-action__icon--red" />
                   이력서 첨삭
