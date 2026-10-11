@@ -1266,3 +1266,45 @@
   align-items: center;
   gap: 6px 12px;
 }
+
+/* 바탕 이력서 바꾸기(4단계) */
+.apply-base {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.apply-base select {
+  width: auto;
+  max-width: 280px;
+}
+
+.apply-base .hint {
+  flex-basis: 100%;
+}
+
+/* 바탕 이력서가 지워진 자소서의 저장한 답(읽기 전용) */
+.apply-saved-answer {
+  white-space: pre-wrap;
+  line-height: 1.75;
+  margin: 0;
+}
+
+/* 문항 전체 답변(QuestionWorkflowAnswers) */
+.qw-run {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.qw-overlap {
+  display: grid;
+  gap: 4px;
+}
+
+.qw-overlap p {
+  margin: 0;
+  line-height: 1.6;
+}

@@ -3,9 +3,9 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { jobApplyPath, resumeEditPath, RoutePaths } from '../../app/routePaths';
 import { http } from '../../data/http';
-import { applyBootstrap, updateResume, useMyResumes } from '../../data/repository';
+import { applyBootstrap, deleteResume, updateResume, useMyResumes } from '../../data/repository';
 import { nextId } from '../../data/store';
-import type { Resume, ResumeContent } from '../../domain/types';
+import type { Resume, ResumeCompanyQuestion, ResumeContent } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { MoreMenu } from '../../ui/MoreMenu';
 import { Badge, Button, Card, Select, TabPage, TextInput } from '../../ui/components';
@@ -29,7 +29,7 @@ import { defaultQuestions } from './companyQuestions';
 import { CoachAsk } from '../resume/ask/CoachAsk';
 import { ApplySiteButton } from './ApplySiteButton';
 import { FeaturedPostings } from './FeaturedPostings';
-import { QuestionAnswers } from './QuestionAnswers';
+import { QuestionWorkflowAnswers } from './QuestionWorkflowAnswers';
 import { QuestionsStep, type QuestionChoice } from './QuestionsStep';
 import './jobApply.css';
 
@@ -42,7 +42,11 @@ import './jobApply.css';
  * 3. 회사 자기소개서 문항을 정한다 — 붙여넣기 · 자주 나오는 문항 · 기본 6문항(QuestionsStep.tsx)
  * 4. 바탕 이력서의 공고용 사본을 뜨고(첨삭과 같은 사본 — `/resume-review/tailored`) 요건 순으로 늘어놓는다.
  *    회사 문항은 사본의 content.companyQuestions 에 담는다
- * 5. 문항별 답변 첨삭 — 공고 요건을 이력서에서 찾아 근거로 답을 쓴다(QuestionAnswers.tsx). 이력서 관리의 AI 첨삭과는 다른 흐름
+ * 5. 문항별 답변 첨삭 — 문항 전체를 함께 계획해 이력서 · 메모 근거로 답을 쓴다(QuestionWorkflowAnswers.tsx). 이력서 관리의 AI 첨삭과는 다른 흐름.
+ *    문항 하나씩 쓰던 QuestionAnswers.tsx(question_answers.py)는 남겨 두었다
+ *
+ * 바탕 이력서는 만든 뒤에도 바꿀 수 있다(4단계). 새 바탕 이력서로 사본을 다시 뜨고 문항 · 메모 · 답을 옮긴 뒤 옛 사본을 지운다.
+ * 바탕 이력서가 지워진 자소서는 첨삭(원본 + 사본 짝)을 이어 갈 수 없어 읽기 전용으로 열고, 바탕 이력서를 다시 고르게 한다.
  *
  * 초안은 순서만 바꾼다. 문장은 첨삭이 공고 원문을 근거로 고친다(alignDraft.ts).
  */
@@ -66,6 +70,10 @@ interface Draft {
   projectsReordered: boolean;
   /** 사본에 담은 회사 문항 수. 기본 6문항이면 0 */
   questionCount: number;
+  /** 바탕 이력서가 지워진 자소서 — 첨삭을 이어 갈 수 없어 저장한 답만 보여 준다 */
+  orphan?: boolean;
+  /** 바탕 이력서를 바꾼 결과. moved: 문항 · 답을 옮기고 옛 자소서를 지웠다. kept: 새 바탕으로 만든 자소서가 이미 있어 그걸 열었다 */
+  switched?: { title: string; result: 'moved' | 'kept' };
 }
 
 const SITE_LABEL: Record<string, string> = { SARAMIN_POC: '사람인', JOBKOREA_POC: '잡코리아' };
@@ -123,6 +131,8 @@ export function JobApplyScreen() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [switching, setSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
   /** 회사 자소서 문항 — null 이면 아직 안 정했다 */
   const [questions, setQuestions] = useState<QuestionChoice | null>(null);
   const [viewing, setViewing] = useState(false);
@@ -212,7 +222,7 @@ export function JobApplyScreen() {
   /** 주소의 공고용 이력서로 이어 간다 — 연결된 공고를 다시 읽고, 문항이 담겨 있으면 문항 답변(5단계)을 연다 */
   const restore = async (resume: Resume) => {
     const copy = reviewWorkCopy(resume);
-    if (copy === undefined || !resume.linkedJobId) {
+    if ((copy === undefined && !isApplyCopy(resume)) || !resume.linkedJobId) {
       setFindError('공고 맞춤 지원에서 이어 갈 수 없는 이력서예요. 이력서 관리에서 열어 주세요.');
       return;
     }
@@ -222,7 +232,7 @@ export function JobApplyScreen() {
       const data = await readPosting(resume.linkedJobId);
       setPosting(data);
       setLink(data.source_url);
-      setPickedSource(copy.base);
+      setPickedSource(copy?.base ?? '');
       setCreateError(null);
       if (data.status === 'OPEN') loadRequirements(data.job_id);
       const saved = resume.content.companyQuestions ?? [];
@@ -230,8 +240,9 @@ export function JobApplyScreen() {
       setDraft(
         saved.length > 0
           ? {
-              resumeId: copy.base, tailoredId: copy.tailored, editId: resume.id, session: {}, reused: true,
+              resumeId: copy?.base ?? '', tailoredId: copy?.tailored ?? '', editId: resume.id, session: {}, reused: true,
               addedSkills: [], matchedSkills: 0, projectsReordered: false, questionCount: saved.length,
+              orphan: copy === undefined,
             }
           : null,
       );
@@ -283,67 +294,106 @@ export function JobApplyScreen() {
     setCreateError(null);
   };
 
+  /**
+   * 바탕 이력서(src)의 공고용 사본을 뜨고 문항을 담는다. carried: 문항을 이 사본에 담았는가 —
+   * 같은 공고로 이미 만든 사본에 문항이나 첨삭 대화가 있으면 덮지 않는다(false).
+   */
+  const makeCopy = async (src: Resume, chosen: QuestionChoice): Promise<Draft & { carried: boolean }> => {
+    if (posting === null) throw new Error('공고를 먼저 정해 주세요.');
+    const created = await reviewApi.createTailored(src.id, posting.job_id, 'apply');
+    const tailoredId = String(created.tailored_resume_id ?? '');
+    if (tailoredId === '') throw new Error('자소서를 만들지 못했어요. 다시 시도해 주세요.');
+    const editId = `${src.id}/tailored/${tailoredId}`;
+    const session = (created.review_session ?? {}) as Json;
+    // 같은 공고로 이미 만든 사본이면 서버가 그것을 돌려준다. 사용자가 고친 순서를 덮지 않도록 다시 늘어놓지 않는다
+    const reused = resumes.some((r) => r.id === editId) || Object.keys(session).length > 0;
+    // 기본 6문항도 문항 목록으로 담는다 — 이 탭의 첨삭(문항 답변)이 같은 흐름으로 돈다
+    const companyQuestions =
+      chosen === 'default'
+        ? defaultQuestions(draftContent(created.content).selfIntroduction, () => nextId('cq'))
+        : chosen;
+    let next: Draft & { carried: boolean } = {
+      resumeId: src.id, tailoredId, editId, session, reused,
+      addedSkills: [], matchedSkills: 0, projectsReordered: false, questionCount: 0, carried: false,
+    };
+    if (reused) {
+      // 이미 만든 사본에는 문항만 채운다. 첨삭 대화가 있으면 본문이 바뀌어 대화가 끊기므로 건드리지 않는다
+      const before = draftContent(created.content);
+      const has = before.companyQuestions?.length ?? 0;
+      if (has === 0 && companyQuestions.length > 0 && Object.keys(session).length === 0) {
+        await updateResume(editId, { content: { ...before, companyQuestions } });
+        next = { ...next, questionCount: companyQuestions.length, carried: true };
+      } else {
+        next = { ...next, questionCount: has };
+      }
+    } else {
+      const before = draftContent(created.content);
+      const filled = fillEvidenced
+        ? addEvidencedSkills(before, skillCoverage(before, skills), () => nextId('t'))
+        : { content: before, added: [] };
+      const aligned = alignToPosting(filled.content, skills);
+      const changed =
+        filled.added.length > 0 ||
+        aligned.projectsReordered ||
+        aligned.content.techStack.some((t, i) => t !== before.techStack[i]) ||
+        companyQuestions.length > 0;
+      const content = companyQuestions.length > 0 ? { ...aligned.content, companyQuestions } : aligned.content;
+      // 첨삭 창이 사본을 다시 읽기 전에 저장을 끝내 둔다
+      if (changed) await updateResume(editId, { content });
+      next = {
+        ...next,
+        addedSkills: filled.added,
+        matchedSkills: aligned.matchedSkills,
+        projectsReordered: aligned.projectsReordered,
+        questionCount: companyQuestions.length,
+        carried: true,
+      };
+    }
+    return next;
+  };
+
+  const open = async (next: Draft) => {
+    await applyBootstrap();
+    setDraft(next);
+    restoredId.current = next.editId;
+    setParams({ resume: next.editId }, { replace: true });
+  };
+
   const create = async () => {
     if (creating || posting === null || source === undefined || questions === null) return;
     setCreating(true);
     setCreateError(null);
     try {
-      const created = await reviewApi.createTailored(source.id, posting.job_id, 'apply');
-      const tailoredId = String(created.tailored_resume_id ?? '');
-      if (tailoredId === '') throw new Error('자소서를 만들지 못했어요. 다시 시도해 주세요.');
-      const editId = `${source.id}/tailored/${tailoredId}`;
-      const session = (created.review_session ?? {}) as Json;
-      // 같은 공고로 이미 만든 사본이면 서버가 그것을 돌려준다. 사용자가 고친 순서를 덮지 않도록 다시 늘어놓지 않는다
-      const reused = resumes.some((r) => r.id === editId) || Object.keys(session).length > 0;
-      // 기본 6문항도 문항 목록으로 담는다 — 이 탭의 첨삭(문항 답변)이 같은 흐름으로 돈다
-      const companyQuestions =
-        questions === 'default'
-          ? defaultQuestions(draftContent(created.content).selfIntroduction, () => nextId('cq'))
-          : questions;
-      let next: Draft = {
-        resumeId: source.id, tailoredId, editId, session, reused,
-        addedSkills: [], matchedSkills: 0, projectsReordered: false, questionCount: 0,
-      };
-      if (reused) {
-        // 이미 만든 사본에는 문항만 채운다. 첨삭 대화가 있으면 본문이 바뀌어 대화가 끊기므로 건드리지 않는다
-        const before = draftContent(created.content);
-        const has = before.companyQuestions?.length ?? 0;
-        if (has === 0 && companyQuestions.length > 0 && Object.keys(session).length === 0) {
-          await updateResume(editId, { content: { ...before, companyQuestions } });
-          next = { ...next, questionCount: companyQuestions.length };
-        } else {
-          next = { ...next, questionCount: has };
-        }
-      } else {
-        const before = draftContent(created.content);
-        const filled = fillEvidenced
-          ? addEvidencedSkills(before, skillCoverage(before, skills), () => nextId('t'))
-          : { content: before, added: [] };
-        const aligned = alignToPosting(filled.content, skills);
-        const changed =
-          filled.added.length > 0 ||
-          aligned.projectsReordered ||
-          aligned.content.techStack.some((t, i) => t !== before.techStack[i]) ||
-          companyQuestions.length > 0;
-        const content = companyQuestions.length > 0 ? { ...aligned.content, companyQuestions } : aligned.content;
-        // 첨삭 창이 사본을 다시 읽기 전에 저장을 끝내 둔다
-        if (changed) await updateResume(editId, { content });
-        next = {
-          ...next,
-          addedSkills: filled.added,
-          matchedSkills: aligned.matchedSkills,
-          projectsReordered: aligned.projectsReordered,
-          questionCount: companyQuestions.length,
-        };
-      }
-      await applyBootstrap();
-      setDraft(next);
-      restoredId.current = next.editId;
-      setParams({ resume: next.editId }, { replace: true });
+      await open(await makeCopy(source, questions));
     } catch (err) {
       setCreateError(errorDetail(err, '자소서를 만들지 못했어요. 다시 시도해 주세요.'));
     } finally {
       setCreating(false);
+    }
+  };
+
+  /** 바탕 이력서 바꾸기 — 새 바탕으로 사본을 뜨고 문항 · 메모 · 답을 옮긴다. 옮긴 뒤에만 옛 자소서를 지운다 */
+  const switchBase = async (targetId: string) => {
+    const target = sources.find((r) => r.id === targetId);
+    if (switching || draft === null || target === undefined || target.id === draft.resumeId) return;
+    const old = resumes.find((r) => r.id === draft.editId);
+    const carried: ResumeCompanyQuestion[] = old?.content.companyQuestions ?? (Array.isArray(questions) ? questions : []);
+    setSwitching(true);
+    setSwitchError(null);
+    try {
+      const next = await makeCopy(target, carried);
+      setPickedSource(target.id);
+      if (next.carried) setQuestions(carried);
+      await open({ ...next, switched: { title: target.title, result: next.carried ? 'moved' : 'kept' } });
+      // 목록을 새로 받은 뒤에 지운다 — 먼저 지우면 아직 지우기 전의 서버 목록이 옛 자소서를 되살린다.
+      // 이 탭 전용 사본(apply_…)만 지운다. 나누기 전에 만든 사본(tailored_…)은 이력서 관리의 맞춤 첨삭과 함께 쓰였을 수 있다
+      if (next.carried && old !== undefined && old.id !== next.editId && /\/tailored\/apply_[^/]+$/.test(old.id)) {
+        deleteResume(old.id);
+      }
+    } catch (err) {
+      setSwitchError(errorDetail(err, '바탕 이력서를 바꾸지 못했어요. 다시 시도해 주세요.'));
+    } finally {
+      setSwitching(false);
     }
   };
 
@@ -521,7 +571,15 @@ export function JobApplyScreen() {
               {createError !== null && <p className="apply-error">{createError}</p>}
             </>
           ) : (
-            <DraftDone draft={draft} onEdit={() => navigate(resumeEditPath(draft.editId))} />
+            <DraftDone
+              draft={draft}
+              saved={resumes.find((r) => r.id === draft.editId)?.content.companyQuestions ?? []}
+              sources={sources}
+              switching={switching}
+              switchError={switchError}
+              onSwitch={(id) => void switchBase(id)}
+              onEdit={() => navigate(resumeEditPath(draft.editId))}
+            />
           )}
         </Card>
       )}
@@ -640,10 +698,29 @@ function RequirementList({ requirements, onRetry }: { requirements: Requirements
   );
 }
 
-function DraftDone({ draft, onEdit }: { draft: Draft; onEdit(): void }) {
+function DraftDone({
+  draft, saved, sources, switching, switchError, onSwitch, onEdit,
+}: {
+  draft: Draft;
+  /** 사본에 저장된 문항 · 답 — 바탕 이력서가 지워진 자소서는 이것만 보여 준다 */
+  saved: ResumeCompanyQuestion[];
+  sources: Resume[];
+  switching: boolean;
+  switchError: string | null;
+  onSwitch(resumeId: string): void;
+  onEdit(): void;
+}) {
   return (
     <div className="apply-done">
-      {draft.reused ? (
+      {draft.switched !== undefined ? (
+        <p>
+          {draft.switched.result === 'moved'
+            ? `바탕 이력서를 「${draft.switched.title}」(으)로 바꿨어요. 문항 · 메모 · 답을 새 자소서로 옮겼어요.`
+            : `「${draft.switched.title}」(으)로 만든 이 공고 자소서가 이미 있어서 그 자소서를 열었어요. 전에 쓰던 자소서는 「내 자소서」에 그대로 있어요.`}
+        </p>
+      ) : draft.orphan ? (
+        <p className="apply-warn">바탕 이력서가 지워져 AI 첨삭을 이어 갈 수 없어요. 저장한 답은 아래에 그대로 있어요. 바탕 이력서를 다시 고르면 문항과 답을 옮겨 이어 쓸 수 있어요.</p>
+      ) : draft.reused ? (
         <p>이 공고로 만든 자소서가 이미 있어서 그 자소서를 열었어요. 고쳐 둔 내용이 그대로 남아 있어요.</p>
       ) : (
         <ul className="apply-plan apply-plan--done">
@@ -657,22 +734,91 @@ function DraftDone({ draft, onEdit }: { draft: Draft; onEdit(): void }) {
           {draft.questionCount > 0 && <li>자기소개서 문항 {draft.questionCount}개를 담았어요.</li>}
         </ul>
       )}
-      <div className="apply-actions">
-        <Button variant="outline" onClick={onEdit}>
-          <Icon name="edit" size={18} />
-          편집기에서 열기
-        </Button>
-      </div>
+
+      <BaseSwitch current={draft.orphan ? '' : draft.resumeId} sources={sources} busy={switching} onSwitch={onSwitch} />
+      {switchError !== null && <p className="apply-error">{switchError}</p>}
+
+      {!draft.orphan && (
+        <div className="apply-actions">
+          <Button variant="outline" onClick={onEdit}>
+            <Icon name="edit" size={18} />
+            편집기에서 열기
+          </Button>
+        </div>
+      )}
 
       <div className="apply-qa">
         <div className="apply-qa__head">
           <h3>문항별 답변 첨삭</h3>
           <span className="hint">
-            공고 요건을 이력서에서 찾아 근거로 답을 써요. 문장마다 근거가 붙고, 근거가 모자라면 질문으로 물어요.
+            {draft.orphan
+              ? '바탕 이력서를 다시 고르면 AI 첨삭을 이어 쓸 수 있어요.'
+              : '문항 전체를 함께 보고 이력서 · 메모를 근거로 답을 써요. 문장마다 근거가 붙고, 재료가 모자라면 질문으로 물어요.'}
           </span>
         </div>
-        <QuestionAnswers resumeId={draft.resumeId} tailoredId={draft.tailoredId} editId={draft.editId} />
+        {draft.orphan ? (
+          <SavedAnswers questions={saved} />
+        ) : (
+          <QuestionWorkflowAnswers key={draft.editId} resumeId={draft.resumeId} tailoredId={draft.tailoredId} editId={draft.editId} />
+        )}
       </div>
+    </div>
+  );
+}
+
+/** 바탕 이력서 바꾸기 — 새 바탕으로 사본을 다시 뜨고 문항 · 메모 · 답을 옮긴다 */
+function BaseSwitch({ current, sources, busy, onSwitch }: {
+  current: string; sources: Resume[]; busy: boolean; onSwitch(resumeId: string): void;
+}) {
+  const [picked, setPicked] = useState(current);
+  useEffect(() => setPicked(current), [current]);
+  const others = sources.filter((r) => r.id !== current);
+  if (others.length === 0) return null;
+  return (
+    <div className="apply-base">
+      <span className="apply-label">바탕 이력서</span>
+      <Select value={picked} onChange={(e) => setPicked(e.target.value)} aria-label="바꿀 바탕 이력서" disabled={busy}>
+        {current === '' && <option value="">바탕 이력서 고르기</option>}
+        {sources.map((r) => (
+          <option key={r.id} value={r.id}>
+            {r.title}
+            {r.isBaseResume ? ' (기본)' : ''}
+            {r.id === current ? ' · 지금' : ''}
+          </option>
+        ))}
+      </Select>
+      <Button variant="outline" size="sm" disabled={busy || picked === '' || picked === current} onClick={() => onSwitch(picked)}>
+        <Icon name="swap_horiz" size={16} />
+        {busy ? '바꾸는 중…' : '이 이력서로 바꾸기'}
+      </Button>
+      <span className="hint">
+        문항 · 메모 · 답은 새 자소서로 옮기고 지금 자소서는 지워요(이력서 관리의 맞춤 첨삭과 같이 쓰던 예전 자소서는 남겨 둬요).
+        기술스택 · 프로젝트 순서는 새 바탕 이력서로 다시 맞춰요.
+      </span>
+    </div>
+  );
+}
+
+/** 저장한 문항 · 답(읽기 전용) — 바탕 이력서가 지워져 첨삭을 이어 갈 수 없는 자소서 */
+function SavedAnswers({ questions }: { questions: ResumeCompanyQuestion[] }) {
+  if (questions.length === 0) return <p className="hint">저장한 문항이 없어요.</p>;
+  return (
+    <div className="qa-list">
+      {questions.map((q, i) => (
+        <section key={q.id} className="qa-card">
+          <header className="qa-card__head">
+            <span className="qa-card__no">{i + 1}</span>
+            <strong className="qa-card__question">{q.question}</strong>
+            <span className="qa-card__limit">{q.limit === null ? '글자 수 없음' : `${q.limit.toLocaleString()}자`}</span>
+          </header>
+          {(q.answer ?? '').trim() === '' ? (
+            <p className="hint">저장한 답이 없어요.</p>
+          ) : (
+            <p className="apply-saved-answer">{q.answer}</p>
+          )}
+          {(q.memo ?? '').trim() !== '' && <p className="hint">메모: {q.memo}</p>}
+        </section>
+      ))}
     </div>
   );
 }
@@ -686,17 +832,16 @@ function MadeList({ resumes }: { resumes: Resume[] }) {
     <Card className="apply-made" title="내 자소서">
       <ul>
         {sorted.map((r) => {
-          // 공고용 사본은 이 탭에서 이어 간다(문항 답변). 이력서 관리의 첨삭을 마쳐 옮긴 이력서는 편집기로 연다
-          const here = reviewWorkCopy(r) !== undefined;
+          // 모두 이 탭에서 연다. 바탕 이력서가 지워진 자소서는 첨삭을 이어 갈 수 없어 읽기 전용으로 열린다
+          const orphan = reviewWorkCopy(r) === undefined;
+          const count = r.content.companyQuestions?.length ?? 0;
           return (
             <li key={r.id} className="apply-made__row">
-              <Link className="apply-made__item" to={here ? jobApplyPath(r.id) : resumeEditPath(r.id)}>
+              <Link className="apply-made__item" to={jobApplyPath(r.id)}>
                 <Icon name="work" size={16} />
                 <span className="apply-made__title">{applyCopyTitle(r.title)}</span>
-                {!here && <Badge tone="neutral">첨삭 완료본 · 편집기로 열기</Badge>}
-                {here && (r.content.companyQuestions?.length ?? 0) > 0 && (
-                  <Badge tone="info">문항 {r.content.companyQuestions?.length}개</Badge>
-                )}
+                {orphan && <Badge tone="warning">바탕 이력서 없음 · 읽기 전용</Badge>}
+                {count > 0 && <Badge tone="info">문항 {count}개</Badge>}
                 <span className="hint">{formatDate(r.updatedAt)}</span>
               </Link>
               {r.status !== 'approved' && (

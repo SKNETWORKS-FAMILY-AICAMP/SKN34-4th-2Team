@@ -1083,6 +1083,48 @@ def resume_review_question_answer(request, body: QuestionAnswerIn):
     return _review_call("/api/v1/resumes/question-answer/proxy", payload, timeout=120)
 
 
+class QuestionWorkflowNoteIn(Schema):
+    question: str = Field(max_length=500)
+    answer: str = Field(max_length=3000)
+
+
+class QuestionWorkflowItemIn(Schema):
+    id: str = Field(max_length=100)
+    memo: str = Field(default='', max_length=2000)
+    notes: list[QuestionWorkflowNoteIn] = []
+
+
+class QuestionWorkflowIn(Schema):
+    resumeId: str
+    tailoredResumeId: str
+    questions: list[QuestionWorkflowItemIn] = []
+    only: str | None = Field(default=None, max_length=100)  # 이 문항만 다시 쓰기
+    plan: dict | None = None  # 앞서 받은 계획 — 있으면 계획을 다시 세우지 않는다
+
+
+@api.post("/resume-review/question-workflow")
+def resume_review_question_workflow(request, body: QuestionWorkflowIn):
+    """공고 맞춤 지원 사본의 회사 문항 전체에 답을 쓴다 — 문항을 함께 계획해 경험이 겹치지 않게(app/question_workflow).
+
+    답만 돌려주고 저장은 하지 않는다. 문항이 여러 개라 한 번에 1~3분 걸린다.
+    """
+    row, error = _owned_resume(request, body.resumeId)
+    if error is not None:
+        return error
+    payload = {
+        "uid": row["firebase_uid"],
+        "cohort_id": row["code"],
+        "resume_id": _review_resume_id(row),
+        "tailored_resume_id": body.tailoredResumeId,
+        # 질문 답은 최근 12개만 — 첨삭 서버 요청 한도
+        "questions": [{"id": q.id, "memo": q.memo, "notes": [n.dict() for n in q.notes[-12:]]}
+                      for q in body.questions[:20]],
+        "only": body.only,
+        "plan": body.plan,
+    }
+    return _review_call("/api/v1/resumes/question-workflow/proxy", payload, timeout=300)
+
+
 class TailoredPromoteIn(Schema):
     resumeId: str
     tailoredResumeId: str
