@@ -255,13 +255,13 @@ describe('첨삭 창', () => {
   it('원문 STAR의 미확인은 부족 체크리스트가 아니며 근거 인용을 제공한다', () => {
     act(() => root.render(<ReviewStarCells check={{ fieldPath: 'projects[0].description', present: ['action'],
       reason: '', diagnosticStatus: 'complete', quotes: { action: 'API를 구현했습니다.' } }} />));
-    expect(text()).toContain('현재 원문 STAR');
+    expect(text()).toContain('STAR 참고');
     expect(text()).toContain('결과 근거 미확인');
     expect(text()).not.toContain('빠짐');
     expect(document.querySelector('[title="API를 구현했습니다."]')).not.toBeNull();
+    // 판정 전(문장을 다듬어 다시 봐야 할 때)은 학생에게 띄우지 않는다
     act(() => root.render(<ReviewStarCells check={{ fieldPath: 'projects[0].description', present: [], reason: '', diagnosticStatus: 'pending' }} />));
-    expect(text()).toContain('판정 대기');
-    expect(text()).not.toContain('근거 미확인');
+    expect(text()).toBe('');
     act(() => root.render(<ReviewStarCells check={{ fieldPath: 'selfIntroduction.motivation.body', present: [], reason: '', diagnosticStatus: 'not_applicable' }} />));
     expect(text()).toBe('');
   });

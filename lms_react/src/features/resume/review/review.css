@@ -273,6 +273,12 @@ h4.rv-section__title {
   margin-top: 6px;
 }
 
+.rv-star__note {
+  align-self: center;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
 .rv-star__cell {
   padding: 2px 6px;
   border-radius: 5px;

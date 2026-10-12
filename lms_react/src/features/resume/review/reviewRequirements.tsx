@@ -141,14 +141,12 @@ export function starChecksByPath(raw: unknown): Record<string, StarCheck> {
 
 /** Original-text auxiliary diagnosis; legacy cards retain their display contract. */
 export function ReviewStarCells({ check }: { check: StarCheck }) {
-  if (check.diagnosticStatus === 'not_applicable') return null;
-  if (check.diagnosticStatus === 'pending') {
-    return <div className="rv-star">현재 원문 STAR · 판정 대기 / 갱신 필요</div>;
-  }
+  // 판정 전(문장을 다듬어 다시 봐야 할 때)은 띄우지 않는다 — 학생이 할 일이 없는 내부 상태다
+  if (check.diagnosticStatus === 'not_applicable' || check.diagnosticStatus === 'pending') return null;
   const diagnostic = check.diagnosticStatus === 'complete';
   return (
     <div className="rv-star" title={check.reason || undefined}>
-      {diagnostic && <span>현재 원문 STAR · 보조 진단</span>}
+      {diagnostic && <span className="rv-star__note">STAR 참고</span>}
       {Object.entries(STAR_ELEMENTS).map(([key, label]) => {
         const has = check.present.includes(key);
         return (
