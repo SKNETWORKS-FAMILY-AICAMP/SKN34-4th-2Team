@@ -203,6 +203,14 @@ class ChatFilters(StrictModel):
     deadline_within_days: int | None = Field(
         default=None, description="마감 임박만 볼 때의 날짜 수. 아니면 null"
     )
+    # 회사 이름. **검색어(keywords)와 따로 둔다.**
+    #
+    # 「토스 공고」를 검색어로 찾아 제목 · 본문에 「토스」가 든 공고가 다 나갔다 — 「(주)엠토스솔루션스」 등(2026-10-12).
+    # 회사 칸에서 이름 앞부분이 맞는 회사만 고른다(토스 → 토스뱅크 · 토스증권 · 토스페이먼츠).
+    companies: list[str] = Field(
+        default_factory=list,
+        description="회사로 고를 때의 회사 이름. '토스 공고' → 토스, '카카오뱅크 채용' → 카카오뱅크",
+    )
     keywords: list[str] = Field(default_factory=list, description="위에 안 들어가는 말")
     # 빼 달라는 말. **걸러 달라는 말과 따로 둔다.**
     #
