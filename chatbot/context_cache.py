@@ -127,7 +127,10 @@ def redis_client():
     import redis
     from redis.backoff import NoBackoff
     from redis.retry import Retry
-    return redis.Redis.from_url(os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/0'),
+    url = ((os.getenv('CHATBOT_CONTEXT_REDIS_URL') or '').strip()
+           or (os.getenv('REDIS_URL') or '').strip()
+           or 'redis://127.0.0.1:6379/0')
+    return redis.Redis.from_url(url,
         decode_responses=False, protocol=2, socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
         socket_timeout=REDIS_TIMEOUT_SECONDS, retry_on_timeout=False, retry=Retry(NoBackoff(), 0))
 
