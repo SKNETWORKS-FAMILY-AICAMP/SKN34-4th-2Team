@@ -9,10 +9,12 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
+from functools import lru_cache
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth.hashers import check_password, make_password
+from django.conf import settings
 from django.db import connection, transaction
 from django.http import HttpRequest, StreamingHttpResponse
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -20,13 +22,13 @@ from ninja import Body, File, Form, NinjaAPI, Schema, UploadedFile
 from ninja.responses import Response
 from ninja.security import HttpBearer
 from pydantic import Field
-from rest_framework_simplejwt.exceptions import TokenError
-from rest_framework_simplejwt.tokens import RefreshToken
+
+from lms.auth_sessions import SessionUnavailable, client_ip, login_attempt_allowed
 
 from lms.bootstrap_service import build_bootstrap
 from lms.commands import _assert_cohort_writable, dispatch, resolve_cohort
 from lms.holidays import holidays_of
-from lms.jwt_auth import AuthError, issue_tokens, load_lms_user, user_from_access
+from lms.jwt_auth import AuthError, issue_tokens, load_lms_user, logout_refresh, rotate_refresh, user_from_access
 from lms.permissions import can_access_cohort
 from lms.posting_link import job_id_from_link
 from lms.publish import publish_scheduled_notices
@@ -37,6 +39,9 @@ from lms import apply_link, featured_postings, folder_upload, practice_auto, pra
 
 class LmsAuth(HttpBearer):
     def authenticate(self, request: HttpRequest, token: str):
+        validated = getattr(request, "lms_user", None)
+        if validated is not None:
+            return validated
         try:
             user = user_from_access(token)
         except AuthError:
@@ -50,7 +55,8 @@ api = NinjaAPI(
     version="1.0.0",
     urls_namespace="lms_api",
     auth=LmsAuth(),
-    docs_url="/docs" if os.environ.get("DJANGO_DEBUG", "1") == "1" else None,
+    docs_url="/docs" if settings.DEBUG else None,
+    openapi_url="/openapi.json" if settings.DEBUG else None,
 )
 
 
@@ -63,6 +69,11 @@ api.add_router('/cohorts', cohort_lifecycle_router)
 class LoginIn(Schema):
     email: str = ""
     password: str = ""
+
+
+@lru_cache(maxsize=1)
+def _dummy_password_hash() -> str:
+    return make_password("invalid-account-password")
 
 
 class RefreshIn(Schema):
@@ -111,6 +122,11 @@ def on_auth_error(request, exc: AuthError):
     return api.create_response(request, {"detail": str(exc) or "unauthenticated"}, status=401)
 
 
+@api.exception_handler(SessionUnavailable)
+def on_session_unavailable(request, exc: SessionUnavailable):
+    return api.create_response(request, {"detail": "인증 서비스를 일시적으로 사용할 수 없습니다."}, status=503)
+
+
 @api.get("/csrf", auth=None)
 @ensure_csrf_cookie
 def csrf(request):
@@ -121,6 +137,11 @@ def csrf(request):
 def login(request, body: LoginIn):
     email = (body.email or "").strip().lower()
     password = body.password or ""
+    invalid = {"ok": False, "message": "이메일 또는 비밀번호가 올바르지 않습니다."}
+    if not email or len(email) > 254 or not password or len(password) > 1024:
+        return Response(invalid, status=400)
+    if not login_attempt_allowed(email, client_ip(request)):
+        return Response({"ok": False, "message": "로그인 시도가 많습니다. 잠시 후 다시 시도해 주세요."}, status=429)
     with connection.cursor() as cur:
         cur.execute(
             """SELECT id, firebase_uid, email, password, role, is_active, must_change_password
@@ -129,13 +150,14 @@ def login(request, body: LoginIn):
         )
         user = _one(cur)
     if not user or not user["is_active"]:
-        return Response(
-            {"ok": False, "message": "등록되지 않은 이메일이거나 비활성 계정입니다."},
-            status=400,
-        )
+        # The same password hashing work and response for unknown/inactive accounts.
+        check_password(password, (user.get("password") if user else None) or _dummy_password_hash())
+        return Response(invalid, status=400)
     stored = user.get("password") or ""
     if not stored or not check_password(password, stored):
-        return Response({"ok": False, "message": "비밀번호가 올바르지 않습니다."}, status=400)
+        if not stored:
+            check_password(password, _dummy_password_hash())
+        return Response(invalid, status=400)
     with connection.cursor() as cur:
         cur.execute("UPDATE users SET last_login = now() WHERE id = %s", [user["id"]])
     lms_user = load_lms_user(user["firebase_uid"]) or {
@@ -174,20 +196,15 @@ def login(request, body: LoginIn):
 
 @api.post("/token/refresh", auth=None)
 def token_refresh(request, body: RefreshIn):
-    raw = body.refresh or ""
     try:
-        incoming = RefreshToken(raw)
-    except TokenError:
+        return rotate_refresh(body.refresh or "")
+    except AuthError:
         return Response({"detail": "invalid refresh"}, status=401)
-    uid = str(incoming.get("uid") or "")
-    user = load_lms_user(uid)
-    if not user or not user.get("is_active"):
-        return Response({"detail": "unauthenticated"}, status=401)
-    return issue_tokens(user)
 
 
 @api.post("/password")
-def password(request, body: dict[str, Any] = Body(...)):
+@transaction.atomic
+def password(request, body: dict[str, object] = Body(...)):
     user = _require_user(request)
     data = _data(body)
     if data.get("skip"):
@@ -199,18 +216,20 @@ def password(request, body: dict[str, Any] = Body(...)):
         return {"ok": True, "skipped": True}
     new_password = str(data.get("password") or data.get("newPassword") or "")
     current = str(data.get("currentPassword") or "")
-    if len(new_password) < 8:
-        return Response({"ok": False, "message": "비밀번호는 8자 이상이어야 합니다."}, status=400)
+    if not 8 <= len(new_password) <= 128:
+        return Response({"ok": False, "message": "비밀번호는 8~128자여야 합니다."}, status=400)
+    if not current or len(current) > 1024:
+        return Response({"ok": False, "message": "현재 비밀번호를 입력해 주세요."}, status=400)
     with connection.cursor() as cur:
         cur.execute(
-            "SELECT password, must_change_password FROM users WHERE id = %s",
+            "SELECT password, must_change_password FROM users WHERE id = %s FOR UPDATE",
             [user["id"]],
         )
         row = cur.fetchone()
         if not row:
             return Response({"ok": False, "message": "사용자를 찾을 수 없습니다."}, status=404)
-        stored, must_change = row[0] or "", bool(row[1])
-        if not must_change and (not stored or not check_password(current, stored)):
+        stored = row[0] or ""
+        if not stored or not check_password(current, stored):
             return Response({"ok": False, "message": "현재 비밀번호가 올바르지 않습니다."}, status=400)
         cur.execute(
             """UPDATE users
@@ -218,11 +237,17 @@ def password(request, body: dict[str, Any] = Body(...)):
                WHERE id = %s""",
             [make_password(new_password), user["id"]],
         )
-    return {"ok": True}
+    # Credential fingerprint makes every older access/refresh token invalid immediately.
+    updated = load_lms_user(user["firebase_uid"])
+    return {"ok": True, **issue_tokens(updated)}
 
 
 @api.post("/logout", auth=None)
-def logout(request):
+def logout(request, body: RefreshIn):
+    try:
+        logout_refresh(body.refresh or "")
+    except AuthError:
+        return Response({"detail": "invalid session"}, status=401)
     return {"ok": True}
 
 
@@ -1933,6 +1958,30 @@ RECORD_FILE_TYPES = {
 NOTICE_IMAGE_TYPES = {key: ext for key, ext in RECORD_FILE_TYPES.items() if key.startswith("image/") and key != "image/heic"}
 
 
+def _record_bytes_match_type(data: bytes, content_type: str) -> bool:
+    if content_type == "image/jpeg":
+        return data.startswith(b"\xff\xd8\xff") and data.rstrip().endswith(b"\xff\xd9")
+    if content_type == "image/png":
+        return data.startswith(b"\x89PNG\r\n\x1a\n") and data[12:16] == b"IHDR"
+    if content_type == "image/gif":
+        return data[:6] in (b"GIF87a", b"GIF89a") and data.endswith(b"\x3b")
+    if content_type == "image/webp":
+        return data.startswith(b"RIFF") and data[8:12] == b"WEBP" and int.from_bytes(data[4:8], "little") + 8 == len(data)
+    if content_type == "image/heic":
+        return len(data) >= 16 and data[4:8] == b"ftyp" and data[8:12] in (b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1")
+    if content_type == "application/pdf":
+        if not data.startswith(b"%PDF-"):
+            return False
+        try:
+            from io import BytesIO
+            from pypdf import PdfReader
+
+            return len(PdfReader(BytesIO(data), strict=True).pages) > 0
+        except Exception:
+            return False
+    return False
+
+
 @api.post("/uploads/notice-image")
 def upload_notice_image(request, file: UploadedFile = File(...)):
     import uuid
@@ -1991,6 +2040,8 @@ def upload_record_evidence(request, file: UploadedFile = File(...)):
     data = file.read(RECORD_FILE_MAX_BYTES + 1)
     if len(data) > RECORD_FILE_MAX_BYTES:
         return Response({"detail": "파일은 10MB 이하만 올릴 수 있습니다."}, status=400)
+    if not _record_bytes_match_type(data, content_type):
+        return Response({"detail": "파일 내용이 선택한 이미지/PDF 형식과 일치하지 않습니다."}, status=400)
     key = f"records/{user.get('cohort_code') or 'none'}/{user['firebase_uid']}/{uuid.uuid4().hex}{RECORD_FILE_TYPES[content_type]}"
     try:
         put_object(key, data, content_type)

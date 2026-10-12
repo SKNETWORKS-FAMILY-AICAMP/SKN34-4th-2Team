@@ -193,11 +193,11 @@ export function LoginScreen() {
           </button>
         </form>
 
-        <button type="button" className="login__demo-toggle" onClick={() => setDemoOpen((v) => !v)}>
+        {import.meta.env.DEV && <button type="button" className="login__demo-toggle" onClick={() => setDemoOpen((v) => !v)}>
           빠른 로그인 (데모)
-        </button>
+        </button>}
 
-        {demoOpen && (
+        {import.meta.env.DEV && demoOpen && (
           <div className="login__demo">
             {(['student', 'instructor', 'admin'] as const).map((role) => {
               const account = getDb().users.find((u) => u.role === role);

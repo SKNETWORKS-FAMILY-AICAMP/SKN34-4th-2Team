@@ -15,24 +15,31 @@ const raw = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-let refreshFlight: Promise<string> | null = null;
+let refreshFlight: { revision: number; promise: Promise<string> } | null = null;
 
 async function requestAccess(): Promise<string> {
-  const refresh = useSessionStore.getState().refresh;
+  const { refresh, revision } = useSessionStore.getState();
   if (!refresh) throw new Error('no refresh token');
   const { data } = await raw.post<{ access: string; refresh?: string }>('/token/refresh', { refresh });
+  const latest = useSessionStore.getState();
+  if (latest.revision !== revision || latest.refresh !== refresh) {
+    throw new Error('stale refresh response');
+  }
   useSessionStore.getState().setTokens(data.access, data.refresh ?? refresh);
   return data.access;
 }
 
 /** 동시에 여러 곳에서 불러도 갱신 요청은 한 번만 보낸다 */
 function refreshAccess(): Promise<string> {
-  if (!refreshFlight) {
-    refreshFlight = requestAccess().finally(() => {
-      refreshFlight = null;
-    });
+  const revision = useSessionStore.getState().revision;
+  if (!refreshFlight || refreshFlight.revision !== revision) {
+    const flight = { revision, promise: requestAccess() };
+    refreshFlight = flight;
+    void flight.promise.finally(() => {
+      if (refreshFlight === flight) refreshFlight = null;
+    }).catch(() => undefined);
   }
-  return refreshFlight;
+  return refreshFlight.promise;
 }
 
 http.interceptors.request.use((config) => {
@@ -55,13 +62,14 @@ http.interceptors.response.use(
       throw error;
     }
     original._retry = true;
+    const revision = useSessionStore.getState().revision;
     try {
       const access = await refreshAccess();
       original.headers = original.headers ?? {};
       original.headers.Authorization = `Bearer ${access}`;
       return http(original);
     } catch (refreshError) {
-      useSessionStore.getState().clear();
+      if (useSessionStore.getState().revision === revision) useSessionStore.getState().clear();
       throw refreshError;
     }
   },

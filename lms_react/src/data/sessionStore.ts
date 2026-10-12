@@ -14,6 +14,7 @@ function readRefresh(): string | null {
 interface TokenState {
   access: string | null;
   refresh: string | null;
+  revision: number;
   setTokens: (access: string | null, refresh?: string | null) => void;
   clear: () => void;
 }
@@ -21,6 +22,7 @@ interface TokenState {
 export const useSessionStore = create<TokenState>((set) => ({
   access: null,
   refresh: readRefresh(),
+  revision: 0,
   setTokens: (access, refresh) => {
     if (refresh !== undefined) {
       try {
@@ -33,6 +35,7 @@ export const useSessionStore = create<TokenState>((set) => ({
     set((state) => ({
       access,
       refresh: refresh === undefined ? state.refresh : refresh,
+      revision: state.revision + 1,
     }));
   },
   clear: () => {
@@ -41,6 +44,6 @@ export const useSessionStore = create<TokenState>((set) => ({
     } catch {
       /* ignore */
     }
-    set({ access: null, refresh: null });
+    set((state) => ({ access: null, refresh: null, revision: state.revision + 1 }));
   },
 }));
