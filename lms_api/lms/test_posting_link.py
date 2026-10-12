@@ -95,6 +95,12 @@ class PostingLinkVerifyTests(SimpleTestCase):
         self.assertEqual(found["status"], "OPEN")
         verify.assert_called_once_with("SARAMIN-1")
 
+    def test_open_closing_today_at_unknown_time_is_checked(self):
+        """사람인 목록은 마감 날짜만 준다 — 오늘 마감이면 오후에 이미 마감됐을 수 있다."""
+        found, verify = self.lookup([{"status": "OPEN", "check_page": True}], alive=False)
+        self.assertEqual(found["status"], "CLOSED")
+        verify.assert_called_once_with("SARAMIN-1")
+
     def test_open_and_closed_are_not_rechecked(self):
         for status in ("OPEN", "CLOSED"):
             found, verify = self.lookup([{"status": status}], alive=True)

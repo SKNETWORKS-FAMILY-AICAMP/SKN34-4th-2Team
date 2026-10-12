@@ -1446,31 +1446,38 @@ def jobs_chat_stream(request, body: JobChatIn):
 
 
 # 주요 기업 카드는 모든 수강생에게 같다. 후보를 고르는 정규식이 인덱스 없이 공고 전체를 훑어(7~9초) 10분 둔다.
-# 수업 시작에 여럿이 한꺼번에 열면 캐시가 빈 동안 같은 조회가 사람 수만큼 RDS 로 간다 — 한 번에 하나만 계산한다
+# 수업 시작에 여럿이 한꺼번에 열면 캐시가 빈 동안 같은 조회가 사람 수만큼 RDS 로 간다 — 한 번에 하나만 계산한다.
+# 카드에 오른 공고의 마감 시각(「15:00 마감」)이 오면 10분이 안 됐어도 버린다 — 지난 공고가 진행 중에 남지 않게
 _FEATURED_TTL = 600
-_featured_cache: dict[tuple[str, Any], tuple[float, list[dict]]] = {}
+_featured_cache: dict[tuple[str, Any], tuple[float, list[dict], datetime | None]] = {}
 _featured_lock = threading.Lock()
 
 
 def _featured_cards(view: Literal["live", "past"]) -> list[dict]:
-    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+    def fresh(hit) -> bool:
+        return hit is not None and time.monotonic() - hit[0] < _FEATURED_TTL and (hit[2] is None or now < hit[2])
+
+    now = datetime.now(ZoneInfo("Asia/Seoul"))
+    today = now.date()
     hit = _featured_cache.get((view, today))
-    if hit is not None and time.monotonic() - hit[0] < _FEATURED_TTL:
+    if fresh(hit):
         return hit[1]
     with _featured_lock:
         # 기다리는 동안 앞 요청이 채웠으면 그것을 쓴다
         hit = _featured_cache.get((view, today))
-        if hit is not None and time.monotonic() - hit[0] < _FEATURED_TTL:
+        if fresh(hit):
             return hit[1]
-        cards = _load_featured_cards(view, today)
+        cards, until = _load_featured_cards(view, now)
         # 날짜가 바뀌면 어제 것은 버린다
         for key in [k for k in _featured_cache if k[1] != today]:
             del _featured_cache[key]
-        _featured_cache[(view, today)] = (time.monotonic(), cards)
+        _featured_cache[(view, today)] = (time.monotonic(), cards, until)
         return cards
 
 
-def _load_featured_cards(view: Literal["live", "past"], today) -> list[dict]:
+def _load_featured_cards(view: Literal["live", "past"], now: datetime) -> tuple[list[dict], datetime | None]:
+    """(카드, 다음 마감 시각) — 다음 마감 시각이 오면 카드가 바뀐다."""
+    today = now.date()
     norm = featured_postings.NORM_SQL
     with connection.cursor() as cur:
         # 지원 방법 칸 · 회사 정보 표는 migration 0014 가 만든다(회사 표는 public 스키마). 없으면 빈 값으로 읽는다
@@ -1493,9 +1500,10 @@ def _load_featured_cards(view: Literal["live", "past"], today) -> list[dict]:
             when = "j.status = 'OPEN' AND (j.deadline IS NULL OR j.deadline = '' OR j.deadline >= %s)"
             params: list[Any] = [today.isoformat()]
         else:
-            # 상태는 보지 않는다 — 마감일이 지났는데 OPEN 으로 남은 공고도 지난 공채다
+            # 상태는 보지 않는다 — 마감일이 지났는데 OPEN 으로 남은 공고도 지난 공채다.
+            # 오늘 마감도 가져온다 — 마감 시각이 지났으면 지난 공채다(pick_past 가 고른다)
             when = "j.deadline >= %s AND j.deadline < %s"
-            params = [(today - timedelta(days=featured_postings.PAST_DAYS)).isoformat(), today.isoformat()]
+            params = [(today - timedelta(days=featured_postings.PAST_DAYS)).isoformat(), (today + timedelta(days=1)).isoformat()]
         cur.execute(
             f"""SELECT j.job_id, j.source, j.group_key, j.company, j.company_type, j.title, j.deadline, j.posted_at,
                        j.career_type, j.employment_type, j.tech_stack, j.status,
@@ -1509,7 +1517,7 @@ def _load_featured_cards(view: Literal["live", "past"], today) -> list[dict]:
         )
         rows = _dicts(cur)
     pick = featured_postings.pick_live if view == "live" else featured_postings.pick_past
-    return pick(rows, today, big_names, small_names)
+    return pick(rows, today, big_names, small_names, now=now), featured_postings.next_closing(rows, now, big_names, small_names)
 
 
 @api.get("/featured-postings")
@@ -1618,12 +1626,21 @@ def shared_question_report(request, role_id: str, body: SharedQuestionReportIn):
     return _shared_call(shared_questions.report, user["id"], role_id, body.reason)
 
 
+def _status_now(status: str, closes: datetime | None, now: datetime) -> str:
+    """마감 시각이 지났으면 EXPIRED — 밤 배치가 바꾸기 전까지 저장소는 OPEN 이다."""
+    return "EXPIRED" if status == "OPEN" and closes is not None and closes <= now else status
+
+
 @api.get("/postings/{job_id}", auth=None)
 def job_posting(request, job_id: str):
     """공고 원문 한 건 — 추천 카드에서 새 탭으로 여는 화면이 읽는다.
 
     채용 사이트에 공개된 공고를 수집해 둔 것이라 로그인 없이 준다. 새 탭은 로그인 정보
     (sessionStorage)를 넘겨받지 못한다. 마감돼 사이트에서 내려간 공고도 수집본으로 읽힌다.
+
+    저장소 상태는 밤 배치가 맞춘 것이라 낮에 마감 시각(「15:00 마감」)이 지나도 OPEN 이다 — 지났으면 EXPIRED 로 준다.
+    `deadline_time` 은 회사가 정한 마감 시각(모르면 null), `check_page` 는 오늘 마감인데 시각을 몰라
+    불러올 때 페이지를 열어 볼 공고다(`/posting-link`).
     """
     with connection.cursor() as cur:
         cur.execute(
@@ -1638,7 +1655,7 @@ def job_posting(request, job_id: str):
             # 같은 공고가 사람인 · 잡코리아에 함께 올라오면 수집기가 group_key 로 묶어 둔다.
             # 사이트마다 원문 링크를 준다. 사이트에서 내려간(REMOVED) 쪽은 링크가 죽어 뺀다
             cur.execute(
-                """SELECT job_id, source, source_url, status FROM jobs.jobs
+                """SELECT job_id, source, source_url, status, deadline FROM jobs.jobs
                    WHERE group_key = %s AND status <> 'REMOVED'
                    ORDER BY (job_id = %s) DESC, (status = 'OPEN') DESC, source""",
                 [row["group_key"], job_id],
@@ -1646,7 +1663,16 @@ def job_posting(request, job_id: str):
             row["links"] = _dicts(cur)
     if not row:
         return Response({"detail": "공고를 찾을 수 없습니다."}, status=404)
-    row.setdefault("links", [{k: row[k] for k in ("job_id", "source", "source_url", "status")}])
+    now = datetime.now(ZoneInfo("Asia/Seoul"))
+    closes = featured_postings.closing_time(row["deadline"])
+    row["status"] = _status_now(row["status"], closes, now)
+    row["deadline_time"] = closes.strftime("%H:%M") if closes else None
+    row["check_page"] = (
+        row["status"] == "OPEN" and closes is None and featured_postings.date_of(row["deadline"]) == now.date().isoformat()
+    )
+    row.setdefault("links", [{k: row[k] for k in ("job_id", "source", "source_url", "status", "deadline")}])
+    for link in row["links"]:
+        link["status"] = _status_now(link["status"], featured_postings.closing_time(link.pop("deadline")), now)
     del row["group_key"]
     for key in ("required_skills", "preferred_skills"):
         if isinstance(row[key], str):
@@ -1726,9 +1752,10 @@ def posting_by_link(request, url: str = ""):
     found = job_posting(request, job_id)
     if isinstance(found, Response):
         return Response({"detail": "아직 수집되지 않은 공고예요. 수집된 공고만 불러올 수 있어요."}, status=404)
-    if found["status"] in ("REMOVED", "EXPIRED"):
+    if found["status"] in ("REMOVED", "EXPIRED") or found.get("check_page"):
         # 둘 다 틀릴 수 있다. REMOVED 는 목록에서 몇 번 안 보였다는 뜻일 뿐이고, EXPIRED 는 목록 문구의
-        # 옛 마감일 기준이라 회사가 마감일을 늘리면 열린 공고가 걸린다(9/20 → 9/30 연장). 페이지를 열어 확인한다
+        # 옛 마감일 기준이라 회사가 마감일을 늘리면 열린 공고가 걸린다(9/20 → 9/30 연장). 페이지를 열어 확인한다.
+        # 오늘 마감인데 시각을 모르는 공고(사람인 목록은 날짜만 준다)도 열어 본다 — 오후에 마감됐을 수 있다
         alive = _verify_posting(job_id)
         if alive is True:
             # 공고 서버가 OPEN 으로 되돌렸다(EXPIRED 는 페이지 마감일이 안 지났을 때만). 다시 읽는다
