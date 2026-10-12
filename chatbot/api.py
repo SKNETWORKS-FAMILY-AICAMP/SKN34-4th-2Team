@@ -125,12 +125,19 @@ def _student_session(authorization: str | None = Header(default=None)) -> dict[s
 _load_unit_context = load_unit_period_context
 
 
+def _shared_context(session: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return _load_unit_context(session, include_attendance=False)
+    except Exception:
+        return {"unavailable_reason": "기수 날짜 조회에 실패했습니다. 날짜를 추측하지 마세요."}
+
+
 @lru_cache
 def get_student_chatbot() -> LmsStudentChatbot:
     def loader(uid: str, cohort: str, scopes: list[Any], query: str) -> dict[str, Any]:
         return load_student_context(uid=uid, cohort=cohort, scopes=scopes, query=query)
 
-    return create_student_chatbot(student_context_loader=loader)
+    return create_student_chatbot(student_context_loader=loader, shared_context_loader=_shared_context)
 
 
 def _ready_chatbot() -> LmsStudentChatbot:
@@ -144,17 +151,19 @@ def _ready_chatbot() -> LmsStudentChatbot:
         raise HTTPException(status_code=503, detail="챗봇 서버를 준비하지 못했습니다.") from exc
 
 
-def _chat_inputs(request: InitRequest, session: dict[str, Any]) -> dict[str, Any]:
+def _chat_inputs(request: InitRequest, session: dict[str, Any], *,
+                 defer_shared_context: bool = False) -> dict[str, Any]:
     uid_key = hashlib.sha256(session["uid"].encode()).hexdigest()[:24]
-    try:
-        unit_context = _load_unit_context(session, include_attendance=False)
-    except Exception:
-        unit_context = {"unavailable_reason": "기수 날짜 조회에 실패했습니다. 날짜를 추측하지 마세요."}
+    shared_started = time.perf_counter()
+    unit_context = {} if defer_shared_context else _shared_context(session)
+    shared_context_ms = 0 if defer_shared_context else max(0, round((time.perf_counter() - shared_started) * 1000))
     return {
         "thread_id": f"{uid_key}.{request.thread_id}",
         "student_uid": session["uid"],
         "cohort": session["cohort"],
         "unit_period_context": unit_context,
+        "defer_shared_context": defer_shared_context,
+        "shared_context_ms": shared_context_ms,
     }
 
 
@@ -240,7 +249,7 @@ def stream_chat(
     # is therefore excluded from these handler timings.
     handler_started = time.perf_counter()
     inputs_started = time.perf_counter()
-    inputs = _chat_inputs(request, session)
+    inputs = _chat_inputs(request, session, defer_shared_context=os.getenv('LMS_CHATBOT_PARALLEL_PREP', '').strip() == '1')
     preparation_timings = {"handler_chat_inputs_ms": max(0, round((time.perf_counter() - inputs_started) * 1000))}
     inputs["question"] = request.question.strip()
     bot_started = time.perf_counter()
@@ -272,7 +281,7 @@ def proxy_chat(
     preparation_timings = {"handler_session_ms": max(0, round((time.perf_counter() - session_started) * 1000))}
     init = InitRequest(thread_id=request.thread_id)
     inputs_started = time.perf_counter()
-    inputs = _chat_inputs(init, session)
+    inputs = _chat_inputs(init, session, defer_shared_context=os.getenv('LMS_CHATBOT_PARALLEL_PREP', '').strip() == '1')
     preparation_timings["handler_chat_inputs_ms"] = max(0, round((time.perf_counter() - inputs_started) * 1000))
     inputs["question"] = question
     bot_started = time.perf_counter()
@@ -345,7 +354,8 @@ def proxy_chat_stream(
     session = _session_from_uid(request.uid.strip())
     preparation_timings = {"handler_session_ms": max(0, round((time.perf_counter() - session_started) * 1000))}
     inputs_started = time.perf_counter()
-    inputs = _chat_inputs(InitRequest(thread_id=request.thread_id), session)
+    inputs = _chat_inputs(InitRequest(thread_id=request.thread_id), session,
+                          defer_shared_context=os.getenv('LMS_CHATBOT_PARALLEL_PREP', '').strip() == '1')
     preparation_timings["handler_chat_inputs_ms"] = max(0, round((time.perf_counter() - inputs_started) * 1000))
     inputs["question"] = question
     bot_started = time.perf_counter()

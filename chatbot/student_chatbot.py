@@ -8,6 +8,7 @@ import re
 import time
 from threading import Lock
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator, Literal
 
@@ -59,6 +60,7 @@ StudentDataScope = Literal[
 ]
 Route = Literal["lms", "greeting", "blocked"]
 StudentContextLoader = Callable[[str, str, list[StudentDataScope], str], dict[str, Any]]
+SharedContextLoader = Callable[[dict[str, str]], dict[str, Any]]
 MAX_SEARCH_K = 20
 REQUESTED_COUNT_RE = re.compile(r"(?<!\d)([1-9]\d?)\s*(?:개|가지|건)")
 PROJECT_COHORT_RE = re.compile(
@@ -318,6 +320,11 @@ class ChatState(MessagesState):
     student_uid: str
     cohort: str
     unit_period_context: dict[str, Any]
+    defer_shared_context: bool
+    shared_context_ms: int
+    supervisor_prepare_wall_ms: int
+    shared_context_overlap_ms: int
+    parallel_prep_enabled: int
     route: Route
     namespaces: list[Namespace]
     student_scopes: list[StudentDataScope]
@@ -663,6 +670,7 @@ class LmsStudentChatbot:
         checkpointer: Any | None = None,
         k: int = 4,
         student_context_loader: StudentContextLoader | None = None,
+        shared_context_loader: SharedContextLoader | None = None,
     ) -> None:
         missing = [name for name in ("OPENAI_API_KEY",) if not os.getenv(name)]
         if not _student_pinecone_api_key():
@@ -713,6 +721,8 @@ class LmsStudentChatbot:
         self.student_context_loader = lambda uid, cohort, scopes, query: enrich_student_context(
             base_student_loader(uid, cohort, scopes, query)
         )
+        # Dependency only: request session/future/executor never live on the bot.
+        self.shared_context_loader = shared_context_loader
 
         builder = StateGraph(ChatState)
         builder.add_node("supervisor", self._supervisor)
@@ -733,9 +743,59 @@ class LmsStudentChatbot:
 
     def _supervisor(self, state: ChatState) -> dict[str, Any]:
         started = time.perf_counter()
-        decision = self.supervisor_middleware.invoke(
-            {"messages": _chat_history(state["messages"])}, self.supervisor_chain,
-        )
+        shared_context = state.get('unit_period_context', {})
+        shared_context_ms = int(state.get('shared_context_ms') or 0)
+        overlap_ms = 0
+        loader = getattr(self, 'shared_context_loader', None)
+        deferred = state.get('defer_shared_context') is True
+        parallel = deferred and loader is not None
+
+        def invoke_supervisor():
+            model_start = time.perf_counter()
+            decision = self.supervisor_middleware.invoke(
+                {"messages": _chat_history(state["messages"])}, self.supervisor_chain,
+            )
+            return decision, model_start, time.perf_counter()
+
+        if parallel:
+            session = {'uid': str(state.get('student_uid') or ''), 'cohort': str(state.get('cohort') or '')}
+
+            def load_shared():
+                shared_start = time.perf_counter()
+                try:
+                    context = loader(dict(session))
+                except Exception:
+                    context = {"unavailable_reason": "기수 날짜 조회에 실패했습니다. 날짜를 추측하지 마세요."}
+                # Keep the same direct-input contract for loaded data.
+                if not isinstance(context, dict):
+                    raise ValueError('unit_period_context는 객체여야 합니다')
+                if len(json.dumps(context, ensure_ascii=False)) > 20000:
+                    raise ValueError('unit_period_context가 너무 큽니다')
+                return deepcopy(context), shared_start, time.perf_counter()
+
+            # One worker per request; supervisor remains on the graph thread.
+            # Drain work on errors without replacing the supervisor exception.
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(load_shared)
+                try:
+                    decision, model_start, model_end = invoke_supervisor()
+                except BaseException:
+                    future.cancel()
+                    try:
+                        future.result()
+                    except BaseException:
+                        pass
+                    raise
+                else:
+                    shared_context, shared_start, shared_end = future.result()
+            shared_context_ms = max(0, round((shared_end - shared_start) * 1000))
+            overlap_ms = max(0, round((min(shared_end, model_end) - max(shared_start, model_start)) * 1000))
+        else:
+            if deferred:
+                shared_context = {"unavailable_reason": "기수 날짜 조회에 실패했습니다. 날짜를 추측하지 마세요."}
+            decision, model_start, model_end = invoke_supervisor()
+        supervisor_ms = max(0, round((model_end - model_start) * 1000))
+        prepare_wall_ms = _elapsed_ms(started)
         namespaces = list(dict.fromkeys(decision.namespaces))
         student_scopes = list(dict.fromkeys(decision.student_scopes))
         query = decision.query.strip() or state["question"]
@@ -763,9 +823,16 @@ class LmsStudentChatbot:
             "query": query[:2000],
             "student_context": {},
             "documents": [],
+            "unit_period_context": shared_context,
+            "defer_shared_context": False,
+            "shared_context_ms": shared_context_ms,
+            # Node-entry to join; eager API preparation is measured separately.
+            "supervisor_prepare_wall_ms": prepare_wall_ms,
+            "shared_context_overlap_ms": overlap_ms,
+            "parallel_prep_enabled": int(parallel),
             "retrieval_ms": 0,
-            "llm_ms": _elapsed_ms(started),
-            "supervisor_ms": _elapsed_ms(started),
+            "llm_ms": supervisor_ms,
+            "supervisor_ms": supervisor_ms,
             "answer_model_ms": 0,
             "answer_ttft_ms": 0,
             "student_context_ms": 0,
@@ -1183,6 +1250,9 @@ class LmsStudentChatbot:
         cohort = inputs.get("cohort", "")
         student_uid = inputs.get("student_uid", "")
         unit_period_context = inputs.get("unit_period_context", {})
+        deferred = inputs.get('defer_shared_context', False)
+        if type(deferred) is not bool:
+            raise ValueError('defer_shared_context는 boolean이어야 합니다')
         if not isinstance(question, str) or not question.strip() or len(question.strip()) > 2000:
             raise ValueError("question은 1자 이상 2000자 이하여야 합니다")
         if not isinstance(thread_id, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", thread_id.strip()):
@@ -1199,13 +1269,19 @@ class LmsStudentChatbot:
             question.strip(), thread_id.strip(), cohort.strip(), student_uid.strip()
         )
 
-        graph_input: dict[str, Any] = {"question": question, "messages": [("user", question)]}
-        if cohort:
-            graph_input["cohort"] = cohort
-        if unit_period_context:
-            graph_input["unit_period_context"] = unit_period_context
-        if student_uid:
-            graph_input["student_uid"] = student_uid
+        graph_input: dict[str, Any] = {
+            "question": question, "messages": [("user", question)],
+            "cohort": cohort, "student_uid": student_uid,
+            # Explicitly clear omitted/empty inputs instead of reusing a prior
+            # request's shared context/session from the checkpoint.
+            "unit_period_context": deepcopy(unit_period_context),
+            "defer_shared_context": deferred and not unit_period_context,
+            "shared_context_ms": (inputs.get('shared_context_ms', 0)
+                                  if type(inputs.get('shared_context_ms', 0)) is int
+                                  and inputs.get('shared_context_ms', 0) >= 0 else 0),
+            "supervisor_prepare_wall_ms": 0, "shared_context_overlap_ms": 0,
+            "parallel_prep_enabled": 0,
+        }
         config = {
             "configurable": {"thread_id": thread_id},
             "run_name": "lms_student_chatbot",
@@ -1261,6 +1337,7 @@ class LmsStudentChatbot:
                 key: int(values.get(key) or 0)
                 for key in (
                     "supervisor_ms", "answer_model_ms", "answer_ttft_ms", "student_context_ms",
+                    "shared_context_ms", "supervisor_prepare_wall_ms", "shared_context_overlap_ms", "parallel_prep_enabled",
                     "embedding_ms", "vector_query_ms_sum", "embedding_calls", "vector_calls",
                     "prompt_build_ms", "prompt_chars", "context_measure_ms", "retrieved_chunks", "retrieved_chunk_chars",
                 )
@@ -1277,9 +1354,11 @@ def create_student_chatbot(
     checkpointer: Any | None = None,
     k: int = 4,
     student_context_loader: StudentContextLoader | None = None,
+    shared_context_loader: SharedContextLoader | None = None,
 ) -> LmsStudentChatbot:
     return LmsStudentChatbot(
         checkpointer=checkpointer,
         k=k,
         student_context_loader=student_context_loader,
+        shared_context_loader=shared_context_loader,
     )
