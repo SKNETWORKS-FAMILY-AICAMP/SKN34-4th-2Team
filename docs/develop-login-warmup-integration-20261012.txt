@@ -1,0 +1,39 @@
+develop integration candidate — 2026-10-12
+
+Fetched origin/develop: b07537ff1aec664ebd4c2d9ad19832a31bbf9e12
+Feature source: 6b387929be6d82bbbe078037ec11af7adb726eaa (24 commits ahead).
+Isolated feature merge: 791f103c384b8de5b968192c725b9802bf9e3cb5; no conflicts.
+Authentication preservation: 7cef81dc01de13baed14b6a11de992c7c36051dc.
+Original running checkout remains unchanged; unrelated deploy/mobile/Expo dirty is excluded.
+
+Security preservation
+commands.py, jwt_auth.py, middleware.py, auth_sessions.py and test_auth_security.py
+matched the existing operational security manifest byte-for-byte before copying.
+api.py contains later feature hooks, password-body parsing and file signature checks;
+its current reviewed version is retained with the deployed authentication safeguards.
+Web authentication source/tests and production settings are preserved for reproducibility.
+This does not require redeploying the already secured web release.
+The security commit is separate from the feature merge for review.
+
+Release preparation
+Run scripts/prepare-login-warmup-release.py with this candidate's final commit,
+the baseline above, and a new output directory. It reads git blobs only and fails
+if requirement files differ. No original .env, dirty file, evaluation output or
+credentials enter the allowlists. Generated manifests record source/destination hashes.
+
+The API context includes reviewed LMS authentication/warmup/upload modules plus
+the policy parser/calculation dependencies and four offline API test modules.
+The AI context includes tracked chatbot Python/runtime config and vectordb parser
+helpers. Some source-checking chatbot tests require lms_api/deploy paths and must
+run in the clean worktree rather than the minimal AI container.
+
+Build each prepared context with its verified immutable BASE_IMAGE argument.
+Required digests are pinned in the preparation script and generated manifest.
+Dockerfiles only COPY app/ into /app/; no installation or USER/CMD/ENV change occurs.
+Retain the existing production-settings mount and authentication Redis settings.
+Apply the opt-in AI chat-cache overlay only during the separately approved rollout.
+Keep flags OFF until both images are validated, then enable on AI and Django.
+
+A clean full rebuild is not claimed equivalent to the previously deployed image:
+use the immutable operational security/AI bases for this rollout. No workflow,
+develop push, web upload or operational deployment is performed by this preparation.
