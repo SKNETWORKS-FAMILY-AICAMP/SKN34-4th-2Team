@@ -97,7 +97,10 @@ export function QuestionsStep({
           <ol className="apply-q-list">
             {value.map((q) => (
               <li key={q.id}>
-                <span>{q.question}</span>
+                <span>
+                  {q.group && <span className="qw-group">{q.group}</span>}
+                  {q.question}
+                </span>
                 <span className="apply-q-limit">{q.limit === null ? '글자 수 없음' : `${q.limit.toLocaleString()}자`}</span>
               </li>
             ))}
@@ -217,7 +220,12 @@ export function QuestionsStep({
                     <span className="hint">글자 수 (공백 포함)</span>
                   </div>
                   {parsed.map((q, i) => (
-                    <div key={q.id} className={`apply-q-row${q.limit === null ? ' is-unknown' : ''}`}>
+                    <div key={q.id} className="apply-q-unit">
+                    {q.group && q.group !== parsed[i - 1]?.group && (
+                      // 같은 묶음의 하위 문항 — 한 경험으로 이어 쓴다
+                      <p className="hint apply-q-group">묶음 · {q.group}</p>
+                    )}
+                    <div className={`apply-q-row${q.limit === null ? ' is-unknown' : ''}`}>
                       <span className="apply-q-no">{i + 1}</span>
                       <input
                         className="apply-q-input"
@@ -244,6 +252,7 @@ export function QuestionsStep({
                       >
                         <Icon name="delete" size={20} />
                       </button>
+                    </div>
                     </div>
                   ))}
                 </>

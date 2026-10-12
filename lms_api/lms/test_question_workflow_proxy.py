@@ -22,7 +22,7 @@ class QuestionWorkflowProxyTests(SimpleTestCase):
         first, second = payload['questions']
         assert first['memo'] == '3일 붙잡음'
         assert [n['answer'] for n in first['notes']] == [f'답 {i}' for i in range(3, 15)]
-        assert second == {'id': 'cq2', 'memo': '', 'notes': []}
+        assert second == {'id': 'cq2', 'memo': '', 'notes': [], 'written': ''}
 
     def test_proxy_stops_when_resume_is_not_owned(self):
         denied = Mock()

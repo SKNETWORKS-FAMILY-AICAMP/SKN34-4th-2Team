@@ -117,7 +117,7 @@ export function skillCoverage(content: ResumeContent, skills: PostingSkills): Sk
 
 /**
  * 본문에는 나오는데 기술스택 칸에 없는 공고 기술을 칸에 더한다. 이력서에 근거가 있는 것만 더한다 —
- * 이력서 어디에도 없는 기술(missing)은 넣지 않는다. 그건 첨삭의 「경험 보완」이 물어서 채운다.
+ * 이력서 어디에도 없는 기술(missing)은 넣지 않는다. 써 본 적이 있으면 학생이 문항 메모에 적거나 이력서에 추가한다.
  */
 export function addEvidencedSkills(
   content: ResumeContent,

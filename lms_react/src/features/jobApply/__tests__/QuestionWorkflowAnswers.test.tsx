@@ -74,12 +74,12 @@ describe('문항 전체 답변', () => {
   it('문항 전체를 한 번에 쓰고, 빈 칸에만 초안을 넣고, 겹쳐 줄인 이야기를 알린다', async () => {
     api.questionWorkflow.mockResolvedValue(response);
     act(() => root.render(<QuestionWorkflowAnswers resumeId="r1" tailoredId="apply_1" editId="r1/tailored/apply_1" />));
-    await act(async () => button('AI 초안 쓰기').click());
+    await act(async () => button('문항 전체 한 번에 쓰기').click());
     await flush();
 
     expect(api.questionWorkflow).toHaveBeenCalledWith('r1', 'apply_1', [
-      { id: 'cq1', memo: '데이터로 문제 해결', notes: [] },
-      { id: 'cq2', memo: '', notes: [] },
+      { id: 'cq1', memo: '데이터로 문제 해결', notes: [], written: '' },
+      { id: 'cq2', memo: '', notes: [], written: '직접 쓴 답' },
     ], {});
     expect(answerBox(1).value).toBe('데이터로 문제를 해결하고 싶어 지원했습니다.');
     expect(answerBox(2).value).toBe('직접 쓴 답'); // 쓴 글은 덮지 않는다
@@ -98,7 +98,7 @@ describe('문항 전체 답변', () => {
         sentences: [{ text: '고른 이유까지 담은 새 초안입니다.', sources: [], requirements: [] }] }],
     });
     act(() => root.render(<QuestionWorkflowAnswers resumeId="r1" tailoredId="apply_1" editId="r1/tailored/apply_1" />));
-    await act(async () => button('AI 초안 쓰기').click());
+    await act(async () => button('문항 전체 한 번에 쓰기').click());
     await flush();
     const gap = [...host.querySelectorAll('.qa-gap textarea')][0] as HTMLTextAreaElement;
     type(gap, 'AI 서비스 품질을 중시하는 팀이라서');
@@ -125,10 +125,66 @@ describe('문항 전체 답변', () => {
       questions: [{ ...response.questions[0], trimmed_overlap: [], overlap_unchanged: ['추천 품질 개선'] }, response.questions[1]],
     });
     act(() => root.render(<QuestionWorkflowAnswers resumeId="r1" tailoredId="apply_1" editId="r1/tailored/apply_1" />));
-    await act(async () => button('AI 초안 쓰기').click());
+    await act(async () => button('문항 전체 한 번에 쓰기').click());
     await flush();
     expect(host.textContent).toContain('1번은 줄이면 너무 짧아져 그대로 뒀어요.');
     expect(host.textContent).not.toContain('번에서는 줄였어요');
     expect(host.textContent).toContain('다른 문항과 겹친 이야기 「추천 품질 개선」 — 줄이면 답이 너무 짧아져 그대로 뒀어요.');
+  });
+
+  it('카드의 「AI 초안 쓰기」는 그 문항만 쓴다 — 계획이 없으면 서버가 세우고, 받은 계획은 다음 문항에 다시 쓴다', async () => {
+    const one = (id: string, draft: string) => ({ plan, overlaps: [], coverage: null,
+      questions: [{ question_id: id, draft, char_count: draft.length, limit: 500, removed: [], questions: [],
+        sentences: [{ text: draft, sources: [], requirements: [] }] }] });
+    api.questionWorkflow.mockResolvedValueOnce(one('cq1', '1번 초안입니다.')).mockResolvedValueOnce(one('cq2', '2번 초안입니다.'));
+    act(() => root.render(<QuestionWorkflowAnswers resumeId="r1" tailoredId="apply_1" editId="r1/tailored/apply_1" />));
+    await act(async () => button('메모로 AI 초안 쓰기').click());  // 1번 카드(메모 있음)
+    await flush();
+    expect(api.questionWorkflow.mock.calls[0][3]).toEqual({ only: 'cq1', plan: null });
+    expect(answerBox(1).value).toBe('1번 초안입니다.');
+    await act(async () => [...host.querySelectorAll('button')].filter((b) => b.textContent?.includes('AI 초안 쓰기'))[0].click());
+    await flush();
+    expect(api.questionWorkflow.mock.calls[1][3]).toEqual({ only: 'cq2', plan });  // 받은 계획을 다시 쓴다
+    expect(api.questionWorkflow.mock.calls[1][2][0].written).toBe('1번 초안입니다.');  // 1번에 쓴 답을 같이 보낸다
+  });
+});
+
+describe('질문 카드 답 안내', () => {
+  it('키워드만 적으면 더 적어 달라고 하고, 상황 · 한 일이 들어가면 안내를 거둔다', async () => {
+    api.questionWorkflow.mockResolvedValue(response);
+    act(() => root.render(<QuestionWorkflowAnswers resumeId="r1" tailoredId="apply_1" editId="r1/tailored/apply_1" />));
+    await act(async () => button('문항 전체 한 번에 쓰기').click());
+    await flush();
+
+    expect(host.textContent).toContain('상황 · 내가 한 일 · 결과를 적으면');
+    const gap = host.querySelector('.qa-gap textarea') as HTMLTextAreaElement;
+    type(gap, '데이터 좋아함');
+    expect(host.querySelector('.qa-gap__nudge')?.textContent).toContain('조금만 더 적어 주세요');
+    type(gap, '공고 추천을 만들며 사용자가 근거를 보고 고르게 했고, 그때 증권 앱도 이렇게 바뀌어야 한다고 느낌');
+    expect(host.querySelector('.qa-gap__nudge')).toBeNull();
+  });
+});
+
+describe('쓰는 동안 단계', () => {
+  it('문항 하나를 쓰는 동안 단계와 지난 시간을 보여 주고, 끝나면 거둔다', async () => {
+    vi.useFakeTimers();
+    let finish: (v: unknown) => void = () => undefined;
+    api.questionWorkflow.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    act(() => root.render(<QuestionWorkflowAnswers resumeId="r1" tailoredId="apply_1" editId="r1/tailored/apply_1" />));
+    act(() => button('메모로 AI 초안 쓰기').click());
+
+    const steps = () => host.querySelector('.qw-steps');
+    expect(steps()?.textContent).toContain('문항 뼈대 세우는 중');  // 계획이 아직 없으면 뼈대부터
+    expect(steps()?.querySelector('.is-now')?.textContent).toContain('문항 뼈대 세우는 중');
+    act(() => { vi.advanceTimersByTime(40_000); });
+    expect(steps()?.querySelector('.is-now')?.textContent).toContain('쓰는 중');
+    expect(steps()?.textContent).toContain('40초 지남');
+    act(() => { vi.advanceTimersByTime(200_000); });
+    expect(steps()?.textContent).toContain('조금 더 걸리고 있어요');
+
+    vi.useRealTimers();
+    await act(async () => finish(response));
+    await flush();
+    expect(steps()).toBeNull();
   });
 });

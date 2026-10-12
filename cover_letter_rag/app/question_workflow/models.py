@@ -20,6 +20,7 @@ class Source:
     label: str
     text: str
     question_id: str = ''  # 메모 · 질문 답은 그 문항에서만 쓴다
+    group: str = ''  # 그 문항의 묶음 — 같은 묶음 하위 문항끼리는 메모 · 질문 답을 함께 쓴다
 
 
 @dataclass
@@ -29,6 +30,10 @@ class QuestionInput:
     limit: int | None = None
     memo: str = ''
     notes: list[dict[str, str]] = field(default_factory=list)  # 앞서 낸 질문에 학생이 한 답 [{question, answer}]
+    # 상위 문항(묶음 제목) — 「목표 달성 경험 › ①목표와 이유 / ②문제와 해결」처럼 한 주제를 나눈 하위 문항이면 그 주제
+    group: str = ''
+    # 지금 답 칸에 있는 글(학생이 쓴 것 · 저장한 초안) — 문항별로 쓸 때 다른 문항에서 이미 쓴 이야기를 되풀이하지 않게
+    written: str = ''
 
 
 # ── 1. 계획: 문항 전부를 한 번에 보고 문항마다 쓸 재료를 나눈다 ──
@@ -44,13 +49,24 @@ class MissingOut(StrictModel):
     question: str = Field(description='학생에게 물을 한 문장. 무엇을 · 어떻게 · 결과가 어땠는지 답할 수 있게')
 
 
+class BeatOut(StrictModel):
+    point: str = Field(description='답의 이 대목에서 말할 것 한 줄. 예: Stacking 이 검증에서 무너진 것을 확인함')
+    part_key: str = Field(description='이 대목이 답하는 요구(parts 의 key)')
+    source_ids: list[str] = Field(default_factory=list, description='이 대목의 근거 재료 id. 재료가 없으면 빈 목록')
+    question: str = Field(default='', description='재료가 없을 때만 학생에게 물을 질문 한 문장. 재료가 있으면 빈 문자열')
+
+
 class QuestionPlanOut(StrictModel):
     question_id: str
     parts: list[PartOut] = Field(min_length=1)
+    # 공고마다 문항이 다르다 — 정해진 유형이 아니라 그 문항 문구에서 읽는 사람이 확인할 것을 뽑고, 그걸 채우는 뼈대를 세운다
+    checks: list[str] = Field(default_factory=list,
+                              description='이 문항을 읽는 채용 담당자가 답에서 확인하려는 것 2~4개. 문항 문구에서 끌어낸다')
+    outline: list[BeatOut] = Field(default_factory=list, description='checks 를 채우는 답의 흐름 4~7개, 읽히는 순서대로')
     lead_source_ids: list[str] = Field(description='이 답의 중심 경험 재료 id. 다른 문항과 중심이 겹치지 않게')
     support_source_ids: list[str] = Field(default_factory=list, description='곁들일 재료 id')
     angle: str = Field(description='이 답이 보여 줄 것 한 문장. 같은 경험을 여러 문항에 쓰면 문항마다 다른 면')
-    missing: list[MissingOut] = Field(default_factory=list)
+    missing: list[MissingOut] = Field(default_factory=list, description='outline 의 question 으로 다 묻지 못한 것만. 보통 빈 목록')
 
 
 class PlanOut(StrictModel):

@@ -82,9 +82,17 @@ const GROUP_LABEL: Record<string, string> = { must: '필수', preferred: '우대
 
 const PLACE_LABEL: Record<SkillCoverage['place'], string> = {
   techStack: '기술스택에 있음',
-  text: '본문에만 있음',
+  text: '경험 글에만 있음',
   missing: '이력서에 없음',
 };
+
+const PLACE_ICON: Record<SkillCoverage['place'], string> = {
+  techStack: 'check_circle',
+  text: 'adjust',
+  missing: 'radio_button_unchecked',
+};
+
+const PLACES: SkillCoverage['place'][] = ['techStack', 'text', 'missing'];
 
 function errorDetail(err: unknown, fallback: string): string {
   if (err instanceof Error && err.name !== 'AxiosError' && err.message !== '') return err.message;
@@ -511,19 +519,31 @@ export function JobApplyScreen() {
                   {requirements.state === 'loading' ? '요건을 정리하면 기술을 비교해요.' : '이 공고에서는 비교할 기술 이름을 찾지 못했어요.'}
                 </p>
               ) : (
-                <ul className="apply-skills">
-                  {coverage.map((c) => (
-                    <li key={`${c.group}-${c.skill}`} className={`apply-skill apply-skill--${c.place}`} title={PLACE_LABEL[c.place]}>
-                      <Icon name={c.place === 'techStack' ? 'check_circle' : c.place === 'text' ? 'adjust' : 'radio_button_unchecked'} size={15} />
-                      {c.skill}
-                      {c.group === 'required' && <span className="apply-skill__must">필수</span>}
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  <ul className="apply-skills">
+                    {coverage.map((c) => (
+                      <li key={`${c.group}-${c.skill}`} className={`apply-skill apply-skill--${c.place}`} title={PLACE_LABEL[c.place]}>
+                        <Icon name={PLACE_ICON[c.place]} size={15} />
+                        {c.skill}
+                        {c.group === 'required' && <span className="apply-skill__must">필수</span>}
+                      </li>
+                    ))}
+                  </ul>
+                  {/* 말풍선(title)만으로는 아이콘 뜻이 안 보인다 — 나온 것만 범례로 */}
+                  <ul className="apply-skill-legend" aria-label="표시 뜻">
+                    {PLACES.filter((p) => coverage.some((c) => c.place === p)).map((p) => (
+                      <li key={p} className={`apply-skill-legend__item apply-skill--${p}`}>
+                        <Icon name={PLACE_ICON[p]} size={14} />
+                        {PLACE_LABEL[p]}
+                      </li>
+                    ))}
+                  </ul>
+                </>
               )}
               {coverage.some((c) => c.place === 'missing') && (
                 <p className="hint">
-                  이력서에 없는 기술은 지어 넣지 않아요. 써 본 경험이 있으면 첨삭의 「경험 보완」 단계에서 답해 주세요.
+                  이력서에 없는 기술은 초안에 지어 넣지 않아요. 써 본 적이 있으면 4단계 문항 카드의 메모에 적거나{' '}
+                  <Link to={RoutePaths.resume}>이력서 관리</Link>에서 이력서에 추가해 주세요.
                 </p>
               )}
             </div>

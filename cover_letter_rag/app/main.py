@@ -280,6 +280,7 @@ class QuestionWorkflowItem(StrictModel):
     id: str = Field(min_length=1, max_length=100)
     memo: str = Field(default='', max_length=2000)
     notes: list[QuestionWorkflowNote] = Field(default_factory=list, max_length=12)
+    written: str = Field(default='', max_length=6000)  # 지금 답 칸의 글 — 문항별로 쓸 때 다른 문항과 겹치지 않게
 
 
 class ProxyQuestionWorkflowRequest(StrictModel):
@@ -336,7 +337,9 @@ def question_workflow_as_user(
                       for n in saved.get('notes') or [] if isinstance(n, dict)])
             questions.append(QuestionInput(
                 qid, str(saved['question']), int(limit) if isinstance(limit, (int, float)) and limit > 0 else None,
-                item.memo if item else str(saved.get('memo') or ''), [n for n in notes if n['answer'].strip()]))
+                item.memo if item else str(saved.get('memo') or ''), [n for n in notes if n['answer'].strip()],
+                group=str(saved.get('group') or ''),
+                written=item.written if item else str(saved.get('answer') or '')))
         if not questions:
             raise ReviewInputError('company_question_not_found')
         job = load_selected_job(settings.matching_job_store_path, tailored.get('jobId') or '')

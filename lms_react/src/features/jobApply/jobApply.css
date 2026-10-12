@@ -217,6 +217,27 @@
   font-weight: 600;
 }
 
+.apply-skill-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* 칩 색은 아이콘에만 — 범례는 테두리 · 배경 없이 */
+.apply-skill-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+}
+
 /* 만들기 · 만든 뒤 */
 .apply-plan {
   display: flex;
@@ -697,6 +718,11 @@
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
+}
+
+.qa-gap__nudge {
+  color: var(--warning);
+  font-size: 12px;
 }
 
 /* 캡처 올리기 */
@@ -1292,11 +1318,73 @@
 }
 
 /* 문항 전체 답변(QuestionWorkflowAnswers) */
+/* 하위 문항의 묶음 제목 — 같은 묶음은 한 경험으로 이어 쓴다 */
+.qw-group {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+
 .qw-run {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+/* 쓰는 동안 단계 — 실제 단계가 아니라 지난 시간으로 어림한 순서 */
+.qw-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--divider);
+  border-radius: 10px;
+}
+
+.qw-steps ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.qw-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.qw-steps li.is-done .icon {
+  color: var(--success);
+}
+
+.qw-steps li.is-now {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.qw-steps li.is-now .icon {
+  color: var(--primary);
+  animation: qw-spin 1.2s linear infinite;
+}
+
+@keyframes qw-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qw-steps li.is-now .icon {
+    animation: none;
+  }
 }
 
 .qw-overlap {
@@ -1307,4 +1395,9 @@
 .qw-overlap p {
   margin: 0;
   line-height: 1.6;
+}
+
+/* 3단계 문항 목록의 묶음 제목 — 같은 묶음이 시작될 때 한 번 */
+.apply-q-group {
+  margin: 10px 0 2px;
 }

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { updateResume, useResume } from '../../data/repository';
 import type { ResumeCompanyQuestion, ResumeContent } from '../../domain/types';
@@ -25,6 +25,8 @@ interface Result {
   angle: string;
   questions: string[];
   trimmed: string[];
+  /** 같은 묶음이 모두 비어 질문을 모아 둔 앞 하위 문항 id — 거기 답하면 이 문항도 같이 쓴다 */
+  questionsOn: string;
   /** 다른 문항과 겹치지만 줄이면 너무 짧아져 그대로 둔 이야기 */
   unchanged: string[];
   removed: number;
@@ -48,6 +50,7 @@ function toResult(r: Json): Result {
     angle: String(r.angle ?? ''),
     questions: list<string>(r.questions),
     trimmed: list<string>(r.trimmed_overlap),
+    questionsOn: String(r.questions_on ?? ''),
     unchanged: list<string>(r.overlap_unchanged),
     removed: list<unknown>(r.removed).length,
     sentences: list<Json>(r.sentences).map((s) => ({
@@ -55,6 +58,60 @@ function toResult(r: Json): Result {
     })),
   };
 }
+
+/**
+ * 쓰는 동안 보여 줄 단계와 보통 끝나는 시점(초). 서버는 한 번에 결과를 돌려줘서 실제 단계를 받지 못한다 —
+ * 2026-10-12 시간 재기(문항 하나 60~85초, 전체 150~170초)로 어림한 순서다. 멈춘 것처럼 보이지 않게 하는 게 목적.
+ */
+const STEPS_ONE = [
+  { label: '쓰는 중', until: 20 },
+  { label: '근거 · 빠진 내용 검토', until: 35 },
+  { label: '필요하면 다시 쓰고 검토', until: 60 },
+  { label: '읽기 좋게 다듬는 중', until: 80 },
+];
+const STEPS_ALL = [
+  { label: '문항 전체 뼈대 세우는 중', until: 30 },
+  { label: '문항마다 쓰고 검토', until: 100 },
+  { label: '다듬고 문항끼리 겹침 점검', until: 150 },
+  { label: '공고 요건 확인', until: 170 },
+];
+const PLAN_STEP = { label: '문항 뼈대 세우는 중', until: 30 };
+
+function WorkingSteps({ all, planned }: { all: boolean; planned: boolean }) {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const started = Date.now();
+    const timer = window.setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const steps = all ? STEPS_ALL
+    : planned ? STEPS_ONE : [PLAN_STEP, ...STEPS_ONE.map((st) => ({ ...st, until: st.until + PLAN_STEP.until }))];
+  const total = steps[steps.length - 1].until;
+  const now = Math.max(0, steps.findIndex((st) => seconds < st.until));
+  const current = seconds >= total ? steps.length - 1 : now;
+  return (
+    <div className="qw-steps" role="status" aria-live="polite">
+      <ol>
+        {steps.map((st, k) => (
+          <li key={st.label} className={k < current ? 'is-done' : k === current ? 'is-now' : ''}>
+            <Icon name={k < current ? 'check_circle' : k === current ? 'progress_activity' : 'radio_button_unchecked'} size={15} />
+            {st.label}
+          </li>
+        ))}
+      </ol>
+      <span className="hint">
+        {seconds}초 지남 · {seconds < total ? `보통 ${Math.round(total / 10) * 10}초쯤 걸려요` : '조금 더 걸리고 있어요. 창을 닫지 말고 기다려 주세요'}
+      </span>
+    </div>
+  );
+}
+
+/** 키워드만 적은 답(「밴드부 키보드」) — 막지는 않고 더 적어 달라고만 한다 */
+const BRIEF_CHARS = 15;
+const isBrief = (answer: string) => {
+  const n = answer.replace(/\s/g, '').length;
+  return n > 0 && n < BRIEF_CHARS;
+};
 
 /** 저장된 질문 답 — 고른 경험(selection)처럼 답이 빈 것은 근거가 아니라 뺀다 */
 const savedNotes = (q: ResumeCompanyQuestion) =>
@@ -103,16 +160,18 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId }: { resu
   /** only 가 없으면 문항 전체, 있으면 그 문항만 다시 쓴다 — 다른 카드 · 한 벌 알림은 그대로 둔다 */
   const run = async (only?: string) => {
     if (busy !== null) return;
-    const touched = only === undefined ? questions : questions.filter((q) => q.id === only);
     const notes = Object.fromEntries(questions.map((q) => [q.id, [...savedNotes(q), ...answered(q.id)]]));
     setBusy(only ?? 'all');
     setError(null);
     try {
       const data = await reviewApi.questionWorkflow(resumeId, tailoredId,
-        questions.map((q) => ({ id: q.id, memo: memoOf(q), notes: notes[q.id] })),
+        // 답 칸의 지금 글도 보낸다 — 문항별로 쓸 때 다른 문항에 이미 쓴 이야기를 되풀이하지 않게
+        questions.map((q) => ({ id: q.id, memo: memoOf(q), notes: notes[q.id], written: textOf(q) })),
         only === undefined ? {} : { only, plan });
       const next: Record<string, Result> = {};
       for (const r of list<Json>(data.questions)) next[String(r.question_id)] = toResult(r);
+      // 돌아온 문항 — 한 문항만 다시 써도 묶음이면 묶음 전체가 온다
+      const touched = questions.filter((q) => q.id in next);
       // 메모 · 질문 답은 남긴다 — 다시 열어도 같은 근거로 이어 쓴다. 빈 답 칸에는 초안을 넣어 둔다(저장은 「저장」을 눌러야)
       await persist(Object.fromEntries(touched.map((q) => [q.id, {
         memo: memoOf(q),
@@ -123,7 +182,7 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId }: { resu
         return [q.id, current.trim() === '' ? next[q.id]?.draft ?? '' : current];
       })) }));
       setResults((r) => (only === undefined ? next : { ...r, ...next }));
-      setGapAnswers((a) => (only === undefined ? {} : { ...a, [only]: {} }));
+      setGapAnswers((a) => (only === undefined ? {} : { ...a, ...Object.fromEntries(touched.map((q) => [q.id, {}])) }));
       if (data.plan !== undefined && data.plan !== null) setPlan(data.plan as Json);
       if (only === undefined) {
         setOverlaps(list<Overlap>(data.overlaps).map((o) => ({ ...o, others: list<string>(o.others), unchanged: list<string>(o.unchanged) })));
@@ -150,17 +209,20 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId }: { resu
   };
 
   const no = (id: string) => questions.findIndex((q) => q.id === id) + 1;
-  const hasResult = Object.keys(results).length > 0;
 
   return (
     <div className="qa-list">
       <div className="qw-run">
-        <Button onClick={() => void run()} disabled={busy !== null}>
-          <Icon name="auto_fix_high" size={18} />
-          {busy === 'all' ? `문항 ${questions.length}개를 함께 쓰는 중… (1~3분)` : hasResult ? '문항 전체 다시 쓰기' : 'AI 초안 쓰기'}
+        <Button variant="outline" onClick={() => void run()} disabled={busy !== null}>
+          <Icon name="fact_check" size={18} />
+          {busy === 'all' ? `문항 ${questions.length}개를 함께 쓰는 중…` : '문항 전체 한 번에 쓰기 · 점검'}
         </Button>
-        <span className="hint">문항 전체를 함께 보고, 문항끼리 같은 경험이 겹치지 않게 나눠 써요. 메모를 먼저 적으면 그 내용으로 써요.</span>
+        <span className="hint">
+          문항마다 메모를 적고 「AI 초안 쓰기」를 누르세요. 다른 문항에 이미 쓴 이야기는 되풀이하지 않게 써요.
+          전체를 한 번에 쓰면 같은 이야기 겹침 · 공고 필수 요건까지 점검해요.
+        </span>
       </div>
+      {busy === 'all' && <WorkingSteps all planned={false} />}
       {error !== null && <p className="apply-error">{error}</p>}
       {coverage !== null && coverage.total > 0 && (
         <p className="hint">
@@ -191,7 +253,10 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId }: { resu
           <section key={q.id} className="qa-card">
             <header className="qa-card__head">
               <span className="qa-card__no">{i + 1}</span>
-              <strong className="qa-card__question">{q.question}</strong>
+              <strong className="qa-card__question">
+                {q.group && <span className="qw-group">{q.group}</span>}
+                {q.question}
+              </strong>
               <span className="qa-card__limit">{q.limit === null ? '글자 수 없음' : `${q.limit.toLocaleString()}자`}</span>
             </header>
 
@@ -215,18 +280,18 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId }: { resu
                 {text.length.toLocaleString()}{q.limit !== null && ` / ${q.limit.toLocaleString()}자`}{over && ' · 글자 수를 넘었어요'}
               </span>
               <span className="spacer" />
-              {hasResult && (
-                <Button variant="outline" size="sm" onClick={() => void run(q.id)} disabled={busy !== null}>
-                  <Icon name="auto_fix_high" size={16} />
-                  {busy === q.id ? '이 문항 쓰는 중…' : '이 문항만 다시 쓰기'}
-                </Button>
-              )}
+              <Button variant="outline" size="sm" onClick={() => void run(q.id)} disabled={busy !== null}>
+                <Icon name="auto_fix_high" size={16} />
+                {busy === q.id ? '이 문항 쓰는 중…'
+                  : result !== undefined ? '이 문항 다시 쓰기' : memoOf(q).trim() !== '' ? '메모로 AI 초안 쓰기' : 'AI 초안 쓰기'}
+              </Button>
               <Button size="sm" onClick={() => void save(q)} disabled={state === 'saving' || text.trim() === '' || over}>
                 <Icon name={state === 'saved' ? 'check' : 'save'} size={16} />
                 {state === 'saving' ? '저장 중…' : state === 'saved' ? '저장됨' : '저장'}
               </Button>
             </div>
             {state === 'failed' && <p className="apply-error">저장하지 못했어요. 다시 눌러 주세요.</p>}
+            {busy === q.id && <WorkingSteps all={false} planned={plan !== null} />}
 
             {result !== undefined && (
               <div className="qa-result">
@@ -254,7 +319,11 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId }: { resu
                   )}
                 </div>
                 {result.sentences.length === 0 ? (
-                  <p className="hint">이 문항에 쓸 재료가 모자라요. 아래 질문에 답해 주시면 그걸로 써 볼게요.</p>
+                  <p className="hint">
+                    {result.questionsOn !== ''
+                      ? `같은 묶음 ${no(result.questionsOn)}번 문항의 질문에 답하면 이 문항도 같이 써요.`
+                      : '이 문항에 쓸 재료가 모자라요. 아래 질문에 답해 주시면 그걸로 써 볼게요.'}
+                  </p>
                 ) : (
                   <ol className="qa-sentences">
                     {result.sentences.map((s, k) => {
@@ -279,14 +348,27 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId }: { resu
                 {result.questions.length > 0 && (
                   <div className="qa-gaps">
                     <span className="apply-label">더 쓰려면 알려 주세요</span>
-                    {result.questions.map((question) => (
-                      <label key={question} className="qa-gap">
-                        <span>{question}</span>
-                        <TextArea rows={2} value={gapAnswers[q.id]?.[question] ?? ''}
-                          placeholder="해 본 적이 없으면 비워 두세요. 없는 경험은 쓰지 않아요."
-                          onChange={(e) => setGapAnswers((a) => ({ ...a, [q.id]: { ...(a[q.id] ?? {}), [question]: e.target.value } }))} />
-                      </label>
-                    ))}
+                    {/* 답에 없는 장면은 지어 넣지 않는다 — 짧게 답하면 문장은 매끄러워도 구체적이지 않다(2026-10-12 시험) */}
+                    <p className="hint">
+                      한두 줄이면 돼요. 그때 상황 · 내가 한 일 · 결과를 적으면 그 장면이 그대로 글이 돼요.
+                      예: 「밴드부 키보드」보다 「밴드부에서 키보드를 맡아 합주 일정을 짜고, 못 온 친구에게 녹음을 공유함」
+                    </p>
+                    {result.questions.map((question) => {
+                      const answer = gapAnswers[q.id]?.[question] ?? '';
+                      return (
+                        <label key={question} className="qa-gap">
+                          <span>{question}</span>
+                          <TextArea rows={2} value={answer}
+                            placeholder="상황 · 내가 한 일 · 결과를 한두 줄로. 해 본 적이 없으면 비워 두세요."
+                            onChange={(e) => setGapAnswers((a) => ({ ...a, [q.id]: { ...(a[q.id] ?? {}), [question]: e.target.value } }))} />
+                          {isBrief(answer) && (
+                            <span className="qa-gap__nudge">
+                              조금만 더 적어 주세요 — 무엇을 어떻게 했는지 들어가야 구체적으로 써져요. 이대로 보내면 문장만 다듬어요.
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })}
                     <div>
                       <Button size="sm" onClick={() => void run(q.id)} disabled={busy !== null || answered(q.id).length === 0}>
                         <Icon name="send" size={16} />

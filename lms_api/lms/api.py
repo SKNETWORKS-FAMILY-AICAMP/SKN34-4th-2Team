@@ -1092,6 +1092,7 @@ class QuestionWorkflowItemIn(Schema):
     id: str = Field(max_length=100)
     memo: str = Field(default='', max_length=2000)
     notes: list[QuestionWorkflowNoteIn] = []
+    written: str = Field(default='', max_length=6000)  # 지금 답 칸의 글
 
 
 class QuestionWorkflowIn(Schema):
@@ -1117,7 +1118,7 @@ def resume_review_question_workflow(request, body: QuestionWorkflowIn):
         "resume_id": _review_resume_id(row),
         "tailored_resume_id": body.tailoredResumeId,
         # 질문 답은 최근 12개만 — 첨삭 서버 요청 한도
-        "questions": [{"id": q.id, "memo": q.memo, "notes": [n.dict() for n in q.notes[-12:]]}
+        "questions": [{"id": q.id, "memo": q.memo, "notes": [n.dict() for n in q.notes[-12:]], "written": q.written}
                       for q in body.questions[:20]],
         "only": body.only,
         "plan": body.plan,
