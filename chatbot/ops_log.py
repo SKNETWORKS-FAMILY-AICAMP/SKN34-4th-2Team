@@ -8,6 +8,7 @@ import os
 from typing import Any
 
 from chatbot.context_builder import safe_context_metrics
+from chatbot.answer_effort import EFFORT_REASONS
 
 FORBIDDEN_KEYS = {
     "question",
@@ -116,6 +117,7 @@ def build_generation_log_payload(
         payload["llmMs"] = max(0, int(llm_ms))
     for source, target in (
         ("supervisor_ms", "supervisorMs"),
+        ("schedule_fast_path", "scheduleFastPath"),
         ("shared_context_ms", "sharedContextMs"),
         ("supervisor_prepare_wall_ms", "supervisorPrepareWallMs"),
         ("shared_context_overlap_ms", "sharedContextOverlapMs"),
@@ -157,6 +159,9 @@ def build_generation_log_payload(
     effort = snap.get('answer_reasoning_effort')
     if isinstance(effort, str) and effort in {'default', 'none', 'low', 'medium', 'high', 'xhigh', 'max'}:
         payload['answerReasoningEffort'] = effort
+    reason = snap.get('answer_effort_reason')
+    if isinstance(reason, str) and reason in EFFORT_REASONS:
+        payload['answerEffortReason'] = reason
     if context_metrics:
         payload['contextMetrics'] = context_metrics
     token_in = snap.get("tokenIn", snap.get("token_in"))
