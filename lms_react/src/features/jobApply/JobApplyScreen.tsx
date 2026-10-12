@@ -21,6 +21,7 @@ import {
   addEvidencedSkills,
   alignToPosting,
   postingSkills,
+  requirementRows,
   skillCoverage,
   type PostingRequirement,
   type SkillCoverage,
@@ -29,8 +30,8 @@ import { defaultQuestions } from './companyQuestions';
 import { CoachAsk } from '../resume/ask/CoachAsk';
 import { ApplySiteButton } from './ApplySiteButton';
 import { FeaturedPostings } from './FeaturedPostings';
-import { QuestionWorkflowAnswers } from './QuestionWorkflowAnswers';
 import { QuestionsStep, type QuestionChoice } from './QuestionsStep';
+import { useWriteDock, type WriteTarget } from './WriteDock';
 import './jobApply.css';
 
 /**
@@ -100,16 +101,6 @@ function errorDetail(err: unknown, fallback: string): string {
   return typeof detail === 'string' && detail !== '' ? detail : fallback;
 }
 
-function requirementRows(data: Json): PostingRequirement[] {
-  const list = Array.isArray(data.requirements) ? (data.requirements as Json[]) : [];
-  return list.map((r) => ({
-    id: String(r.id ?? ''),
-    group: String(r.group ?? ''),
-    label: String(r.label ?? ''),
-    postingQuote: String(r.posting_quote ?? ''),
-  }));
-}
-
 /** 서버 사본의 본문 — 옛 이력서는 칸이 빠져 있을 수 있어 정렬하는 두 칸만 배열로 맞춘다 */
 function draftContent(raw: unknown): ResumeContent {
   const content = (raw !== null && typeof raw === 'object' ? raw : {}) as ResumeContent;
@@ -124,6 +115,7 @@ export function JobApplyScreen() {
   const user = useCurrentUser();
   const resumes = useMyResumes(user.uid).data ?? [];
   const navigate = useNavigate();
+  const { openWrite, writingId } = useWriteDock();
 
   // 바탕이 될 수 있는 이력서 — 공고 맞춤본 · 첨삭 작업본은 뺀다(기본 이력서 고르기와 같은 규칙)
   const sources = resumes.filter((r) => !isTailored(r) && !r.sourceTailoredResumeId);
@@ -245,15 +237,16 @@ export function JobApplyScreen() {
       if (data.status === 'OPEN') loadRequirements(data.job_id);
       const saved = resume.content.companyQuestions ?? [];
       setQuestions(saved.length > 0 ? saved : null);
-      setDraft(
-        saved.length > 0
-          ? {
-              resumeId: copy?.base ?? '', tailoredId: copy?.tailored ?? '', editId: resume.id, session: {}, reused: true,
-              addedSkills: [], matchedSkills: 0, projectsReordered: false, questionCount: saved.length,
-              orphan: copy === undefined,
-            }
-          : null,
-      );
+      const restored: Draft | null = saved.length > 0
+        ? {
+            resumeId: copy?.base ?? '', tailoredId: copy?.tailored ?? '', editId: resume.id, session: {}, reused: true,
+            addedSkills: [], matchedSkills: 0, projectsReordered: false, questionCount: saved.length,
+            orphan: copy === undefined,
+          }
+        : null;
+      setDraft(restored);
+      // 「내 자소서」에서 연 자소서는 쓰기 창을 바로 띄운다. 바탕 이력서가 지워진 자소서는 읽기 전용이라 띄우지 않는다
+      if (restored !== null && !restored.orphan && data.status === 'OPEN') openWrite(writeTarget(restored, data));
     } catch (err) {
       setFindError(errorDetail(err, '공고를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.'));
     } finally {
@@ -367,12 +360,24 @@ export function JobApplyScreen() {
     setParams({ resume: next.editId }, { replace: true });
   };
 
+  /** 자소서 쓰기 창(WriteDock)에 넘길 것 — 창은 화면 밖 층에 떠 다른 메뉴로 가도 쓰는 중인 초안이 남는다 */
+  const writeTarget = (d: Draft, p: Posting): WriteTarget => ({
+    resumeId: d.resumeId, tailoredId: d.tailoredId, editId: d.editId,
+    title: applyCopyTitle(resumes.find((r) => r.id === d.editId)?.title ?? '') || `${p.company} 자소서`,
+    job: `${p.company} ${p.title}`.trim(),
+    jobId: p.job_id,
+    // 2단계 요건을 이미 불러왔으면 넘긴다. 아직이면(「내 자소서」에서 바로 열 때) 창이 직접 읽는다
+    requirements: requirements.state === 'ready' && posting?.job_id === p.job_id ? requirements.rows : undefined,
+  });
+
   const create = async () => {
     if (creating || posting === null || source === undefined || questions === null) return;
     setCreating(true);
     setCreateError(null);
     try {
-      await open(await makeCopy(source, questions));
+      const next = await makeCopy(source, questions);
+      await open(next);
+      openWrite(writeTarget(next, posting));
     } catch (err) {
       setCreateError(errorDetail(err, '자소서를 만들지 못했어요. 다시 시도해 주세요.'));
     } finally {
@@ -393,6 +398,7 @@ export function JobApplyScreen() {
       setPickedSource(target.id);
       if (next.carried) setQuestions(carried);
       await open({ ...next, switched: { title: target.title, result: next.carried ? 'moved' : 'kept' } });
+      if (posting !== null) openWrite(writeTarget(next, posting));
       // 목록을 새로 받은 뒤에 지운다 — 먼저 지우면 아직 지우기 전의 서버 목록이 옛 자소서를 되살린다.
       // 이 탭 전용 사본(apply_…)만 지운다. 나누기 전에 만든 사본(tailored_…)은 이력서 관리의 맞춤 첨삭과 함께 쓰였을 수 있다
       if (next.carried && old !== undefined && old.id !== next.editId && /\/tailored\/apply_[^/]+$/.test(old.id)) {
@@ -599,6 +605,8 @@ export function JobApplyScreen() {
               switchError={switchError}
               onSwitch={(id) => void switchBase(id)}
               onEdit={() => navigate(resumeEditPath(draft.editId))}
+              onWrite={posting === null ? undefined : () => openWrite(writeTarget(draft, posting))}
+              writingHere={writingId === draft.editId}
             />
           )}
         </Card>
@@ -719,7 +727,7 @@ function RequirementList({ requirements, onRetry }: { requirements: Requirements
 }
 
 function DraftDone({
-  draft, saved, sources, switching, switchError, onSwitch, onEdit,
+  draft, saved, sources, switching, switchError, onSwitch, onEdit, onWrite, writingHere,
 }: {
   draft: Draft;
   /** 사본에 저장된 문항 · 답 — 바탕 이력서가 지워진 자소서는 이것만 보여 준다 */
@@ -729,6 +737,10 @@ function DraftDone({
   switchError: string | null;
   onSwitch(resumeId: string): void;
   onEdit(): void;
+  /** 자소서 쓰기 창 열기 — 문항 답변은 그 창에서 쓴다 */
+  onWrite?(): void;
+  /** 이 자소서의 쓰기 창이 열려 있다(내려둔 것 포함) */
+  writingHere: boolean;
 }) {
   return (
     <div className="apply-done">
@@ -779,7 +791,13 @@ function DraftDone({
         {draft.orphan ? (
           <SavedAnswers questions={saved} />
         ) : (
-          <QuestionWorkflowAnswers key={draft.editId} resumeId={draft.resumeId} tailoredId={draft.tailoredId} editId={draft.editId} />
+          <div className="apply-write-open">
+            <Button onClick={onWrite} disabled={onWrite === undefined}>
+              <Icon name="edit_note" size={18} />
+              {writingHere ? '자소서 쓰기 창으로 돌아가기' : '자소서 쓰기 창 열기'}
+            </Button>
+            <span className="hint">문항마다 메모를 적고 AI 초안을 받아요. 초안을 쓰는 동안 창을 내려두고 다른 화면을 써도 돼요.</span>
+          </div>
         )}
       </div>
     </div>

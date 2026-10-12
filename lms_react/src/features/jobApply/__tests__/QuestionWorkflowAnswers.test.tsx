@@ -138,7 +138,7 @@ describe('문항 전체 답변', () => {
         sentences: [{ text: draft, sources: [], requirements: [] }] }] });
     api.questionWorkflow.mockResolvedValueOnce(one('cq1', '1번 초안입니다.')).mockResolvedValueOnce(one('cq2', '2번 초안입니다.'));
     act(() => root.render(<QuestionWorkflowAnswers resumeId="r1" tailoredId="apply_1" editId="r1/tailored/apply_1" />));
-    await act(async () => button('메모로 AI 초안 쓰기').click());  // 1번 카드(메모 있음)
+    await act(async () => button('메모 반영해 AI 초안 쓰기').click());  // 1번 카드(메모 있음)
     await flush();
     expect(api.questionWorkflow.mock.calls[0][3]).toEqual({ only: 'cq1', plan: null });
     expect(answerBox(1).value).toBe('1번 초안입니다.');
@@ -171,7 +171,7 @@ describe('쓰는 동안 단계', () => {
     let finish: (v: unknown) => void = () => undefined;
     api.questionWorkflow.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
     act(() => root.render(<QuestionWorkflowAnswers resumeId="r1" tailoredId="apply_1" editId="r1/tailored/apply_1" />));
-    act(() => button('메모로 AI 초안 쓰기').click());
+    act(() => button('메모 반영해 AI 초안 쓰기').click());
 
     const steps = () => host.querySelector('.qw-steps');
     expect(steps()?.textContent).toContain('문항 뼈대 세우는 중');  // 계획이 아직 없으면 뼈대부터

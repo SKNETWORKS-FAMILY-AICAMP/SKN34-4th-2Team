@@ -23,6 +23,17 @@ export interface PostingRequirement {
   postingQuote: string;
 }
 
+/** 첨삭 서버 요건 응답(requirements[]) → 화면 행. 2단계 요건 목록과 자소서 쓰기 창이 같이 쓴다 */
+export function requirementRows(data: { requirements?: unknown }): PostingRequirement[] {
+  const list = Array.isArray(data.requirements) ? (data.requirements as Record<string, unknown>[]) : [];
+  return list.map((r) => ({
+    id: String(r.id ?? ''),
+    group: String(r.group ?? ''),
+    label: String(r.label ?? ''),
+    postingQuote: String(r.posting_quote ?? ''),
+  }));
+}
+
 /** 비교용 이름 — 대소문자 · 띄어쓰기 · 점 · 하이픈 · 빗금을 지운다. Node.js = nodejs, Spring Boot = springboot */
 export function skillKey(name: string): string {
   return name.toLowerCase().replace(/[\s._\-/]/g, '');

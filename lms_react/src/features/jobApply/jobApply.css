@@ -1401,3 +1401,94 @@
 .apply-q-group {
   margin: 10px 0 2px;
 }
+
+/* 자소서 쓰기 창 — 첨삭 창(rv-window)과 같은 틀. 안쪽은 문항 카드를 세로로 */
+.aw-window {
+  width: min(980px, 100%);
+}
+
+.aw-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px 24px;
+}
+
+/* 첨삭 막대와 함께 내려두면 오른쪽으로 비켜 선다(복습 막대는 왼쪽으로 비킨다) */
+.rv-docked .aw-dockbar-wrap {
+  padding-left: 700px;
+}
+
+@media (max-width: 760px) {
+  .rv-docked .aw-dockbar-wrap {
+    padding-left: 0;
+    bottom: 96px;
+  }
+}
+
+.apply-write-open {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 자소서 쓰기 창 맨 위 공고 요건 — 접어 두고 펼친다 */
+.aw-reqs {
+  margin-bottom: 14px;
+  border: 1px solid var(--divider);
+  border-radius: 10px;
+}
+
+.aw-reqs__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.aw-reqs__toggle .hint {
+  flex: 1;
+}
+
+.aw-reqs__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.aw-reqs__group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.aw-reqs__group ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aw-req {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+p.aw-reqs {
+  padding: 0;
+  border: 0;
+}

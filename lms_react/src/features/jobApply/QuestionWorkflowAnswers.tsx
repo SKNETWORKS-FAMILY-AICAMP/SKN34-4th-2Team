@@ -117,7 +117,17 @@ const isBrief = (answer: string) => {
 const savedNotes = (q: ResumeCompanyQuestion) =>
   (q.notes ?? []).filter((n) => n.answer.trim() !== '').map((n) => ({ question: n.question, answer: n.answer }));
 
-export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId }: { resumeId: string; tailoredId: string; editId: string }) {
+/** 쓰는 중인지 · 실패했는지 · 무엇을 쓰는지 — 자소서 쓰기 창이 내려둔 막대에 보여 준다 */
+export interface WritingStatus {
+  busy: boolean;
+  failed: boolean;
+  label: string;
+}
+
+export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus }: {
+  resumeId: string; tailoredId: string; editId: string;
+  onStatus?(status: WritingStatus): void;
+}) {
   const resume = useResume(editId);
   /** 가장 최근 본문 — 여러 칸이 연달아 저장할 때 서로의 변경을 덮지 않도록 여기에 이어 쓴다(QuestionAnswers 와 같은 까닭) */
   const latest = useRef<ResumeContent | null>(null);
@@ -134,6 +144,15 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId }: { resu
   /** 전체를 쓸 때 받은 계획 — 한 문항만 다시 쓸 때 보내면 계획을 다시 세우지 않는다 */
   const [plan, setPlan] = useState<Json | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const count = resume?.content.companyQuestions?.length ?? 0;
+  const busyNo = busy === null || busy === 'all' ? 0 : (resume?.content.companyQuestions ?? []).findIndex((q) => q.id === busy) + 1;
+  useEffect(() => {
+    onStatus?.({
+      busy: busy !== null,
+      failed: error !== null,
+      label: busy === 'all' ? `문항 ${count}개를 함께 쓰는 중` : busy !== null ? `${busyNo}번 문항 쓰는 중` : '',
+    });
+  }, [busy, error, count, busyNo, onStatus]);
 
   if (resume === undefined) return <p className="hint">자소서를 불러오고 있어요…</p>;
   latest.current = resume.content;
@@ -218,7 +237,7 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId }: { resu
           {busy === 'all' ? `문항 ${questions.length}개를 함께 쓰는 중…` : '문항 전체 한 번에 쓰기 · 점검'}
         </Button>
         <span className="hint">
-          문항마다 메모를 적고 「AI 초안 쓰기」를 누르세요. 다른 문항에 이미 쓴 이야기는 되풀이하지 않게 써요.
+          초안은 이력서를 바탕으로 쓰고, 메모를 적으면 그 내용을 더해 써요. 다른 문항에 이미 쓴 이야기는 되풀이하지 않아요.
           전체를 한 번에 쓰면 같은 이야기 겹침 · 공고 필수 요건까지 점검해요.
         </span>
       </div>
@@ -283,7 +302,7 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId }: { resu
               <Button variant="outline" size="sm" onClick={() => void run(q.id)} disabled={busy !== null}>
                 <Icon name="auto_fix_high" size={16} />
                 {busy === q.id ? '이 문항 쓰는 중…'
-                  : result !== undefined ? '이 문항 다시 쓰기' : memoOf(q).trim() !== '' ? '메모로 AI 초안 쓰기' : 'AI 초안 쓰기'}
+                  : result !== undefined ? '이 문항 다시 쓰기' : memoOf(q).trim() !== '' ? '메모 반영해 AI 초안 쓰기' : 'AI 초안 쓰기'}
               </Button>
               <Button size="sm" onClick={() => void save(q)} disabled={state === 'saving' || text.trim() === '' || over}>
                 <Icon name={state === 'saved' ? 'check' : 'save'} size={16} />
