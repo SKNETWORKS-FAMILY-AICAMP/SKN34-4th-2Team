@@ -24,6 +24,9 @@ from pinecone import Pinecone
 from pydantic import BaseModel, Field
 
 from chatbot.attendance import enrich_student_context
+from chatbot.context_builder import (
+    build_answer_context, get_local_tokenizer, measure_answer_context, safe_context_metrics,
+)
 from chatbot.project_search import (
     cohort_buckets,
     cohort_range,
@@ -336,6 +339,8 @@ class ChatState(MessagesState):
     vector_calls: int
     prompt_build_ms: int
     prompt_chars: int
+    context_metrics: dict[str, Any]
+    context_measure_ms: int
     retrieved_chunks: int
     retrieved_chunk_chars: int
     token_in: int
@@ -770,6 +775,8 @@ class LmsStudentChatbot:
             "vector_calls": 0,
             "prompt_build_ms": 0,
             "prompt_chars": 0,
+            "context_metrics": {},
+            "context_measure_ms": 0,
             "retrieved_chunks": 0,
             "retrieved_chunk_chars": 0,
             "token_in": 0,
@@ -1094,6 +1101,8 @@ class LmsStudentChatbot:
         prompt_started = time.perf_counter()
         prompt_chars = 0
         prompt_build_ms = 0
+        context_metrics: dict[str, Any] = {}
+        context_measure_ms = 0
         answer_model_ms = 0
         answer_ttft_ms = 0
         sources = [{
@@ -1113,30 +1122,20 @@ class LmsStudentChatbot:
             answer = "관련 학생 데이터, 정책, 공지 또는 프로젝트 레퍼런스를 찾지 못했습니다. LMS 담당자에게 확인해 주세요."
             token_in = token_out = None
         else:
-            search_context = "\n\n".join(
-                f"[{i}] namespace={document.metadata['_namespace']} metadata={document.metadata}\n"
-                f"{document.page_content}"
-                for i, document in enumerate(documents, 1)
-            )
-            context_parts = []
-            if unit_period_context:
-                context_parts.append(
-                    "[서버 계산 학생 단위기간 컨텍스트]\n"
-                    + json.dumps(unit_period_context, ensure_ascii=False)
-                )
-            if student_context:
-                context_parts.append(
-                    "[인증된 로그인 학생 Firebase 데이터]\n"
-                    + json.dumps(student_context, ensure_ascii=False)
-                )
-            if search_context:
-                context_parts.append("[검색 문서]\n" + search_context)
             history = _chat_history(state["messages"][:-1])
-            context_text = "\n\n".join(context_parts)
+            context_mode = 'compact' if os.getenv('LMS_CHATBOT_CONTEXT_MODE', 'legacy').strip().lower() == 'compact' else 'legacy'
+            context_build = build_answer_context(unit_period_context=unit_period_context,
+                student_context=student_context, documents=documents, mode=context_mode,
+                cohort=str(state.get('cohort') or ''))
+            context_text = context_build.text
             prompt_chars = len(ANSWER_PROMPT) + len(context_text) + len(state["question"]) + sum(
                 len(str(message.content)) for message in history
             )
             # Character count is a size proxy; token_in below comes from the model response.
+            measure_started = time.perf_counter()
+            context_metrics = measure_answer_context(context_build, system=ANSWER_PROMPT,
+                history=history, question=state['question'], tokenizer=get_local_tokenizer())
+            context_measure_ms = _elapsed_ms(measure_started)
             prompt_build_ms = _elapsed_ms(prompt_started)
             model_started = time.perf_counter()
             first_token_timer = _FirstAnswerTokenTimer(model_started)
@@ -1167,6 +1166,8 @@ class LmsStudentChatbot:
             "answer_ttft_ms": answer_ttft_ms,
             "prompt_build_ms": prompt_build_ms,
             "prompt_chars": prompt_chars,
+            "context_metrics": context_metrics,
+            "context_measure_ms": context_measure_ms,
             "retrieved_chunks": len(documents),
             "retrieved_chunk_chars": sum(len(document.page_content) for document in documents),
         }
@@ -1261,9 +1262,10 @@ class LmsStudentChatbot:
                 for key in (
                     "supervisor_ms", "answer_model_ms", "answer_ttft_ms", "student_context_ms",
                     "embedding_ms", "vector_query_ms_sum", "embedding_calls", "vector_calls",
-                    "prompt_build_ms", "prompt_chars", "retrieved_chunks", "retrieved_chunk_chars",
+                    "prompt_build_ms", "prompt_chars", "context_measure_ms", "retrieved_chunks", "retrieved_chunk_chars",
                 )
             },
+            "context_metrics": safe_context_metrics(values.get('context_metrics')),
             "token_in": values.get("token_in"),
             "token_out": values.get("token_out"),
             "request_id_hash": request_id_hash(thread_id),
