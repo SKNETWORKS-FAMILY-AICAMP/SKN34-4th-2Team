@@ -9,6 +9,7 @@ import time
 from threading import Lock
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+from types import MappingProxyType
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator, Literal
 
@@ -25,6 +26,7 @@ from pinecone import Pinecone
 from pydantic import BaseModel, Field
 
 from chatbot.attendance import enrich_student_context
+from chatbot.answer_effort import choose_answer_effort
 from chatbot.attendance_basis import (
     BasisDecision, CLARIFICATION, persist_decision, prepare_short_basis,
     resolve_attendance_basis, resolve_request_basis, scoped_question,
@@ -364,7 +366,8 @@ class ChatState(MessagesState):
     answer_reasoning_events: int
     answer_reasoning_tokens: int | None
     answer_cached_input_tokens: int | None
-    answer_reasoning_effort: str
+    answer_reasoning_effort: str | None
+    answer_effort_reason: str | None
     student_context_ms: int
     embedding_ms: int
     vector_query_ms_sum: int
@@ -550,7 +553,7 @@ def _message_tokens(message: Any) -> tuple[int | None, int | None]:
 
 def _answer_reasoning_options(value: str | None) -> dict[str, Any]:
     effort = (value or '').strip().lower()
-    if not effort:
+    if not effort or effort == 'adaptive':
         return {}  # Omit the option; preserve the provider's existing default.
     if effort not in {'none', 'low', 'medium', 'high', 'xhigh', 'max'}:
         raise ValueError('LMS_CHATBOT_ANSWER_REASONING_EFFORT 값이 지원되지 않습니다.')
@@ -754,8 +757,10 @@ class LmsStudentChatbot:
         self.supervisor_llm = ChatOpenAI(
             model="gpt-6-luna", use_responses_api=True, max_retries=2,
         )
-        reasoning_options = _answer_reasoning_options(os.getenv('LMS_CHATBOT_ANSWER_REASONING_EFFORT'))
-        self.answer_reasoning_effort = reasoning_options.get('reasoning', {}).get('effort', 'default')
+        configured_reasoning = os.getenv('LMS_CHATBOT_ANSWER_REASONING_EFFORT')
+        reasoning_options = _answer_reasoning_options(configured_reasoning)
+        setting = (configured_reasoning or '').strip().lower()
+        self.answer_reasoning_effort = 'adaptive' if setting == 'adaptive' else reasoning_options.get('reasoning', {}).get('effort', 'default')
         self.node_llm = ChatOpenAI(
             model="gpt-6-luna", use_responses_api=True, max_retries=2,
             streaming=True,
@@ -779,14 +784,16 @@ class LmsStudentChatbot:
             | self.supervisor_llm.with_structured_output(SupervisorDecision)
         )
         self.supervisor_middleware = RoutingGuardrailMiddleware(SupervisorGuardrailMiddleware())
-        self.answer_chain = (
-            ChatPromptTemplate.from_messages([
+        answer_prompt = ChatPromptTemplate.from_messages([
                 ("system", ANSWER_PROMPT),
                 MessagesPlaceholder("history"),
                 ("human", "검색 문맥:\n{context}\n\n학생 질문: {question}"),
             ])
-            | self.node_llm
-        )
+        self.answer_chain = answer_prompt | self.node_llm
+        self.adaptive_answer_chains = MappingProxyType({
+            effort: answer_prompt | self.node_llm.bind(reasoning={'effort': effort})
+            for effort in ('low', 'medium')
+        }) if self.answer_reasoning_effort == 'adaptive' else MappingProxyType({})
         base_student_loader = (
             student_context_loader
             or (lambda _uid, _cohort, _scopes, _query: {"errors": {"firebase": "not_configured"}})
@@ -970,6 +977,7 @@ class LmsStudentChatbot:
             "answer_reasoning_tokens": None,
             "answer_cached_input_tokens": None,
             "answer_reasoning_effort": getattr(self, 'answer_reasoning_effort', 'default'),
+            "answer_effort_reason": None,
             "student_context_ms": 0,
             "embedding_ms": 0,
             "vector_query_ms_sum": 0,
@@ -1314,6 +1322,9 @@ class LmsStudentChatbot:
         answer_first_nonempty_callback_ms = None
         stream_events = visible_deltas = nontext_events = reasoning_events = 0
         usage_details: dict[str, int] = {}
+        setting = getattr(self, 'answer_reasoning_effort', 'default')
+        selected_effort = None if setting == 'adaptive' else setting
+        effort_reason = 'no_model_call'
         sources = [{
             "namespace": str(document.metadata.get("_namespace", "")),
             "doc_id": str(document.metadata.get("doc_id", "")),
@@ -1357,6 +1368,14 @@ class LmsStudentChatbot:
                 history=history, question=effective_question, tokenizer=get_local_tokenizer())
             context_measure_ms = _elapsed_ms(measure_started)
             prompt_build_ms = _elapsed_ms(prompt_started)
+            answer_chain = self.answer_chain
+            if setting == 'adaptive':
+                choice = choose_answer_effort(state, basis=basis.basis)
+                selected_effort, effort_reason = choice.effort, choice.reason
+                # Bound request options, never mutate shared model properties.
+                answer_chain = self.adaptive_answer_chains[choice.effort]
+            else:
+                effort_reason = 'default_setting' if setting == 'default' else 'fixed_setting'
             model_started = time.perf_counter()
             first_token_timer = _FirstAnswerTokenTimer(model_started)
             try:
@@ -1364,7 +1383,7 @@ class LmsStudentChatbot:
             except RuntimeError:
                 writer = lambda _event: None  # Direct node tests have no graph context.
             response = None
-            for chunk in self.answer_chain.stream({
+            for chunk in answer_chain.stream({
                 "history": history,
                 "context": context_text,
                 "question": effective_question,
@@ -1414,7 +1433,8 @@ class LmsStudentChatbot:
             "answer_reasoning_events": reasoning_events,
             "answer_reasoning_tokens": usage_details.get('reasoning_tokens'),
             "answer_cached_input_tokens": usage_details.get('cached_input_tokens'),
-            "answer_reasoning_effort": getattr(self, 'answer_reasoning_effort', 'default'),
+            "answer_reasoning_effort": selected_effort,
+            "answer_effort_reason": effort_reason,
             "prompt_build_ms": prompt_build_ms,
             "prompt_chars": prompt_chars,
             "context_metrics": context_metrics,
@@ -1536,6 +1556,7 @@ class LmsStudentChatbot:
                 'answer_stream_events', 'answer_visible_deltas', 'answer_nontext_events',
                 'answer_reasoning_events', 'answer_reasoning_tokens', 'answer_cached_input_tokens')},
             "answer_reasoning_effort": values.get('answer_reasoning_effort'),
+            "answer_effort_reason": values.get('answer_effort_reason'),
             "token_in": values.get("token_in"),
             "token_out": values.get("token_out"),
             "request_id_hash": request_id_hash(thread_id),
