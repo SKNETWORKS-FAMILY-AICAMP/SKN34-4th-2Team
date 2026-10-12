@@ -1146,7 +1146,7 @@ function QuestionSourceQuote({context}: {context: Json}) {
     if (last && range[0]<=last[1]) last[1]=Math.max(last[1],range[1]);else merged.push([...range]);
   }
   let offset=0;
-  const parts=merged.flatMap(([start,end],i)=>{const before=quote.slice(offset,start);offset=end;return [before,<mark key={i}>{quote.slice(start,end)}</mark>];});
+  const parts=merged.flatMap(([start,end],i)=>{const before=quote.slice(offset,start);offset=end;return [before,<mark key={i} className="rv-mark">{quote.slice(start,end)}</mark>];});
   return <>{parts}{quote.slice(offset)}</>;
 }
 

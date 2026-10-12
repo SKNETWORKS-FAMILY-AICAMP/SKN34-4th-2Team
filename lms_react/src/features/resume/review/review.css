@@ -432,10 +432,15 @@ h4.rv-section__title {
 }
 
 .rv-question-source blockquote {
-  margin: 12px 0;
+  margin: 8px 0;
   padding-left: 12px;
   border-left: 3px solid var(--border);
   line-height: 1.65;
+}
+
+/* 질문이 가리키는 원문 — 미리보기의 칠하기(.rv-mark)와 같게. 스타일이 없으면 브라우저 기본 형광 노랑 + 검은 글씨라 어두운 화면에서 튀었다 */
+.rv-question-source .rv-mark {
+  padding: 1px 2px;
 }
 
 .rv-question-source details {
