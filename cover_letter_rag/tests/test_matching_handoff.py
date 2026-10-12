@@ -434,3 +434,68 @@ def test_question_answer_proxy_writes_grounded_answer(store):
         assert client.post('/api/v1/resumes/question-answer/proxy', json={**body, 'question_id': 'nope'}).status_code == 422
         assert client.post('/api/v1/resumes/question-answer/proxy', json={**body, 'uid': 'other'}).status_code == 404
     finally: app.dependency_overrides.clear()
+
+
+def test_question_workflow_proxy_plans_all_questions_with_latest_memo(store):
+    from types import SimpleNamespace
+
+    from app.main import get_question_workflow_llm
+    from app.question_workflow.models import DraftOut, PartOut, PlanOut, QuestionPlanOut, ReviewOut, SentenceOut
+
+    seen = {}
+
+    def plan(payload):
+        seen['plan'] = payload
+        return PlanOut(questions=[QuestionPlanOut(question_id='cq1', parts=[PartOut(key='역량', quote='직무 역량')],
+                                                  lead_source_ids=[], angle='API 개발')])
+
+    def write(payload):
+        seen['memo'] = payload['memo']
+        return DraftOut(sentences=[SentenceOut(text='Python으로 REST API를 개발했습니다.', source_ids=['R1'], part_key='역량')])
+
+    llm = SimpleNamespace(plan=plan, write=write, review=lambda payload: ReviewOut())
+    app.dependency_overrides[get_context_gateway] = lambda: _TailoredGateway()
+    app.dependency_overrides[get_settings] = lambda: Settings(matching_job_store_path=store, openai_api_key='test')
+    app.dependency_overrides[get_question_workflow_llm] = lambda: llm
+    client = TestClient(app)
+    body = {'uid': 'user-1', 'cohort_id': 'cohort-1', 'resume_id': 'resume-1', 'tailored_resume_id': 'tailored_1',
+            'questions': [{'id': 'cq1', 'memo': 'REST API 직접 설계', 'notes': []}]}
+    try:
+        ok = client.post('/api/v1/resumes/question-workflow/proxy', json=body)
+        assert ok.status_code == 200, ok.text
+        data = ok.json()
+        assert data['questions'][0]['question_id'] == 'cq1' and data['questions'][0]['limit'] == 300
+        assert data['overlaps'] == []
+        assert data['requirements'] == [{'id': 'req-1', 'group': 'must', 'label': 'Python API 개발'}]
+        assert 'cq1: 직무 역량을 쓰시오.' in seen['plan']['questions']
+        assert 'REST API 직접 설계' in seen['memo']  # 화면의 최신 메모를 쓴다
+        assert client.post('/api/v1/resumes/question-workflow/proxy', json={**body, 'uid': 'other'}).status_code == 404
+    finally: app.dependency_overrides.clear()
+
+
+def test_question_workflow_proxy_rewrites_one_question_with_saved_plan(store):
+    from types import SimpleNamespace
+
+    from app.main import get_question_workflow_llm
+    from app.question_workflow.models import DraftOut, ReviewOut, SentenceOut
+
+    def plan(payload):
+        raise AssertionError('저장된 계획이 있으면 계획을 다시 세우지 않는다')
+
+    llm = SimpleNamespace(plan=plan, review=lambda payload: ReviewOut(),
+                          write=lambda payload: DraftOut(sentences=[
+                              SentenceOut(text='Python으로 REST API를 개발했습니다.', source_ids=['R1'], part_key='역량')]))
+    app.dependency_overrides[get_context_gateway] = lambda: _TailoredGateway()
+    app.dependency_overrides[get_settings] = lambda: Settings(matching_job_store_path=store, openai_api_key='test')
+    app.dependency_overrides[get_question_workflow_llm] = lambda: llm
+    client = TestClient(app)
+    saved = {'cq1': {'question_id': 'cq1', 'parts': [{'key': '역량', 'quote': '직무 역량'}], 'lead_source_ids': ['R1'],
+                     'angle': 'API 개발'}}
+    body = {'uid': 'user-1', 'cohort_id': 'cohort-1', 'resume_id': 'resume-1', 'tailored_resume_id': 'tailored_1',
+            'questions': [{'id': 'cq1', 'memo': '', 'notes': []}], 'only': 'cq1', 'plan': saved}
+    try:
+        ok = client.post('/api/v1/resumes/question-workflow/proxy', json=body)
+        assert ok.status_code == 200, ok.text
+        assert ok.json()['only'] == 'cq1' and ok.json()['coverage'] is None
+        assert client.post('/api/v1/resumes/question-workflow/proxy', json={**body, 'only': 'nope'}).status_code == 422
+    finally: app.dependency_overrides.clear()

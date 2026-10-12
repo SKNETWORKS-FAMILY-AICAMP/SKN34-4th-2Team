@@ -150,8 +150,15 @@ def test_sub_questions_carry_their_parent_and_shared_limit():
                              group='지어낸 상위 문항'),
     ]))
     assert result['questions'] == [
-        {'question': '목표 달성 과정에서 마주한 문제를 해결한 경험 › 당시 달성해야 하는 목표는 무엇이었으며, '
-                     '목표를 달성해야 하는 이유를 작성해 주시기 바랍니다.', 'limit': 400},
+        {'question': '당시 달성해야 하는 목표는 무엇이었으며, 목표를 달성해야 하는 이유를 작성해 주시기 바랍니다.', 'limit': 400,
+         'group': '목표 달성 과정에서 마주한 문제를 해결한 경험'},
         # 원문에 없는 상위 문항은 붙이지 않는다
         {'question': '목표 달성 과정에서 발생한 문제와 그 원인을 작성해 주시기 바랍니다.', 'limit': 400},
     ]
+
+
+def test_same_sentence_copied_twice_is_kept_once():
+    q = '당사에 지원한 이유와 입사를 위해 어떤 노력을 하였는지 구체적으로 기술하시오.'
+    result = ground_questions(QuestionExtractOut(transcript=f'{q}\n{q}\n0/1000',
+                                                 questions=[ExtractedQuestionOut(question=f'{q} {q}', limit=1000)]))
+    assert result['questions'] == [{'question': q, 'limit': 1000}]

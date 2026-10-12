@@ -69,6 +69,23 @@ class RecruitRoles(models.Model):
         ]
 
 
+class RecruitRoleReports(models.Model):
+    """공유 자소서 문항의 「이상해요」 — 한 학생이 한 정리에 한 번. 2명이면 숨긴다(shared_questions.py)."""
+    id = models.BigAutoField(primary_key=True)
+    role = models.ForeignKey(RecruitRoles, models.CASCADE, related_name='reports')
+    user = models.ForeignKey('Users', models.CASCADE, related_name='recruit_role_reports')
+    reason = models.CharField(max_length=40)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'recruit_role_reports'
+        constraints = [
+            models.UniqueConstraint(fields=['role', 'user'], name='uq_recruit_role_report_once'),
+            models.CheckConstraint(condition=models.Q(reason__in=['other_company', 'wrong', 'past_season']),
+                                   name='ck_recruit_role_report_reason'),
+        ]
+
+
 class ApplicationQuestions(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     application = models.ForeignKey('Applications', models.CASCADE, related_name='questions')

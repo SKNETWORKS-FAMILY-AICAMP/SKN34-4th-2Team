@@ -223,21 +223,21 @@ h4.rv-section__title {
   background: var(--rv-soft);
 }
 
+/* 제목 아래 줄에 정보(역할 · 기술 · 기간)를 왼쪽 정렬로 — 이력서 출력(ResumePrintDoc)과 같은 모양.
+   한 줄에 나란히 두면 긴 기술 목록이 제목을 한 글자 폭까지 누르고, 오른쪽 정렬로 넘기면 들여쓴 것처럼 보였다 */
 .rv-item__head {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .rv-item__head strong {
-  flex: 1;
   font-size: 12px;
 }
 
 .rv-item__head span {
   color: var(--text-secondary);
   font-size: 10.5px;
-  text-align: right;
 }
 
 .rv-item p {
@@ -271,6 +271,12 @@ h4.rv-section__title {
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 6px;
+}
+
+.rv-star__note {
+  align-self: center;
+  color: var(--text-secondary);
+  font-size: 10px;
 }
 
 .rv-star__cell {
@@ -426,10 +432,15 @@ h4.rv-section__title {
 }
 
 .rv-question-source blockquote {
-  margin: 12px 0;
+  margin: 8px 0;
   padding-left: 12px;
   border-left: 3px solid var(--border);
   line-height: 1.65;
+}
+
+/* 질문이 가리키는 원문 — 미리보기의 칠하기(.rv-mark)와 같게. 스타일이 없으면 브라우저 기본 형광 노랑 + 검은 글씨라 어두운 화면에서 튀었다 */
+.rv-question-source .rv-mark {
+  padding: 1px 2px;
 }
 
 .rv-question-source details {
@@ -1270,4 +1281,32 @@ h4.rv-section__title {
   color: var(--primary);
   font-size: 13px;
   overflow-wrap: anywhere;
+}
+
+/* 지금 묻거나 고치는 원문 문장(reviewSession quotesOf) */
+.rv-mark {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--warning) 32%, transparent);
+  color: inherit;
+}
+
+/* 핵심 역량 — 카드 한 장 안에 역량 이름 · 설명을 차례로 */
+.rv-competencies {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rv-competency strong {
+  font-size: 12px;
+}
+
+.rv-competency p {
+  margin-top: 2px;
+}
+
+/* 자기소개서 문항 카드 — 카드끼리는 카드 간격(.rv-item margin-top)만 */
+.rv-section--card {
+  margin-bottom: 0;
 }

@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react';
 
@@ -14,8 +15,9 @@ import { DemoAccounts } from '../../data/seed';
 import { fetchBootstrap, mapUser } from '../../data/bootstrap';
 import { http, readApiError, refreshAccess } from '../../data/http';
 import { queryClient, queryKeys } from '../../data/queryClient';
+import { subscribeBootstrap } from '../../data/bootstrapStore';
 import { useSessionStore } from '../../data/sessionStore';
-import { getDb } from '../../data/store';
+import { getDb, subscribe, type Database } from '../../data/store';
 import type { User, UserRole } from '../../domain/types';
 
 const STORAGE_KEY = 'lms_react_session_uid';
@@ -220,15 +222,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const selectedCohortId = useSelectedCohortFor(uid ?? undefined);
   const cohorts = useCohorts();
 
+  // 마이페이지에서 고친 값(updateUser)은 화면 데이터에 바로 들어간다 — 로그인 때 받은 liveUser 에 머물지 않게 이쪽을 먼저 본다
+  const storedUser = useSyncExternalStore(isTestMode() ? subscribe : subscribeBootstrap, () => {
+    if (uid === null) return undefined;
+    const db = isTestMode() ? getDb() : queryClient.getQueryData<Database>(queryKeys.bootstrap);
+    return db?.users.find((u) => u.uid === uid);
+  });
+
   const user = useMemo(() => {
     if (uid === null) return null;
-    const found = isTestMode() ? (getDb().users.find((u) => u.uid === uid) ?? null) : liveUser;
+    const found = storedUser ?? (isTestMode() ? null : liveUser);
     if (found === null) return null;
     const signedIn = { ...found, mustChangePassword: mustChange };
     // 관리자는 상단에서 고른 기수로 본다(Flutter effectiveCohortIdProvider)
     const selected = signedIn.role === 'admin' ? cohorts.find((c) => c.cohortId === selectedCohortId) : undefined;
     return selected === undefined ? signedIn : { ...signedIn, cohortId: selected.cohortId, cohortName: selected.name };
-  }, [uid, mustChange, liveUser, cohorts, selectedCohortId]);
+  }, [uid, mustChange, storedUser, liveUser, cohorts, selectedCohortId]);
 
   const value = useMemo<Session>(
     () => ({ user, loading, signIn, signOut, changePassword, skipPasswordChange, switchRole }),
