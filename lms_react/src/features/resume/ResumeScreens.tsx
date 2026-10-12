@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 
 import { jobApplyPath, resumeEditPath } from '../../app/routePaths';
 import { createResume, deleteResume, setBaseResume, useMyResumes } from '../../data/repository';
-import { ResumeSectionKeys, ResumeSectionLabels, ResumeStatusLabels } from '../../domain/constants';
+import { ResumeSectionKeys, ResumeSectionLabels, ResumeStatusLabels, computeSections } from '../../domain/constants';
 import type { Resume, ResumeContent } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { MoreMenu } from '../../ui/MoreMenu';
@@ -42,8 +42,43 @@ const emptyContent: ResumeContent = {
   },
 };
 
+/**
+ * 채운 섹션 — 저장된 표시(section_status)가 아니라 이력서 내용에서 센다. 편집 화면(ResumeEditScreen)과 같은 기준.
+ * 첨삭 반영 · 공고 맞춤 사본처럼 내용만 바꾸는 저장은 표시를 갱신하지 않아 내용이 있어도 0으로 보였다
+ */
+function filledSections(resume: Resume): Record<string, boolean> {
+  // 칸이 빠진 내용(옛 저장본 · 일부만 받은 목록)도 셀 수 있게 빈 칸을 채운다
+  const c = (resume.content ?? {}) as Partial<ResumeContent>;
+  const list = <K extends keyof ResumeContent>(key: K) => (Array.isArray(c[key]) ? c[key] : emptyContent[key]) as ResumeContent[K];
+  const intro = Object.fromEntries(
+    Object.entries(emptyContent.selfIntroduction).map(([k, blank]) => [
+      k,
+      { ...blank, ...((c.selfIntroduction as Record<string, unknown> | undefined)?.[k] ?? {}) },
+    ]),
+  ) as ResumeContent['selfIntroduction'];
+  try {
+    return computeSections({
+      ...emptyContent,
+      basicInfo: { ...emptyContent.basicInfo, ...(c.basicInfo ?? {}) },
+      coreCompetencies: { ...emptyContent.coreCompetencies, ...(c.coreCompetencies ?? {}) },
+      experience: list('experience'),
+      education: list('education'),
+      techStack: list('techStack'),
+      certifications: list('certifications'),
+      awards: list('awards'),
+      trainingExperience: list('trainingExperience'),
+      otherActivities: list('otherActivities'),
+      projects: list('projects'),
+      selfIntroduction: intro,
+    });
+  } catch {
+    return resume.sections ?? {}; // 내용 모양이 아주 다르면 저장된 표시라도
+  }
+}
+
 function filledCount(resume: Resume): number {
-  return SECTIONS.filter((s) => resume.sections[s.key] === true).length;
+  const done = filledSections(resume);
+  return SECTIONS.filter((s) => done[s.key] === true).length;
 }
 
 /** 이력서 관리 — 기본 이력서 카드 + 다른 이력서 표 */
@@ -242,8 +277,9 @@ function BaseResumePicker({
 }
 
 function BaseResumeCard({ resume, tailored, onChangeBase }: { resume: Resume; tailored: Resume[]; onChangeBase(): void }) {
+  const done = filledSections(resume);
   const filled = filledCount(resume);
-  const missing = SECTIONS.filter((s) => resume.sections[s.key] !== true);
+  const missing = SECTIONS.filter((s) => done[s.key] !== true);
 
   return (
     <section className="panel base-resume">
@@ -275,7 +311,7 @@ function BaseResumeCard({ resume, tailored, onChangeBase }: { resume: Resume; ta
       <div className="base-resume__progress">
         <span className="seg-bar">
           {SECTIONS.map((s) => (
-            <i key={s.key} className={resume.sections[s.key] === true ? 'seg-bar__on' : undefined} />
+            <i key={s.key} className={done[s.key] === true ? 'seg-bar__on' : undefined} />
           ))}
         </span>
         <strong>{filled}</strong>
