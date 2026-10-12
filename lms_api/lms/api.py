@@ -302,6 +302,7 @@ def remove_push_token(request, body: PushTokenIn):
 
 
 class ChatIn(Schema):
+    threadId: str = Field(default='web', min_length=1, max_length=80, pattern=r'^[A-Za-z0-9._-]{1,80}$')
     message: str = ""
     question: str = ""
 
@@ -323,7 +324,7 @@ def chat(request, body: ChatIn):
     if not internal_token:
         return Response({"detail": "AI 서비스 내부 인증이 설정되지 않았습니다"}, status=503)
     payload = json.dumps(
-        {"message": message, "uid": user["firebase_uid"], "thread_id": "web"},
+        {"message": message, "uid": user["firebase_uid"], "thread_id": body.threadId},
         ensure_ascii=False,
     ).encode("utf-8")
     req = urllib.request.Request(
@@ -372,7 +373,7 @@ def chat_stream(request, body: ChatIn):
     req = urllib.request.Request(
         f"{base}/api/v1/student-chatbot/chat/stream",
         data=json.dumps({
-            "message": message, "uid": user["firebase_uid"], "thread_id": "web",
+            "message": message, "uid": user["firebase_uid"], "thread_id": body.threadId,
         }, ensure_ascii=False).encode("utf-8"),
         headers={
             "Content-Type": "application/json", "Accept": "application/x-ndjson",

@@ -14,7 +14,7 @@ from typing import Any, Callable, Iterator, Literal
 
 from langchain_core.documents import Document
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import AIMessage, AIMessageChunk, RemoveMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, RemoveMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.vectorstores import VectorStore
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -25,6 +25,10 @@ from pinecone import Pinecone
 from pydantic import BaseModel, Field
 
 from chatbot.attendance import enrich_student_context
+from chatbot.attendance_basis import (
+    BasisDecision, CLARIFICATION, persist_decision, prepare_short_basis,
+    resolve_attendance_basis, resolve_request_basis, scoped_question,
+)
 from chatbot.context_builder import (
     build_answer_context, get_local_tokenizer, measure_answer_context, safe_context_metrics,
 )
@@ -233,13 +237,20 @@ ANSWER_PROMPT = """
 - 일정에서 PDF에 없는 프로젝트 주제를 추측하지 말고 실제 project_reference 제출물 근거가 있을 때만 답한다.
 
 [진행 중 출석]
+- 개인 출석 계산은 질문의 '사용자가 확인한 개인 출석 계산 기준'을 따른다.
+  단위기간 장려금이면 current_unit_period/periods의 해당 기간만, 전체 훈련기간 수료이면
+  completion_progress만 사용하고, 두 기준 비교이면 각각 분리한다. 숫자 80%나 과거 AI의
+  답변만으로 기준을 선택하지 않는다. 개인 계산 질문에 기준이 확인되지 않았다면 먼저 물어본다.
+  일반 정책 설명·일정·출결 원시 기록 조회에는 개인 계산 기준 확인을 강제하지 않는다.
 - policy_calculation의 criteria는 로그인 기수의 현재 활성 정책 파일에서 추출한 기준이다.
   allowance는 단위기간 장려금, completion은 전체 훈련기간 수료 기준이며 서로 바꾸어 쓰지 않는다.
   수료 예상 질문은 completion_progress가 제공하는 전체 훈련기간 계산값만 사용한다.
   completion_progress는 현재 정책을 전체 기록에 적용한 예상 비교이며 과거 정책 이력 검증이나 수료 확정이 아니다.
   개인 student_attendance.unit_period_context 또는 student_private.unit_period_context의
   calculation_unavailable_reason이 있거나 calculation_rules가 없으면
-  장려금 기준 개인 계산을 하지 않는다. 별도로 제공된 completion_progress의 수료 예상값은 사용할 수 있다.
+  장려금 기준 개인 계산을 하지 않는다. completion_progress의 수료 예상값은 사용자가
+  전체 과정 수료 기준을 선택하거나 두 기준 비교를 요청한 경우에만 사용할 수 있다.
+  선택한 기준의 자료가 없으면 다른 기준의 수치로 대신하지 않는다.
   공용 일정 컨텍스트에 계산 기준이 없는 것은 정상이며 개인 컨텍스트의 유효한 계산을 막지 않는다.
   개인 계산값이 없으면 숫자 기준을 RAG 또는 과거 대화에서 대신 가져와 계산하지 않고 원본 기록만 안내한다.
 - "이번 단위기간 출석 어때?" 같은 단순 현황 질문은 짧은 3문단과 마지막 주의 문장으로 답한다.
@@ -320,6 +331,10 @@ class ChatState(MessagesState):
     student_uid: str
     cohort: str
     unit_period_context: dict[str, Any]
+    chat_thread_id: str
+    attendance_basis: str | None
+    attendance_effective_question: str
+    attendance_other_question: str
     defer_shared_context: bool
     shared_context_ms: int
     supervisor_prepare_wall_ms: int
@@ -807,11 +822,17 @@ class LmsStudentChatbot:
         loader = getattr(self, 'shared_context_loader', None)
         deferred = state.get('defer_shared_context') is True
         parallel = deferred and loader is not None
+        basis_identity = {'uid': state.get('student_uid'), 'cohort': state.get('cohort'),
+                          'thread_id': state.get('chat_thread_id')}
+        short_basis = prepare_short_basis(state['question'], basis_identity)
+        supervisor_messages = list(_chat_history(state['messages']))
+        if short_basis.basis in {'unit', 'completion', 'both'} and short_basis.question != state['question']:
+            supervisor_messages[-1] = HumanMessage(content=f"{state['question']}\n{short_basis.question}")
 
         def invoke_supervisor():
             model_start = time.perf_counter()
             decision = self.supervisor_middleware.invoke(
-                {"messages": _chat_history(state["messages"])}, self.supervisor_chain,
+                {"messages": supervisor_messages}, self.supervisor_chain,
             )
             return decision, model_start, time.perf_counter()
 
@@ -854,6 +875,48 @@ class LmsStudentChatbot:
             decision, model_start, model_end = invoke_supervisor()
         supervisor_ms = max(0, round((model_end - model_start) * 1000))
         prepare_wall_ms = _elapsed_ms(started)
+        basis = BasisDecision(None, state['question'])
+        other_question = ''
+        if decision.route == 'lms':
+            # Authorization is enforced by the API before this node. Do not
+            # read/write selection state on blocked/greeting model decisions.
+            if short_basis.basis in {'unit', 'completion', 'both'} and short_basis.question != state['question']:
+                basis = short_basis
+                persist_decision(basis_identity, basis)
+            else:
+                basis = resolve_request_basis(state['question'], basis_identity)
+            if basis.basis in {'unit', 'completion', 'both'} and basis.question != state['question']:
+                decision = reconcile_decision(basis.question, decision)
+                decision = decision.model_copy(update={'query': basis.question})
+            if basis.basis in {'unit', 'completion', 'both'}:
+                # Confirmed personal calculation needs authenticated records,
+                # including implicit simulations such as "다음 수업에 지각하면".
+                decision = decision.model_copy(update={'student_scopes': list(dict.fromkeys(
+                    [*decision.student_scopes, 'student_attendance']))})
+            if basis.needs_clarification:
+                compound = bool(re.search(r'그리고|[,;]|\s및\s|랑', state['question']))
+                remaining = [task for task in decision.tasks
+                             if compound and 'student_attendance' not in task.student_scopes
+                             and not resolve_attendance_basis(task.query).needs_clarification
+                             and resolve_attendance_basis(task.query).basis is None]
+                # Recover clearly separate, routed tasks when the model leaves
+                # a compound request unsplit. No applicant/attendance inference.
+                if not remaining:
+                    for part in re.split(r'그리고|[,;]', state['question']):
+                        part = part.strip()
+                        if not part or resolve_attendance_basis(part).basis is not None:
+                            continue
+                        signals = detect_routing_signals(part)
+                        if signals.lms and (signals.namespaces or signals.student_scopes):
+                            remaining.append(SupervisorTask(query=part,
+                                namespaces=list(signals.namespaces), student_scopes=list(signals.student_scopes),
+                                reason='출석 기준 확인과 별개인 사용자 요청'))
+                if remaining:
+                    other_question = '\n'.join(task.query for task in remaining)
+                    decision = decision.model_copy(update={
+                        'query': other_question, 'tasks': remaining,
+                        'namespaces': list(dict.fromkeys(ns for task in remaining for ns in task.namespaces)),
+                        'student_scopes': list(dict.fromkeys(scope for task in remaining for scope in task.student_scopes))})
         namespaces = list(dict.fromkeys(decision.namespaces))
         student_scopes = list(dict.fromkeys(decision.student_scopes))
         query = decision.query.strip() or state["question"]
@@ -882,6 +945,9 @@ class LmsStudentChatbot:
             "student_context": {},
             "documents": [],
             "unit_period_context": shared_context,
+            "attendance_basis": basis.basis,
+            "attendance_effective_question": scoped_question(basis),
+            "attendance_other_question": other_question,
             "defer_shared_context": False,
             "shared_context_ms": shared_context_ms,
             # Node-entry to join; eager API preparation is measured separately.
@@ -929,6 +995,9 @@ class LmsStudentChatbot:
             answer = COHORT_ANSWER
         else:
             answer = ""
+        if not answer and basis.needs_clarification and not other_question:
+            answer = CLARIFICATION
+            update.update(namespaces=[], student_scopes=[], tasks=[])
         if answer:
             update.update(
                 answer=answer,
@@ -1258,7 +1327,18 @@ class LmsStudentChatbot:
         } for document in documents]
         unit_period_context = state.get("unit_period_context", {})
         student_context = state.get("student_context", {})
-        if not documents and not unit_period_context and not student_context:
+        basis = BasisDecision(state.get('attendance_basis'), state['question'],
+                              state.get('attendance_basis') == 'clarify')
+        if basis.basis is None:
+            basis = resolve_attendance_basis(state['question'])  # Direct node invocation compatibility.
+        effective_question = state.get('attendance_effective_question') or scoped_question(basis)
+        other_question = state.get('attendance_other_question') or ''
+        if other_question:
+            effective_question = other_question
+        if basis.needs_clarification and not other_question:
+            answer = CLARIFICATION
+            token_in = token_out = None
+        elif not documents and not unit_period_context and not student_context:
             answer = "관련 학생 데이터, 정책, 공지 또는 프로젝트 레퍼런스를 찾지 못했습니다. LMS 담당자에게 확인해 주세요."
             token_in = token_out = None
         else:
@@ -1268,13 +1348,13 @@ class LmsStudentChatbot:
                 student_context=student_context, documents=documents, mode=context_mode,
                 cohort=str(state.get('cohort') or ''))
             context_text = context_build.text
-            prompt_chars = len(ANSWER_PROMPT) + len(context_text) + len(state["question"]) + sum(
+            prompt_chars = len(ANSWER_PROMPT) + len(context_text) + len(effective_question) + sum(
                 len(str(message.content)) for message in history
             )
             # Character count is a size proxy; token_in below comes from the model response.
             measure_started = time.perf_counter()
             context_metrics = measure_answer_context(context_build, system=ANSWER_PROMPT,
-                history=history, question=state['question'], tokenizer=get_local_tokenizer())
+                history=history, question=effective_question, tokenizer=get_local_tokenizer())
             context_measure_ms = _elapsed_ms(measure_started)
             prompt_build_ms = _elapsed_ms(prompt_started)
             model_started = time.perf_counter()
@@ -1287,7 +1367,7 @@ class LmsStudentChatbot:
             for chunk in self.answer_chain.stream({
                 "history": history,
                 "context": context_text,
-                "question": state["question"],
+                "question": effective_question,
             }, config={"callbacks": [first_token_timer]}):
                 if answer_first_model_event_ms is None:
                     # First LangChain-delivered chunk, not raw HTTP first byte.
@@ -1311,6 +1391,11 @@ class LmsStudentChatbot:
             answer = (response.text.strip() if response is not None else '') or "답변을 생성하지 못했습니다. LMS 담당자에게 확인해 주세요."
             token_in, token_out = _message_tokens(response)
             usage_details = _message_usage_details(response)
+        if basis.needs_clarification and other_question:
+            suffix = '\n\n' + CLARIFICATION
+            answer += suffix
+            if visible_deltas:
+                writer({'type': 'answer_delta', 'text': suffix})
         update: dict[str, Any] = {
             "answer": answer,
             "sources": sources,
@@ -1370,6 +1455,9 @@ class LmsStudentChatbot:
 
         graph_input: dict[str, Any] = {
             "question": question, "messages": [("user", question)],
+            "chat_thread_id": thread_id,
+            "attendance_basis": None, "attendance_effective_question": '',
+            "attendance_other_question": '',
             "cohort": cohort, "student_uid": student_uid,
             # Explicitly clear omitted/empty inputs instead of reusing a prior
             # request's shared context/session from the checkpoint.
