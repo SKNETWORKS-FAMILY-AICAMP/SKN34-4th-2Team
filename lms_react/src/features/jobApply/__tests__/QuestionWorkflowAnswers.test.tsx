@@ -70,9 +70,22 @@ const response = {
   },
 };
 
+/** 문항 전체 쓰기는 계획 → 문항마다 → 한 벌 점검 세 번에 부른다. 한 벌 점검은 1번을 겹침 때문에 줄여 다시 쓴다 */
+const TRIMMED = '데이터로 문제를 해결하고 싶어 지원했고, 그 이유를 짧게 적었습니다.';
+type Options = { only?: string; stage?: string };
+function staged(options: Options) {
+  if (options.stage === 'plan') return { plan, questions: [], overlaps: [], coverage: null };
+  if (options.stage === 'finish') {
+    return { ...response, questions: [{ ...response.questions[0], draft: TRIMMED,
+      sentences: [{ ...response.questions[0].sentences[0], text: TRIMMED }] }, response.questions[1]] };
+  }
+  return { plan, overlaps: [], coverage: null, questions: response.questions
+    .filter((q) => q.question_id === options.only).map((q) => ({ ...q, trimmed_overlap: undefined })) };
+}
+
 describe('문항 전체 답변', () => {
-  it('문항 전체를 한 번에 쓰고, 빈 칸에만 초안을 넣고, 겹쳐 줄인 이야기를 알린다', async () => {
-    api.questionWorkflow.mockResolvedValue(response);
+  it('계획 → 문항마다 → 한 벌 점검으로 나눠 부르고, 빈 칸에만 초안을 넣고, 겹쳐 줄인 이야기를 알린다', async () => {
+    api.questionWorkflow.mockImplementation((...args: unknown[]) => Promise.resolve(staged(args[3] as Options)));
     act(() => root.render(<QuestionWorkflowAnswers resumeId="r1" tailoredId="apply_1" editId="r1/tailored/apply_1" />));
     await act(async () => button('문항 전체 한 번에 쓰기').click());
     await flush();
@@ -80,8 +93,12 @@ describe('문항 전체 답변', () => {
     expect(api.questionWorkflow).toHaveBeenCalledWith('r1', 'apply_1', [
       { id: 'cq1', memo: '데이터로 문제 해결', notes: [], written: '' },
       { id: 'cq2', memo: '', notes: [], written: '직접 쓴 답' },
-    ], {});
-    expect(answerBox(1).value).toBe('데이터로 문제를 해결하고 싶어 지원했습니다.');
+    ], { stage: 'plan' });
+    const options = api.questionWorkflow.mock.calls.map((c) => c[3] as Options & { answers?: Record<string, { draft: string }> });
+    expect(options.slice(0, 3)).toEqual([{ stage: 'plan' }, { only: 'cq1', plan }, { only: 'cq2', plan }]);
+    expect(options[3].stage).toBe('finish');
+    expect(options[3].answers?.cq1.draft).toBe('데이터로 문제를 해결하고 싶어 지원했습니다.');  // 문항마다 받은 답을 돌려보낸다
+    expect(answerBox(1).value).toBe(TRIMMED);  // 손대지 않은 답 칸은 한 벌 점검이 줄여 쓴 답으로
     expect(answerBox(2).value).toBe('직접 쓴 답'); // 쓴 글은 덮지 않는다
     expect(button('이 초안으로 바꾸기')).toBeTruthy();
     expect(host.textContent).toContain('「추천 품질 개선」 이야기는 2번에 자세히 썼어요. 1번에서는 줄였어요.');
@@ -92,20 +109,21 @@ describe('문항 전체 답변', () => {
   });
 
   it('질문에 답하면 그 문항만 저장한 계획으로 다시 쓰고, 다른 카드는 두고, 예전 기록은 그대로 둔 채 이어 저장한다', async () => {
-    api.questionWorkflow.mockResolvedValueOnce(response).mockResolvedValueOnce({
-      plan, overlaps: [], coverage: null,
+    const redo = { plan, overlaps: [], coverage: null,
       questions: [{ ...response.questions[0], draft: '고른 이유까지 담은 새 초안입니다.', questions: [],
-        sentences: [{ text: '고른 이유까지 담은 새 초안입니다.', sources: [], requirements: [] }] }],
-    });
+        sentences: [{ text: '고른 이유까지 담은 새 초안입니다.', sources: [], requirements: [] }] }] };
+    let full = true;
+    api.questionWorkflow.mockImplementation((...args: unknown[]) => Promise.resolve(full ? staged(args[3] as Options) : redo));
     act(() => root.render(<QuestionWorkflowAnswers resumeId="r1" tailoredId="apply_1" editId="r1/tailored/apply_1" />));
     await act(async () => button('문항 전체 한 번에 쓰기').click());
     await flush();
     const gap = [...host.querySelectorAll('.qa-gap textarea')][0] as HTMLTextAreaElement;
     type(gap, 'AI 서비스 품질을 중시하는 팀이라서');
+    full = false;
     await act(async () => button('답하고 이 문항 다시 쓰기').click());
     await flush();
 
-    const [, , questions, options] = api.questionWorkflow.mock.calls[1];
+    const [, , questions, options] = api.questionWorkflow.mock.calls.at(-1)!;
     expect(options).toEqual({ only: 'cq1', plan });
     expect(host.textContent).toContain('고른 이유까지 담은 새 초안입니다.');
     expect(host.textContent).toContain('추천 품질을 개선했습니다.'); // 2번 카드 결과는 그대로

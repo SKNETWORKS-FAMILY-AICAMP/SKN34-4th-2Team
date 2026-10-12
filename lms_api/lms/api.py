@@ -1133,6 +1133,9 @@ class QuestionWorkflowIn(Schema):
     questions: list[QuestionWorkflowItemIn] = []
     only: str | None = Field(default=None, max_length=100)  # 이 문항만 다시 쓰기
     plan: dict | None = None  # 앞서 받은 계획 — 있으면 계획을 다시 세우지 않는다
+    # 문항 전체를 여러 요청에 나눈다 — plan: 계획만, finish: 문항별로 받은 답(answers)으로 한 벌 검토만
+    stage: Literal["all", "plan", "finish"] = "all"
+    answers: dict | None = None
 
 
 @api.post("/resume-review/question-workflow")
@@ -1154,6 +1157,8 @@ def resume_review_question_workflow(request, body: QuestionWorkflowIn):
                       for q in body.questions[:20]],
         "only": body.only,
         "plan": body.plan,
+        "stage": body.stage,
+        "answers": body.answers,
     }
     return _review_call("/api/v1/resumes/question-workflow/proxy", payload, timeout=300)
 

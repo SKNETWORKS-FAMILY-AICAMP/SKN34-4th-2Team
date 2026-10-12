@@ -31,6 +31,8 @@ interface Result {
   unchanged: string[];
   removed: number;
   sentences: { text: string; sources: Ref[]; requirements: { id: string; label: string }[] }[];
+  /** 서버가 준 문장 그대로(근거 · 요건 id 포함) — 문항 전체 쓰기의 마지막 한 벌 점검에 돌려보낸다 */
+  raw: Json[];
 }
 
 const BASIS: Record<Ref['kind'], { label: string; tone: 'resume' | 'answer' | 'posting' }> = {
@@ -56,12 +58,13 @@ function toResult(r: Json): Result {
     sentences: list<Json>(r.sentences).map((s) => ({
       text: String(s.text ?? ''), sources: list<Ref>(s.sources), requirements: list<{ id: string; label: string }>(s.requirements),
     })),
+    raw: list<Json>(r.sentences),
   };
 }
 
 /**
- * 쓰는 동안 보여 줄 단계와 보통 끝나는 시점(초). 서버는 한 번에 결과를 돌려줘서 실제 단계를 받지 못한다 —
- * 2026-10-12 시간 재기(문항 하나 60~85초, 전체 150~170초)로 어림한 순서다. 멈춘 것처럼 보이지 않게 하는 게 목적.
+ * 한 문항을 쓰는 동안 보여 줄 단계와 보통 끝나는 시점(초). 서버는 한 번에 결과를 돌려줘서 그 안의 단계는 받지 못한다 —
+ * 2026-10-12 시간 재기(문항 하나 60~85초)로 어림한 순서다. 멈춘 것처럼 보이지 않게 하는 게 목적.
  */
 const STEPS_ONE = [
   { label: '쓰는 중', until: 20 },
@@ -69,23 +72,22 @@ const STEPS_ONE = [
   { label: '필요하면 다시 쓰고 검토', until: 60 },
   { label: '읽기 좋게 다듬는 중', until: 80 },
 ];
-const STEPS_ALL = [
-  { label: '문항 전체 뼈대 세우는 중', until: 30 },
-  { label: '문항마다 쓰고 검토', until: 100 },
-  { label: '다듬고 문항끼리 겹침 점검', until: 150 },
-  { label: '공고 요건 확인', until: 170 },
-];
 const PLAN_STEP = { label: '문항 뼈대 세우는 중', until: 30 };
 
-function WorkingSteps({ all, planned }: { all: boolean; planned: boolean }) {
+/** 지난 초 — 쓰는 동안 1초마다 */
+function useSeconds() {
   const [seconds, setSeconds] = useState(0);
   useEffect(() => {
     const started = Date.now();
     const timer = window.setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
     return () => window.clearInterval(timer);
   }, []);
-  const steps = all ? STEPS_ALL
-    : planned ? STEPS_ONE : [PLAN_STEP, ...STEPS_ONE.map((st) => ({ ...st, until: st.until + PLAN_STEP.until }))];
+  return seconds;
+}
+
+function WorkingSteps({ planned }: { planned: boolean }) {
+  const seconds = useSeconds();
+  const steps = planned ? STEPS_ONE : [PLAN_STEP, ...STEPS_ONE.map((st) => ({ ...st, until: st.until + PLAN_STEP.until }))];
   const total = steps[steps.length - 1].until;
   const now = Math.max(0, steps.findIndex((st) => seconds < st.until));
   const current = seconds >= total ? steps.length - 1 : now;
@@ -102,6 +104,32 @@ function WorkingSteps({ all, planned }: { all: boolean; planned: boolean }) {
       <span className="hint">
         {seconds}초 지남 · {seconds < total ? `보통 ${Math.round(total / 10) * 10}초쯤 걸려요` : '조금 더 걸리고 있어요. 창을 닫지 말고 기다려 주세요'}
       </span>
+    </div>
+  );
+}
+
+const SET_STEPS: { at: 'plan' | 'write' | 'finish'; label: string }[] = [
+  { at: 'plan', label: '문항 전체 뼈대 세우는 중' },
+  { at: 'write', label: '문항마다 쓰고 검토' },
+  { at: 'finish', label: '문항끼리 겹침 · 공고 필수 요건 점검' },
+];
+
+/** 문항 전체를 쓰는 동안 — 화면이 단계마다 따로 부르므로 지금 단계와 다 쓴 문항 수를 그대로 보여 준다 */
+function SetSteps({ step }: { step: { at: 'plan' | 'write' | 'finish'; done: number; total: number } }) {
+  const seconds = useSeconds();
+  const current = SET_STEPS.findIndex((st) => st.at === step.at);
+  return (
+    <div className="qw-steps" role="status" aria-live="polite">
+      <ol>
+        {SET_STEPS.map((st, k) => (
+          <li key={st.at} className={k < current ? 'is-done' : k === current ? 'is-now' : ''}>
+            <Icon name={k < current ? 'check_circle' : k === current ? 'progress_activity' : 'radio_button_unchecked'} size={15} />
+            {st.label}
+            {st.at === 'write' && step.total > 0 && ` ${step.done}/${step.total}`}
+          </li>
+        ))}
+      </ol>
+      <span className="hint">{seconds}초 지남 · 보통 2~3분 걸려요. 다 쓴 문항부터 아래에 보여요.</span>
     </div>
   );
 }
@@ -141,6 +169,8 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
   const [gapAnswers, setGapAnswers] = useState<Record<string, Record<string, string>>>({});
   /** 'all' = 문항 전체를 쓰는 중, 문항 id = 그 문항만 다시 쓰는 중 */
   const [busy, setBusy] = useState<string | null>(null);
+  /** 문항 전체를 쓰는 동안 지금 단계 — 계획 → 문항 쓰기(다 쓴 수/전체) → 한 벌 점검 */
+  const [setStep, setSetStep] = useState<{ at: 'plan' | 'write' | 'finish'; done: number; total: number } | null>(null);
   /** 전체를 쓸 때 받은 계획 — 한 문항만 다시 쓸 때 보내면 계획을 다시 세우지 않는다 */
   const [plan, setPlan] = useState<Json | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -177,43 +207,94 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
     Object.entries(gapAnswers[qid] ?? {}).filter(([, a]) => a.trim() !== '').map(([question, a]) => ({ question, answer: a.trim() }));
 
   /** only 가 없으면 문항 전체, 있으면 그 문항만 다시 쓴다 — 다른 카드 · 한 벌 알림은 그대로 둔다 */
+  /**
+   * 받은 답을 화면에 넣는다. 빈 답 칸에는 초안을 넣는다(저장은 「저장」을 눌러야).
+   * drafted(앞서 넣은 답)가 있으면 한 벌 점검이 다시 쓴 답이다 — 답 칸이 앞 답 그대로면 새 답으로 바꾼다
+   */
+  const show = (data: Json, drafted?: Record<string, Result>) => {
+    const next: Record<string, Result> = {};
+    for (const r of list<Json>(data.questions)) next[String(r.question_id)] = toResult(r);
+    setTexts((t) => ({ ...t, ...Object.fromEntries(questions.filter((q) => q.id in next).map((q) => {
+      const current = t[q.id] ?? q.answer ?? '';
+      const untouched = current.trim() === '' || (drafted !== undefined && current === drafted[q.id]?.draft);
+      return [q.id, untouched ? next[q.id]?.draft ?? '' : current];
+    })) }));
+    setResults((r) => ({ ...r, ...next }));
+    if (data.plan !== undefined && data.plan !== null) setPlan(data.plan as Json);
+    return next;
+  };
+
+  /** 메모 · 질문 답은 남긴다 — 다시 열어도 같은 근거로 이어 쓴다 */
+  const keepNotes = async (ids: string[]) => {
+    const touched = questions.filter((q) => ids.includes(q.id));
+    await persist(Object.fromEntries(touched.map((q) => [q.id, {
+      memo: memoOf(q),
+      notes: [...(q.notes ?? []), ...answered(q.id).map((n) => ({ ...n, source_type: 'answer' as const }))],
+    }])));
+    setGapAnswers((a) => ({ ...a, ...Object.fromEntries(touched.map((q) => [q.id, {}])) }));
+  };
+
+  /**
+   * only 가 있으면 그 문항만 다시 쓴다. 없으면 문항 전체 — 계획 → 문항(묶음)마다 동시에 → 한 벌 점검, 세 번에 나눠 부른다.
+   * 한 요청에 다 하면 겹침 다시 쓰기까지 200초를 넘겨 운영 nginx(210초)에 끊길 수 있었다(2026-10-12).
+   */
   const run = async (only?: string) => {
     if (busy !== null) return;
     const notes = Object.fromEntries(questions.map((q) => [q.id, [...savedNotes(q), ...answered(q.id)]]));
+    // 답 칸의 지금 글도 보낸다 — 문항별로 쓸 때 다른 문항에 이미 쓴 이야기를 되풀이하지 않게
+    const items = questions.map((q) => ({ id: q.id, memo: memoOf(q), notes: notes[q.id], written: textOf(q) }));
+    const call = (options: Parameters<typeof reviewApi.questionWorkflow>[3]) =>
+      reviewApi.questionWorkflow(resumeId, tailoredId, items, options);
     setBusy(only ?? 'all');
     setError(null);
     try {
-      const data = await reviewApi.questionWorkflow(resumeId, tailoredId,
-        // 답 칸의 지금 글도 보낸다 — 문항별로 쓸 때 다른 문항에 이미 쓴 이야기를 되풀이하지 않게
-        questions.map((q) => ({ id: q.id, memo: memoOf(q), notes: notes[q.id], written: textOf(q) })),
-        only === undefined ? {} : { only, plan });
-      const next: Record<string, Result> = {};
-      for (const r of list<Json>(data.questions)) next[String(r.question_id)] = toResult(r);
-      // 돌아온 문항 — 한 문항만 다시 써도 묶음이면 묶음 전체가 온다
-      const touched = questions.filter((q) => q.id in next);
-      // 메모 · 질문 답은 남긴다 — 다시 열어도 같은 근거로 이어 쓴다. 빈 답 칸에는 초안을 넣어 둔다(저장은 「저장」을 눌러야)
-      await persist(Object.fromEntries(touched.map((q) => [q.id, {
-        memo: memoOf(q),
-        notes: [...(q.notes ?? []), ...answered(q.id).map((n) => ({ ...n, source_type: 'answer' as const }))],
-      }])));
-      setTexts((t) => ({ ...t, ...Object.fromEntries(touched.map((q) => {
-        const current = t[q.id] ?? q.answer ?? '';
-        return [q.id, current.trim() === '' ? next[q.id]?.draft ?? '' : current];
-      })) }));
-      setResults((r) => (only === undefined ? next : { ...r, ...next }));
-      setGapAnswers((a) => (only === undefined ? {} : { ...a, ...Object.fromEntries(touched.map((q) => [q.id, {}])) }));
-      if (data.plan !== undefined && data.plan !== null) setPlan(data.plan as Json);
-      if (only === undefined) {
-        setOverlaps(list<Overlap>(data.overlaps).map((o) => ({ ...o, others: list<string>(o.others), unchanged: list<string>(o.unchanged) })));
-        const cov = (data.coverage ?? {}) as Json;
-        const musts = list<Json>(cov.requirements).filter((r) => r.group === 'must');
-        setCoverage({ total: musts.length, covered: musts.filter((r) => r.covered === true).length,
-          unused: list<Json>(cov.unused_must).map((u) => String(u.label ?? '')) });
+      if (only !== undefined) {
+        const next = show(await call({ only, plan }));
+        await keepNotes(Object.keys(next));
+        return;
+      }
+      setSetStep({ at: 'plan', done: 0, total: 0 });
+      const planned = await call({ stage: 'plan' });
+      const fullPlan = (planned.plan ?? null) as Json | null;
+      setPlan(fullPlan);
+      setResults({});
+      setOverlaps([]);
+      setCoverage(null);
+      // 같은 묶음은 한 요청이 차례로 쓴다(뒤 하위 문항이 앞 답을 보고 이어 쓴다) — 묶음 첫 문항으로 부른다
+      const heads = questions.filter((q, i) => !q.group || questions.findIndex((o) => o.group === q.group) === i).map((q) => q.id);
+      setSetStep({ at: 'write', done: 0, total: heads.length });
+      const settled = await Promise.allSettled(heads.map((qid) => call({ only: qid, plan: fullPlan }).then((data) => {
+        setSetStep((st) => (st === null ? st : { ...st, done: st.done + 1 }));
+        return show(data);
+      })));
+      const drafted: Record<string, Result> = {};
+      const answers: Record<string, Json> = {};
+      for (const one of settled) {
+        if (one.status !== 'fulfilled') continue;
+        for (const [qid, r] of Object.entries(one.value)) {
+          drafted[qid] = r;
+          answers[qid] = { draft: r.draft, sentences: r.raw, questions: r.questions };
+        }
+      }
+      const failed = settled.find((one): one is PromiseRejectedResult => one.status === 'rejected');
+      if (Object.keys(drafted).length === 0) throw failed?.reason ?? new Error('답변을 쓰지 못했어요.');
+      await keepNotes(Object.keys(drafted));
+      setSetStep((st) => (st === null ? st : { ...st, at: 'finish' }));
+      const final = await call({ stage: 'finish', plan: fullPlan, answers });
+      show(final, drafted);
+      setOverlaps(list<Overlap>(final.overlaps).map((o) => ({ ...o, others: list<string>(o.others), unchanged: list<string>(o.unchanged) })));
+      const cov = (final.coverage ?? {}) as Json;
+      const musts = list<Json>(cov.requirements).filter((r) => r.group === 'must');
+      setCoverage({ total: musts.length, covered: musts.filter((r) => r.covered === true).length,
+        unused: list<Json>(cov.unused_must).map((u) => String(u.label ?? '')) });
+      if (failed !== undefined) {
+        setError(`${heads.length - Object.keys(drafted).length}개 문항은 쓰지 못했어요. 그 문항에서 「AI 초안 쓰기」를 눌러 다시 써 주세요.`);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : '답변을 쓰지 못했어요. 잠시 후 다시 시도해 주세요.');
     } finally {
       setBusy(null);
+      setSetStep(null);
     }
   };
 
@@ -241,7 +322,7 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
           전체를 한 번에 쓰면 같은 이야기 겹침 · 공고 필수 요건까지 점검해요.
         </span>
       </div>
-      {busy === 'all' && <WorkingSteps all planned={false} />}
+      {busy === 'all' && setStep !== null && <SetSteps step={setStep} />}
       {error !== null && <p className="apply-error">{error}</p>}
       {coverage !== null && coverage.total > 0 && (
         <p className="hint">
@@ -310,7 +391,7 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
               </Button>
             </div>
             {state === 'failed' && <p className="apply-error">저장하지 못했어요. 다시 눌러 주세요.</p>}
-            {busy === q.id && <WorkingSteps all={false} planned={plan !== null} />}
+            {busy === q.id && <WorkingSteps planned={plan !== null} />}
 
             {result !== undefined && (
               <div className="qa-result">

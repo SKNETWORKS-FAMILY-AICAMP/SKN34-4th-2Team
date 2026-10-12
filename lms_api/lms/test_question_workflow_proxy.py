@@ -42,3 +42,15 @@ class QuestionWorkflowProxyTests(SimpleTestCase):
             resume_review_question_workflow(Mock(), body)
         _, payload = call.call_args.args
         assert payload['only'] == 'cq1' and payload['plan'] == plan
+
+    def test_proxy_passes_stage_and_answers_for_split_full_run(self):
+        answers = {'cq1': {'draft': '답입니다.', 'sentences': [{'text': '답입니다.', 'source_ids': ['R1']}]}}
+        body = QuestionWorkflowIn(resumeId='base', tailoredResumeId='apply_1', questions=[{'id': 'cq1'}],
+                                  stage='finish', answers=answers, plan={'cq1': {}})
+        row = {'id': 9, 'legacy_id': 'base', 'code': '34', 'firebase_uid': 'user'}
+        with patch('lms.api._owned_resume', return_value=(row, None)), \
+             patch('lms.api._review_call', return_value={'questions': []}) as call:
+            resume_review_question_workflow(Mock(), body)
+        _, payload = call.call_args.args
+        assert payload['stage'] == 'finish' and payload['answers'] == answers
+        assert QuestionWorkflowIn(resumeId='b', tailoredResumeId='a').stage == 'all'

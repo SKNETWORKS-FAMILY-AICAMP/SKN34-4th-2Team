@@ -605,3 +605,42 @@ def test_answered_beat_in_saved_plan_uses_the_answer_instead_of_skipping():
                                     only='q1', saved_plan={'q1': saved.model_dump()})
     assert '2. 원인을 찾은 과정 (실패) — 재료: A1-1' in calls['write'][0]['outline']
     assert out['questions'][0]['questions'] == []
+
+
+def test_plan_stage_returns_plan_only_without_writing():
+    # 문항 전체를 여러 요청에 나눌 때 첫 요청 — 계획만(한 요청이 nginx 210초를 넘지 않게)
+    llm, calls = _fake(_plan(('q1', ['R1']), ('q2', ['R2'])), [])
+    out = QuestionWorkflow(llm).run(content=CONTENT, job=JOB, requirements=REQS, stage='plan',
+                                    questions=[QuestionInput('q1', '문항1'), QuestionInput('q2', '문항2')])
+    assert out['stage'] == 'plan' and out['questions'] == [] and set(out['plan']) == {'q1', 'q2'}
+    assert calls['write'] == [] and calls['review'] == 0
+
+
+def test_finish_stage_checks_the_set_from_given_answers_without_writing_again():
+    # 마지막 요청 — 문항별로 받은 답으로 겹침 · 필수 요건만 본다. 겹침이 없으면 쓰기를 다시 하지 않는다
+    from app.question_workflow.models import OverlapsOut
+    plan = _plan(('q1', ['R1']), ('q2', ['R2']))
+    llm, calls = _fake(plan, [])
+    llm.overlap = lambda payload: OverlapsOut(overlaps=[])
+    answers = {
+        'q1': {'draft': 'Python으로 수집 파이프라인을 구현했습니다.', 'questions': ['더 알려 주세요?'],
+               'sentences': [{'text': 'Python으로 수집 파이프라인을 구현했습니다.', 'source_ids': ['R1'],
+                              'requirement_ids': ['J-R1', 'J-가짜']}]},
+        'q2': {'draft': 'API 연결 오류를 해결했습니다.', 'sentences': [{'text': 'API 연결 오류를 해결했습니다.', 'source_ids': ['R2']}]},
+    }
+    out = QuestionWorkflow(llm).run(content=CONTENT, job=JOB, requirements=REQS, stage='finish', answers=answers,
+                                    saved_plan={p.question_id: p.model_dump() for p in plan.questions},
+                                    questions=[QuestionInput('q1', '문항1'), QuestionInput('q2', '문항2')])
+    assert out['stage'] == 'finish' and calls['write'] == []
+    a1 = out['questions'][0]
+    assert a1['sentences'][0]['requirement_ids'] == ['J-R1']  # 공고에 없는 이름표는 버린다
+    assert out['coverage']['requirements'][0]['covered'] is True
+
+
+def test_finish_stage_without_answers_is_an_input_error():
+    import pytest
+    from app.review_workflow import ReviewInputError
+    llm, _ = _fake(_plan(('q1', [])), [])
+    with pytest.raises(ReviewInputError):
+        QuestionWorkflow(llm).run(content=CONTENT, job=JOB, requirements=REQS, stage='finish', answers={},
+                                  questions=[QuestionInput('q1', '문항1')])

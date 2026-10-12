@@ -237,6 +237,30 @@ def _lines(sources: list[Source], lead: set[str] = frozenset()) -> str:
                      for s in sources) or '없음'
 
 
+def _given_answer(q: QuestionInput, raw: Any, requirements: list[JobRequirement]) -> dict[str, Any] | None:
+    """화면이 돌려준 문항별 답(finish). 요건 이름표는 실제 공고 요건만 남긴다 — 한 벌 검토 · 필수 요건 확인에만 쓴다."""
+    if not isinstance(raw, dict):
+        return None
+    by_id = {f'J-{r.id}': r for r in requirements}
+    sentences = []
+    for s in raw.get('sentences') or []:
+        if not isinstance(s, dict) or not str(s.get('text') or '').strip():
+            continue
+        rids = [str(i) for i in s.get('requirement_ids') or [] if str(i) in by_id]
+        sentences.append({
+            'text': str(s['text']), 'source_ids': [str(i) for i in s.get('source_ids') or []],
+            'part_key': str(s.get('part_key') or ''), 'new_paragraph': bool(s.get('new_paragraph')),
+            'requirement_ids': rids, 'sources': s.get('sources') if isinstance(s.get('sources'), list) else [],
+            'requirements': [{'id': i[2:], 'label': f'{GROUP_LABELS.get(by_id[i].group, by_id[i].group)} · {by_id[i].label}'}
+                             for i in rids],
+        })
+    keep = ('angle', 'parts', 'removed', 'issues', 'rewrites', 'seconds', 'trimmed_for_limit', 'short')
+    draft = str(raw.get('draft') or '')
+    return {**{k: raw[k] for k in keep if k in raw}, 'question_id': q.id, 'question': q.text, 'draft': draft,
+            'char_count': len(draft), 'limit': q.limit, 'sentences': sentences,
+            'questions': [str(x) for x in raw.get('questions') or [] if str(x).strip()][:MAX_QUESTIONS + 1]}
+
+
 def _outline(plan: QuestionPlanOut) -> str:
     """쓰기에 넘길 뼈대. 재료 없는 대목은 건너뛰라고 적는다 — 그 대목은 학생에게 묻는다."""
     if not plan.outline:
@@ -311,15 +335,23 @@ class Checked:
 class QuestionWorkflow:
     """llm 은 plan(dict)->PlanOut, write(dict)->DraftOut, review(dict)->ReviewOut 를 가진다(시험에서는 가짜를 넣는다)."""
 
-    def __init__(self, llm, *, max_workers: int = 4):
+    def __init__(self, llm, *, max_workers: int = 8):
         self.llm = llm
+        # 문항(묶음)을 모두 동시에 쓴다 — 4개로 묶으면 5문항 자소서의 다섯째가 한 문항 시간(60~105초)만큼 기다려
+        # 전체 쓰기가 nginx 210초에 가까워졌다(2026-10-12). 자소서 문항은 많아야 8개 안팎
         self.max_workers = max_workers
 
     def run(self, *, content: dict, questions: list[QuestionInput], job: dict,
             requirements: list[JobRequirement], only: str | None = None,
-            saved_plan: dict[str, Any] | None = None) -> dict[str, Any]:
+            saved_plan: dict[str, Any] | None = None, stage: str = 'all',
+            answers: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
         """문항 전체를 쓴다. only 를 주면 그 문항만 다시 쓴다 — saved_plan(앞서 돌려준 plan)이 있으면 계획을 다시 세우지 않는다.
-        한 문항만 쓸 때는 한 벌 검토(겹침) · 필수 요건 확인을 하지 않는다. 둘 다 문항 전체를 봐야 한다."""
+        한 문항만 쓸 때는 한 벌 검토(겹침) · 필수 요건 확인을 하지 않는다. 둘 다 문항 전체를 봐야 한다.
+
+        stage 로 「문항 전체」를 여러 요청에 나눈다 — 한 요청에 다 하면 겹침 다시 쓰기까지 200초를 넘겨
+        운영 nginx(210초)에 끊길 수 있었다(2026-10-12). 화면이 plan → 문항(묶음)마다 only → finish 로 부른다.
+        - plan: 계획만 세워 돌려준다
+        - finish: answers(문항별로 받은 답)로 한 벌 검토(겹침 다시 쓰기) · 필수 요건 확인만 한다"""
         source = job.get('source') or {}
         company, title = source.get('company') or '확인 불가', source.get('title') or '확인 불가'
         questions = [_with_group(q) for q in questions]
@@ -330,7 +362,8 @@ class QuestionWorkflow:
         if not targets:
             raise ReviewInputError('company_question_not_found')
         started = time.perf_counter()
-        plans = self._saved_plans(questions, saved_plan, sources) if only is not None and saved_plan else None
+        reuse = (only is not None or stage == 'finish') and saved_plan
+        plans = self._saved_plans(questions, saved_plan, sources) if reuse else None
         if plans is None:
             payload = {
                 'company': company, 'title': title,
@@ -348,6 +381,21 @@ class QuestionWorkflow:
                             if p.angle.strip() and (qid not in raw or not raw[qid].angle.strip())})
             plans = {q.id: self._clean_plan(q, raw.get(q.id), sources) for q in questions}
         plan_seconds = time.perf_counter() - started
+        plan_out = {qid: p.model_dump() for qid, p in plans.items()}
+        if stage == 'plan':
+            return {'plan_seconds': round(plan_seconds, 1), 'overlaps': [], 'coverage': None, 'only': None,
+                    'stage': stage, 'plan': plan_out, 'questions': []}
+        if stage == 'finish':
+            given = [a for a in (_given_answer(q, (answers or {}).get(q.id), requirements) for q in questions) if a]
+            if not given:
+                raise ReviewInputError('question_answers_missing')
+            done, overlaps = self._spread(questions, given, plans, sources, company, title)
+            # 다시 쓴 답만 이름표를 단다 — 나머지는 문항별로 쓸 때 이미 달았다
+            self._tag([a for a in done if 'trimmed_overlap' in a], requirements)
+            coverage = self._coverage(questions, done, requirements, sources)
+            _gather_group_questions(questions, done)
+            return {'plan_seconds': round(plan_seconds, 1), 'overlaps': overlaps, 'coverage': coverage, 'only': None,
+                    'stage': stage, 'plan': plan_out, 'questions': done}
         # 같은 묶음은 차례로 쓴다 — 뒤 하위 문항이 앞 하위 문항 답을 보고 이어 쓴다. 묶음끼리는 동시에
         units: dict[str, list[QuestionInput]] = {}
         for q in targets:
@@ -360,7 +408,7 @@ class QuestionWorkflow:
                 done.append(self._answer(q, plans, questions, sources, company, title, siblings='\n'.join(prior)))
             return done
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+        with ThreadPoolExecutor(max_workers=max(1, min(self.max_workers, len(units)))) as pool:
             written = {a['question_id']: a for unit in pool.map(write_unit, units.values()) for a in unit}
         answers = [written[q.id] for q in targets]
         overlaps, coverage = [], None
@@ -371,7 +419,7 @@ class QuestionWorkflow:
             coverage = self._coverage(questions, answers, requirements, sources)
             _gather_group_questions(questions, answers)
         return {'plan_seconds': round(plan_seconds, 1), 'overlaps': overlaps, 'coverage': coverage, 'only': only,
-                'plan': {qid: p.model_dump() for qid, p in plans.items()}, 'questions': answers}
+                'stage': stage, 'plan': plan_out, 'questions': answers}
 
     def _saved_plans(self, questions, saved: dict[str, Any], sources) -> dict[str, QuestionPlanOut] | None:
         """화면이 들고 있던 계획. 문항이 바뀌었거나 모양이 틀리면 None — 계획을 다시 세운다."""
@@ -484,7 +532,7 @@ class QuestionWorkflow:
         def sibling_drafts(q: QuestionInput) -> str:
             return '\n'.join(drafts.get(o.id, '') for o in questions if q.group and o.group == q.group and o.id != q.id)
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+        with ThreadPoolExecutor(max_workers=max(1, min(self.max_workers, len(targets)))) as pool:
             redone = dict(zip([q.id for q in targets], pool.map(
                 lambda q: self._answer(q, plans, questions, sources, company, title, guidance=guidance(q.id),
                                        siblings=sibling_drafts(q)), targets)))

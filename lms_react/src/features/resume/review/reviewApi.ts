@@ -157,7 +157,8 @@ export const reviewApi = {
   questionWorkflow: (resumeId: string, tailoredResumeId: string,
     questions: { id: string; memo: string; notes: { question: string; answer: string }[] }[],
     /** only: 그 문항만 다시 쓴다. plan: 앞서 받은 계획 — 있으면 계획을 다시 세우지 않아 30~60초로 끝난다 */
-    options: { only?: string; plan?: Json | null } = {}) =>
+    /** stage: 문항 전체를 여러 요청에 나눈다 — plan(계획만) → 문항마다 only → finish(answers 로 한 벌 검토) */
+    options: { only?: string; plan?: Json | null; stage?: 'all' | 'plan' | 'finish'; answers?: Record<string, Json> } = {}) =>
     post('/resume-review/question-workflow', { resumeId, tailoredResumeId, questions, ...options }, 300_000),
 
   /** 공고용 사본을 뜬다. apply(공고 맞춤 지원)는 이력서 관리의 맞춤 첨삭 사본(review)과 따로 뜬다 */
