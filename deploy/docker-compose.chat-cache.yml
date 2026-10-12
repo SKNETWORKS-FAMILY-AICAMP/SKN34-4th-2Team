@@ -1,0 +1,33 @@
+# Opt-in overlay: combine with docker-compose.ai.yml. Warmup remains OFF unless
+# explicitly enabled. No dependency on cache health for AI startup/fallback.
+services:
+  ai:
+    environment:
+      CHATBOT_CONTEXT_REDIS_URL: redis://chat-cache:6379/0
+      LMS_CHATBOT_WARMUP: ${LMS_CHATBOT_WARMUP:-0}
+
+  chat-cache:
+    image: redis:7
+    restart: unless-stopped
+    mem_limit: 256m
+    command:
+      - redis-server
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - noeviction
+      - --appendonly
+      - "no"
+      - --save
+      - ""
+      # Container-network access only; no host ports are published.
+      - --protected-mode
+      - "no"
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 2s
+      retries: 3
+      start_period: 5s

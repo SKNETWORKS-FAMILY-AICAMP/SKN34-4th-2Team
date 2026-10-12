@@ -349,8 +349,18 @@ def op_save_mileage_settings(cur, user, p):
 
 def op_replace_curriculum_sheet(cur, user, p):
     """CSV 교체 — 기수에 표는 하나다. 옛 표를 지우고 새로 넣는다."""
+    from lms.curriculum_validation import validate_curriculum_rows
+
     _require_staff(user)
+    if not isinstance(p, dict):
+        raise ValueError('커리큘럼 입력은 객체여야 합니다.')
     cohort_id = _cohort_for(cur, user, p.get("cohortId"))
+    cur.execute('SELECT start_date, end_date FROM cohorts WHERE id = %s', [cohort_id])
+    course = _one(cur)
+    if course is None:
+        raise KeyError('cohort')
+    rows = validate_curriculum_rows(p.get('rows'), course_start=course.get('start_date'),
+                                    course_end=course.get('end_date'))
     cur.execute("DELETE FROM curriculum_sheets WHERE cohort_id = %s", [cohort_id])
     key = str(p.get("id") or "")
     cur.execute(
@@ -362,18 +372,18 @@ def op_replace_curriculum_sheet(cur, user, p):
     if not key:
         key = str(pk)
         cur.execute("UPDATE curriculum_sheets SET legacy_id = %s WHERE id = %s", [key, pk])
-    for order, row in enumerate(p.get("rows") or []):
+    for row in rows:
         cur.execute(
             """INSERT INTO curriculum_rows (sheet_id, day_index, date_label, subject, topic, detail, "order")
                VALUES (%s,%s,%s,%s,%s,%s,%s)""",
             [
                 pk,
-                int(row.get("dayIndex") or 0),
-                row.get("dateLabel") or "",
-                row.get("subject") or "",
-                row.get("topic") or "",
-                row.get("detail") or "",
-                int(row.get("order", order) or order),
+                row["dayIndex"],
+                row["dateLabel"],
+                row["subject"],
+                row["topic"],
+                row["detail"],
+                row["order"],
             ],
         )
     return {"id": key}

@@ -1,0 +1,78 @@
+실제 Redis 연결 및 통합 검증 — 2026-10-12
+
+원인과 복구
+REDIS_URL은 인증정보 없는 redis://127.0.0.1:6379/0을 사용했다.
+진단 당시 Windows 6379 리스너가 없었고 Docker Linux 엔진도 사용할 수 없었다.
+WSL Ubuntu에는 Redis가 설치되어 있지 않았다.
+WSL Ubuntu에 redis-server 8.0.5를 설치하고 서비스를 시작해 PONG을 확인했다.
+하지만 유휴 종료 후 WSL 실행 배포판이 없어지고 Windows 연결이 다시 timeout됐다.
+숨김 WSL 유지 프로세스를 실행한 뒤 연결이 유지되고 전체 통합 검증이 완료됐다.
+Redis 바인딩은 localhost이며 방화벽·외부 공개·운영 서버 설정은 변경하지 않았다.
+
+재발 방지
+Sol이 scripts/start-local-redis.ps1과 docs/local-redis.txt를 작성했다.
+주 담당이 실제로 helper를 두 번 실행해 모두 PONG 및 동일 프로세스 재사용을 확인했다.
+관찰된 두 Windows PID는 같은 유지 작업의 launcher/child 관계이며, 재실행으로
+유지 작업이 추가 생성된 것은 아니다. helper는 설치를 자동 수행하지 않는다.
+사용법: 저장소 루트에서 .\scripts\start-local-redis.ps1 실행 후 backend 시작.
+기존 REDIS_URL 변경은 불필요하다. PC/WSL 재시작 후 helper를 다시 실행한다.
+
+실제 HTTP 통합 검증
+- 테스트 프로세스에서만 LMS_CHATBOT_WARMUP=1 설정. 실제 Redis DB 15는 context,
+  DB 14는 인증 세션에 사용해 일반 로컬 DB 0과 분리했다.
+- 로컬 Django 18880 및 FastAPI 18881을 실제 HTTP 서버로 실행했다.
+- 기존에 조회를 허용받은 학생에 대해 서버의 정상 JWT 발급 함수를 사용했다.
+  인증 미들웨어와 내부 공유 토큰 검증은 우회하거나 mock하지 않았다.
+- 저장된 테스트 계정 비밀번호는 현재 값과 달랐다. 비밀번호를 초기화하지 않았으며,
+  비밀번호 입력 로그인 자체를 재시험했다고 주장하지 않는다. 인증 후 bootstrap부터
+  준비 worker와 실제 챗봇까지의 경로를 검증했다.
+- 인증 없는 /warmup 거부, 인증된 /bootstrap 200, 실제 DB/S3에서 공유·개인 context 준비,
+  Redis TTL, 기존 조회와 동일한 결과, 실제 /chat/stream 최종 성공까지 14개 확인 통과.
+- 준비 중 모델 호출 0회. 실제 질문 '이번 단위기간 출석 어때?'는 모델 호출 2회
+  (responses.parse 1회, responses.create 1회), SDK retry 0회로 완료했다.
+  호출 상한 8회를 코드로 적용했고 embeddings 호출은 발생하지 않았다.
+- 정상 인증/대화 로그 외에 정책·출결·비밀번호 등 운영 데이터를 수정하지 않았다.
+
+실제 측정 (단일 표본, 생산 환경 p95나 일반적인 성능 보장이 아님)
+인증 bootstrap 응답: 4651.40 ms.
+bootstrap 요청 시작부터 공유·개인 캐시 준비 완료: 20025.33 ms.
+즉 응답 후 약 15.37초 동안 백그라운드 준비가 이어졌다.
+준비 전 질문은 기존 조회로 처리하므로 로그인이나 질문이 준비 완료를 기다리지 않는다.
+
+                    기존 source 조회    실제 Redis hit
+공유 일정            2655.13 ms          1642.03 ms
+개인 출결            3022.26 ms          1540.21 ms
+
+실제 Redis 통신 및 현재 DB revision 확인 비용을 포함했다. 두 경우 모두 source loader
+호출 0회이며, 캐시 결과와 기존 결과의 전체 JSON 해시가 같았다.
+이번 전체 챗봇 답변은 20415.46 ms, 첫 텍스트는 16700.30 ms였다.
+이 전체 답변에는 비교 기준선이 없으므로 전체 답변 속도 개선율로 해석하면 안 된다.
+원문 출결과 인증 토큰은 검증 결과 파일에 저장하지 않았다.
+
+실제 Redis 변경·장애 검증
+Redis DB 13과 PostgreSQL 세션 전용 pg_temp 가상 데이터로 20개 확인 통과.
+실제 revision SQL·출결 계산 로직·Redis를 사용했다. 가상 정책 snapshot만 fixture로
+공급하고, 후속 작업 예약은 테스트가 명시적으로 수행하도록 제어했다.
+운영 테이블을 수정하지 않았고 임시 DB 작업은 모두 롤백했다.
+
+- 출결 상태 수정, 수업 일정 추가, 정책 80%/3회에서 90%/2회 교체 후 stale hit 거부.
+- 변경 결과와 원래 계산기의 최신 결과 일치, 새 버전으로 다시 준비 가능.
+- 캐시가 있어도 비활성 학생 거부, 다른 학생에게 첫 학생의 출결 기록 미전달.
+- 실제 Redis TTL 확인 및 alias 만료 후 추가 revision 쿼리 없는 source 조회.
+- 연결 불가 포트로 실제 transport failure를 발생시켜 최신 source fallback 확인.
+  두 번째 호출에서는 backoff가 재접속을 막았다. 정상 Redis 서비스를 중단하지 않았다.
+- SET NX 중복 작업 거부, Lua lock의 다른 소유자 해제 거부, cooldown과 소유자 해제.
+
+정리 및 남는 범위
+테스트 HTTP 서버 종료, 테스트 인증 세션 해제, 테스트에서 만든 Redis 키만 삭제했다.
+FLUSHDB/FLUSHALL을 사용하지 않았다. WSL keepalive와 로컬 Redis는 사용 가능하게 유지했다.
+기존 187개 offline 테스트 기록은 docs/login-warmup-verification.txt에 있다.
+이번에는 챗봇 계산 코드 변경 없이 실제 인프라 통합과 로컬 helper 실행을 추가 검증했다.
+기본 feature flag, 운영 배포 및 develop은 변경하지 않았다. 대표 동시 부하·장기 실행과
+운영 Redis 환경 검증은 별도 단계이며 이번 로컬 통합 통과와 구분한다.
+
+재현 자료
+작업 공간 output/redis-integration-20261012:
+live_integration.py, live-results.json, real_cache_changes.py,
+real-cache-change-results.json, check_accounts.py, account-check.json.
+기존 테스트 credential 파일은 참조만 했으며 내용이나 비밀번호는 결과에 출력하지 않았다.

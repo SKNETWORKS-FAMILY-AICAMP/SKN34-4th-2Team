@@ -46,7 +46,7 @@ class RoutingRegressionTests(unittest.TestCase):
     def test_obvious_lms_signals_are_preserved(self) -> None:
         signals = detect_routing_signals("내가 오늘 지각하면 내 출석에는 어떻게 반영돼?")
         self.assertEqual(signals.namespaces, ("policy",))
-        self.assertEqual(signals.student_scopes, ("student_private",))
+        self.assertEqual(signals.student_scopes, ("student_attendance",))
         self.assertEqual(
             detect_routing_signals("최근 공지로 바뀐 라운지 취식 규칙 알려줘").namespaces,
             ("policy", "notice"),

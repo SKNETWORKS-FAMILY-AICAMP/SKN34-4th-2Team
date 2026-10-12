@@ -253,13 +253,16 @@ export async function updateCohort(cohortId: string, patch: Partial<Cohort>): Pr
   }));
 }
 
-export async function uploadCohortDocument(cohortId: string, kind: 'curriculum' | 'policy', file: File): Promise<void> {
+export async function uploadCohortDocument(cohortId: string, kind: 'curriculum' | 'policy', file: File): Promise<{
+  calculationStatus?: string; calculationIssues?: Record<string, string>;
+}> {
   const form = new FormData();
   form.append('cohortId', cohortId);
   form.append('kind', kind);
   form.append('file', file);
-  await http.post('/cohorts/documents', form, { timeout: 180_000, headers: { 'Content-Type': 'multipart/form-data' } });
+  const { data } = await http.post('/cohorts/documents', form, { timeout: 180_000, headers: { 'Content-Type': 'multipart/form-data' } });
   await invalidateBootstrap();
+  return data;
 }
 
 export async function setCohortStatus(cohortId: string, status: 'planned' | 'active' | 'closed'): Promise<void> {
@@ -2342,10 +2345,9 @@ export function deleteInflearnPackage(id: string): void {
   if (!isTestMode()) void runCommand('upsert', { table: 'inflearn_packages', id, action: 'delete' });
 }
 
-export function replaceCurriculumSheet(sheet: import('../domain/types').CurriculumSheet): void {
-  mutate(() => ({ curriculumSheets: [sheet] }));
+export async function replaceCurriculumSheet(sheet: import('../domain/types').CurriculumSheet): Promise<void> {
   if (!isTestMode()) {
-    void runCommand('replaceCurriculumSheet', {
+    await runCommand('replaceCurriculumSheet', {
       id: sheet.id,
       cohortId: apiCohortId(),
       title: sheet.title,
@@ -2353,6 +2355,7 @@ export function replaceCurriculumSheet(sheet: import('../domain/types').Curricul
       rows: sheet.rows,
     });
   }
+  mutate(() => ({ curriculumSheets: [sheet] }));
 }
 
 // ── 설문 · 제출 ────────────────────────────────────────

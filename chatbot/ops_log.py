@@ -7,6 +7,8 @@ import json
 import os
 from typing import Any
 
+from chatbot.context_builder import safe_context_metrics
+
 FORBIDDEN_KEYS = {
     "question",
     "answer",
@@ -114,8 +116,22 @@ def build_generation_log_payload(
         payload["llmMs"] = max(0, int(llm_ms))
     for source, target in (
         ("supervisor_ms", "supervisorMs"),
+        ("shared_context_ms", "sharedContextMs"),
+        ("supervisor_prepare_wall_ms", "supervisorPrepareWallMs"),
+        ("shared_context_overlap_ms", "sharedContextOverlapMs"),
+        ("parallel_prep_enabled", "parallelPrepEnabled"),
         ("answer_model_ms", "answerModelMs"),
         ("answer_ttft_ms", "answerTtftMs"),
+        ("answer_first_callback_ms", "answerFirstCallbackMs"),
+        ("answer_first_nonempty_callback_ms", "answerFirstNonemptyCallbackMs"),
+        ("answer_first_model_event_ms", "answerFirstModelEventMs"),
+        ("answer_visible_ttft_ms", "answerVisibleTtftMs"),
+        ("answer_stream_events", "answerStreamEvents"),
+        ("answer_visible_deltas", "answerVisibleDeltas"),
+        ("answer_nontext_events", "answerNontextEvents"),
+        ("answer_reasoning_events", "answerReasoningEvents"),
+        ("answer_reasoning_tokens", "answerReasoningTokens"),
+        ("answer_cached_input_tokens", "answerCachedInputTokens"),
         ("student_context_ms", "studentContextMs"),
         ("embedding_ms", "embeddingMs"),
         ("vector_query_ms_sum", "vectorQueryMsSum"),
@@ -123,13 +139,26 @@ def build_generation_log_payload(
         ("vector_calls", "vectorCalls"),
         ("prompt_build_ms", "promptBuildMs"),
         ("prompt_chars", "promptChars"),
+        ("context_measure_ms", "contextMeasureMs"),
         ("retrieved_chunks", "retrievedChunks"),
         ("retrieved_chunk_chars", "retrievedChunkChars"),
         ("first_token_ms", "firstTokenMs"),
         ("generation_tail_ms", "generationTailMs"),
+        ("handler_session_ms", "handlerSessionMs"),
+        ("handler_chat_inputs_ms", "handlerChatInputsMs"),
+        ("handler_bot_prepare_ms", "handlerBotPrepareMs"),
+        ("handler_prepare_ms", "handlerPrepareMs"),
+        ("handler_first_token_ms", "handlerFirstTokenMs"),
+        ("handler_generation_end_ms", "handlerGenerationEndMs"),
     ):
         if snap.get(source) is not None:
             payload[target] = max(0, int(snap[source]))
+    context_metrics = safe_context_metrics(snap.get('context_metrics'))
+    effort = snap.get('answer_reasoning_effort')
+    if isinstance(effort, str) and effort in {'default', 'none', 'low', 'medium', 'high', 'xhigh', 'max'}:
+        payload['answerReasoningEffort'] = effort
+    if context_metrics:
+        payload['contextMetrics'] = context_metrics
     token_in = snap.get("tokenIn", snap.get("token_in"))
     token_out = snap.get("tokenOut", snap.get("token_out"))
     if token_in is not None:

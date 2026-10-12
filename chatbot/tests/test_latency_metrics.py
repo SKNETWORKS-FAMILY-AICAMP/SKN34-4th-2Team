@@ -24,6 +24,10 @@ class FakeEmbeddings:
         self.calls += 1
         return [0.1, 0.2]
 
+    def embed_documents(self, queries: list[str]) -> list[list[float]]:
+        self.calls += 1
+        return [[0.1, 0.2] for _ in queries]
+
 
 class FakeIndex:
     def __init__(self) -> None:
@@ -32,14 +36,14 @@ class FakeIndex:
     def query(self, **kwargs):
         self.calls.append(kwargs)
         return SimpleNamespace(matches=[SimpleNamespace(
-            id="doc-1", score=0.9, metadata={"doc_id": "doc-1", "page_content": "본문"},
+            id="doc-1", score=0.9, metadata={"doc_id": "doc-1", "page_content": "본문", "cohort": "cohort_34"},
         )])
 
 
 class FakeAnswerChain:
-    def invoke(self, inputs: dict, config: dict) -> AIMessage:
+    def stream(self, inputs: dict, config: dict):
         config["callbacks"][0].on_llm_new_token("답")
-        return AIMessage(content="답변", usage_metadata={"input_tokens": 21, "output_tokens": 3, "total_tokens": 24})
+        yield AIMessage(content="답변", usage_metadata={"input_tokens": 21, "output_tokens": 3, "total_tokens": 24})
 
 
 class LatencyMetricsTests(unittest.TestCase):
@@ -53,10 +57,10 @@ class LatencyMetricsTests(unittest.TestCase):
         with patch("chatbot.cohort_document_rag.active_policy_namespace", return_value="policy"):
             result = bot._retrieve_namespaces(state, ["policy", "notice"])
 
-        self.assertEqual(result["embedding_calls"], 2)
+        self.assertEqual(result["embedding_calls"], 1)
         self.assertEqual(result["vector_calls"], 2)
         self.assertEqual(len(result["documents"]), 2)
-        self.assertEqual(bot.embeddings.calls, 2)
+        self.assertEqual(bot.embeddings.calls, 1)
         self.assertEqual(len(bot.index.calls), 2)
         self.assertTrue(all(call["include_metadata"] for call in bot.index.calls))
         self.assertEqual({call["namespace"] for call in bot.index.calls}, {"policy", "notice"})
@@ -97,6 +101,7 @@ class LatencyMetricsTests(unittest.TestCase):
         with (
             patch("chatbot.api.valid_proxy_token", return_value=True),
             patch("chatbot.api._session_from_uid", return_value={"uid": "demo", "cohort": "34"}),
+            patch("chatbot.api._chat_inputs", return_value={"thread_id": "test", "student_uid": "demo", "cohort": "34"}),
             patch("chatbot.api._ready_chatbot", return_value=bot),
             patch("chatbot.api.write_generation_log") as write_log,
         ):

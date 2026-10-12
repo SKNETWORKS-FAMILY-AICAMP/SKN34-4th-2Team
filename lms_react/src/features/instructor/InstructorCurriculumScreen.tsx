@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
+import { readApiError } from '../../data/http';
 import { replaceCurriculumSheet, useCurriculumSheets } from '../../data/repository';
 import { nextId } from '../../data/store';
 import type { CurriculumRow } from '../../domain/types';
@@ -24,27 +25,39 @@ export function InstructorCurriculumScreen() {
   const [csv, setCsv] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [saving, setSaving] = useState(false);
+  const saveInFlight = useRef(false);
 
   const sheet = sheets[0];
 
-  const upload = () => {
+  const upload = async () => {
+    if (saveInFlight.current) return;
     const rows = parseCsv(csv);
     if (rows.length === 0) {
       setError('읽을 수 있는 줄이 없습니다. 형식을 확인해 주세요.');
       return;
     }
-    replaceCurriculumSheet({
-      id: nextId('cs'),
-      title: `${user.cohortName} 커리큘럼`,
-      fileName: 'pasted.csv',
-      rows,
-      uploadedBy: user.uid,
-      uploadedByName: user.displayName,
-      uploadedAt: new Date(),
-    });
-    setOpen(false);
-    setCsv('');
+    saveInFlight.current = true;
+    setSaving(true);
     setError(null);
+    try {
+      await replaceCurriculumSheet({
+        id: nextId('cs'),
+        title: `${user.cohortName} 커리큘럼`,
+        fileName: 'pasted.csv',
+        rows,
+        uploadedBy: user.uid,
+        uploadedByName: user.displayName,
+        uploadedAt: new Date(),
+      });
+      setOpen(false);
+      setCsv('');
+    } catch (error) {
+      setError(await readApiError(error));
+    } finally {
+      saveInFlight.current = false;
+      setSaving(false);
+    }
   };
 
   const q = query.trim().toLowerCase();
@@ -103,13 +116,13 @@ export function InstructorCurriculumScreen() {
         <Dialog
           title="CSV 등록/교체"
           width={620}
-          onClose={() => setOpen(false)}
+          onClose={() => { if (!saveInFlight.current) setOpen(false); }}
           actions={
             <>
-              <Button variant="outline" onClick={() => setOpen(false)}>
+              <Button variant="outline" disabled={saving} onClick={() => setOpen(false)}>
                 취소
               </Button>
-              <Button onClick={upload}>등록</Button>
+              <Button disabled={saving} onClick={upload}>{saving ? '등록 중…' : '등록'}</Button>
             </>
           }
         >
@@ -120,6 +133,7 @@ export function InstructorCurriculumScreen() {
             <TextArea
               rows={10}
               value={csv}
+              disabled={saving}
               placeholder={'1,1일차,프로그래밍과 데이터 기초,Python,변수와 자료형'}
               onChange={(e) => setCsv(e.target.value)}
             />

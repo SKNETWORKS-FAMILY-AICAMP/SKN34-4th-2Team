@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 
 import { RobotHead } from '../../ui/RobotHead';
 import { Button, Row, Spacer } from '../../ui/components';
@@ -25,6 +25,9 @@ interface Message {
 /** 다른 화면이 학습 도우미를 여는 신호 — 연습장 튜터의 「학습 도우미」 탭 */
 export const OPEN_CHATBOT_EVENT = 'lms:open-chatbot';
 
+const newThreadId = () => globalThis.crypto?.randomUUID?.()
+  ?? `chat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
 export function ChatbotHost() {
   const { user } = useSession();
   const [open, setOpen] = useState(false);
@@ -37,6 +40,25 @@ export function ChatbotHost() {
   const [bounce, setBounce] = useState(0);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const timers = useRef<number[]>([]);
+  const threadId = useRef(newThreadId());
+  const requestController = useRef<AbortController | null>(null);
+  const identity = `${user?.uid ?? ''}:${user?.cohortId ?? ''}:${user?.role ?? ''}`;
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+
+  useLayoutEffect(() => {
+    requestController.current?.abort();
+    requestController.current = null;
+    timers.current.forEach((timer) => window.clearTimeout(timer));
+    timers.current = [];
+    threadId.current = newThreadId();
+    setMessages([]); setDraft(''); setTopic(null);
+    setThinking(false); setBusy(false); setOpen(false);
+    return () => {
+      requestController.current?.abort();
+      timers.current.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [identity]);
 
   useEffect(
     () => () => {
@@ -60,15 +82,18 @@ export function ChatbotHost() {
 
   /** 답을 몇 글자씩 흘려보낸다. */
   const stream = (text: string, onFirstChar?: () => void) => {
+    const streamThread = threadId.current;
     const id = `bot-${Date.now()}`;
     // API 대기 중에도 thinking 이 true 일 수 있다. 타이핑 직전에 잠깐 더 보여 준다.
     setThinking(true);
     setBusy(true);
     const start = window.setTimeout(() => {
+      if (threadId.current !== streamThread) return;
       setThinking(false);
       setMessages((m) => [...m, { id, role: 'bot', text: '', streaming: true }]);
       let cursor = 0;
       const tick = () => {
+        if (threadId.current !== streamThread) return;
         const firstChar = cursor === 0;
         cursor = Math.min(text.length, cursor + 6);
         const slice = text.slice(0, cursor);
@@ -94,6 +119,13 @@ export function ChatbotHost() {
     }
     setThinking(true);
     setBusy(true);
+    const currentThread = threadId.current;
+    const currentIdentity = identityRef.current;
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
+    const isCurrent = () => threadId.current === currentThread && identityRef.current === currentIdentity
+      && requestController.current === controller && !controller.signal.aborted;
     void (async () => {
       const requestStarted = performance.now();
       let requestMs = 0;
@@ -106,6 +138,7 @@ export function ChatbotHost() {
       const id = `bot-${Date.now()}`;
       let text = '';
       const append = (delta: string) => {
+        if (!isCurrent()) return;
         if (!text && delta) window.requestAnimationFrame(logFirstChar);
         text += delta;
         setThinking(false);
@@ -126,18 +159,23 @@ export function ChatbotHost() {
             Accept: 'application/x-ndjson',
             ...(access ? { Authorization: `Bearer ${access}` } : {}),
           },
-          body: JSON.stringify({ message: question }),
+          body: JSON.stringify({ message: question, threadId: currentThread }),
+          signal: controller.signal,
         });
         requestMs = performance.now() - requestStarted;
       } catch {
+        if (!isCurrent()) return;
         // 연결 전 실패는 기존 JSON 경로로 재시도한다.
       }
       if (!response?.ok || !response.headers.get('content-type')?.includes('application/x-ndjson') || !response.body) {
         try {
-          const { data } = await http.post<{ answer?: string }>('/chat', { message: question });
+          const { data } = await http.post<{ answer?: string }>('/chat',
+            { message: question, threadId: currentThread }, { signal: controller.signal });
+          if (!isCurrent()) return;
           requestMs = performance.now() - requestStarted;
           stream(data.answer || '답변을 받지 못했습니다.', logFirstChar);
         } catch {
+          if (!isCurrent()) return;
           stream('학습 도우미에 잠시 연결하지 못했습니다. 잠시 후 다시 시도하세요.');
         }
         return;
@@ -170,9 +208,12 @@ export function ChatbotHost() {
       } catch (error) {
         append(`${text ? '\n\n' : ''}${error instanceof Error ? error.message : '답변 생성 중 오류가 발생했습니다.'}`);
       } finally {
-        setThinking(false);
-        setBusy(false);
-        setMessages((items) => items.map((item) => (item.id === id ? { ...item, streaming: false } : item)));
+        if (isCurrent()) {
+          setThinking(false);
+          setBusy(false);
+          setMessages((items) => items.map((item) => (item.id === id ? { ...item, streaming: false } : item)));
+          requestController.current = null;
+        }
       }
     })();
   };

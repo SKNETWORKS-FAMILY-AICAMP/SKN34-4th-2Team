@@ -1,0 +1,79 @@
+Parallel common schedule preparation — 2026-10-12
+
+Why the previous smaller prompt was sometimes slower
+- Prior three-pair answer-stage test: mean first text 5.519 -> 6.655 seconds,
+  after-first-text generation 1.735 -> 1.568 seconds.
+- Reasoning output tokens summed 1283 -> 1602; visible output 674 -> 651.
+- Largest difference: missing-record case reasoning 478 -> 848 and first text
+  6.055 -> 8.809 seconds. Context builder/DB time was outside that timer.
+- These observations locate the delay before first text, not in output length
+  or the context-building CPU work. They do not prove references caused it;
+  server latency, prompt cache and model reasoning variability are confounders.
+- One further frozen missing-record pair reversed the time ordering:
+  legacy 9.017 seconds / TTFT 6.806 / reasoning 516;
+  compact 8.487 seconds / TTFT 6.689 / reasoning 362.
+  Provider input remained 7753 -> 6960; both were predominantly cache hits.
+  Both answers retained 13 recorded/12 recognized, 92.3 percent and refused a
+  definite future normal-attendance requirement without the missing record.
+- Keep compact opt-in; no conclusion of general speed gain or regression.
+
+Implementation by Sol; review and testing by primary
+- LMS_CHATBOT_PARALLEL_PREP=1 enables only chat endpoints; default OFF.
+- Common schedule loader and supervisor overlap because supervisor consumes
+  message history, not the common schedule. Join before downstream nodes.
+- /init keeps its prior contract; direct explicit common context remains valid.
+- Loader is an injected dependency; UID/cohort and the single-worker executor
+  are request-local. No future/executor is stored in graph state/checkpoints.
+- Supervisor failure drains the worker and preserves the supervisor exception.
+  Shared-load errors use the previous unavailable-context response.
+- Missing context/session fields explicitly clear prior graph-state values.
+- No threshold, calculation, retrieval, routing prompt or answer prompt changes.
+- New metrics: shared_context_ms, supervisor_prepare_wall_ms,
+  shared_context_overlap_ms and parallel_prep_enabled. supervisor_ms measures
+  supervisor only. Node wall time excludes eager API work in serial mode;
+  compare from BEFORE _chat_inputs for a fair preparation measurement.
+
+Actual preparation benchmark
+- Same non-personal question; actual read-only cohort_34 common schedule and
+  actual supervisor, three pairs with alternating serial/parallel order.
+- One untimed common schedule warmup. No private attendance was queried.
+- Six model calls; retries 0. No embeddings, downstream retrieval or answer
+  generation in this preparation benchmark. Two additional answer calls above
+  bring this task to eight model calls total.
+
+Pair     Serial preparation     Parallel preparation     Overlap
+1        6484 ms                3828 ms                   2642 ms
+2        6350 ms                3009 ms                   2706 ms
+3        5750 ms                4468 ms                   2855 ms
+Mean     6194.7 ms              3768.3 ms
+
+Observed mean reduction: 2426.3 ms, approximately 39.2 percent of PREPARATION.
+All six common context SHA256 hashes identical, scheduled_days=120.
+All six selected the same route/namespaces/student scope. Model elapsed time
+varied across executions, so the mean is not a production guarantee or p95.
+The overlap measurement directly confirms the schedule I/O ran during supervisor.
+This is not browser end-to-end timing, cold-start testing or production load testing.
+
+Verification
+- Full chatbot offline suite: 161 tests passed in 8.063 seconds.
+- Seven new tests: actual overlap/join, four concurrent isolated sessions,
+  cleanup on supervisor failure, identical loader-error fallback, explicit/empty
+  context handling, eager-default/deferred API, and graph downstream answer input.
+- Fixed supervisor/fixture runs produce byte-identical answer-chain inputs and
+  identical calculation context between serial and parallel modes.
+- Additional live full-answer accuracy is not claimed for the parallel branch;
+  the changed stage was measured live and downstream equivalence checked offline.
+- No running local 18011 process was found; no server restart or deployment.
+
+Rollout and rollback
+- Existing serial mode stays default. Local/staging opt-in first; unset the flag
+  to return to the serial path. Compact remains legacy by default independently.
+- Reject rollout for any calculation/source/cohort isolation regression, added
+  errors, or worse latency under representative repeated/concurrent traffic.
+- One additional worker per in-flight chat may affect capacity; four-session
+  isolation tests do not substitute for representative concurrency/load testing.
+
+Artifacts (local workspace output/parallel-prep-20261012)
+prior-latency-breakdown.json, benchmark.py, results.json, call-audit.json,
+repeat_answer.py, repeat-answer-results.json, repeat-call-audit.json.
+Both call audit files must be counted: 6 + 2 = 8.

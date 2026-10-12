@@ -1,0 +1,44 @@
+Production release: login warmup and calculation-rules integration
+Date: 2026-10-12
+
+Source / delivery
+- develop advanced from b07537ff1aec664ebd4c2d9ad19832a31bbf9e12 to f773ddd9e123d71876ccff351dc8763835236c7c.
+- This report is a documentation-only follow-up; deployed application source is f773ddd.
+- Source archive SHA256: 700009e60be74efc78ceca02c315d2a898ebabb833a4ae38fe41dc99a57c2747.
+- Approved private S3 object: _deploy/login-warmup-20261012-f773ddd/source.tar.gz.
+- No credentials, environment files or student records included in the archive.
+- Each EC2 built a source-only overlay on its existing immutable production base, with build network disabled. These are local Docker images, not new ECR images.
+- API image: lms-api:warmup-20261012-f773ddd
+  sha256:160780b0cdce0a520962e8ff3838cafd3a9460cacaad23a869a272f859b4feb5
+- AI image: lms-ai:warmup-20261012-f773ddd
+  sha256:c4d479352bd6078f3799f1d20d7fa8b28640c54f2b3ffd7db1be7b73cffbf8d4
+- Existing production settings mount and authentication Redis preserved. API and worker replaced; beat remains off. No DB migration or policy/attendance modification.
+- Frontend assets were not redeployed. Existing workflow does not deploy develop automatically; this rollout used SSM.
+
+Runtime
+- LMS_CHATBOT_WARMUP=1 on Django and AI.
+- AI compose includes deploy/docker-compose.chat-cache.yml.
+- Separate chat-cache Redis: no host port, 128 MiB maxmemory, 256 MiB container limit, no persistence.
+- Django authentication/Celery Redis remains separate.
+- Login/bootstrap dispatches preparation asynchronously. Cache hits revalidate authorization and source revisions. Cache failure falls back to source reads.
+
+Verification
+- Candidate chatbot suite: 194 passed (primary independent verification).
+- API/auth/password/curriculum/policy suite: 24 passed in built production image (6.325 s).
+- AI streaming/cache/rules/calendar suite: 24 passed in built production image (1.812 s).
+- Production AI readiness and Redis PING passed.
+- Production bootstrap: 200 using a real server-issued access session; temporary refresh session revoked afterwards. This verifies authenticated session/bootstrap integration, not an end-to-end password login.
+- Background preparation produced both shared and personal contexts without explicit preparation from the verification script.
+- Separate AI process loaded both contexts with source fallback forbidden; both exactly matched fresh source results.
+- One measured sample: shared cache 30.27 ms vs fresh source 1178.71 ms; personal cache 32.72 ms vs fresh source 36.16 ms. TTL at inspection: 276 s.
+- These samples are not a controlled benchmark, may include cold-start effects, and do not establish total chatbot latency improvement.
+- Public site GET / returned 200; unauthenticated /api/bootstrap returned 401.
+- This deployment verification made zero model calls. Full production answer/streaming timing remains a subsequent measurement.
+
+Recovery / reproducibility
+- Per-host release directory: /opt/skn34-lms/releases/warmup-20261012-f773ddd
+- Source hashes/base manifests and built-image metadata retained there.
+- before-api/runtime.env and before-ai/runtime.env contain protected pre-release environment backups; do not copy into Git or logs.
+- Restore the corresponding environment backup and recreate the relevant service with the existing base compose files to restore the previous image. For API also recreate worker and reload nginx. For AI stop the chat-cache service if rolling back warmup entirely.
+- Deployment scripts implement automatic restoration if readiness fails.
+- Future rebuilds require the approved archive and existing base image digests; do not assume the local release tag is available from ECR on a replacement host.

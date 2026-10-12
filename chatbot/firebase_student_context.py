@@ -21,6 +21,7 @@ DATE_RE = re.compile(
     r"(\d{1,2})\s*(?:월|[./-])\s*(\d{1,2})\s*일?"
 )
 ALLOWED_SCOPES = {
+    "student_attendance",
     "student_private",
     "cohort_shared",
     "curriculum_files",
@@ -43,10 +44,10 @@ MAX_FILE_BYTES = 8 * 1024 * 1024
 MAX_FILE_TEXT = 8_000
 
 
-def _connect():
+def _connect(**connection_options):
     # Read-only context queries are independent; one missing legacy table must
     # not leave the transaction aborted for every later scope.
-    return connect(row_factory=dict_row, autocommit=True)
+    return connect(row_factory=dict_row, autocommit=True, **connection_options)
 
 
 def _redis():
@@ -96,10 +97,27 @@ def _user_id(cur, uid: str) -> int | None:
 
 def load_unit_period_context(
     session: dict[str, Any], today: date | None = None, *, include_attendance: bool = True,
+    include_record_details: bool = False,
+) -> dict[str, Any]:
+    from chatbot.context_cache import enabled, load_cached_context
+    if enabled():
+        return load_cached_context(session, loader=_load_unit_period_context,
+            today=today, include_attendance=include_attendance,
+            include_record_details=include_record_details)
+    return _load_unit_period_context(session, today=today,
+        include_attendance=include_attendance, include_record_details=include_record_details)
+
+
+def _load_unit_period_context(
+    session: dict[str, Any], today: date | None = None, *, include_attendance: bool = True,
+    include_record_details: bool = False,
+    _connection_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     cohort = session["cohort"]
     uid = session["uid"]
-    with _connect() as conn:
+    # Foreground keeps its original connection settings in both OFF and ON
+    # modes. Only a background caller explicitly supplies bounded options.
+    with _connect(**(_connection_options or {})) as conn:
         cur = conn.cursor()
         cid, _code = _cohort_ids(cur, cohort)
         if cid is None:
@@ -110,19 +128,9 @@ def load_unit_period_context(
         start, end = _to_kst_date(cohort_data.get("start_date")), _to_kst_date(cohort_data.get("end_date"))
         if not start or not end:
             return {"unavailable_reason": "기수의 개강일 또는 종강일이 등록되지 않았습니다"}
-        if not include_attendance:
-            # Calendar boundaries do not depend on a PDF, lesson schedule or attendance.
-            context = calculate_unit_period_context(start, end, today=today or datetime.now(KST).date())
-            context["periods"] = [
-                {key: period[key] for key in ("number", "start_date", "end_date")}
-                for period in context["periods"]
-            ]
-            context["calculation_notes"] = context["calculation_notes"][:1]
-            return context
-        user_id = _user_id(cur, uid)
         scheduled_dates: set[date] = set()
         sheet = cur.execute(
-            "SELECT id FROM curriculum_sheets WHERE cohort_id = %s ORDER BY uploaded_at DESC NULLS LAST LIMIT 1",
+            "SELECT id FROM curriculum_sheets WHERE cohort_id = %s ORDER BY uploaded_at DESC NULLS LAST, id DESC LIMIT 1",
             (cid,),
         ).fetchone()
         if sheet:
@@ -133,6 +141,39 @@ def load_unit_period_context(
                 parsed = parse_schedule_date(str(row.get("date_label") or ""), start)
                 if parsed and start <= parsed <= end:
                     scheduled_dates.add(parsed)
+        from chatbot.active_policy_rules import load_active_snapshot, allowance_rules, validated_calendar_basis
+        snapshot, rules, calendar_basis = None, None, None
+        try:
+            snapshot = load_active_snapshot(cur, _code)
+            calendar_basis = validated_calendar_basis(snapshot)
+        except Exception:
+            # Keep source dates/raw schedule; never substitute a common calendar.
+            pass
+        if snapshot and calendar_basis:
+            try:
+                rules = allowance_rules(snapshot)
+            except Exception:
+                # Missing numeric criteria do not invalidate an extracted calendar.
+                pass
+        if not include_attendance:
+            # Shared schedule counts do not require access to personal attendance.
+            context = calculate_unit_period_context(start, end, today=today or datetime.now(KST).date(),
+                scheduled_dates=scheduled_dates, require_policy=True,
+                calendar_basis=calendar_basis, cohort=_code)
+            context['scheduled_days_source'] = 'curriculum_rows' if scheduled_dates else 'unavailable'
+            context['policy_calculation'] = snapshot or {'status': 'unavailable', 'criteria': {}}
+            # A shared schedule carries no personal attendance or allowance estimate.
+            context.pop('raw_attendance', None)
+            context["periods"] = [
+                {key: period[key] for key in ("number", "start_date", "end_date", "scheduled_days")}
+                for period in context["periods"]
+            ]
+            context["calculation_notes"] = context["calculation_notes"][:1] + [
+                'scheduled_days는 등록 커리큘럼에서 날짜를 중복 제거해 집계한 수업 예정일 수다. '
+                '기간 경계의 검토 상태와 별개이며, 일정 등록의 완전성·승인을 뜻하지 않는다.'
+            ]
+            return context
+        user_id = _user_id(cur, uid)
         attendance: dict[date, str] = {}
         if user_id:
             for row in cur.execute(
@@ -145,13 +186,35 @@ def load_unit_period_context(
                 status = str(row.get("status") or "")
                 if day and status:
                     attendance[day] = status
-        return calculate_unit_period_context(
+        context = calculate_unit_period_context(
             start,
             end,
             today=today or datetime.now(KST).date(),
             scheduled_dates=scheduled_dates,
             attendance_records=attendance,
+            rules=rules,
+            require_policy=True,
+            calendar_basis=calendar_basis,
+            cohort=_code,
         )
+        context['scheduled_days_source'] = 'curriculum_rows' if scheduled_dates else 'unavailable'
+        context['policy_calculation'] = snapshot or {'status': 'unavailable', 'criteria': {}}
+        context['calculation_purpose'] = 'allowance'
+        if include_record_details:
+            context['attendance_records'] = [
+                {'date': day.isoformat(), 'status': status}
+                for day, status in sorted(attendance.items()) if start <= day <= end
+            ]
+        if snapshot:
+            from chatbot.active_policy_rules import completion_progress
+            context['completion_progress'] = completion_progress(snapshot, start, end,
+                today or datetime.now(KST).date(), scheduled_dates, attendance)
+        # An active upload is not an effective-date history. Do not rejudge past periods.
+        for period in context['periods']:
+            if period['number'] != context['current_unit_period']:
+                for field in ('requirement_met', 'attendance_rate', 'absence_equivalent_days', 'recognized_attendance_days'):
+                    period[field] = None
+        return context
 
 
 def _safe(value: Any) -> Any:
@@ -525,6 +588,16 @@ def load_student_context(
     selected = list(dict.fromkeys(scope for scope in scopes if scope in ALLOWED_SCOPES))
     data: dict[str, Any] = {}
     errors: dict[str, str] = {}
+    # The attendance loader already resolves cohort/user and reads the schedule.
+    # Avoid an outer connection and repeated identity queries for this one scope.
+    from chatbot.cohort_document_rag import valid_cohort_code
+    if selected == ['student_attendance'] and valid_cohort_code(cohort):
+        _put(data, errors, 'student_attendance', lambda: {
+            'unit_period_context': load_unit_period_context(
+                {'cohort': cohort, 'uid': uid}, include_record_details=True)
+        })
+        return {'cohort': cohort, 'as_of': datetime.now(KST).isoformat(),
+                'requested_scopes': selected, 'data': data, 'errors': errors}
     with _connect() as conn:
         cur = conn.cursor()
         cid, code = _cohort_ids(cur, cohort)
@@ -538,6 +611,9 @@ def load_student_context(
                 "errors": {"cohort": "not_found"},
             }
         loaders: dict[str, Callable[[], Any]] = {
+            "student_attendance": lambda: {
+                "unit_period_context": load_unit_period_context({"cohort": code, "uid": uid}, include_record_details=True)
+            },
             "student_private": lambda: _student_private(cur, cid, uid, user_id),
             "cohort_shared": lambda: _cohort_shared(cur, cid, code),
             "curriculum_files": lambda: curriculum_context(cur, cid, code, query),

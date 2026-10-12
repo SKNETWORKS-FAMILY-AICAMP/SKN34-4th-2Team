@@ -1,0 +1,263 @@
+{
+  "date": "2026-10-12",
+  "model": "gpt-6-luna",
+  "api_calls": 9,
+  "production_changed": false,
+  "paired_scope": "Same production AI host, isolated answer-only calls with identical synthetic fixtures; no retrieval, DB or browser",
+  "paired_results": [
+    {
+      "case": "80",
+      "mode": "default",
+      "context_sha256": "e90743f277c217ba817439b7e3db7a395823210f527eabc11adc55bb9377af32",
+      "context_chars": 14793,
+      "first_chunk_ms": 639.56,
+      "first_callback_ms": 1049.07,
+      "first_text_ms": 6023.6,
+      "total_ms": 7590.92,
+      "text_chunks": 203,
+      "block_types": {
+        "reasoning": 2,
+        "text": 205
+      },
+      "usage": {
+        "input_tokens": 8066,
+        "output_tokens": 727,
+        "total_tokens": 8793,
+        "input_token_details": {
+          "cache_creation": 5202,
+          "cache_read": 2861
+        },
+        "output_token_details": {
+          "reasoning": 516
+        }
+      }
+    },
+    {
+      "case": "80",
+      "mode": "low",
+      "context_sha256": "e90743f277c217ba817439b7e3db7a395823210f527eabc11adc55bb9377af32",
+      "context_chars": 14793,
+      "first_chunk_ms": 1467.27,
+      "first_callback_ms": 1668.91,
+      "first_text_ms": 1673.87,
+      "total_ms": 3175.61,
+      "text_chunks": 221,
+      "block_types": {
+        "text": 223
+      },
+      "usage": {
+        "input_tokens": 8066,
+        "output_tokens": 226,
+        "total_tokens": 8292,
+        "input_token_details": {
+          "cache_creation": 8063,
+          "cache_read": 0
+        },
+        "output_token_details": {
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "case": "90",
+      "mode": "low",
+      "context_sha256": "aebdd1620720b0a0c039a9595d2ec4fb78e232a1d2aa56b418fcc0def59a9f41",
+      "context_chars": 14800,
+      "first_chunk_ms": 1123.8,
+      "first_callback_ms": 1527.52,
+      "first_text_ms": 1532.28,
+      "total_ms": 3450.85,
+      "text_chunks": 252,
+      "block_types": {
+        "text": 254
+      },
+      "usage": {
+        "input_tokens": 8114,
+        "output_tokens": 257,
+        "total_tokens": 8371,
+        "input_token_details": {
+          "cache_creation": 5250,
+          "cache_read": 2861
+        },
+        "output_token_details": {
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "case": "90",
+      "mode": "default",
+      "context_sha256": "aebdd1620720b0a0c039a9595d2ec4fb78e232a1d2aa56b418fcc0def59a9f41",
+      "context_chars": 14800,
+      "first_chunk_ms": 363.8,
+      "first_callback_ms": 879.61,
+      "first_text_ms": 8448.04,
+      "total_ms": 9774.26,
+      "text_chunks": 205,
+      "block_types": {
+        "reasoning": 4,
+        "text": 207
+      },
+      "usage": {
+        "input_tokens": 8114,
+        "output_tokens": 1058,
+        "total_tokens": 9172,
+        "input_token_details": {
+          "cache_creation": 5250,
+          "cache_read": 2861
+        },
+        "output_token_details": {
+          "reasoning": 845
+        }
+      }
+    },
+    {
+      "case": "missing",
+      "mode": "default",
+      "context_sha256": "d80f944a40f6a82c3ab1a2087f9adc9dd2fffecbf0e28b08fe797433766719a5",
+      "context_chars": 13537,
+      "first_chunk_ms": 345.18,
+      "first_callback_ms": 951.2,
+      "first_text_ms": 6091.48,
+      "total_ms": 8037.44,
+      "text_chunks": 220,
+      "block_types": {
+        "reasoning": 4,
+        "text": 222
+      },
+      "usage": {
+        "input_tokens": 7737,
+        "output_tokens": 881,
+        "total_tokens": 8618,
+        "input_token_details": {
+          "cache_creation": 4873,
+          "cache_read": 2861
+        },
+        "output_token_details": {
+          "reasoning": 653
+        }
+      }
+    },
+    {
+      "case": "missing",
+      "mode": "low",
+      "context_sha256": "d80f944a40f6a82c3ab1a2087f9adc9dd2fffecbf0e28b08fe797433766719a5",
+      "context_chars": 13537,
+      "first_chunk_ms": 347.44,
+      "first_callback_ms": 505.04,
+      "first_text_ms": 1845.23,
+      "total_ms": 3387.46,
+      "text_chunks": 219,
+      "block_types": {
+        "reasoning": 2,
+        "text": 221
+      },
+      "usage": {
+        "input_tokens": 7737,
+        "output_tokens": 361,
+        "total_tokens": 8098,
+        "input_token_details": {
+          "cache_creation": 4873,
+          "cache_read": 2861
+        },
+        "output_token_details": {
+          "reasoning": 134
+        }
+      }
+    }
+  ],
+  "candidate_scope": "Local candidate answer graph; synthetic data; no retrieval/DB; not a production speed benchmark",
+  "candidate_results": [
+    {
+      "case": "80",
+      "first_text_ms": 3106.45,
+      "total_ms": 4215.84,
+      "text_chunks": 164,
+      "metrics": {
+        "answer_model_ms": 3999,
+        "answer_ttft_ms": 2891,
+        "answer_first_callback_ms": 2376,
+        "answer_first_nonempty_callback_ms": 2891,
+        "answer_first_model_event_ms": 2376,
+        "answer_visible_ttft_ms": 2891,
+        "answer_stream_events": 168,
+        "answer_visible_deltas": 164,
+        "answer_nontext_events": 4,
+        "answer_reasoning_events": 0,
+        "answer_reasoning_tokens": 0,
+        "answer_cached_input_tokens": 0,
+        "answer_reasoning_effort": "low",
+        "token_in": 8056,
+        "token_out": 169
+      },
+      "answer": "현재 단위기간은 **9월 16일~10월 15일**이며, 등록 커리큘럼 기준 수업 예정일은 18일이에요. 기록된 14일 중 인정 출석은 13일(92.9%)이고, 80% 기준에는 전체 기간 기준으로 인정 출석 15일이 필요해요.\n\n앞으로 정상 출석하고 추가 결석 환산이 없다면 **정상 출석 2일**이 더 필요해요. 지각·조퇴·외출이 1회 더 누적되면 결석 환산이 1일 추가돼요.\n\n단위기간 구분과 계산 기준은 검토 중이며, 실제 장려금 지급 여부는 별도 확인이 필요해요."
+    },
+    {
+      "case": "90-late",
+      "first_text_ms": 1268.1,
+      "total_ms": 2224.93,
+      "text_chunks": 122,
+      "metrics": {
+        "answer_model_ms": 2205,
+        "answer_ttft_ms": 1241,
+        "answer_first_callback_ms": 918,
+        "answer_first_nonempty_callback_ms": 1241,
+        "answer_first_model_event_ms": 918,
+        "answer_visible_ttft_ms": 1249,
+        "answer_stream_events": 126,
+        "answer_visible_deltas": 122,
+        "answer_nontext_events": 4,
+        "answer_reasoning_events": 0,
+        "answer_reasoning_tokens": 0,
+        "answer_cached_input_tokens": 2861,
+        "answer_reasoning_effort": "low",
+        "token_in": 8151,
+        "token_out": 126
+      },
+      "answer": "아니요. 다음 수업에 지각하면 기록된 15일 중 인정 출석은 12일이고, 이후 정상 출석이 **5일 더 필요해요**. 남은 예정 수업일은 3일이라 정상 출석만으로는 목표에 도달하기 어려워요.\n\n지각·조퇴·외출이 1회 더 누적되면 결석 환산이 1일 추가돼요. 일정 구분과 계산 기준은 검토 중이며, 실제 장려금 지급 여부도 별도 확인이 필요해요."
+    },
+    {
+      "case": "mixed-criteria",
+      "first_text_ms": 1417.7,
+      "total_ms": 2058.25,
+      "text_chunks": 72,
+      "metrics": {
+        "answer_model_ms": 2040,
+        "answer_ttft_ms": 1143,
+        "answer_first_callback_ms": 801,
+        "answer_first_nonempty_callback_ms": 1143,
+        "answer_first_model_event_ms": 801,
+        "answer_visible_ttft_ms": 1401,
+        "answer_stream_events": 78,
+        "answer_visible_deltas": 72,
+        "answer_nontext_events": 6,
+        "answer_reasoning_events": 2,
+        "answer_reasoning_tokens": 34,
+        "answer_cached_input_tokens": 2861,
+        "answer_reasoning_effort": "low",
+        "token_in": 8131,
+        "token_out": 113
+      },
+      "answer": "아니요, 기준이 달라요. 제공된 검토 중인 자료에는 수료 기준이 전체 훈련기간 출석률 **90% 이상**, 장려금 기준이 단위기간 출석률 **80% 이상**으로 나와 있어요. 두 기준 모두 아직 확정된 규정으로 확인되지는 않았어요."
+    }
+  ],
+  "review": {
+    "reviewer": "primary agent",
+    "method": "manual factual review against deterministic synthetic fixtures, no LLM grader",
+    "passed": [
+      "80 percent: 13 recognized of14,2 more normal days",
+      "90 percent:12 recognized of14,5 more needed,4 remain; after late5 needed,3 remain",
+      "missing record: recognized deficit separated from unknown future required days",
+      "completion90 percent over whole training versus allowance80 percent per unit",
+      "streamed visible text equals final text for all3 candidate calls"
+    ],
+    "offline_regression_tests": 53
+  },
+  "limitations": [
+    "Three pairs only; not repeated statistical benchmark",
+    "Input context smaller than observed production request",
+    "Provider cached input tokens varied",
+    "Local candidate timings are not compared to US-east baseline",
+    "Global low mode remains opt-in and not activated in production"
+  ]
+}

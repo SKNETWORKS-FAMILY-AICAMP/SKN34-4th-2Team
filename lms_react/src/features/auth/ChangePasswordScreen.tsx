@@ -10,6 +10,7 @@ export function ChangePasswordScreen() {
   const { user, changePassword, skipPasswordChange } = useSession();
   const navigate = useNavigate();
   const [next, setNext] = useState('');
+  const [current, setCurrent] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -27,7 +28,7 @@ export function ChangePasswordScreen() {
       return;
     }
     setSaving(true);
-    void changePassword(next).then((result) => {
+    void changePassword(next, current).then((result) => {
       if (!result.ok) {
         setError(result.message);
         setSaving(false);
@@ -54,6 +55,9 @@ export function ChangePasswordScreen() {
       <Card title="비밀번호 변경" className="centered-card">
         <p className="muted">첫 로그인입니다. 임시 비밀번호를 바꿔 주세요.</p>
         <form className="form-grid" onSubmit={submit}>
+          <Field label="현재 비밀번호">
+            <TextInput type="password" value={current} onChange={(e) => setCurrent(e.target.value)} />
+          </Field>
           <Field label="새 비밀번호" hint="8자 이상">
             <TextInput type="password" value={next} onChange={(e) => setNext(e.target.value)} />
           </Field>
