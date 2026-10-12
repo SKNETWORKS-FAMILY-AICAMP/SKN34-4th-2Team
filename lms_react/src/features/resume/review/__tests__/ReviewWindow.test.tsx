@@ -101,6 +101,45 @@ const button = (label: string) =>
   [...document.querySelectorAll('button')].find((b) => b.textContent?.includes(label)) as HTMLButtonElement | undefined;
 const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
 
+/** 편집기가 잠글 이력서 — 화면에 그대로 적어 둔다 */
+function LockProbe() {
+  const { reviewingResumeId } = useReviewDock();
+  return <output data-testid="locked">{reviewingResumeId ?? 'none'}</output>;
+}
+
+function GeneralOpener() {
+  const { openReview } = useReviewDock();
+  useEffect(() => {
+    openReview('general-review-r1', { resumeId: 'r1', generalReview: true, onChanged: () => undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
+}
+
+describe('첨삭 중 이력서 잠금', () => {
+  const locked = () => document.querySelector('[data-testid="locked"]')?.textContent;
+
+  it('일반 첨삭은 원본 이력서를 잠근다', async () => {
+    act(() => root.render(<MemoryRouter><ReviewDockHost><LockProbe /><GeneralOpener /></ReviewDockHost></MemoryRouter>));
+    await settle();
+    expect(locked()).toBe('r1');
+  });
+
+  it('공고 맞춤 첨삭은 원본이 아니라 맞춤 이력서를 잠근다', async () => {
+    act(() => root.render(<MemoryRouter><ReviewDockHost><LockProbe /><Opener saved={{}} /></ReviewDockHost></MemoryRouter>));
+    await settle();
+    expect(locked()).toBe('tailored_1');
+  });
+
+  it('창을 닫으면 잠금이 풀린다', async () => {
+    act(() => root.render(<MemoryRouter><ReviewDockHost><LockProbe /><GeneralOpener /></ReviewDockHost></MemoryRouter>));
+    await settle();
+    act(() => (document.querySelector('button[aria-label="닫기"]') as HTMLButtonElement).click());
+    await settle();
+    expect(locked()).toBe('none');
+  });
+});
+
 describe('첨삭 창', () => {
   it('부분 실패 완료 안내와 요건 대기를 성공 및 0/N으로 표시하지 않는다',async ()=>{
     const saved={version:1,resume_id:'r1',job_id:'JOB-1',result:{...review,questions:[],
@@ -216,13 +255,13 @@ describe('첨삭 창', () => {
   it('원문 STAR의 미확인은 부족 체크리스트가 아니며 근거 인용을 제공한다', () => {
     act(() => root.render(<ReviewStarCells check={{ fieldPath: 'projects[0].description', present: ['action'],
       reason: '', diagnosticStatus: 'complete', quotes: { action: 'API를 구현했습니다.' } }} />));
-    expect(text()).toContain('현재 원문 STAR');
+    expect(text()).toContain('STAR 참고');
     expect(text()).toContain('결과 근거 미확인');
     expect(text()).not.toContain('빠짐');
     expect(document.querySelector('[title="API를 구현했습니다."]')).not.toBeNull();
+    // 판정 전(문장을 다듬어 다시 봐야 할 때)은 학생에게 띄우지 않는다
     act(() => root.render(<ReviewStarCells check={{ fieldPath: 'projects[0].description', present: [], reason: '', diagnosticStatus: 'pending' }} />));
-    expect(text()).toContain('판정 대기');
-    expect(text()).not.toContain('근거 미확인');
+    expect(text()).toBe('');
     act(() => root.render(<ReviewStarCells check={{ fieldPath: 'selfIntroduction.motivation.body', present: [], reason: '', diagnosticStatus: 'not_applicable' }} />));
     expect(text()).toBe('');
   });

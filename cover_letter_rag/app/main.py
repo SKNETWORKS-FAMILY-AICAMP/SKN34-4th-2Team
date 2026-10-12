@@ -269,6 +269,98 @@ def question_answer_as_user(
         raise HTTPException(status_code=503, detail=_safe_error(exc)) from exc
 
 
+class QuestionWorkflowNote(StrictModel):
+    question: str = Field(max_length=500)
+    answer: str = Field(max_length=3000)
+
+
+class QuestionWorkflowItem(StrictModel):
+    """화면에 있는 최신 메모 · 질문 답. 문항 글 · 글자 수는 사본에 저장된 것을 쓴다."""
+
+    id: str = Field(min_length=1, max_length=100)
+    memo: str = Field(default='', max_length=2000)
+    notes: list[QuestionWorkflowNote] = Field(default_factory=list, max_length=12)
+    written: str = Field(default='', max_length=6000)  # 지금 답 칸의 글 — 문항별로 쓸 때 다른 문항과 겹치지 않게
+
+
+class ProxyQuestionWorkflowRequest(StrictModel):
+    """LMS(Django) 프록시용. 공고 맞춤 지원 사본의 회사 문항 전체에 답을 쓴다."""
+
+    uid: str = Field(min_length=1, max_length=128)
+    cohort_id: str = Field(min_length=1, max_length=200, pattern=r'^[^/]+$')
+    resume_id: str = Field(min_length=1, max_length=200, pattern=r'^[^/]+$')
+    tailored_resume_id: str = Field(min_length=1, max_length=100, pattern=r'^[A-Za-z0-9_-]+$')
+    questions: list[QuestionWorkflowItem] = Field(default_factory=list, max_length=20)
+    # 한 문항만 다시 쓸 때 — 앞서 돌려준 plan 을 주면 계획을 다시 세우지 않는다
+    only: str | None = Field(default=None, max_length=100)
+    plan: dict | None = None
+
+
+def get_question_workflow_llm(settings: Settings = Depends(get_settings)):
+    from app.question_workflow.workflow import build_workflow_llm
+    if not settings.openai_api_key:
+        raise HTTPException(status_code=503, detail='답변을 쓸 모델이 설정되어 있지 않습니다(OPENAI_API_KEY).')
+    return build_workflow_llm(settings)
+
+
+@app.post('/api/v1/resumes/question-workflow/proxy')
+def question_workflow_as_user(
+    request: ProxyQuestionWorkflowRequest,
+    gateway: FirebaseGateway = Depends(get_context_gateway),
+    settings: Settings = Depends(get_settings),
+    llm=Depends(get_question_workflow_llm),
+):
+    """공고 맞춤 지원의 회사 문항 전체 답 — 문항을 함께 계획하고 쓴다(app/question_workflow).
+
+    문항 하나씩 쓰는 question-answer 와 달리 문항끼리 경험을 나누고, 같은 이야기를 여러 문항에 자세히 쓰지 않는다.
+    사본을 고치지 않고 답만 돌려준다. 저장은 화면이 사용자가 고른 답으로 한다. Django 만 부른다.
+    """
+    from app.job_requirements import build_requirement_extractor, load_or_extract_requirements
+    from app.matching_handoff import load_selected_job
+    from app.question_workflow.models import QuestionInput
+    from app.question_workflow.workflow import QuestionWorkflow
+    try:
+        tailored = gateway.get_owned_tailored_resume(
+            request.cohort_id, request.resume_id, request.tailored_resume_id, request.uid,
+        )
+        content = tailored.get('content') or {}
+        latest = {item.id: item for item in request.questions}
+        questions = []
+        for saved in content.get('companyQuestions') or []:
+            if not isinstance(saved, dict) or not str(saved.get('question') or '').strip():
+                continue
+            qid = str(saved.get('id') or '')
+            limit = saved.get('limit')
+            item = latest.get(qid)
+            notes = ([n.model_dump() for n in item.notes] if item else
+                     [{'question': str(n.get('question') or ''), 'answer': str(n.get('answer') or '')}
+                      for n in saved.get('notes') or [] if isinstance(n, dict)])
+            questions.append(QuestionInput(
+                qid, str(saved['question']), int(limit) if isinstance(limit, (int, float)) and limit > 0 else None,
+                item.memo if item else str(saved.get('memo') or ''), [n for n in notes if n['answer'].strip()],
+                group=str(saved.get('group') or ''),
+                written=item.written if item else str(saved.get('answer') or '')))
+        if not questions:
+            raise ReviewInputError('company_question_not_found')
+        job = load_selected_job(settings.matching_job_store_path, tailored.get('jobId') or '')
+        requirements = load_or_extract_requirements(
+            gateway, build_requirement_extractor(settings), job['text'], job['source'],
+        )
+        result = QuestionWorkflow(llm).run(content=content, questions=questions, job=job, requirements=requirements,
+                                           only=request.only, saved_plan=request.plan)
+        return {**result, 'requirements': [{'id': r.id, 'group': r.group, 'label': r.label} for r in requirements]}
+    except ResumeAccessError as exc:
+        raise HTTPException(status_code=403, detail='Resume access denied') from exc
+    except ResumeNotFoundError as exc:
+        raise HTTPException(status_code=404, detail='Resume was not found') from exc
+    except ReviewConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ReviewInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (RuntimeError, GoogleAPIError, GoogleAuthError, OpenAIError, LangChainException) as exc:
+        raise HTTPException(status_code=503, detail=_safe_error(exc)) from exc
+
+
 @app.post('/api/v1/resumes/tailored', response_model=TailoredResumeResponse)
 def create_tailored_resume(
     request: TailoredResumeCreateRequest,

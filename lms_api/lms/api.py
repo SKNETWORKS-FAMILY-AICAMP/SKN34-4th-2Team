@@ -1115,6 +1115,49 @@ def resume_review_question_answer(request, body: QuestionAnswerIn):
     return _review_call("/api/v1/resumes/question-answer/proxy", payload, timeout=120)
 
 
+class QuestionWorkflowNoteIn(Schema):
+    question: str = Field(max_length=500)
+    answer: str = Field(max_length=3000)
+
+
+class QuestionWorkflowItemIn(Schema):
+    id: str = Field(max_length=100)
+    memo: str = Field(default='', max_length=2000)
+    notes: list[QuestionWorkflowNoteIn] = []
+    written: str = Field(default='', max_length=6000)  # 지금 답 칸의 글
+
+
+class QuestionWorkflowIn(Schema):
+    resumeId: str
+    tailoredResumeId: str
+    questions: list[QuestionWorkflowItemIn] = []
+    only: str | None = Field(default=None, max_length=100)  # 이 문항만 다시 쓰기
+    plan: dict | None = None  # 앞서 받은 계획 — 있으면 계획을 다시 세우지 않는다
+
+
+@api.post("/resume-review/question-workflow")
+def resume_review_question_workflow(request, body: QuestionWorkflowIn):
+    """공고 맞춤 지원 사본의 회사 문항 전체에 답을 쓴다 — 문항을 함께 계획해 경험이 겹치지 않게(app/question_workflow).
+
+    답만 돌려주고 저장은 하지 않는다. 문항이 여러 개라 한 번에 1~3분 걸린다.
+    """
+    row, error = _owned_resume(request, body.resumeId)
+    if error is not None:
+        return error
+    payload = {
+        "uid": row["firebase_uid"],
+        "cohort_id": row["code"],
+        "resume_id": _review_resume_id(row),
+        "tailored_resume_id": body.tailoredResumeId,
+        # 질문 답은 최근 12개만 — 첨삭 서버 요청 한도
+        "questions": [{"id": q.id, "memo": q.memo, "notes": [n.dict() for n in q.notes[-12:]], "written": q.written}
+                      for q in body.questions[:20]],
+        "only": body.only,
+        "plan": body.plan,
+    }
+    return _review_call("/api/v1/resumes/question-workflow/proxy", payload, timeout=300)
+
+
 class TailoredPromoteIn(Schema):
     resumeId: str
     tailoredResumeId: str
@@ -1481,6 +1524,93 @@ def featured_posting_list(request, view: str = "live", tier: str = "", offset: i
         "total": len(shown),
         "counts": {t: sum(1 for c in cards if c["tier"] == t) for t in featured_postings.TIERS},
     }
+
+
+class SharedQuestionItemIn(Schema):
+    question: str = Field(max_length=500)
+    limit: int | None = None
+
+
+class SharedQuestionsIn(Schema):
+    jobId: str = Field(min_length=1, max_length=255)
+    roleName: str = Field(min_length=1, max_length=255)
+    questions: list[SharedQuestionItemIn] = Field(max_length=20)
+    share: bool = True
+
+
+class SharedQuestionReportIn(Schema):
+    reason: str = Field(max_length=40)
+
+
+def _shared_call(fn, *args, **kwargs):
+    from lms import shared_questions
+
+    try:
+        return fn(*args, **kwargs)
+    except shared_questions.SharedQuestionError as exc:
+        return Response({"detail": exc.detail}, status=exc.status)
+
+
+def _role_id(value: str) -> bool:
+    import uuid
+
+    try:
+        uuid.UUID(value)
+        return True
+    except ValueError:
+        return False
+
+
+@api.get("/apply/shared-questions")
+def shared_question_list(request, jobId: str):
+    """공고 맞춤 지원 3단계 — 고른 공고의 회사 · 시즌에 다른 수강생이 정리한 문항(직무별 · 공통). shared_questions.py"""
+    from lms import shared_questions
+
+    user = _require_user(request)
+    return _shared_call(shared_questions.list_shared, user["id"], jobId)
+
+
+@api.post("/apply/shared-questions/check")
+def shared_question_check(request, body: SharedQuestionsIn):
+    """확정 전 — 이름은 다른데 문항이 같은 직무가 있으면 알려 준다(합칠지 묻는다)."""
+    from lms import shared_questions
+
+    user = _require_user(request)
+    questions = [q.dict() for q in body.questions]
+    return _shared_call(shared_questions.check, user["id"], body.jobId, body.roleName, questions)
+
+
+@api.post("/apply/shared-questions")
+def shared_question_save(request, body: SharedQuestionsIn):
+    """학생이 문항을 확정했을 때 남긴다. share=False 면 올린 학생만 본다. 답 · 메모는 받지 않는다."""
+    from lms import shared_questions
+
+    user = _require_user(request)
+    questions = [q.dict() for q in body.questions]
+    return _shared_call(shared_questions.save, user["id"], body.jobId, body.roleName, questions, share=body.share)
+
+
+@api.post("/apply/shared-questions/{role_id}/use")
+def shared_question_use(request, role_id: str):
+    """「이 문항으로 쓰기」 — 사용 수를 올린다(올린 학생 자신은 세지 않는다)."""
+    from lms import shared_questions
+
+    user = _require_user(request)
+    if not _role_id(role_id):
+        return Response({"detail": "정리를 찾을 수 없어요."}, status=404)
+    result = _shared_call(shared_questions.use, user["id"], role_id)
+    return result if isinstance(result, Response) else {"ok": True}
+
+
+@api.post("/apply/shared-questions/{role_id}/report")
+def shared_question_report(request, role_id: str, body: SharedQuestionReportIn):
+    """이상해요 — 2명이 누르면 숨긴다. recruit_role_reports 표가 생기기 전에는 503."""
+    from lms import shared_questions
+
+    user = _require_user(request)
+    if not _role_id(role_id):
+        return Response({"detail": "정리를 찾을 수 없어요."}, status=404)
+    return _shared_call(shared_questions.report, user["id"], role_id, body.reason)
 
 
 @api.get("/postings/{job_id}", auth=None)

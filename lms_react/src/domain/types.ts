@@ -395,6 +395,8 @@ export interface ResumeContent {
 export interface ResumeCompanyQuestion {
   id: string;
   question: string;
+  /** 상위 문항(묶음 제목) — 「적합한 인재인 이유 › ①역량 / ②지원 이유」처럼 한 주제를 나눈 하위 문항이면 그 주제. 같은 경험으로 이어 쓴다 */
+  group?: string;
   /** 글자 수 제한(공백 포함). 모르면 null */
   limit: number | null;
   answer: string;

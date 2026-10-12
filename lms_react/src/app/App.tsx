@@ -10,6 +10,7 @@ import { queryClient } from '../data/queryClient';
 import { CartProvider } from '../features/mileage/cart';
 import { JobPostingScreen } from '../features/jobs/JobPostingScreen';
 import { ReviewDockHost } from '../features/resume/review/ReviewDock';
+import { WriteDockHost } from '../features/jobApply/WriteDock';
 import { PracticeDockHost } from '../features/practice/PracticeDock';
 import { SessionProvider, useSession } from '../features/auth/session';
 import { LoginScreen } from '../features/auth/LoginScreen';
@@ -94,6 +95,8 @@ export function App() {
           <CartProvider>
             {/* 첨삭 창은 화면 위 층에 뜬다. 화면을 옮겨도 진행 중인 첨삭이 남는다 */}
             <ReviewDockHost>
+            {/* 공고 맞춤 지원 자소서 쓰기 창도 같은 층 — 초안을 쓰는 동안 내려두고 다른 화면을 쓴다 */}
+            <WriteDockHost>
             {/* 복습 문제 · 연습장 창도 같은 층 — 탭으로 여러 개, 내려놓기 */}
             <PracticeDockHost>
             <Routes>
@@ -142,6 +145,7 @@ export function App() {
               <Route path="*" element={<Navigate to={RoutePaths.dashboard} replace />} />
             </Routes>
             </PracticeDockHost>
+            </WriteDockHost>
             </ReviewDockHost>
           </CartProvider>
         </TourProvider>

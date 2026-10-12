@@ -137,6 +137,8 @@ export function mapUser(row: Record<string, unknown>): User {
     socialLinks: ((row.socialLinks ?? row.social_links) as Record<string, string> | null) ?? {},
     // 강사 · 관리자는 DB 에 {} 로 들어 있다 — 빠진 목록은 빈 목록으로(화면이 .length 에서 멈췄다)
     jobPreferences: withJobDefaults(row.jobPreferences ?? row.job_preferences),
+    // DB 는 date 라 「1996-10-10」 으로 온다. 앞 10글자만(시각이 붙어 와도 날짜 칸에 들어가게)
+    birthDate: row.birthDate || row.birth_date ? String(row.birthDate ?? row.birth_date).slice(0, 10) : undefined,
     photoUrl: row.photoUrl || row.photo_url ? String(row.photoUrl ?? row.photo_url) : undefined,
     mileageBalance: Number(row.mileageBalance ?? row.mileage_balance ?? 0),
     createdAt: asDate(row.createdAt ?? row.created_at),

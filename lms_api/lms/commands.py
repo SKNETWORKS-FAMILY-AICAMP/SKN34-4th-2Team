@@ -143,6 +143,9 @@ def op_update_profile(cur, user, p):
         "personalEmail": "personal_email",
         "photoStoragePath": "photo_storage_key",
     }
+    if p.get("birthDate") == "":
+        # 마이페이지에서 생년월일을 지우면 '' 가 온다 — date 칸에는 NULL 로 넣는다
+        p = {**p, "birthDate": None}
     if user["role"] == "admin":
         # 관리자만 — 학생 · 강사 정보 수정, 퇴소 · 복학(비활성)
         mapping.update({"displayName": "display_name", "seatNumber": "seat_number", "isActive": "is_active"})

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
 
 import { http } from '../../../data/http';
+import { waitForResumeWrites } from '../../../data/repository';
 import type { Resume } from '../../../domain/types';
 import { Icon } from '../../../ui/Icon';
 import { RobotHead } from '../../../ui/RobotHead';
@@ -249,6 +250,8 @@ export function CoachAsk({
       preferRoles: mem.query.preferRoles,
     };
     try {
+      // 서버가 DB 의 이력서를 읽으므로 방금 친 글이 다 도착한 뒤에 묻는다
+      if (body.resumeId !== null) await waitForResumeWrites(resume.id);
       let data: ChatResponse;
       try {
         // 서버가 실제로 하는 일을 띄우고, 답을 쓰는 동안의 글을 그대로 보인다

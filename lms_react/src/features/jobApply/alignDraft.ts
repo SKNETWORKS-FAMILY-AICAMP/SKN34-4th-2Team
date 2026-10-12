@@ -23,6 +23,17 @@ export interface PostingRequirement {
   postingQuote: string;
 }
 
+/** 첨삭 서버 요건 응답(requirements[]) → 화면 행. 2단계 요건 목록과 자소서 쓰기 창이 같이 쓴다 */
+export function requirementRows(data: { requirements?: unknown }): PostingRequirement[] {
+  const list = Array.isArray(data.requirements) ? (data.requirements as Record<string, unknown>[]) : [];
+  return list.map((r) => ({
+    id: String(r.id ?? ''),
+    group: String(r.group ?? ''),
+    label: String(r.label ?? ''),
+    postingQuote: String(r.posting_quote ?? ''),
+  }));
+}
+
 /** 비교용 이름 — 대소문자 · 띄어쓰기 · 점 · 하이픈 · 빗금을 지운다. Node.js = nodejs, Spring Boot = springboot */
 export function skillKey(name: string): string {
   return name.toLowerCase().replace(/[\s._\-/]/g, '');
@@ -117,7 +128,7 @@ export function skillCoverage(content: ResumeContent, skills: PostingSkills): Sk
 
 /**
  * 본문에는 나오는데 기술스택 칸에 없는 공고 기술을 칸에 더한다. 이력서에 근거가 있는 것만 더한다 —
- * 이력서 어디에도 없는 기술(missing)은 넣지 않는다. 그건 첨삭의 「경험 보완」이 물어서 채운다.
+ * 이력서 어디에도 없는 기술(missing)은 넣지 않는다. 써 본 적이 있으면 학생이 문항 메모에 적거나 이력서에 추가한다.
  */
 export function addEvidencedSkills(
   content: ResumeContent,

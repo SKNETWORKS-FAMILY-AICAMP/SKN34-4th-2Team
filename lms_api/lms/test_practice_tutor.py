@@ -1,11 +1,14 @@
 """연습장 튜터 — 「정답 알려 줘」 안내가 문제 셀에 실제로 있는 길을 가리키는지, 잡담 차단 중에도 공부 질문은 받는지."""
 
 from datetime import date
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
-from lms.practice_tutor import ON_TOPIC, STRUGGLE_LIMIT, _problem_payload, _struggles, _thread_key, locked_reply
+from lms.practice_tutor import (
+    ON_TOPIC, PER_DAY, PER_MINUTE, STRUGGLE_LIMIT, _problem_payload, _struggles, _thread_key, ask, locked_reply,
+)
+from lms.study_source_service import StudySourceError
 
 
 def row(kind: str, packages: str = "[]", tries: int = 0, passed: bool = False) -> dict:
@@ -93,3 +96,51 @@ class StruggleTests(SimpleTestCase):
         got = _struggles(cur, 7, 1)
         self.assertEqual(STRUGGLE_LIMIT, len(got))
         self.assertEqual("", got[0]["date"], "수업 날짜가 없으면 빈 칸")
+
+
+class TutorLimitTests(TestCase):
+    """학생 한 명의 LLM 답 한도 — 1분 · 하루. 넘으면 AI 서버를 부르지 않고 429, 대화에도 남기지 않는다(테스트 DB)."""
+
+    def setUp(self) -> None:
+        from lms.models import Users
+
+        self.student = Users.objects.create(password="x", display_name="s", role="student", is_active=True, must_change_password=False)
+        self.teacher = Users.objects.create(password="x", display_name="t", role="instructor", is_active=True, must_change_password=False)
+
+    def turns(self, user, count: int, *, ago: str = "0 seconds", llm: bool = True) -> None:
+        from django.db import connection
+
+        with connection.cursor() as cur:
+            for _ in range(count):
+                cur.execute(
+                    """INSERT INTO study_tutor_turns (user_id, thread_key, role, text, kind, lines, llm, created_at)
+                       VALUES (%s, 'cell', 'assistant', 'a', 'explain', '[]'::jsonb, %s, now() - %s::interval)""",
+                    [user.pk, llm, ago],
+                )
+
+    def ask(self, user):
+        with patch("lms.practice_tutor._call", return_value={"type": "explain", "reply": "답", "lines": [], "llm": True}) as call:
+            result = ask({"id": user.pk, "role": user.role}, {"mode": "cell", "action": "ask", "question": "이 오류는 왜 나요?"})
+        return result, call
+
+    def test_per_minute(self):
+        self.turns(self.student, PER_MINUTE)
+        with self.assertRaises(StudySourceError) as caught:
+            self.ask(self.student)
+        self.assertEqual(429, caught.exception.status)
+        self.assertIn("1분에", caught.exception.detail)
+
+    def test_per_day_counts_only_llm_answers_and_not_teachers(self):
+        self.turns(self.student, PER_DAY - 1, ago="5 minutes")
+        self.turns(self.student, 10, ago="5 minutes", llm=False)  # 잠긴 답 · 잡담 안내는 세지 않는다
+        result, call = self.ask(self.student)
+        self.assertEqual("답", result["reply"])
+        with self.assertRaises(StudySourceError) as caught:
+            self.ask(self.student)
+        self.assertIn("오늘은", caught.exception.detail)
+        self.turns(self.teacher, PER_DAY + 5, ago="5 minutes")
+        self.assertEqual("답", self.ask(self.teacher)[0]["reply"])
+
+    def test_yesterday_does_not_count(self):
+        self.turns(self.student, PER_DAY, ago="25 hours")
+        self.assertEqual("답", self.ask(self.student)[0]["reply"])

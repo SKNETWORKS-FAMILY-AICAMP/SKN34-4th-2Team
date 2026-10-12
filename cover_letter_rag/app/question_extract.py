@@ -367,10 +367,11 @@ def _squash(text: str) -> str:
 
 
 def _limit_in(transcript: str, limit: int | None) -> int | None:
-    """옮긴 글에 그 숫자가 「N자」 꼴로 있을 때만 글자 수로 믿는다(1,000자 · 1000자 둘 다)."""
+    """옮긴 글에 그 숫자가 「N자」 꼴이나 입력칸 글자 수(「0/1000」)로 있을 때만 글자 수로 믿는다(1,000자 · 1000자 둘 다)."""
     if limit is None or not 50 <= limit <= 5000:
         return None
-    pattern = rf'(?<![\d,]){limit:,}\s*자|(?<![\d,]){limit}\s*자'
+    pattern = (rf'(?<![\d,]){limit:,}\s*자|(?<![\d,]){limit}\s*자'
+               rf'|\d\s*/\s*(?:{limit:,}|{limit})(?![\d,])')
     return limit if re.search(pattern, transcript) else None
 
 
@@ -382,13 +383,23 @@ def _clean_group(text: str) -> str:
     return re.sub(r'(을|를)$', '', text.strip()).strip()
 
 
+def _once(text: str) -> str:
+    """같은 문장이 연달아 두 번 — 채용 사이트 제목과 입력칸 안내에 같은 문항이 있어 함께 옮겨진다(신세계 문항, 2026-10-11)."""
+    sentences = [s for s in re.split(r'(?<=[.?!。])\s+', text.strip()) if s]
+    kept = [s for i, s in enumerate(sentences) if i == 0 or _squash(s) != _squash(sentences[i - 1])]
+    return ' '.join(kept)
+
+
 def ground_questions(extracted: QuestionExtractOut) -> dict:
-    """옮긴 글에 실제로 있는 문항만 남긴다. 화면에 줄 모양으로 돌려준다."""
+    """옮긴 글에 실제로 있는 문항만 남긴다. 화면에 줄 모양으로 돌려준다.
+
+    하위 문항은 상위 문항을 group 으로 따로 돌려준다(예전에는 「상위 › 하위」 한 줄로 합쳤다).
+    같은 묶음의 하위 문항은 한 경험을 나눠 답하므로, 쓰는 쪽이 묶음을 알아야 한다."""
     transcript = extracted.transcript or ''
     haystack = _squash(transcript)
     kept, seen, dropped = [], set(), 0
     for item in extracted.questions:
-        question = item.question.strip()
+        question = _once(item.question)
         key = _squash(question)
         if len(key) < 4 or key not in haystack or key in seen:
             dropped += 1
@@ -396,9 +407,10 @@ def ground_questions(extracted: QuestionExtractOut) -> dict:
         seen.add(key)
         # 상위 문항도 원문에 있어야 붙인다. 하위 문항만으로는 「당시」 「해당 방법」이 무엇인지 모른다
         group = _clean_group(item.group)
+        entry = {'question': question, 'limit': _limit_in(transcript, item.limit)}
         if group and _squash(group) in haystack:
-            question = f'{group} › {question}'
-        kept.append({'question': question, 'limit': _limit_in(transcript, item.limit)})
+            entry['group'] = group
+        kept.append(entry)
         if len(kept) >= MAX_QUESTIONS:
             break
     return {'questions': kept, 'dropped': dropped, 'read_text': bool(haystack)}
