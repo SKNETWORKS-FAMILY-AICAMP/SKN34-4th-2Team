@@ -406,6 +406,7 @@ def chat_stream(request, body: ChatIn):
 
 
 class ResumeReviewIn(Schema):
+    asyncAttempt: str | None = Field(default=None, min_length=1, max_length=100)
     resumeId: str
     """공고 맞춤 첨삭이면 그 공고 id. 없으면 이력서 자체를 본다."""
     selectedJobId: str | None = None
@@ -472,7 +473,13 @@ def _review_call(path: str, payload: dict, timeout: int = 180):
         except Exception:
             detail = None
         return Response({"detail": detail or "첨삭하지 못했습니다."}, status=exc.code)
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+    except TimeoutError:
+        return Response({"detail": "review_upstream_timeout"}, status=504)
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, TimeoutError):
+            return Response({"detail": "review_upstream_timeout"}, status=504)
+        return Response({"detail": "첨삭 서버에 연결하지 못했습니다."}, status=503)
+    except json.JSONDecodeError:
         return Response({"detail": "첨삭 서버에 연결하지 못했습니다."}, status=503)
 
 
@@ -827,6 +834,12 @@ def resume_review(request, body: ResumeReviewIn):
     ):
         if value:
             payload[key] = value
+    if body.asyncAttempt:
+        from lms.review_jobs import submit_or_poll
+        try:
+            return submit_or_poll(payload, body.asyncAttempt)
+        except Exception:
+            return Response({'detail': '첨삭 작업 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.'}, status=503)
     return _review_call("/api/v1/resumes/reviews/proxy", payload)
 
 

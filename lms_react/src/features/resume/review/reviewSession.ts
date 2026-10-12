@@ -603,10 +603,44 @@ export class ReviewSession {
 
   private async requestReview(request: Json): Promise<Json> {
     this.retryableReview = true;
+    request.async_attempt = newId();
+    const pollingStarted = Date.now();
+    let recoveries = 0;
+    let timeoutRecoveries = 0;
     // Same logical request throughout. The B server executes at most one LLM
     // stage per response; v1 responses have no execution state and return once.
     for (let step = 0; step < 8; step++) {
-      const response = await reviewApi.review(this.opts.resumeId, request);
+      let response: Json;
+      for (;;) {
+        if (this.disposed) throw new Error('처리를 중단했습니다. 다시 열어 저장된 단계부터 이어갈 수 있습니다.');
+        try {
+          response = await reviewApi.review(this.opts.resumeId, request);
+          break;
+        } catch (err) {
+          // The server's resume lock prevents a replay from starting another
+          // worker. Keep this exact request, including answers and its ID.
+          const recoverable = err instanceof ReviewApiError && (
+            err.code === 'transport_timeout' ||
+            err.statusCode === 409 && err.code === 'review_stage_busy' ||
+            err.statusCode === 504 && err.code === 'review_upstream_timeout'
+          );
+          if (!recoverable || recoveries++ >= 12 || this.disposed) throw err;
+          if (err.code !== 'review_stage_busy' && timeoutRecoveries++ >= 2) throw err;
+          this.processingLabel = '응답이 지연되고 있습니다 · 같은 요청의 저장된 처리부터 자동으로 이어갑니다';
+          this.notify();
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+      }
+      const job = response.async_job as Json | undefined;
+      if (job) {
+        if (Date.now() - pollingStarted > 30 * 60_000) throw new Error('처리가 오래 지연되고 있습니다. 저장된 처리 재개를 눌러 주세요.');
+        const labels: Record<string, string> = { analyze: '이력서 근거 분석 중', write: '수정안 작성 중', verify: '사실 검증 중' };
+        this.processingLabel = `${job.state === 'queued' ? '첨삭 작업 대기 중' : labels[String(job.stage)] ?? '첨삭 처리 중'} · ${Number(job.elapsed_seconds) || 0}초 경과`;
+        this.setBusyStage(job.stage === 'verify' ? 3 : 2);
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        step--; // Polling is not a model stage and does not spend the stage limit.
+        continue;
+      }
       const execution = ((response.telemetry as Json | undefined)?.execution as Json | undefined);
       if (!execution || execution.state === 'verified') {
         this.retryableReview = false;

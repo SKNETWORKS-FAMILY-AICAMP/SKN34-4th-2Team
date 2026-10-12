@@ -37,3 +37,5 @@ def sync_qual_exams():
     from lms.external_feeds import sync_qual_exams as sync
 
     return sync()
+
+from lms.review_jobs import run_review_job  # Register checkpoint continuation tasks.

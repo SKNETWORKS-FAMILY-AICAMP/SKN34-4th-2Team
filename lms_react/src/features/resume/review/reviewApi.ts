@@ -12,6 +12,7 @@ export class ReviewApiError extends Error {
   constructor(
     message: string,
     readonly statusCode: number,
+    readonly code?: string,
   ) {
     super(message);
   }
@@ -108,10 +109,10 @@ async function post(path: string, body: Json | FormData, timeout = 180_000): Pro
         throw new ReviewApiError('답변 변경 경로가 서버에 아직 반영되지 않았습니다. Django 서버 반영 후 다시 시도해 주세요.',404);
       }
       const detail = typeof response.data?.detail === 'string' ? response.data.detail : undefined;
-      throw new ReviewApiError(failureMessage(response.status, detail), response.status);
+      throw new ReviewApiError(failureMessage(response.status, detail), response.status, detail);
     }
-    if ((err as { code?: string }).code === 'ECONNABORTED') {
-      throw new ReviewApiError('응답 시간이 초과됐습니다. 재시도는 같은 요청 ID로 처리됩니다.', 0);
+    if (['ECONNABORTED', 'ETIMEDOUT'].includes((err as { code?: string }).code ?? '')) {
+      throw new ReviewApiError('응답 시간이 초과됐습니다. 재시도는 같은 요청 ID로 처리됩니다.', 0, 'transport_timeout');
     }
     throw new ReviewApiError('첨삭 서버에 연결하지 못했습니다. 서버 주소와 실행 상태를 확인해 주세요.', 0);
   }
@@ -181,6 +182,7 @@ export const reviewApi = {
       resumeId,
       reviewMode: request.review_mode,
       reviewPhase: request.review_phase,
+      asyncAttempt: request.async_attempt,
       requestId: request.request_id,
       expectedInputHash: request.expected_input_hash,
       expectedJobHash: request.expected_job_hash,
