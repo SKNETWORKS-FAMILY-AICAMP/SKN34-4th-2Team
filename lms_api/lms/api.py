@@ -148,6 +148,12 @@ def login(request, body: LoginIn):
         "display_name": "",
     }
     tokens = issue_tokens(lms_user)
+    # Optional bounded dispatch only; no warmup DB/network work on login thread.
+    try:
+        from lms.chatbot_warmup import dispatch_login_warmup
+        dispatch_login_warmup(user)
+    except Exception:
+        pass
     return {
         "ok": True,
         "access": tokens["access"],
@@ -1612,7 +1618,15 @@ def resume_review_requirements(request, body: JobRequirementsIn):
 @api.get("/bootstrap")
 def bootstrap(request):
     user = _require_user(request)
-    return build_bootstrap(user)
+    result = build_bootstrap(user)
+    # Covers password-change completion and restored sessions; the dispatcher
+    # shares login dedupe/cooldown and never performs upstream I/O here.
+    try:
+        from lms.chatbot_warmup import dispatch_login_warmup
+        dispatch_login_warmup(user)
+    except Exception:
+        pass
+    return result
 
 
 def _notice_image_key(data: dict, user: dict, current: str | None = None) -> str | None | bool:

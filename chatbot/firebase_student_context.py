@@ -44,10 +44,10 @@ MAX_FILE_BYTES = 8 * 1024 * 1024
 MAX_FILE_TEXT = 8_000
 
 
-def _connect():
+def _connect(**connection_options):
     # Read-only context queries are independent; one missing legacy table must
     # not leave the transaction aborted for every later scope.
-    return connect(row_factory=dict_row, autocommit=True)
+    return connect(row_factory=dict_row, autocommit=True, **connection_options)
 
 
 def _redis():
@@ -99,9 +99,25 @@ def load_unit_period_context(
     session: dict[str, Any], today: date | None = None, *, include_attendance: bool = True,
     include_record_details: bool = False,
 ) -> dict[str, Any]:
+    from chatbot.context_cache import enabled, load_cached_context
+    if enabled():
+        return load_cached_context(session, loader=_load_unit_period_context,
+            today=today, include_attendance=include_attendance,
+            include_record_details=include_record_details)
+    return _load_unit_period_context(session, today=today,
+        include_attendance=include_attendance, include_record_details=include_record_details)
+
+
+def _load_unit_period_context(
+    session: dict[str, Any], today: date | None = None, *, include_attendance: bool = True,
+    include_record_details: bool = False,
+    _connection_options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     cohort = session["cohort"]
     uid = session["uid"]
-    with _connect() as conn:
+    # Foreground keeps its original connection settings in both OFF and ON
+    # modes. Only a background caller explicitly supplies bounded options.
+    with _connect(**(_connection_options or {})) as conn:
         cur = conn.cursor()
         cid, _code = _cohort_ids(cur, cohort)
         if cid is None:
@@ -114,7 +130,7 @@ def load_unit_period_context(
             return {"unavailable_reason": "기수의 개강일 또는 종강일이 등록되지 않았습니다"}
         scheduled_dates: set[date] = set()
         sheet = cur.execute(
-            "SELECT id FROM curriculum_sheets WHERE cohort_id = %s ORDER BY uploaded_at DESC NULLS LAST LIMIT 1",
+            "SELECT id FROM curriculum_sheets WHERE cohort_id = %s ORDER BY uploaded_at DESC NULLS LAST, id DESC LIMIT 1",
             (cid,),
         ).fetchone()
         if sheet:

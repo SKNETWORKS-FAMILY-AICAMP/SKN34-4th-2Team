@@ -62,6 +62,27 @@ class ProxyChatRequest(BaseModel):
     thread_id: str = Field(default="web", min_length=1, max_length=80, pattern=THREAD_RE.pattern)
 
 
+class WarmupRequest(BaseModel):
+    uid: str = Field(min_length=1, max_length=128)
+
+
+@router.post('/warmup', status_code=202)
+def warmup_chatbot(request: WarmupRequest,
+                   internal_token: str | None = Header(default=None, alias='X-LMS-AI-Token')) -> dict:
+    from chatbot.context_cache import enabled
+    from chatbot.warmup import schedule_warmup
+    if not valid_proxy_token(internal_token):
+        raise HTTPException(status_code=401, detail='Django proxy authentication required')
+    if not enabled():
+        return {'status': 'disabled'}
+    uid = request.uid.strip()
+    if not uid:
+        raise HTTPException(status_code=400, detail='uid required')
+    # Acceptance only, not permission confirmation. Worker resolves current
+    # membership before accessing any context; endpoint does no DB/LLM work.
+    return {'status': schedule_warmup({'uid': uid})}
+
+
 def _session_from_uid(uid: str) -> dict[str, Any]:
     with connect() as conn:
         row = conn.execute(
