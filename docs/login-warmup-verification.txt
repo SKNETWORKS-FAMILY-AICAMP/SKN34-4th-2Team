@@ -1,5 +1,10 @@
 Login background preparation — 2026-10-12
 
+Follow-up: actual local Redis/HTTP integration subsequently passed. See
+docs/redis-integration-verification.txt for the resolved WSL startup issue,
+real Redis timings, authentication scope and remaining production/load limits.
+The simulated-Redis measurements below are retained as the original experiment.
+
 Purpose and behavior
 After authenticated student login or a successful bootstrap, Django queues a
 bounded internal preparation request. It sends only the server's student UID.
