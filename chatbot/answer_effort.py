@@ -6,6 +6,7 @@ import re
 
 from chatbot.active_policy_rules import validated_calendar_basis
 from chatbot.attendance_basis import resolve_attendance_basis
+from chatbot.simple_schedule import parse_simple_schedule_request, validated_schedule_dates
 
 EFFORT_REASONS = frozenset({
     'simple_unit', 'simple_completion', 'simple_schedule', 'policy_interpretation',
@@ -161,6 +162,11 @@ def choose_answer_effort(state: dict, *, basis: str | None = None) -> EffortDeci
         return EffortDecision('low', 'simple_unit')
     if basis == 'clarify' or re.search(r'출석률|며칠.*출석|출석.*며칠', question):
         return medium('unknown_basis')
+    date_request = parse_simple_schedule_request(question)
+    if date_request:
+        if validated_schedule_dates(state.get('unit_period_context', {}), cohort, date_request):
+            return EffortDecision('low', 'simple_schedule')
+        return medium('data_unavailable')
     if re.search(r'개강|종강|단위\s*기간|훈련\s*기간', question) \
             and re.search(r'언제|날짜|시작|종료|일정|기간', question):
         context = state.get('unit_period_context', {})

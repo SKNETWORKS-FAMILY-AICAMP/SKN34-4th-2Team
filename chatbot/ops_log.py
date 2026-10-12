@@ -117,6 +117,7 @@ def build_generation_log_payload(
         payload["llmMs"] = max(0, int(llm_ms))
     for source, target in (
         ("supervisor_ms", "supervisorMs"),
+        ("schedule_fast_path", "scheduleFastPath"),
         ("shared_context_ms", "sharedContextMs"),
         ("supervisor_prepare_wall_ms", "supervisorPrepareWallMs"),
         ("shared_context_overlap_ms", "sharedContextOverlapMs"),

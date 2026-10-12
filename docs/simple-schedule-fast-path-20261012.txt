@@ -1,0 +1,32 @@
+Date-only cohort schedule path — 2026-10-12
+
+Scope
+Whole-query matching recognizes only registered cohort start/end dates and
+the current unit-period start/end dates, including "언제부터 언제까지".
+Conditions, exceptions, changed notices, particular class days/topics, personal
+attendance, another cohort/person, future periods and mixed questions do not
+match and retain the existing supervisor path.
+
+Source and execution
+Authentication remains at the API. A nonempty server UID and cohort are required.
+The common context must contain matching cohort/policy/calendar provenance,
+valid registered course dates, and for unit questions exactly one valid current
+period enclosing as_of. Missing/invalid source data never enables bypass.
+Deferred common data is loaded once; failed validation falls back without loading
+the same data twice. No new cache, retrieval, model call or calculation is added.
+The deterministic response retains registered-date or provisional-period wording.
+No notice was checked, so it does not claim that no date-change notice exists.
+
+Metrics
+scheduleFastPath=1 identifies the no-model path. Model/retrieval counters reset
+to zero, provider usage and visible-model TTFT stay absent, and unrelated previous
+context/sources are cleared. Public NDJSON still sends the answer normally.
+The adaptive classifier reuses the strict matcher to recognize named 개강일/종강일
+without requiring an extra "언제/날짜" keyword. Other effort policies are unchanged.
+
+Validation
+Nineteen related offline tests passed: new strict routing/near-miss/source checks,
+existing adaptive effort and deferred parallel preparation. No implementation-side
+model request, server restart, deployment, develop merge or push was performed.
+End-to-end performance and original-document validation are the primary's work;
+the fast path still pays authentication and common-source validation/load costs.

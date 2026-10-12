@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from chatbot.attendance import enrich_student_context
 from chatbot.answer_effort import choose_answer_effort
+from chatbot.simple_schedule import parse_simple_schedule_request, schedule_answer, validated_schedule_dates
 from chatbot.attendance_basis import (
     BasisDecision, CLARIFICATION, persist_decision, prepare_short_basis,
     resolve_attendance_basis, resolve_request_basis, scoped_question,
@@ -368,6 +369,7 @@ class ChatState(MessagesState):
     answer_cached_input_tokens: int | None
     answer_reasoning_effort: str | None
     answer_effort_reason: str | None
+    schedule_fast_path: int
     student_context_ms: int
     embedding_ms: int
     vector_query_ms_sum: int
@@ -828,6 +830,45 @@ class LmsStudentChatbot:
         overlap_ms = 0
         loader = getattr(self, 'shared_context_loader', None)
         deferred = state.get('defer_shared_context') is True
+        date_request = parse_simple_schedule_request(state['question'])
+        if date_request and state.get('student_uid') and state.get('cohort'):
+            if deferred and loader is not None:
+                shared_started = time.perf_counter()
+                try:
+                    loaded = loader({'uid': state['student_uid'], 'cohort': state['cohort']})
+                except Exception:
+                    loaded = {'unavailable_reason': '기수 날짜 조회에 실패했습니다. 날짜를 추측하지 마세요.'}
+                if not isinstance(loaded, dict):
+                    raise ValueError('unit_period_context는 객체여야 합니다')
+                if len(json.dumps(loaded, ensure_ascii=False)) > 20000:
+                    raise ValueError('unit_period_context가 너무 큽니다')
+                shared_context = deepcopy(loaded)
+                shared_context_ms = _elapsed_ms(shared_started)
+                deferred = False  # A failed validation must not load twice.
+            dates = validated_schedule_dates(shared_context, state['cohort'], date_request)
+            if dates:
+                answer = schedule_answer(date_request, dates)
+                update = {key: 0 for key in (
+                    'llm_ms', 'supervisor_ms', 'retrieval_ms', 'answer_model_ms', 'answer_ttft_ms',
+                    'student_context_ms', 'embedding_ms', 'vector_query_ms_sum', 'embedding_calls',
+                    'vector_calls', 'prompt_build_ms', 'prompt_chars', 'context_measure_ms',
+                    'retrieved_chunks', 'retrieved_chunk_chars', 'answer_stream_events',
+                    'answer_visible_deltas', 'answer_nontext_events', 'answer_reasoning_events')}
+                update.update({key: None for key in (
+                    'answer_first_callback_ms', 'answer_first_nonempty_callback_ms',
+                    'answer_first_model_event_ms', 'answer_visible_ttft_ms', 'answer_reasoning_tokens',
+                    'answer_cached_input_tokens', 'answer_reasoning_effort', 'token_in', 'token_out')})
+                update.update(route='lms', namespaces=[], student_scopes=[], tasks=[], query=state['question'],
+                    answer=answer, sources=[], documents=[], student_context={}, context_metrics={},
+                    unit_period_context=shared_context, defer_shared_context=False,
+                    shared_context_ms=shared_context_ms, shared_context_overlap_ms=0, parallel_prep_enabled=0,
+                    supervisor_prepare_wall_ms=_elapsed_ms(started), schedule_fast_path=1,
+                    attendance_basis=None, attendance_effective_question='', attendance_other_question='',
+                    answer_effort_reason='no_model_call', messages=[AIMessage(content=answer)])
+                if len(state['messages']) > 8:
+                    update['messages'] = [*[RemoveMessage(id=message.id) for message in state['messages'][:-8]],
+                                          *update['messages']]
+                return update
         parallel = deferred and loader is not None
         basis_identity = {'uid': state.get('student_uid'), 'cohort': state.get('cohort'),
                           'thread_id': state.get('chat_thread_id')}
@@ -978,6 +1019,7 @@ class LmsStudentChatbot:
             "answer_cached_input_tokens": None,
             "answer_reasoning_effort": getattr(self, 'answer_reasoning_effort', 'default'),
             "answer_effort_reason": None,
+            "schedule_fast_path": 0,
             "student_context_ms": 0,
             "embedding_ms": 0,
             "vector_query_ms_sum": 0,
@@ -1488,6 +1530,7 @@ class LmsStudentChatbot:
                                   and inputs.get('shared_context_ms', 0) >= 0 else 0),
             "supervisor_prepare_wall_ms": 0, "shared_context_overlap_ms": 0,
             "parallel_prep_enabled": 0,
+            "schedule_fast_path": 0,
         }
         config = {
             "configurable": {"thread_id": thread_id},
@@ -1543,7 +1586,7 @@ class LmsStudentChatbot:
             **{
                 key: int(values.get(key) or 0)
                 for key in (
-                    "supervisor_ms", "answer_model_ms", "answer_ttft_ms", "student_context_ms",
+                    "supervisor_ms", "answer_model_ms", "answer_ttft_ms", "student_context_ms", "schedule_fast_path",
                     "shared_context_ms", "supervisor_prepare_wall_ms", "shared_context_overlap_ms", "parallel_prep_enabled",
                     "embedding_ms", "vector_query_ms_sum", "embedding_calls", "vector_calls",
                     "prompt_build_ms", "prompt_chars", "context_measure_ms", "retrieved_chunks", "retrieved_chunk_chars",
