@@ -7,6 +7,8 @@ import json
 import os
 from typing import Any
 
+from chatbot.context_builder import safe_context_metrics
+
 FORBIDDEN_KEYS = {
     "question",
     "answer",
@@ -114,6 +116,10 @@ def build_generation_log_payload(
         payload["llmMs"] = max(0, int(llm_ms))
     for source, target in (
         ("supervisor_ms", "supervisorMs"),
+        ("shared_context_ms", "sharedContextMs"),
+        ("supervisor_prepare_wall_ms", "supervisorPrepareWallMs"),
+        ("shared_context_overlap_ms", "sharedContextOverlapMs"),
+        ("parallel_prep_enabled", "parallelPrepEnabled"),
         ("answer_model_ms", "answerModelMs"),
         ("answer_ttft_ms", "answerTtftMs"),
         ("student_context_ms", "studentContextMs"),
@@ -123,13 +129,23 @@ def build_generation_log_payload(
         ("vector_calls", "vectorCalls"),
         ("prompt_build_ms", "promptBuildMs"),
         ("prompt_chars", "promptChars"),
+        ("context_measure_ms", "contextMeasureMs"),
         ("retrieved_chunks", "retrievedChunks"),
         ("retrieved_chunk_chars", "retrievedChunkChars"),
         ("first_token_ms", "firstTokenMs"),
         ("generation_tail_ms", "generationTailMs"),
+        ("handler_session_ms", "handlerSessionMs"),
+        ("handler_chat_inputs_ms", "handlerChatInputsMs"),
+        ("handler_bot_prepare_ms", "handlerBotPrepareMs"),
+        ("handler_prepare_ms", "handlerPrepareMs"),
+        ("handler_first_token_ms", "handlerFirstTokenMs"),
+        ("handler_generation_end_ms", "handlerGenerationEndMs"),
     ):
         if snap.get(source) is not None:
             payload[target] = max(0, int(snap[source]))
+    context_metrics = safe_context_metrics(snap.get('context_metrics'))
+    if context_metrics:
+        payload['contextMetrics'] = context_metrics
     token_in = snap.get("tokenIn", snap.get("token_in"))
     token_out = snap.get("tokenOut", snap.get("token_out"))
     if token_in is not None:

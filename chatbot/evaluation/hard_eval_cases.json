@@ -11,7 +11,7 @@
     "question": "이번 달 빠진 거 반영해서 장려금 받을 수 있는지도 봐줘",
     "route": "lms",
     "namespaces": ["policy"],
-    "student_scopes": ["student_private"]
+    "student_scopes": ["student_attendance"]
   },
   {
     "id": "project_notice_combo",
@@ -46,7 +46,7 @@
     "question": "장려금 괜찮을까? 이번 달 늦은 날이 좀 있는데",
     "route": "lms",
     "namespaces": ["policy"],
-    "student_scopes": ["student_private"]
+    "student_scopes": ["student_attendance"]
   },
   {
     "id": "material_and_project",

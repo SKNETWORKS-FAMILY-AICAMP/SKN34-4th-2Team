@@ -1066,13 +1066,19 @@ export function AdminCohortFormScreen() {
       persisted = true;
       setSavedCohortId(cohort.cohortId);
       const uploadFailures: string[] = [];
+      const calculationWarnings: string[] = [];
       for (const [kind, file] of [['curriculum', curriculumFile], ['policy', policyFile]] as const) {
         if (!file) continue;
         setUploadingKind(kind);
         setSavePhase(kind);
         setProcessingFilename(file.name);
         try {
-          await uploadCohortDocument(cohort.cohortId, kind, file);
+          const result = await uploadCohortDocument(cohort.cohortId, kind, file);
+          if (kind === 'policy' && result && (result.calculationStatus === 'unavailable' || Object.keys(result.calculationIssues ?? {}).length)) {
+            const labels: Record<string,string> = { completion: '수료 기준', allowance: '장려금 기준', absence_conversion: '결석 환산 기준' };
+            const missing = Object.keys(result.calculationIssues ?? {}).map(key => labels[key] ?? key);
+            calculationWarnings.push(`정책 검색 등록은 완료됐지만 ${missing.join(', ') || '계산 기준'} 확인이 필요합니다. 해당 개인 계산은 보류됩니다.`);
+          }
           if (kind === 'curriculum') { setCurriculumFile(null); if (curriculumInput.current) curriculumInput.current.value = ''; }
           else { setPolicyFile(null); if (policyInput.current) policyInput.current.value = ''; }
         } catch (err) {
@@ -1096,6 +1102,9 @@ export function AdminCohortFormScreen() {
       if (uploadFailures.length) {
         setStep(1);
         setSaveError(`기수 정보는 저장됐습니다. 기존 등록 문서와 성공한 업로드는 유지됩니다. 실패한 항목만 다시 저장해 주세요. ${uploadFailures.join(' / ')}`);
+      } else if (calculationWarnings.length) {
+        setStep(1);
+        setSaveError(calculationWarnings.join(' / '));
       } else {
         setCompleted(true);
         setStep(1);

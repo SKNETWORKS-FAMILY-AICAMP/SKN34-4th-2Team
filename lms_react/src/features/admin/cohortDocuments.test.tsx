@@ -16,6 +16,29 @@ afterEach(() => { cleanup?.(); mocks.cohorts = []; vi.resetAllMocks(); });
 
 const emptyDocuments = {cohortId:'cohort_test',documents:{curriculum:null,policy:null}};
 
+it('warns when a stored policy has no calculation criteria', async () => {
+  mocks.cohorts = [{cohortId:'cohort_test',name:'테스트 기수',status:'planned',studentCount:0}];
+  mocks.read.mockResolvedValue(emptyDocuments);
+  mocks.update.mockResolvedValue(undefined);
+  mocks.upload.mockResolvedValue({calculationStatus:'unverified',calculationIssues:{allowance:'missing'}});
+  const host = document.createElement('div'); document.body.appendChild(host);
+  const root = createRoot(host);
+  cleanup = () => { act(() => root.unmount()); host.remove(); };
+  await act(async () => root.render(<MemoryRouter initialEntries={['/admin/cohorts/cohort_test/edit']}>
+    <Routes><Route path="/admin/cohorts/:cohortId/edit" element={<AdminCohortFormScreen />} /></Routes>
+  </MemoryRouter>));
+  await act(async () => {
+    const input = host.querySelector('input[aria-label="기수별 정책 문서"]')!;
+    Object.defineProperty(input,'files',{value:[new File(['test'],'test.docx')]});
+    input.dispatchEvent(new Event('change',{bubbles:true}));
+  });
+  await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent === '변경사항 저장')!.click());
+  expect(host.textContent).toContain('장려금 기준 확인이 필요합니다');
+  expect(host.textContent).toContain('해당 개인 계산은 보류됩니다');
+  expect(mocks.upload).toHaveBeenCalledTimes(1);
+  expect(mocks.create).not.toHaveBeenCalled();
+});
+
 it('shows matching archived and active cohorts by stable identity and blocks new creation', async () => {
   mocks.cohorts = [
     {cohortId:'cohort-old-40',name:'SK 40기',termNumber:40,status:'closed',studentCount:0},

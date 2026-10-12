@@ -7,6 +7,8 @@ import json
 import os
 import re
 import time
+import logging
+import traceback
 from functools import lru_cache
 from typing import Any, Iterator
 
@@ -31,6 +33,15 @@ from chatbot.ops_log import (
 from chatbot.student_chatbot import LmsStudentChatbot, create_student_chatbot
 
 router = APIRouter(prefix="/api/v1/student-chatbot", tags=["student-chatbot"])
+logger = logging.getLogger(__name__)
+
+
+def _log_generation_failure(exc: Exception) -> None:
+    # Keep request text, student records, credentials and exception payloads out
+    # of logs; record exception type and code locations for diagnosis instead.
+    frames = traceback.extract_tb(exc.__traceback__)
+    logger.error('Chat generation failed: %s; frames=%s', type(exc).__name__,
+                 ' > '.join(f'{os.path.basename(f.filename)}:{f.lineno}:{f.name}' for f in frames))
 THREAD_RE = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
 
 
@@ -49,6 +60,27 @@ class ProxyChatRequest(BaseModel):
     question: str = Field(default="", max_length=2000)
     uid: str = Field(min_length=1, max_length=128)
     thread_id: str = Field(default="web", min_length=1, max_length=80, pattern=THREAD_RE.pattern)
+
+
+class WarmupRequest(BaseModel):
+    uid: str = Field(min_length=1, max_length=128)
+
+
+@router.post('/warmup', status_code=202)
+def warmup_chatbot(request: WarmupRequest,
+                   internal_token: str | None = Header(default=None, alias='X-LMS-AI-Token')) -> dict:
+    from chatbot.context_cache import enabled
+    from chatbot.warmup import schedule_warmup
+    if not valid_proxy_token(internal_token):
+        raise HTTPException(status_code=401, detail='Django proxy authentication required')
+    if not enabled():
+        return {'status': 'disabled'}
+    uid = request.uid.strip()
+    if not uid:
+        raise HTTPException(status_code=400, detail='uid required')
+    # Acceptance only, not permission confirmation. Worker resolves current
+    # membership before accessing any context; endpoint does no DB/LLM work.
+    return {'status': schedule_warmup({'uid': uid})}
 
 
 def _session_from_uid(uid: str) -> dict[str, Any]:
@@ -114,12 +146,19 @@ def _student_session(authorization: str | None = Header(default=None)) -> dict[s
 _load_unit_context = load_unit_period_context
 
 
+def _shared_context(session: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return _load_unit_context(session, include_attendance=False)
+    except Exception:
+        return {"unavailable_reason": "기수 날짜 조회에 실패했습니다. 날짜를 추측하지 마세요."}
+
+
 @lru_cache
 def get_student_chatbot() -> LmsStudentChatbot:
     def loader(uid: str, cohort: str, scopes: list[Any], query: str) -> dict[str, Any]:
         return load_student_context(uid=uid, cohort=cohort, scopes=scopes, query=query)
 
-    return create_student_chatbot(student_context_loader=loader)
+    return create_student_chatbot(student_context_loader=loader, shared_context_loader=_shared_context)
 
 
 def _ready_chatbot() -> LmsStudentChatbot:
@@ -133,17 +172,19 @@ def _ready_chatbot() -> LmsStudentChatbot:
         raise HTTPException(status_code=503, detail="챗봇 서버를 준비하지 못했습니다.") from exc
 
 
-def _chat_inputs(request: InitRequest, session: dict[str, Any]) -> dict[str, Any]:
+def _chat_inputs(request: InitRequest, session: dict[str, Any], *,
+                 defer_shared_context: bool = False) -> dict[str, Any]:
     uid_key = hashlib.sha256(session["uid"].encode()).hexdigest()[:24]
-    try:
-        unit_context = _load_unit_context(session, include_attendance=False)
-    except Exception:
-        unit_context = {"unavailable_reason": "기수 날짜 조회에 실패했습니다. 날짜를 추측하지 마세요."}
+    shared_started = time.perf_counter()
+    unit_context = {} if defer_shared_context else _shared_context(session)
+    shared_context_ms = 0 if defer_shared_context else max(0, round((time.perf_counter() - shared_started) * 1000))
     return {
         "thread_id": f"{uid_key}.{request.thread_id}",
         "student_uid": session["uid"],
         "cohort": session["cohort"],
         "unit_period_context": unit_context,
+        "defer_shared_context": defer_shared_context,
+        "shared_context_ms": shared_context_ms,
     }
 
 
@@ -165,17 +206,27 @@ def _ndjson_chat(
     bot: LmsStudentChatbot,
     inputs: dict[str, Any],
     session: dict[str, Any],
+    *,
+    handler_started: float | None = None,
+    preparation_timings: dict[str, int] | None = None,
 ) -> Iterator[str]:
     started = time.perf_counter()
     first_token_ms: int | None = None
+    handler_first_token_ms: int | None = None
     status = "success"
     error_message: str | None = None
     try:
         for chunk in bot.stream(inputs):
             if chunk and first_token_ms is None:
-                first_token_ms = max(0, round((time.perf_counter() - started) * 1000))
+                token_at = time.perf_counter()
+                first_token_ms = max(0, round((token_at - started) * 1000))
+                if handler_started is not None:
+                    handler_first_token_ms = max(0, round((token_at - handler_started) * 1000))
             yield json.dumps({"type": "token", "content": chunk}, ensure_ascii=False) + "\n"
-    except Exception:
+        generation_end = time.perf_counter()
+    except Exception as exc:
+        generation_end = time.perf_counter()
+        _log_generation_failure(exc)
         status = "error"
         error_message = "답변 생성 중 오류가 발생했습니다"
         yield json.dumps({"type": "error", "message": error_message}, ensure_ascii=False) + "\n"
@@ -188,6 +239,11 @@ def _ndjson_chat(
             snapshot["generation_tail_ms"] = max(0, latency_ms - first_token_ms)
     except Exception:
         snapshot = {}
+    snapshot.update(preparation_timings or {})
+    if handler_started is not None:
+        snapshot["handler_generation_end_ms"] = max(0, round((generation_end - handler_started) * 1000))
+    if handler_first_token_ms is not None:
+        snapshot["handler_first_token_ms"] = handler_first_token_ms
     payload = build_generation_log_payload(
         cohort_id=str(session.get("cohort") or ""),
         created_by=str(session.get("uid") or ""),
@@ -210,10 +266,20 @@ def stream_chat(
     request: ChatRequest,
     session: dict[str, Any] = Depends(_student_session),
 ) -> StreamingResponse:
-    inputs = _chat_inputs(request, session)
+    # Depends authentication/session lookup finishes before handler entry and
+    # is therefore excluded from these handler timings.
+    handler_started = time.perf_counter()
+    inputs_started = time.perf_counter()
+    inputs = _chat_inputs(request, session, defer_shared_context=os.getenv('LMS_CHATBOT_PARALLEL_PREP', '').strip() == '1')
+    preparation_timings = {"handler_chat_inputs_ms": max(0, round((time.perf_counter() - inputs_started) * 1000))}
     inputs["question"] = request.question.strip()
+    bot_started = time.perf_counter()
+    bot = _ready_chatbot()
+    prepared_at = time.perf_counter()
+    preparation_timings["handler_bot_prepare_ms"] = max(0, round((prepared_at - bot_started) * 1000))
+    preparation_timings["handler_prepare_ms"] = max(0, round((prepared_at - handler_started) * 1000))
     return StreamingResponse(
-        _ndjson_chat(_ready_chatbot(), inputs, session),
+        _ndjson_chat(bot, inputs, session, handler_started=handler_started, preparation_timings=preparation_timings),
         media_type="application/x-ndjson",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )
@@ -225,27 +291,42 @@ def proxy_chat(
     internal_token: str | None = Header(default=None, alias="X-LMS-AI-Token"),
 ) -> dict[str, Any]:
     """React → Django → 여기. 스트리밍을 모아 { answer } JSON 으로 돌려준다."""
+    handler_started = time.perf_counter()
     if not valid_proxy_token(internal_token):
         raise HTTPException(status_code=401, detail="Django proxy authentication required")
     question = (request.question or request.message or "").strip()
     if not question:
         raise HTTPException(status_code=400, detail="message required")
+    session_started = time.perf_counter()
     session = _session_from_uid(request.uid.strip())
+    preparation_timings = {"handler_session_ms": max(0, round((time.perf_counter() - session_started) * 1000))}
     init = InitRequest(thread_id=request.thread_id)
-    inputs = _chat_inputs(init, session)
+    inputs_started = time.perf_counter()
+    inputs = _chat_inputs(init, session, defer_shared_context=os.getenv('LMS_CHATBOT_PARALLEL_PREP', '').strip() == '1')
+    preparation_timings["handler_chat_inputs_ms"] = max(0, round((time.perf_counter() - inputs_started) * 1000))
     inputs["question"] = question
+    bot_started = time.perf_counter()
     bot = _ready_chatbot()
+    prepared_at = time.perf_counter()
+    preparation_timings["handler_bot_prepare_ms"] = max(0, round((prepared_at - bot_started) * 1000))
+    preparation_timings["handler_prepare_ms"] = max(0, round((prepared_at - handler_started) * 1000))
     parts: list[str] = []
     err: str | None = None
     started = time.perf_counter()
     first_token_ms: int | None = None
+    handler_first_token_ms: int | None = None
     try:
         for chunk in bot.stream(inputs):
             if chunk:
                 if first_token_ms is None:
-                    first_token_ms = max(0, round((time.perf_counter() - started) * 1000))
+                    token_at = time.perf_counter()
+                    first_token_ms = max(0, round((token_at - started) * 1000))
+                    handler_first_token_ms = max(0, round((token_at - handler_started) * 1000))
                 parts.append(str(chunk))
-    except Exception:
+        generation_end = time.perf_counter()
+    except Exception as exc:
+        generation_end = time.perf_counter()
+        _log_generation_failure(exc)
         err = "답변 생성 중 오류가 발생했습니다"
     answer = "".join(parts).strip()
     if not answer:
@@ -259,6 +340,10 @@ def proxy_chat(
             snapshot["generation_tail_ms"] = max(0, latency_ms - first_token_ms)
     except Exception:
         snapshot = {}
+    snapshot.update(preparation_timings)
+    snapshot["handler_generation_end_ms"] = max(0, round((generation_end - handler_started) * 1000))
+    if handler_first_token_ms is not None:
+        snapshot["handler_first_token_ms"] = handler_first_token_ms
     payload = build_generation_log_payload(
         cohort_id=str(session.get("cohort") or ""),
         created_by=str(session.get("uid") or ""),
@@ -280,16 +365,27 @@ def proxy_chat_stream(
     request: ProxyChatRequest,
     internal_token: str | None = Header(default=None, alias="X-LMS-AI-Token"),
 ) -> StreamingResponse:
+    handler_started = time.perf_counter()
     if not valid_proxy_token(internal_token):
         raise HTTPException(status_code=401, detail="Django proxy authentication required")
     question = (request.question or request.message or "").strip()
     if not question:
         raise HTTPException(status_code=400, detail="message required")
+    session_started = time.perf_counter()
     session = _session_from_uid(request.uid.strip())
-    inputs = _chat_inputs(InitRequest(thread_id=request.thread_id), session)
+    preparation_timings = {"handler_session_ms": max(0, round((time.perf_counter() - session_started) * 1000))}
+    inputs_started = time.perf_counter()
+    inputs = _chat_inputs(InitRequest(thread_id=request.thread_id), session,
+                          defer_shared_context=os.getenv('LMS_CHATBOT_PARALLEL_PREP', '').strip() == '1')
+    preparation_timings["handler_chat_inputs_ms"] = max(0, round((time.perf_counter() - inputs_started) * 1000))
     inputs["question"] = question
+    bot_started = time.perf_counter()
+    bot = _ready_chatbot()
+    prepared_at = time.perf_counter()
+    preparation_timings["handler_bot_prepare_ms"] = max(0, round((prepared_at - bot_started) * 1000))
+    preparation_timings["handler_prepare_ms"] = max(0, round((prepared_at - handler_started) * 1000))
     return StreamingResponse(
-        _ndjson_chat(_ready_chatbot(), inputs, session),
+        _ndjson_chat(bot, inputs, session, handler_started=handler_started, preparation_timings=preparation_timings),
         media_type="application/x-ndjson",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )

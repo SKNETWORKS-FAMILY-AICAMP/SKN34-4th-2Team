@@ -1,0 +1,35 @@
+로컬 Redis 실행
+
+전제: WSL Ubuntu에 redis-server와 systemd 서비스가 이미 설치되어 있어야 합니다.
+helper는 설치나 설정 변경을 자동 수행하지 않습니다.
+
+저장소 루트 PowerShell에서 Django/AI backend보다 먼저 실행:
+
+  .\scripts\start-local-redis.ps1
+
+실행 정책으로 차단되는 경우 해당 실행에만 적용:
+
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-local-redis.ps1
+
+배포판 이름이 다른 경우:
+
+  .\scripts\start-local-redis.ps1 -Distribution Ubuntu-26.04
+
+설치된 Redis 서비스를 시작하고 Windows 127.0.0.1:6379에서 PING/PONG을 확인합니다.
+WSL 유휴 종료를 막는 숨김 sleep infinity 프로세스를 유지하며,
+같은 배포판의 기존 명령행을 확인해 재사용합니다. 유지 PID가 출력됩니다.
+기존 REDIS_URL은 변경할 필요가 없습니다.
+
+로컬 사용이 끝난 뒤 helper가 출력한 PID의 명령행을 확인하고
+실제로 해당 배포판의 --exec sleep infinity 프로세스일 때만 종료:
+
+  Get-CimInstance Win32_Process -Filter 'ProcessId=<출력된 PID>' |
+    Select-Object ProcessId,CommandLine
+  Stop-Process -Id <확인한 PID>
+
+PID는 재사용될 수 있으므로 이전 출력만 보고 종료하지 마세요.
+유지 프로세스를 끝내면 WSL이 다시 유휴 종료될 수 있습니다.
+이 동작은 Redis 데이터 삭제나 전체 WSL 종료가 아닙니다.
+서비스가 살아 있는 동안은 Redis도 계속 실행될 수 있습니다.
+
+FLUSH, 전체 WSL shutdown, 외부 bind, 방화벽·운영 compose·자격증명 변경은 수행하지 않습니다.

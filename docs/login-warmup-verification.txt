@@ -1,0 +1,102 @@
+Login background preparation — 2026-10-12
+
+Follow-up: actual local Redis/HTTP integration subsequently passed. See
+docs/redis-integration-verification.txt for the resolved WSL startup issue,
+real Redis timings, authentication scope and remaining production/load limits.
+The simulated-Redis measurements below are retained as the original experiment.
+
+Purpose and behavior
+After authenticated student login or a successful bootstrap, Django queues a
+bounded internal preparation request. It sends only the server's student UID.
+The AI worker resolves current membership/permissions and prepares the shared
+schedule/policy context and that student's attendance calculation context.
+No LLM, embeddings or Pinecone request is needed for preparation.
+
+LMS_CHATBOT_WARMUP=1 opts both services into this behavior. Default is OFF.
+Login does not wait for upstream HTTP, database queries or context preparation.
+Forced password changes, inactive accounts and nonstudent roles do not dispatch.
+Bootstrap also covers session restoration and entry after password change.
+
+Cache contract
+- Redis only; no in-process personal-data cache fallback.
+- A ready alias lets a foreground miss return through the old source loader
+  without any added revision DB query or synchronous cache publication.
+- When a candidate exists, one authoritative DB statement checks membership,
+  permissions and current input fingerprints before reuse. Revoked membership
+  never falls back to a previously authorized cached value.
+- Actual input digests include attendance insert/update/delete, curriculum rows,
+  cohort dates, active policy identity, deletion state and calculation schema.
+- Shared aliases contain no user ID/attendance revision. Personal aliases and
+  bodies are isolated by UID, cohort, revision, KST date and detail shape.
+- Only background fill does before/load/after revision checks. Failed or changing
+  inputs are never published. A body is stored before its atomic alias update.
+- TTL is 300 seconds, not a substitute for revision checking. Entries are bounded
+  to 128 KiB. Calculation/interpretation changes require a SCHEMA version bump.
+- Redis timeout is 200 ms with no retry and a five-second outage backoff.
+  Misses/outages use the previous data-loading path. Preparation jobs are bounded
+  to two workers/eight pending per process with Redis duplicate suppression.
+- Prompts, policy thresholds, retrieval, supervisor routing and formulas are
+  unchanged. Browser-provided records are never used as authoritative inputs.
+- Source and revision queries use the same uploaded_at/id tie-breaker for the
+  latest curriculum. Foreground source connections retain their old settings;
+  only background source loading and revision checks use bounded DB timeouts.
+
+Independent verification by primary; implementation by Sol
+Baseline chatbot suite: 161 tests passed in 7.929 seconds before changes.
+Final complete chatbot suite: 187 tests passed in 10.618 seconds. This includes
+queue capacity/deduplication, worker cleanup, internal authentication, UID-only
+nonblocking dispatch, OFF mode and Redis outage/backoff tests. No external model
+or service is used by that suite. Added tests explain the different suite size;
+suite duration is not a measurement of chatbot response latency.
+Primary's four additional review tests passed: complete model-context equality
+for synthetic 80%/3, 90%/2 and missing-record cases; shared reuse across students;
+rejection of another user's copied personal alias; denied permissions; deep-copy
+isolation; next-day miss without revision overhead; no publication during races.
+
+The actual revision SQL was also exercised against PostgreSQL session-local
+synthetic tables. Seventeen checks passed, including attendance and schedule
+insert/update/delete, policy replacement, cohort dates, cohort transfer, account
+and cohort deactivation, role/forced-password changes, deletion and zero/multiple
+active policies. All mutations explicitly targeted pg_temp, were rolled back,
+and the connection was closed. Operational tables were not changed.
+
+Read-only preparation measurements
+The configured Redis endpoint timed out. Docker's local engine was unavailable.
+Measurements therefore used real PostgreSQL/S3 reads and an IN-MEMORY Redis test
+double. They include DB connection/revision costs but EXCLUDE actual Redis network
+and server latency. These are NOT browser/full-answer or production-load timings.
+Two paired measurements per context; small samples, no p95 claim.
+
+Context           Previous loader mean    Ready-hit mean    Observed reduction
+Shared schedule   2568.40 ms              1613.99 ms        37.2 percent
+Own attendance    3292.34 ms              1595.33 ms        51.5 percent
+
+All result hashes matched between old source loading, misses and ready hits.
+Each ready hit did one revision query and zero source-loader calls.
+Each foreground miss did zero revision queries and one source-loader call.
+The first shared miss took 6495.77 ms, of which 6487.72 ms was inside the source
+loader (cold policy/S3 preparation). The attendance miss took 2958.20 ms, of which
+2954.34 ms was the loader. Source cold-start cost still exists until warmup ends.
+Measured background fills took 6022.92 ms shared and 6089.92 ms personal, excluding
+worker dispatch/initial authorization. Both completed with stable revisions.
+
+An earlier synchronous miss-fill approach added about three seconds of revision
+work to foreground misses and was rejected. Publication now runs only in the
+background. The initial experiment also had one unconfirmed fill result; no
+stale entry was stored. Its exact cause was not instrumented and is not claimed.
+Subsequent instrumented fills succeeded; the first experiment is retained.
+
+Limits and next activation gate
+Keep OFF until connected Redis and full login-to-chat integration can be tested.
+Actual Redis serialization/TTL/lock behavior and representative concurrency still
+need integration measurement. The measured gains apply only after preparation
+has completed and do not establish an end-to-end LLM speedup. A stale candidate
+still costs one revision check before falling back; it never serves stale data.
+No operational policy/attendance changes or OpenAI calls were made for this work.
+No develop merge, production deployment or automatic default activation.
+
+Artifacts
+Workspace output/login-warmup-20261012 contains preflight.json,
+revision-probe.json, revision-sql-results.json, benchmark-results.json,
+fill-results.json, benchmark-first-attempt.json and their reproducible scripts.
+Only timing/check results and context hashes are emitted, not student records.
