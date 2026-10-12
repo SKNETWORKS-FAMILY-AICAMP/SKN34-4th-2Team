@@ -350,7 +350,7 @@ function renderValue(value: unknown): string {
 }
 
 /**
- * 핵심 역량 글 → 카드. 대시(— – - ·)로 시작하지 않는 줄은 역량 이름, 대시 줄은 그 설명이다.
+ * 핵심 역량 글 → 카드 한 장 안의 역량 목록. 대시(— – - ·)로 시작하지 않는 줄은 역량 이름, 대시 줄은 그 설명이다.
  * 이 모양이 아닌 글(대시 줄이 없으면)은 null — 지금처럼 글 그대로 보여 준다.
  */
 export function competencyCards(body: string): { title: string; description: string }[] | null {
@@ -460,6 +460,7 @@ function ResumeDraftPreview({
                     }
                     star={starChecks[`selfIntroduction.${s.key}.body`]}
                     quotes={quotes}
+                    card
                   />
                 ))}
               </div>
@@ -524,20 +525,21 @@ function ResumeDraftPreview({
             return (
               <div key={key} data-preview-key={key} className={`rv-section${highlighted(key) ? ' is-highlighted' : ''}`}>
                 <SectionTitle title={label} highlighted={highlighted(key)} />
-                {cards.map((card, i) => (
-                  <div key={i} className="rv-item">
-                    <div className="rv-item__head">
+                {/* 역량 전체를 카드 한 장으로 — 안에서 역량 이름은 굵게, 설명은 그 아래 */}
+                <div className="rv-item rv-competencies">
+                  {cards.map((card, i) => (
+                    <div key={i} className="rv-competency">
                       <strong>
                         <Marked body={card.title} quotes={quotes} />
                       </strong>
+                      {card.description !== '' && (
+                        <p>
+                          <Marked body={card.description} quotes={quotes} />
+                        </p>
+                      )}
                     </div>
-                    {card.description !== '' && (
-                      <p>
-                        <Marked body={card.description} quotes={quotes} />
-                      </p>
-                    )}
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             );
           }
@@ -566,6 +568,7 @@ function PreviewSection({
   highlighted,
   star,
   quotes = [],
+  card = false,
 }: {
   previewKey: string;
   title: string;
@@ -573,7 +576,24 @@ function PreviewSection({
   highlighted: boolean;
   star?: StarCheck;
   quotes?: string[];
+  /** 자기소개서 문항 — 문항 이름을 카드 제목으로, 프로젝트 · 교육 경험 카드와 같은 모양 */
+  card?: boolean;
 }) {
+  if (card) {
+    return (
+      <div data-preview-key={previewKey} className={`rv-section rv-section--card${highlighted ? ' is-highlighted' : ''}`}>
+        <div className="rv-item">
+          <div className="rv-item__head">
+            <strong>{title}</strong>
+          </div>
+          <p>
+            <Marked body={body} quotes={quotes} />
+          </p>
+          {star !== undefined && <ReviewStarCells check={star} />}
+        </div>
+      </div>
+    );
+  }
   return (
     <div data-preview-key={previewKey} className={`rv-section${highlighted ? ' is-highlighted' : ''}`}>
       <SectionTitle title={title} highlighted={highlighted} />

@@ -1279,3 +1279,23 @@ h4.rv-section__title {
   background: color-mix(in srgb, var(--warning) 32%, transparent);
   color: inherit;
 }
+
+/* 핵심 역량 — 카드 한 장 안에 역량 이름 · 설명을 차례로 */
+.rv-competencies {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rv-competency strong {
+  font-size: 12px;
+}
+
+.rv-competency p {
+  margin-top: 2px;
+}
+
+/* 자기소개서 문항 카드 — 카드끼리는 카드 간격(.rv-item margin-top)만 */
+.rv-section--card {
+  margin-bottom: 0;
+}
