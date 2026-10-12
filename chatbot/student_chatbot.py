@@ -339,6 +339,17 @@ class ChatState(MessagesState):
     supervisor_ms: int
     answer_model_ms: int
     answer_ttft_ms: int
+    answer_first_callback_ms: int | None
+    answer_first_nonempty_callback_ms: int | None
+    answer_first_model_event_ms: int | None
+    answer_visible_ttft_ms: int | None
+    answer_stream_events: int
+    answer_visible_deltas: int
+    answer_nontext_events: int
+    answer_reasoning_events: int
+    answer_reasoning_tokens: int | None
+    answer_cached_input_tokens: int | None
+    answer_reasoning_effort: str
     student_context_ms: int
     embedding_ms: int
     vector_query_ms_sum: int
@@ -488,8 +499,13 @@ class _FirstAnswerTokenTimer(BaseCallbackHandler):
     def __init__(self, started: float) -> None:
         self.started = started
         self.first_token_ms: int | None = None
+        self.first_callback_ms: int | None = None
 
     def on_llm_new_token(self, token: str, **kwargs: Any) -> None:
+        if self.first_callback_ms is None:
+            self.first_callback_ms = _elapsed_ms(self.started)
+        # Legacy meaning: nonempty callback, which may be a content-block list
+        # rather than visible text. Keep it separate from the stream-loop TTFT.
         if token and self.first_token_ms is None:
             self.first_token_ms = _elapsed_ms(self.started)
 
@@ -515,6 +531,45 @@ def _message_tokens(message: Any) -> tuple[int | None, int | None]:
                 int(token_out) if token_out is not None else None,
             )
     return None, None
+
+
+def _answer_reasoning_options(value: str | None) -> dict[str, Any]:
+    effort = (value or '').strip().lower()
+    if not effort:
+        return {}  # Omit the option; preserve the provider's existing default.
+    if effort not in {'none', 'low', 'medium', 'high', 'xhigh', 'max'}:
+        raise ValueError('LMS_CHATBOT_ANSWER_REASONING_EFFORT 값이 지원되지 않습니다.')
+    return {'reasoning': {'effort': effort}}
+
+
+def _message_usage_details(message: Any) -> dict[str, int]:
+    """Extract numeric provider metadata only; never retain model content."""
+    def number(value):
+        return value if type(value) is int and value >= 0 else None
+    def detail(source, key):
+        if not isinstance(source, dict):
+            return None
+        direct = number(source.get(key))
+        if direct is not None:
+            return direct
+        values = [number(source.get(f'{tier}_{key}')) for tier in ('priority', 'flex')]
+        return sum(value for value in values if value is not None) if any(v is not None for v in values) else None
+    usage = getattr(message, 'usage_metadata', None) or {}
+    usage = usage if isinstance(usage, dict) else {}
+    reasoning = detail(usage.get('output_token_details'), 'reasoning')
+    cached = detail(usage.get('input_token_details'), 'cache_read')
+    metadata = getattr(message, 'response_metadata', None) or {}
+    metadata = metadata if isinstance(metadata, dict) else {}
+    raw = metadata.get('token_usage') or metadata.get('usage') or {}
+    raw = raw if isinstance(raw, dict) else {}
+    if reasoning is None:
+        output = raw.get('output_tokens_details') or raw.get('completion_tokens_details') or {}
+        reasoning = number(output.get('reasoning_tokens')) if isinstance(output, dict) else None
+    if cached is None:
+        inputs = raw.get('input_tokens_details') or raw.get('prompt_tokens_details') or {}
+        cached = number(inputs.get('cached_tokens')) if isinstance(inputs, dict) else None
+    return {key: value for key, value in (
+        ('reasoning_tokens', reasoning), ('cached_input_tokens', cached)) if value is not None}
 
 
 def _chat_history(messages: list[Any], limit: int = 8) -> list[Any]:
@@ -684,9 +739,12 @@ class LmsStudentChatbot:
         self.supervisor_llm = ChatOpenAI(
             model="gpt-6-luna", use_responses_api=True, max_retries=2,
         )
+        reasoning_options = _answer_reasoning_options(os.getenv('LMS_CHATBOT_ANSWER_REASONING_EFFORT'))
+        self.answer_reasoning_effort = reasoning_options.get('reasoning', {}).get('effort', 'default')
         self.node_llm = ChatOpenAI(
             model="gpt-6-luna", use_responses_api=True, max_retries=2,
             streaming=True,
+            **reasoning_options,
         )
         self.embeddings = OpenAIEmbeddings(
             model=os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
@@ -835,6 +893,17 @@ class LmsStudentChatbot:
             "supervisor_ms": supervisor_ms,
             "answer_model_ms": 0,
             "answer_ttft_ms": 0,
+            "answer_first_callback_ms": None,
+            "answer_first_nonempty_callback_ms": None,
+            "answer_first_model_event_ms": None,
+            "answer_visible_ttft_ms": None,
+            "answer_stream_events": 0,
+            "answer_visible_deltas": 0,
+            "answer_nontext_events": 0,
+            "answer_reasoning_events": 0,
+            "answer_reasoning_tokens": None,
+            "answer_cached_input_tokens": None,
+            "answer_reasoning_effort": getattr(self, 'answer_reasoning_effort', 'default'),
             "student_context_ms": 0,
             "embedding_ms": 0,
             "vector_query_ms_sum": 0,
@@ -1172,6 +1241,10 @@ class LmsStudentChatbot:
         context_measure_ms = 0
         answer_model_ms = 0
         answer_ttft_ms = 0
+        answer_first_callback_ms = answer_first_model_event_ms = answer_visible_ttft_ms = None
+        answer_first_nonempty_callback_ms = None
+        stream_events = visible_deltas = nontext_events = reasoning_events = 0
+        usage_details: dict[str, int] = {}
         sources = [{
             "namespace": str(document.metadata.get("_namespace", "")),
             "doc_id": str(document.metadata.get("doc_id", "")),
@@ -1216,13 +1289,28 @@ class LmsStudentChatbot:
                 "context": context_text,
                 "question": state["question"],
             }, config={"callbacks": [first_token_timer]}):
+                if answer_first_model_event_ms is None:
+                    # First LangChain-delivered chunk, not raw HTTP first byte.
+                    answer_first_model_event_ms = _elapsed_ms(model_started)
+                stream_events += 1
+                if isinstance(chunk.content, list) and any(
+                    isinstance(block, dict) and block.get('type') == 'reasoning' for block in chunk.content):
+                    reasoning_events += 1
                 response = chunk if response is None else response + chunk
                 if chunk.text:
+                    if answer_visible_ttft_ms is None:
+                        answer_visible_ttft_ms = _elapsed_ms(model_started)
+                    visible_deltas += 1
                     writer({'type': 'answer_delta', 'text': chunk.text})
+                else:
+                    nontext_events += 1
             answer_model_ms = _elapsed_ms(model_started)
             answer_ttft_ms = first_token_timer.first_token_ms or 0
+            answer_first_callback_ms = first_token_timer.first_callback_ms
+            answer_first_nonempty_callback_ms = first_token_timer.first_token_ms
             answer = (response.text.strip() if response is not None else '') or "답변을 생성하지 못했습니다. LMS 담당자에게 확인해 주세요."
             token_in, token_out = _message_tokens(response)
+            usage_details = _message_usage_details(response)
         update: dict[str, Any] = {
             "answer": answer,
             "sources": sources,
@@ -1231,6 +1319,17 @@ class LmsStudentChatbot:
             "llm_ms": int(state.get("llm_ms", 0) or 0) + _elapsed_ms(started),
             "answer_model_ms": answer_model_ms,
             "answer_ttft_ms": answer_ttft_ms,
+            "answer_first_callback_ms": answer_first_callback_ms,
+            "answer_first_nonempty_callback_ms": answer_first_nonempty_callback_ms,
+            "answer_first_model_event_ms": answer_first_model_event_ms,
+            "answer_visible_ttft_ms": answer_visible_ttft_ms,
+            "answer_stream_events": stream_events,
+            "answer_visible_deltas": visible_deltas,
+            "answer_nontext_events": nontext_events,
+            "answer_reasoning_events": reasoning_events,
+            "answer_reasoning_tokens": usage_details.get('reasoning_tokens'),
+            "answer_cached_input_tokens": usage_details.get('cached_input_tokens'),
+            "answer_reasoning_effort": getattr(self, 'answer_reasoning_effort', 'default'),
             "prompt_build_ms": prompt_build_ms,
             "prompt_chars": prompt_chars,
             "context_metrics": context_metrics,
@@ -1343,6 +1442,12 @@ class LmsStudentChatbot:
                 )
             },
             "context_metrics": safe_context_metrics(values.get('context_metrics')),
+            **{key: values.get(key) for key in (
+                'answer_first_callback_ms', 'answer_first_nonempty_callback_ms',
+                'answer_first_model_event_ms', 'answer_visible_ttft_ms',
+                'answer_stream_events', 'answer_visible_deltas', 'answer_nontext_events',
+                'answer_reasoning_events', 'answer_reasoning_tokens', 'answer_cached_input_tokens')},
+            "answer_reasoning_effort": values.get('answer_reasoning_effort'),
             "token_in": values.get("token_in"),
             "token_out": values.get("token_out"),
             "request_id_hash": request_id_hash(thread_id),
