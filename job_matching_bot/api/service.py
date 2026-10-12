@@ -1866,6 +1866,7 @@ def _to_job_filters(filters: schemas.ChatFilters):
         career_years=filters.career_years,
         employment_types=filters.employment_types,
         deadline_within_days=filters.deadline_within_days,
+        companies=filters.companies,
         keywords=filters.keywords,
         exclude_keywords=filters.exclude_keywords,
         posted_within_days=filters.posted_within_days,

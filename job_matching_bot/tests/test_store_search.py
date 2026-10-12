@@ -736,3 +736,44 @@ class ListingNameDedupTest(unittest.TestCase):
             self.row("J-7", "㈜회사", "QA 엔지니어", group="g", image=True),
             self.row("S-6", "(주)회사", "QA 엔지니어 모집", group="g"),
         ))
+
+
+class CompanyFilterTest(unittest.TestCase):
+    """회사 칸 — 이름 앞부분이 맞는 회사만. 제목 · 본문에 이름이 든 다른 회사는 안 잡는다(2026-10-12 「토스」)."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.path = Path(self.temp.name) / "store.sqlite"
+        base = mock_jobs()[0]
+        rows = [
+            ("T1", "토스뱅크(주)", "서버 개발자"),
+            ("T2", "㈜비바리퍼블리카", "Product Engineer"),
+            ("M1", "(주)엠토스솔루션스", "(주)엠토스솔루션스 AI 인프라 엔지니어"),
+            ("M2", "가회사", "토스 결제 연동 개발자"),
+        ]
+        self.jobs = [
+            replace(base, job_id=job_id, source_job_id=job_id, company=company, title=title, description="개발",
+                    deadline="2026-09-30", status="OPEN", career_type="ENTRY", min_career_years=None)
+            for job_id, company, title in rows
+        ]
+        with SqliteJobStore(self.path) as store:
+            store.upsert(self.jobs, source="MOCK")
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_company_matches_the_start_of_the_name_and_its_alias(self):
+        result = search(self.path, JobFilters(companies=["토스"]), limit=10, as_of=NOW)
+        self.assertEqual({"T1", "T2"}, {job.job_id for job in result.jobs})
+        self.assertIn("토스", JobFilters(companies=["토스"]).summary())
+
+    def test_keyword_still_searches_text(self):
+        result = search(self.path, JobFilters(keywords=["토스"]), limit=10, as_of=NOW)
+        self.assertIn("M2", {job.job_id for job in result.jobs}, "검색어는 지금처럼 제목 · 본문에서 찾는다")
+
+    def test_spellings(self):
+        from job_matching_bot.retrieval.store_search import company_spellings
+
+        self.assertEqual(["토스", "비바리퍼블리카"], company_spellings("토스"))
+        self.assertEqual(["카카오뱅크"], company_spellings("(주) 카카오 뱅크"))
+        self.assertEqual([], company_spellings("  "))

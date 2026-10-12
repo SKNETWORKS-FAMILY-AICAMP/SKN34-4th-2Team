@@ -294,6 +294,9 @@ class ProxyQuestionWorkflowRequest(StrictModel):
     # 한 문항만 다시 쓸 때 — 앞서 돌려준 plan 을 주면 계획을 다시 세우지 않는다
     only: str | None = Field(default=None, max_length=100)
     plan: dict | None = None
+    # 문항 전체를 여러 요청에 나눠 쓴다(한 요청이 nginx 210초를 넘지 않게) — plan: 계획만, finish: answers 로 한 벌 검토만
+    stage: Literal['all', 'plan', 'finish'] = 'all'
+    answers: dict[str, dict] | None = None
 
 
 def get_question_workflow_llm(settings: Settings = Depends(get_settings)):
@@ -347,7 +350,8 @@ def question_workflow_as_user(
             gateway, build_requirement_extractor(settings), job['text'], job['source'],
         )
         result = QuestionWorkflow(llm).run(content=content, questions=questions, job=job, requirements=requirements,
-                                           only=request.only, saved_plan=request.plan)
+                                           only=request.only, saved_plan=request.plan,
+                                           stage=request.stage, answers=request.answers)
         return {**result, 'requirements': [{'id': r.id, 'group': r.group, 'label': r.label} for r in requirements]}
     except ResumeAccessError as exc:
         raise HTTPException(status_code=403, detail='Resume access denied') from exc
