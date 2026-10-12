@@ -7,7 +7,13 @@ from typing import get_args
 
 from django.db import transaction
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'cover_letter_rag'))
+_source_parents = Path(__file__).resolve().parents
+# Repository: <repo>/lms_api/lms; flat API image: /app/lms. Preserve the
+# sibling-source import layout in both, without relying on a caller PYTHONPATH.
+_ai_root = next((parent / 'cover_letter_rag' for parent in (_source_parents[1], _source_parents[2])
+                 if (parent / 'cover_letter_rag/app/application_planning').is_dir()),
+                _source_parents[2] / 'cover_letter_rag')
+sys.path.insert(0, str(_ai_root))
 from app.application_planning.engine import parse_constraints, validate_analysis, validate_plan
 from app.application_planning.models import (
     ANALYSIS_VERSION, VERSION, AskKey, Constraints, Question, QuestionAnalysis,
