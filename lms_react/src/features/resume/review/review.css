@@ -1271,3 +1271,11 @@ h4.rv-section__title {
   font-size: 13px;
   overflow-wrap: anywhere;
 }
+
+/* 지금 묻거나 고치는 원문 문장(reviewSession quotesOf) */
+.rv-mark {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--warning) 32%, transparent);
+  color: inherit;
+}

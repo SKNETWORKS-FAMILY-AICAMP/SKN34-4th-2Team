@@ -144,6 +144,8 @@ export interface ReviewSessionOptions {
 export interface ReviewView {
   activeQuestion: Json | null;
   highlightedFieldPath: string | null;
+  /** 지금 묻거나 고치는 원문 문장 — 미리보기에서 그 문장을 칠하고 그리로 스크롤한다 */
+  highlightedQuotes: string[];
   remainingQuestionCount: number;
   reviewCompleted: boolean;
   currentStage: number;
@@ -1569,17 +1571,20 @@ export class ReviewSession {
     }
     let activeSuggestionFieldPath: string | null = null;
     let activeSuggestionStage: number | null = null;
+    let activeSuggestion: Json | null = null;
     for (const m of [...this.messages].reverse()) {
       const suggestion = suggestionOf(m);
       if (suggestion !== null && this.isSuggestionPending(suggestion)) {
         activeSuggestionFieldPath = str(suggestion.field_path);
         activeSuggestionStage = typeof suggestion.stage === 'number' ? suggestion.stage : null;
+        activeSuggestion = suggestion;
         break;
       }
       const identity = identityOf(m);
       if (identity !== null && this.isSuggestionPending(identity)) {
         activeSuggestionFieldPath = str(identity.field_path);
         activeSuggestionStage = identity._kind === 'polish' ? 1 : 4;
+        activeSuggestion = identity;
         break;
       }
     }
@@ -1608,7 +1613,10 @@ export class ReviewSession {
       : activeStage !== null && activeStage > 0
         ? activeStage
         : 0;
-    return { activeQuestion, highlightedFieldPath, remainingQuestionCount, reviewCompleted, currentStage };
+    // 요건 보기로 옮겨 간 동안은 문장을 칠하지 않는다(그 요건의 섹션만)
+    const highlightedQuotes =
+      this.requirementFocusPath !== null ? [] : quotesOf(activeQuestion ?? activeSuggestion);
+    return { activeQuestion, highlightedFieldPath, highlightedQuotes, remainingQuestionCount, reviewCompleted, currentStage };
   }
 
   /** 그린 뒤에 부른다 — 원본은 build 에서 질문을 다 마쳤으면 누락 점검을 예약했다 */
@@ -1654,6 +1662,23 @@ function questionKey(question: Json): string {
 function isIdentityPlaceholderSuggestion(sentence: Json): boolean {
   const original = str(sentence.original_quote) ?? '';
   return original.includes('[회사명]') || original.includes('[직무명]');
+}
+
+/**
+ * 질문 · 수정안이 가리키는 원문 문장. 수정안은 original_quote, 질문은 quote · context.quote, 문장 다듬기 묶음은
+ * 줄마다 original_quote 를 둔다. 미리보기가 이 글을 그대로 찾아 칠하므로 너무 짧은 조각은 뺀다.
+ */
+export function quotesOf(payload: Json | null): string[] {
+  if (payload === null) return [];
+  const found: unknown[] = [payload.original_quote, payload.quote];
+  const context = payload.context;
+  if (context !== null && typeof context === 'object' && !Array.isArray(context)) found.push((context as Json).quote);
+  for (const value of Object.values(payload)) {
+    if (!Array.isArray(value)) continue;
+    for (const row of value) if (row !== null && typeof row === 'object') found.push((row as Json).original_quote);
+  }
+  const quotes = found.filter((q): q is string => typeof q === 'string').map((q) => q.trim()).filter((q) => q.length >= 6);
+  return [...new Set(quotes)];
 }
 
 /** 자기소개서는 문항별 카드로 보이므로 body · subtitle 어느 칸을 물어도 그 문항 카드에 맞춘다 */

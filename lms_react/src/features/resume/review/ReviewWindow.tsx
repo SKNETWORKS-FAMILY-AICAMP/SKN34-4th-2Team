@@ -142,6 +142,7 @@ export function ReviewWindow(props: ReviewWindowProps) {
       content={session.preview}
       changed={session.changed}
       highlightedFieldPath={view.highlightedFieldPath}
+      highlightedQuotes={view.highlightedQuotes}
       starChecks={session.starChecks}
       scrollRef={previewRef}
     />
@@ -348,6 +349,46 @@ function renderValue(value: unknown): string {
   return '';
 }
 
+/**
+ * 핵심 역량 글 → 카드. 대시(— – - ·)로 시작하지 않는 줄은 역량 이름, 대시 줄은 그 설명이다.
+ * 이 모양이 아닌 글(대시 줄이 없으면)은 null — 지금처럼 글 그대로 보여 준다.
+ */
+export function competencyCards(body: string): { title: string; description: string }[] | null {
+  const lines = body.split('\n').map((line) => line.trim()).filter((line) => line !== '');
+  const dash = /^[—–\-·•]\s*/;
+  if (!lines.some((line) => dash.test(line))) return null;
+  const cards: { title: string; description: string }[] = [];
+  for (const line of lines) {
+    if (dash.test(line) && cards.length > 0) {
+      const card = cards[cards.length - 1];
+      card.description = [card.description, line.replace(dash, '')].filter((v) => v !== '').join('\n');
+    } else {
+      cards.push({ title: line.replace(dash, ''), description: '' });
+    }
+  }
+  return cards;
+}
+
+/** 지금 묻거나 고치는 원문 문장을 칠한다. 글에 그대로 있는 것만 */
+function Marked({ body, quotes }: { body: string; quotes: string[] }) {
+  const spans = quotes
+    .flatMap((q) => {
+      const at = body.indexOf(q);
+      return at < 0 ? [] : [[at, at + q.length] as const];
+    })
+    .sort((a, b) => a[0] - b[0]);
+  if (spans.length === 0) return <>{body}</>;
+  const parts: React.ReactNode[] = [];
+  let offset = 0;
+  spans.forEach(([start, end], i) => {
+    if (start < offset) return; // 겹친 조각은 앞의 것만
+    parts.push(body.slice(offset, start), <mark key={i} className="rv-mark">{body.slice(start, end)}</mark>);
+    offset = end;
+  });
+  parts.push(body.slice(offset));
+  return <>{parts}</>;
+}
+
 const text = (item: Json, key?: string) => (key === undefined ? '' : typeof item[key] === 'string' ? (item[key] as string).trim() : '');
 const listOf = (value: unknown): Json[] =>
   (Array.isArray(value) ? value : []).filter((v): v is Json => v !== null && typeof v === 'object');
@@ -356,18 +397,35 @@ function ResumeDraftPreview({
   content,
   changed,
   highlightedFieldPath,
+  highlightedQuotes = [],
   starChecks,
   scrollRef,
 }: {
   content: Json;
   changed: boolean;
   highlightedFieldPath: string | null;
+  highlightedQuotes?: string[];
   starChecks: Record<string, StarCheck>;
   scrollRef: React.RefObject<HTMLDivElement>;
 }) {
   const info = (content.basicInfo as Json | undefined) ?? {};
   const highlighted = (key: string) =>
     highlightedFieldPath?.startsWith(`${key}.`) === true || highlightedFieldPath?.startsWith(`${key}[`) === true;
+  const quotes = highlightedQuotes;
+
+  // 칠한 문장이 생기면 그 문장으로 — 섹션 맨 위가 아니라 고치는 줄이 보이게
+  const quoteKey = quotes.join('\n');
+  useEffect(() => {
+    if (quoteKey === '') return;
+    const handle = window.requestAnimationFrame(() => {
+      const container = scrollRef.current;
+      const mark = container?.querySelector<HTMLElement>('.rv-mark');
+      if (container == null || mark == null) return;
+      const top = mark.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+      container.scrollTo({ top: top - container.clientHeight * 0.3, behavior: 'smooth' });
+    });
+    return () => window.cancelAnimationFrame(handle);
+  }, [quoteKey, scrollRef]);
 
   return (
     // 이력서 문장을 드래그해 복사할 수 있다. 첨삭 결과를 다른 곳에 옮겨 적는 일이 많다
@@ -401,6 +459,7 @@ function ResumeDraftPreview({
                       highlightedFieldPath === `selfIntroduction.${s.key}`
                     }
                     star={starChecks[`selfIntroduction.${s.key}.body`]}
+                    quotes={quotes}
                   />
                 ))}
               </div>
@@ -446,7 +505,11 @@ function ResumeDraftPreview({
                         <strong>{text(item, config.primary)}</strong>
                         {meta.length > 0 && <span>{meta.join(' · ')}</span>}
                       </div>
-                      {description !== '' && <p>{description}</p>}
+                      {description !== '' && (
+                        <p>
+                          <Marked body={description} quotes={quotes} />
+                        </p>
+                      )}
                       {star !== undefined && description !== '' && <ReviewStarCells check={star} />}
                     </div>
                   );
@@ -456,7 +519,31 @@ function ResumeDraftPreview({
           }
           const body = renderValue(content[key]);
           if (body === '') return null;
-          return <PreviewSection key={key} previewKey={key} title={label} body={body} highlighted={highlighted(key)} />;
+          const cards = key === 'coreCompetencies' ? competencyCards(body) : null;
+          if (cards !== null) {
+            return (
+              <div key={key} data-preview-key={key} className={`rv-section${highlighted(key) ? ' is-highlighted' : ''}`}>
+                <SectionTitle title={label} highlighted={highlighted(key)} />
+                {cards.map((card, i) => (
+                  <div key={i} className="rv-item">
+                    <div className="rv-item__head">
+                      <strong>
+                        <Marked body={card.title} quotes={quotes} />
+                      </strong>
+                    </div>
+                    {card.description !== '' && (
+                      <p>
+                        <Marked body={card.description} quotes={quotes} />
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          }
+          return (
+            <PreviewSection key={key} previewKey={key} title={label} body={body} highlighted={highlighted(key)} quotes={quotes} />
+          );
         })}
       </div>
     </div>
@@ -478,17 +565,21 @@ function PreviewSection({
   body,
   highlighted,
   star,
+  quotes = [],
 }: {
   previewKey: string;
   title: string;
   body: string;
   highlighted: boolean;
   star?: StarCheck;
+  quotes?: string[];
 }) {
   return (
     <div data-preview-key={previewKey} className={`rv-section${highlighted ? ' is-highlighted' : ''}`}>
       <SectionTitle title={title} highlighted={highlighted} />
-      <p className="rv-section__body">{body}</p>
+      <p className="rv-section__body">
+        <Marked body={body} quotes={quotes} />
+      </p>
       {star !== undefined && <ReviewStarCells check={star} />}
     </div>
   );
