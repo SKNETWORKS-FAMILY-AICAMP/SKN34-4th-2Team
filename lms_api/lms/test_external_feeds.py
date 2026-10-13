@@ -41,6 +41,27 @@ class QualExamItemTests(SimpleTestCase):
             items, total = feeds.fetch_qual_exams(2026)
         self.assertEqual((len(items), total, get.call_count), (51, 51, 2))
 
+    def test_same_round_with_two_reg_periods_is_merged(self):
+        base = {"jmCd": "1320", "implYy": "2026", "implSeq": 3, "description": "국가기술자격 기사 (2026년도 제3회)",
+                "docExamStartDt": "20260807", "pracRegStartDt": "20260921", "pracRegEndDt": "20261019"}
+        late = {**base, "docRegStartDt": "20260801", "docRegEndDt": "20260802"}
+        early = {**base, "docRegStartDt": "20260720", "docRegEndDt": "20260723"}
+        other = {**base, "implSeq": 2, "docRegStartDt": "20260420", "docRegEndDt": "20260423"}
+        merged = feeds._merge_extra_regs([late, early, other])
+        self.assertEqual(len(merged), 2)
+        third = next(m for m in merged if m["implSeq"] == 3)
+        self.assertEqual((third["docRegStartDt"], third["docRegEndDt"]), ("20260720", "20260723"))
+        self.assertEqual(third["docRegExtra"], [["20260801", "20260802"]])
+        self.assertNotIn("pracRegExtra", third)
+
+    def test_subjects_are_tagged_with_code_and_name(self):
+        row = {"implYy": "2026", "implSeq": 1, "description": "기사", "docRegStartDt": "20260112"}
+        page = {"header": {"resultCode": "00"}, "body": {"totalCount": 1, "items": [row]}}
+        with mock.patch.dict("os.environ", {"DATA_GO_KR_SERVICE_KEY": "k"}),                 mock.patch.object(feeds, "QUAL_SUBJECTS", (("1320", "정보처리기사"), ("6921", "프로그래밍기능사"))),                 mock.patch.object(feeds, "_get_json", return_value=page) as get:
+            items = feeds.fetch_qual_subjects(2026)
+        self.assertEqual([(i["jmCd"], i["jmNm"]) for i in items], [("1320", "정보처리기사"), ("6921", "프로그래밍기능사")])
+        self.assertIn("jmCd=1320", get.call_args_list[0].args[0])
+
     def test_api_error_header_raises(self):
         with mock.patch.dict("os.environ", {"DATA_GO_KR_SERVICE_KEY": "k"}), \
                 mock.patch.object(feeds, "_get_json", return_value={"header": {"resultCode": "30", "resultMsg": "KEY ERROR"}}):

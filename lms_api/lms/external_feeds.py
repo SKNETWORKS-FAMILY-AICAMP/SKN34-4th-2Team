@@ -4,6 +4,7 @@
 `functions/src/youtubeRecommendations.ts`)였다.
 
 - 시험 일정: `qualExamSchedules_{연도}`. bootstrap 이 그대로 내려 준다. 하루에 한 번 새로 받는다.
+  등급(기사·기능사)으로 받으면 종목 이름이 없고 상시 기능사가 매주 쏟아지므로, 정보기술 분야 종목만 `jmCd` 로 받는다.
 - YouTube: `youtubeCurriculum_{기수 코드}_{주 시작일}_v3`. `/study/youtube-weekly` 가 읽는다.
   12시간이 지나면 다시 검색한다. 검색 한 번에 쿼터 100을 쓰므로(하루 1만) 요청마다 부르지 않는다.
 
@@ -33,6 +34,20 @@ KST = ZoneInfo("Asia/Seoul")
 QUAL_URL = "https://apis.data.go.kr/B490007/qualExamSchd/getQualExamSchdList"
 QUAL_PAGE = 50
 QUAL_STALE = timedelta(hours=24)
+# 캐시 모양이 바뀌면 올린다. 옛 모양(등급 단위)은 하루를 기다리지 않고 다시 받는다.
+QUAL_VERSION = 2
+# Q-Net 종목 목록(InquiryListNationalQualifcationSVC)의 직무 분야 「정보기술」. 앞쪽이 칩 순서다.
+QUAL_SUBJECTS = (
+    ("1320", "정보처리기사"),
+    ("2290", "정보처리산업기사"),
+    ("6921", "프로그래밍기능사"),
+    ("1998", "컴퓨터시스템기사"),
+    ("2193", "사무자동화산업기사"),
+    ("6892", "정보기기운용기능사"),
+    ("0601", "정보관리기술사"),
+    ("0622", "컴퓨터시스템응용기술사"),
+    ("9545", "멀티미디어콘텐츠제작전문가"),
+)
 QUAL_DATE_FIELDS = (
     "docRegStartDt", "docRegEndDt", "docExamStartDt", "docExamEndDt", "docPassDt",
     "pracRegStartDt", "pracRegEndDt", "pracExamStartDt", "pracExamEndDt", "pracPassDt",
@@ -120,7 +135,32 @@ def _qual_rows(payload: dict) -> list[dict]:
     return [row for row in items if isinstance(row, dict)]
 
 
-def fetch_qual_exams(year: int) -> tuple[list[dict], int]:
+def _merge_extra_regs(items: list[dict]) -> list[dict]:
+    """같은 회차가 접수 기간만 다른 줄로 두 번 온다(정기 접수 + 추가 접수). 한 줄로 합친다.
+
+    먼저 시작한 접수를 본 접수로 두고, 나머지는 `docRegExtra` · `pracRegExtra` 에 [시작, 끝] 으로 붙인다.
+    """
+    groups: dict[tuple, list[dict]] = {}
+    for item in items:
+        groups.setdefault((item.get("jmCd"), item["implYy"], item["implSeq"], item["description"]), []).append(item)
+    merged: list[dict] = []
+    for rows in groups.values():
+        rows.sort(key=lambda r: (r["docRegStartDt"] or "99991231", r["pracRegStartDt"] or "99991231"))
+        head = dict(rows[0])
+        for kind in ("doc", "prac"):
+            main = (head[f"{kind}RegStartDt"], head[f"{kind}RegEndDt"])
+            extra: list[list] = []
+            for row in rows[1:]:
+                period = [row[f"{kind}RegStartDt"], row[f"{kind}RegEndDt"]]
+                if period[0] and tuple(period) != main and period not in extra:
+                    extra.append(period)
+            if extra:
+                head[f"{kind}RegExtra"] = extra
+        merged.append(head)
+    return merged
+
+
+def fetch_qual_exams(year: int, jm_cd: str = "") -> tuple[list[dict], int]:
     key = _env_key("DATA_GO_KR_SERVICE_KEY")
     if not key:
         raise FeedError(503, "DATA_GO_KR_SERVICE_KEY가 설정되지 않았습니다.")
@@ -128,10 +168,13 @@ def fetch_qual_exams(year: int) -> tuple[list[dict], int]:
     total = 0
     page = 1
     while True:
-        query = urllib.parse.urlencode({
+        params = {
             "serviceKey": key, "numOfRows": QUAL_PAGE, "pageNo": page,
             "dataFormat": "json", "implYy": year, "qualgbCd": "T",
-        })
+        }
+        if jm_cd:
+            params["jmCd"] = jm_cd
+        query = urllib.parse.urlencode(params)
         try:
             payload = _get_json(f"{QUAL_URL}?{query}")
         except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
@@ -154,6 +197,18 @@ def fetch_qual_exams(year: int) -> tuple[list[dict], int]:
     return items, total
 
 
+def fetch_qual_subjects(year: int) -> list[dict]:
+    """`QUAL_SUBJECTS` 종목마다 받아 종목 코드 · 이름을 붙인다. 종목 순서를 지킨다."""
+    out: list[dict] = []
+    for jm_cd, jm_nm in QUAL_SUBJECTS:
+        items, _ = fetch_qual_exams(year, jm_cd)
+        for item in items:
+            item["jmCd"] = jm_cd
+            item["jmNm"] = jm_nm
+        out.extend(_merge_extra_regs(items))
+    return out
+
+
 def sync_qual_exams(years: list[int] | None = None) -> dict[int, int]:
     """시험 일정을 받아 `system_cache` 에 쓴다. 다음 해 일정은 나온 뒤(보통 12월)에만 저장한다."""
     this_year = datetime.now(KST).year
@@ -161,14 +216,15 @@ def sync_qual_exams(years: list[int] | None = None) -> dict[int, int]:
     result: dict[int, int] = {}
     with _qual_lock:
         for year in targets:
-            items, total = fetch_qual_exams(year)
+            items = fetch_qual_subjects(year)
             if not items and year != this_year:
                 continue
             with connection.cursor() as cur:
                 _cache_write(cur, f"qualExamSchedules_{year}", {
                     "year": year,
+                    "version": QUAL_VERSION,
                     "items": items,
-                    "totalCount": total,
+                    "totalCount": len(items),
                     "syncedAt": datetime.now(timezone.utc).isoformat(),
                 })
             result[year] = len(items)
@@ -184,11 +240,13 @@ def qual_synced_at(year: int | None = None) -> datetime | None:
 
 
 def sync_qual_exams_if_stale() -> dict[int, int] | None:
-    """하루 넘게 묵었으면 새로 받는다. 키가 없으면 조용히 넘어간다."""
+    """하루 넘게 묵었거나 옛 모양이면 새로 받는다. 키가 없으면 조용히 넘어간다."""
     if not _env_key("DATA_GO_KR_SERVICE_KEY"):
         return None
-    synced = qual_synced_at()
-    if synced is not None and datetime.now(timezone.utc) - synced < QUAL_STALE:
+    with connection.cursor() as cur:
+        data, synced = _cache_read(cur, f"qualExamSchedules_{datetime.now(KST).year}")
+    fresh = synced is not None and datetime.now(timezone.utc) - synced < QUAL_STALE
+    if fresh and (data or {}).get("version") == QUAL_VERSION:
         return None
     return sync_qual_exams()
 

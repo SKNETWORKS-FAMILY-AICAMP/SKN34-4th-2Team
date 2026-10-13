@@ -990,6 +990,9 @@ export interface QualExamSchedule {
   qualgbCd: string;
   qualgbNm: string;
   description: string;
+  /** Q-Net 종목 코드 · 이름(정보처리기사 등). 등급 단위로 받던 옛 캐시에는 없다 */
+  jmCd?: string;
+  jmNm?: string;
   docRegStartDt?: string;
   docRegEndDt?: string;
   docExamStartDt?: string;
@@ -1000,6 +1003,9 @@ export interface QualExamSchedule {
   pracExamStartDt?: string;
   pracExamEndDt?: string;
   pracPassDt?: string;
+  /** 같은 회차의 추가 접수 기간들 — [시작, 끝] */
+  docRegExtra?: [string, string][];
+  pracRegExtra?: [string, string][];
 }
 
 // ── LLMOps ────────────────────────────────────────────
