@@ -222,7 +222,7 @@ html {
   display: flex;
   align-items: center;
   gap: 11px;
-  padding: 10px 12px;
+  padding: var(--rail-item-y) 12px;
   border-radius: 10px;
   color: var(--rail-fg);
   font-size: 14px;
