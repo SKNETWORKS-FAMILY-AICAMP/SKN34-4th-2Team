@@ -55,9 +55,9 @@ QUAL_DATE_FIELDS = (
 
 YT_URL = "https://www.googleapis.com/youtube/v3/search"
 YT_TTL = timedelta(hours=12)
-YT_VERSION = "v3"
+YT_VERSION = "v4"
 YT_MAX_QUERIES = 5
-YT_PER_QUERY = 6
+YT_PER_QUERY = 15  # 쿼터는 검색 한 번에 100 — 개수와 무관. 제목으로 거르므로 넉넉히 받는다
 YT_MAX_VIDEOS = 12
 
 _qual_lock = threading.Lock()
@@ -287,6 +287,42 @@ def topic_label(row: dict) -> str:
     return (row.get("topic") or "").strip() or (row.get("subject") or "").strip() or "커리큘럼"
 
 
+def _is_project(row: dict) -> bool:
+    """「단위 프로젝트」 · 「최종프로젝트」 같은 날은 배울 주제가 아니다. 검색하면 영어 · Revit 강의가 걸린다."""
+    return "프로젝트" in topic_label(row)
+
+
+# 제목 거르기에서 이것만 맞아서는 그 주제 영상이라 볼 수 없는 낱말
+GENERIC_WORDS = {
+    "framework", "programming", "project", "basic", "basics", "tutorial", "course", "intro", "and", "the",
+    "프로그래밍", "프로젝트", "애플리케이션", "엔지니어링", "기초", "개념", "실습", "활용", "구현", "개발", "이해",
+}
+
+
+def _compact(text: str) -> str:
+    return re.sub(r"[\s\-_/·.,()\[\]]+", "", (text or "").lower())
+
+
+def title_keywords(label: str) -> list[str]:
+    """영상 제목에 하나라도 있어야 하는 낱말 — 붙여 쓴 주제 전체와, 3자 이상인 그 주제만의 낱말.
+
+    「화면 구현」은 「화면구현」만 본다(「PC화면에 그림그리기」가 걸리지 않게).
+    """
+    words = [w for w in re.split(r"[\s\-_/·,()]+", (label or "").lower()) if w]
+    keys = [_compact(label)]
+    for w in words:
+        if w in GENERIC_WORDS:
+            continue
+        if len(w) >= 3 or len(words) == 1:
+            keys.append(_compact(w))
+    return [k for k in dict.fromkeys(keys) if len(k) >= 2]
+
+
+def is_relevant(title: str, label: str) -> bool:
+    keys = title_keywords(label)
+    return not keys or any(k in _compact(title) for k in keys)
+
+
 def _variants(row: dict) -> list[str]:
     """교과목 이름(「AI 활용 애플리케이션 개발」)은 너무 넓어 검색을 흐린다. 주제 · 세부 내용으로 찾는다."""
     subject, topic, detail = ((row.get(k) or "").strip() for k in ("subject", "topic", "detail"))
@@ -303,10 +339,23 @@ def pick_week_rows(rows: list[dict], today: date) -> tuple[date, list[dict]]:
     """이번 주(월~일) 커리큘럼 행. 이번 주가 비었으면 오늘과 가까운 날짜로 채운다."""
     monday = today - timedelta(days=today.weekday())
     sunday = monday + timedelta(days=6)
-    dated = [(r, d) for r in rows if (d := _label_date(r.get("date_label") or "")) is not None]
+    dated = sorted(
+        ((r, d) for r in rows if (d := _label_date(r.get("date_label") or "")) is not None),
+        key=lambda x: x[1],
+    )
+    # 프로젝트 날은 바로 앞에 배운 주제로 바꾼다. 앞에 배운 주제가 없으면 뺀다
+    resolved: list[tuple[dict, date]] = []
+    last: dict | None = None
+    for r, d in dated:
+        if not _is_project(r):
+            last = r
+            resolved.append((r, d))
+        elif last is not None:
+            resolved.append((last, d))
+    dated = resolved
     by_distance = sorted(dated, key=lambda x: abs((x[1] - today).days))
 
-    picked = [r for r, d in sorted(dated, key=lambda x: x[1]) if monday <= d <= sunday]
+    picked = [r for r, d in dated if monday <= d <= sunday]
     if not picked and by_distance:
         nearest = by_distance[0][1]
         picked = [r for r, d in dated if nearest - timedelta(days=2) <= d <= nearest + timedelta(days=3)]
@@ -423,7 +472,7 @@ def _collect_videos(key: str, queries: list[tuple[str, str, str | None]]) -> lis
             continue
         fresh, rest = [], []
         for v in found:
-            if v["videoId"] in seen_ids:
+            if v["videoId"] in seen_ids or not is_relevant(v["title"], label):
                 continue
             seen_ids.add(v["videoId"])
             item = {**v, "topicLabel": label, "query": query}

@@ -45,6 +45,7 @@ import { usePageCrumbs } from '../../app/crumbs';
 import { useCurrentUser } from '../auth/session';
 import { LessonDaysSection, setProgress } from './LessonDaysSection';
 import { noteDate, noteLabel } from './noteScope';
+import { VideoCard, youtubeThumb } from './VideoCard';
 
 const packageTypeLabels: Record<string, string> = {
   review: '예복습',
@@ -185,55 +186,6 @@ function WrongNotesSummary({ cohortId, uid }: { cohortId: string; uid: string })
       <span className="study-entry__pill study-entry__pill--warn">못 푼 문제 {count}개</span>
       <span className="study-entry__pill">{dates}</span>
     </div>
-  );
-}
-
-function youtubeThumb(videoId?: string): string | undefined {
-  return videoId ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` : undefined;
-}
-
-/** 영상 카드 한 장 — 썸네일 · 제목 · 채널/주제 */
-function VideoCard({
-  href,
-  title,
-  thumb,
-  meta,
-  chips,
-}: {
-  href: string;
-  title: string;
-  thumb?: string;
-  meta: string[];
-  chips?: { label: string; on?: boolean }[];
-}) {
-  return (
-    <a className="study-video" href={href} target="_blank" rel="noreferrer">
-      <span className="study-video__thumb">
-        {thumb !== undefined && <img src={thumb} alt="" loading="lazy" />}
-        <Icon
-          name="play_circle"
-          size={36}
-          className={thumb !== undefined ? 'study-video__play' : undefined}
-        />
-      </span>
-      <strong className="study-video__title">{title}</strong>
-      {meta.length > 0 && (
-        <span className="study-video__meta">
-          {meta.map((m, i) => (
-            <span key={m}>{i > 0 ? `· ${m}` : m}</span>
-          ))}
-        </span>
-      )}
-      {chips !== undefined && chips.length > 0 && (
-        <span className="study-video__tags">
-          {chips.map((c) => (
-            <span key={c.label} className={`chip${c.on ? ' chip--on' : ''}`}>
-              {c.label}
-            </span>
-          ))}
-        </span>
-      )}
-    </a>
   );
 }
 

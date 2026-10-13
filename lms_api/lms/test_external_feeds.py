@@ -102,6 +102,29 @@ class WeekPickTests(SimpleTestCase):
         self.assertEqual(feeds._variants(_row("x", "최종프로젝트", "", ""))[0], "최종프로젝트 강의")
 
 
+    def test_project_days_become_previous_topic(self):
+        rows = self.ROWS + [
+            _row("2026년 10월 14일 수요일", "AI 활용 애플리케이션 개발", "단위 프로젝트"),
+            _row("2026년 10월 16일 금요일", "최종프로젝트", "", ""),
+        ]
+        _, picked = feeds.pick_week_rows(rows, date(2026, 10, 14))
+        labels = [feeds.topic_label(r) for r in picked]
+        self.assertEqual(labels[0], "클라우드")
+        self.assertFalse(any("프로젝트" in label for label in labels))
+
+    def test_project_before_any_topic_is_dropped(self):
+        rows = [_row("2026년 9월 1일 화요일", "최종프로젝트", "", "")]
+        self.assertEqual(feeds.pick_week_rows(rows, date(2026, 9, 1))[1], [])
+
+    def test_title_must_mention_topic(self):
+        self.assertTrue(feeds.is_relevant("[화면구현] ReactJS 화면단 구현하기", "화면 구현"))
+        self.assertFalse(feeds.is_relevant("ZOOMIT 사용법 PC화면에 그림그리기", "화면 구현"))
+        self.assertTrue(feeds.is_relevant("Python Django Web Framework - 수업소개", "Django Framework"))
+        self.assertFalse(feeds.is_relevant("FastAPI 프레임워크 Framework 소개", "Django Framework"))
+        self.assertTrue(feeds.is_relevant("멀티모달 AI 한 번에 정리", "자연어-이미지 멀티모달"))
+        self.assertTrue(feeds.is_relevant("AWS 클라우드 입문", "클라우드"))
+
+
 class WeeklyYoutubeAccessTests(SimpleTestCase):
     def test_student_cannot_read_other_cohort(self):
         cur = mock.MagicMock()

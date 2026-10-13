@@ -1980,40 +1980,6 @@ html {
 }
 
 /* 학습 추천 카드 */
-.video-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-
-.video-card:hover {
-  border-color: var(--primary);
-}
-
-.video-card__thumb {
-  height: 72px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  background: var(--surface-variant);
-  color: var(--text-hint);
-}
-
-.video-card__title {
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-.video-card__tags {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
 .video-thumb {
   display: grid;
   place-items: center;
@@ -5603,6 +5569,11 @@ html {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 12px;
+}
+
+/* 대시보드 — 좁은 칸에 3개를 한 줄로 */
+.study-videos--compact {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
 .study-video {
