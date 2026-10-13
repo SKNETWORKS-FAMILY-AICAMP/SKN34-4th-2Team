@@ -93,8 +93,10 @@ export function StudyRoomScreen() {
       {/* 공부방 — 수업 날짜마다 노트와 복습 문제가 있는 곳으로 들어가는 문 */}
       <section className="study-entry">
         <div>
-          <span className="study-home__icon"><Icon name="menu_book" size={22} /></span>
-          <h2 className="study-entry__title">공부방</h2>
+          <div className="study-entry__header">
+            <span className="study-home__icon"><Icon name="menu_book" size={22} /></span>
+            <h2 className="study-entry__title">공부방</h2>
+          </div>
           <p className="study-entry__desc">수업별 문제를 풀고 복습 노트를 확인하세요.</p>
           <StudyRoomSummary cohortId={user.cohortId} uid={user.uid} />
         </div>
@@ -106,8 +108,10 @@ export function StudyRoomScreen() {
       {/* 오답노트 — 틀린 복습 문제를 수업 날짜별로 */}
       <section className="study-entry">
         <div>
-          <span className="study-home__icon"><Icon name="replay" size={22} /></span>
-          <h2 className="study-entry__title">오답노트</h2>
+          <div className="study-entry__header">
+            <span className="study-home__icon"><Icon name="replay" size={22} /></span>
+            <h2 className="study-entry__title">오답노트</h2>
+          </div>
           <p className="study-entry__desc">틀린 문제를 다시 풀고 해결한 기록을 확인하세요.</p>
           <WrongNotesSummary cohortId={user.cohortId} uid={user.uid} />
         </div>
@@ -119,8 +123,10 @@ export function StudyRoomScreen() {
       {/* 연습장 — 문제 없이 코드를 바로 돌려 보는 곳 */}
       <section className="study-entry study-entry--quiet">
         <div>
-          <span className="study-home__icon"><Icon name="terminal" size={22} /></span>
-          <h2 className="study-entry__title">자유 연습장</h2>
+          <div className="study-entry__header">
+            <span className="study-home__icon"><Icon name="terminal" size={22} /></span>
+            <h2 className="study-entry__title">자유 연습장</h2>
+          </div>
           <p className="study-entry__desc">코드를 직접 작성하고 실행하며 실험하세요.</p>
         </div>
         <PracticeLink className="btn btn--outline btn--md" setId={null}>

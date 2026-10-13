@@ -26,6 +26,7 @@ export function NoticeFormScreen({ backTo }: { backTo: string }) {
   const existing = useNotice(noticeId);
   const user = useCurrentUser();
   const navigate = useNavigate();
+  const cannotEdit = noticeId !== undefined && user.role === 'instructor' && existing?.authorId !== user.uid;
 
   const [title, setTitle] = useState(existing?.title ?? '');
   const [content, setContent] = useState(existing?.content ?? '');
@@ -45,6 +46,7 @@ export function NoticeFormScreen({ backTo }: { backTo: string }) {
   }, [imageFile]);
 
   const save = async () => {
+    if (cannotEdit) return;
     if (saving) return;
     if (title.trim() === '') {
       setError('제목을 입력해 주세요.');
@@ -77,6 +79,18 @@ export function NoticeFormScreen({ backTo }: { backTo: string }) {
       setSaving(false);
     }
   };
+
+  if (cannotEdit) {
+    return (
+      <div className="screen__inner">
+        <PageHeader title="공지 수정" />
+        <Card>
+          <p>본인이 등록한 글만 수정할 수 있습니다.</p>
+          <Button variant="outline" onClick={() => navigate(backTo)}>목록으로</Button>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="screen__inner">

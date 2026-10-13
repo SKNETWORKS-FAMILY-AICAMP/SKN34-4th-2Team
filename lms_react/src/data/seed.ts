@@ -209,6 +209,7 @@ export const seedNotices: Notice[] = [
     content:
       '정상 출석 외에 지각 / 조퇴 / 외출 / 결석(공가 포함) 예정이 있으면 반드시 오늘 날짜로 「출결 신청」에서 신청해 주세요.',
     authorName: 'PLAYDATA 관리자',
+    authorId: DemoAccounts.adminUid,
     isFavorite: true,
     priority: 1,
     channelLabel: '출결',
@@ -220,6 +221,7 @@ export const seedNotices: Notice[] = [
     content:
       '2차 프로젝트 팀 편성표를 게시했습니다. 팀별 첫 미팅은 오늘 16:00, 강의장 뒤편에서 진행합니다.',
     authorName: '김강사',
+    authorId: DemoAccounts.instructorUid,
     isFavorite: true,
     priority: 1,
     createdAt: daysAgo(1),
@@ -229,6 +231,7 @@ export const seedNotices: Notice[] = [
     title: '수료 특강 안내 — 이력서 클리닉',
     content: '현직 데이터 분석가를 모시고 이력서 클리닉을 진행합니다. 신청은 설문·제출 메뉴에서 받습니다.',
     authorName: 'PLAYDATA 관리자',
+    authorId: DemoAccounts.adminUid,
     isFavorite: false,
     priority: 0,
     createdAt: daysAgo(3),
@@ -238,6 +241,7 @@ export const seedNotices: Notice[] = [
     title: '강의장 좌석 재배치 안내',
     content: '다음 주 월요일부터 좌석이 변경됩니다. 자리 배치 메뉴에서 본인 좌석을 확인해 주세요.',
     authorName: 'PLAYDATA 관리자',
+    authorId: DemoAccounts.adminUid,
     isFavorite: false,
     priority: 0,
     createdAt: daysAgo(6),
