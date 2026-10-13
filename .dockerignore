@@ -29,7 +29,17 @@ lms_react/tools/qa/out
 
 # 비밀 · 로컬 설정
 .env
+**/.env
+**/.env.*
 secrets
+**/secrets
+**/.aws
+**/.codex
+**/*-firebase-adminsdk-*.json
+**/*.pem
+**/*.key
+lms_api/media
+**/celerybeat-schedule*
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

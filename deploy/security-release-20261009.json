@@ -1,0 +1,18 @@
+{
+  "base_image": "sha256:e481a956efc89dcb9da76adec8631151056f1d80818d73d6c7f2c679d09c1dcc",
+  "files": {
+    "lms_api/lms/api.py": "83a0b6733b07de8e373edcd11a2e4144bbc99271738c2ef0637458bc8eeeb2e2",
+    "lms_api/lms/commands.py": "73ac18cfc5f283a6d06498cea2acb12f92de879010305640824904d5c70a1c6a",
+    "lms_api/lms/jwt_auth.py": "4393cb49bb18833d81920dc085bbedf6968a782d10475e412efac56bbbee44e5",
+    "lms_api/lms/middleware.py": "219542aa004ff93816045852516f6982b372e68df1ac4c3708e8a2ec74bb410e",
+    "lms_api/lms/auth_sessions.py": "6c59393736608268d14cf8bf43c1baf5a9a12595ae4e6b4809dd13166532e197",
+    "lms_api/lms/test_auth_security.py": "6d6504a1aa80562bcbd7e46952a1ccc70c079bee590b293bf6e4e61c6b7bbfd9"
+  },
+  "local_image": "sha256:0e732660b3438f78212e567ccc6b65f09764ed578678f2ba887d22d0d08fac5a",
+  "ecr_tag": "security-20261009-0e732660b343",
+  "image": "711425439897.dkr.ecr.us-east-1.amazonaws.com/lms-api@sha256:0e732660b3438f78212e567ccc6b65f09764ed578678f2ba887d22d0d08fac5a",
+  "web_index_sha256": "ab3ac4607c938fad1a92c41e6eea06d9dbc0200934a63549bff9f1232200b19d",
+  "web_invalidation": "IE42205JEYMJHHM4O66NFDMSBX",
+  "deployed": true,
+  "scheduled_jobs_enabled": false
+}

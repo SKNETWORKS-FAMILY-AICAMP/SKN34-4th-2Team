@@ -1,0 +1,53 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EcrLogin",
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    },
+    {
+      "Sid": "PullServiceImage",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchCheckLayerAvailability"
+      ],
+      "Resource": "arn:aws:ecr:us-east-1:711425439897:repository/lms-api"
+    },
+    {
+      "Sid": "ListProjectBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": "arn:aws:s3:::skn34-4th-2team-lxp"
+    },
+    {
+      "Sid": "ReadProjectFiles",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::skn34-4th-2team-lxp/*"
+    },
+    {
+      "Sid": "UploadProjectFiles",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::skn34-4th-2team-lxp/*"
+    },
+    {
+      "Sid": "DeleteCohortDocuments",
+      "Effect": "Allow",
+      "Action": "s3:DeleteObject",
+      "Resource": [
+        "arn:aws:s3:::skn34-4th-2team-lxp/cohorts/*/curriculum/rag/*",
+        "arn:aws:s3:::skn34-4th-2team-lxp/cohorts/*/policy/rag/*"
+      ]
+    }
+  ]
+}

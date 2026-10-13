@@ -1,0 +1,14 @@
+# Add AFTER docker-compose.django.yml and docker-compose.cloudfront.yml.
+# Start only beat after verifying GitHub access and stopping other schedulers.
+# The existing task includes finished-subject summary publication.
+services:
+  beat:
+    profiles: [study-practice]
+    environment:
+      DJANGO_SETTINGS_MODULE: production_settings
+      LMS_INLINE_PUBLISH: "0"
+    volumes:
+      - ./study_practice_beat.py:/app/study_practice_beat.py:ro
+    command: >
+      celery -A study_practice_beat:app beat -l info
+      --schedule=/tmp/study-practice-celerybeat

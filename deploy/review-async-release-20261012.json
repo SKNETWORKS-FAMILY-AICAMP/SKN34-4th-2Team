@@ -1,0 +1,22 @@
+{
+  "scope": "resume review asynchronous HTTP transport; AI quality image unchanged",
+  "date": "2026-10-12",
+  "django_instance": "i-09af311c959d14cc4",
+  "image": "lms-api:review-async-20261012",
+  "image_id": "sha256:829789c7100d658bd3a8701a5aa3a73853e9da216c98c0de0d28f4180422b083",
+  "previous_image": "lms-api:adaptive-20261012-a2bdd02",
+  "release_directory": "/opt/skn34-lms/releases/review-async-20261012",
+  "cloudfront_distribution": "E79A6UM0WDCG3",
+  "web_asset": "index-DUx67vcC.js",
+  "index_sha256": "dc3889d7c70dbe9bb0af2f017804bc234070d57e224c85572447b596568834ed",
+  "verified_review_db_id": 24,
+  "verified_request_id": "async-deploy-4318275b27a14966b1fbbe13f94b9edc",
+  "result": "verified",
+  "elapsed_seconds": 396.35,
+  "http_statuses": [200],
+  "max_http_seconds": 0.201,
+  "llm_calls": 5,
+  "ready": 10,
+  "unchanged": 1,
+  "applied": false
+}

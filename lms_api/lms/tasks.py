@@ -1,6 +1,7 @@
 from celery import shared_task
 
 from lms.publish import publish_scheduled_notices
+from lms.review_jobs import run_review_job  # Register the existing worker's review task.
 
 
 @shared_task
