@@ -40,7 +40,9 @@ import { useFormResponses, useFormTasks, markFormResponded, submitFormResponse }
 import { WEB_URL } from '../data/http';
 import { askCoach, chatHistory, streamChatbot } from '../data/jobs';
 import { useTransactions } from '../data/mileage';
-import { addComment, addPost, likePost, useComments, useNotices, usePosts } from '../data/notices';
+import {
+  addComment, addPost, likePost, refreshPosts, removeComment, removePost, useComments, useNotices, usePosts,
+} from '../data/notices';
 import { refreshBootstrap, useBootstrap, useDb } from '../data/query';
 import { useQuests, submitQuest } from '../data/quests';
 import { uploadEvidence } from '../data/records';
@@ -230,8 +232,9 @@ export function BoardPage() {
   const { user } = useSession();
   const [tab, setTab] = useState<'notice' | 'free'>('notice');
   const [content, setContent] = useState('');
+  const [sending, setSending] = useState(false);
   return (
-    <Screen title="게시판" back={false} onRefresh={refreshBootstrap}>
+    <Screen title="게시판" back={false} onRefresh={() => Promise.all([refreshBootstrap(), refreshPosts()]).then(() => undefined)}>
       <Segmented
         options={[
           { key: 'notice', label: `공지 ${notices.length}` },
@@ -263,12 +266,13 @@ export function BoardPage() {
             <Btn
               label="올리기"
               icon="send"
-              disabled={!content.trim() || !user}
+              disabled={!content.trim() || !user || sending}
               onPress={() => {
-                if (user) {
-                  addPost(user.uid, user.displayName, content.trim());
-                  setContent('');
-                }
+                setSending(true);
+                addPost(content.trim())
+                  .then(() => setContent(''))
+                  .catch((error: Error) => Alert.alert('글을 올리지 못했어요', error.message))
+                  .finally(() => setSending(false));
               }}
             />
           </Card>
@@ -284,8 +288,8 @@ export function BoardPage() {
               </View>
               <T numberOfLines={4}>{post.content}</T>
               <View style={{ flexDirection: 'row', gap: 16 }}>
-                <Pressable hitSlop={8} onPress={() => likePost(post.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <MaterialIcons name="favorite-border" size={18} color={palette.error} />
+                <Pressable hitSlop={8} onPress={() => void likePost(post.id).catch((error: Error) => Alert.alert('좋아요를 반영하지 못했어요', error.message))} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <MaterialIcons name={post.likedByMe ? 'favorite' : 'favorite-border'} size={18} color={palette.error} />
                   <T variant="caption" tone="secondary">{post.likeCount}</T>
                 </Pressable>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -329,9 +333,23 @@ export function PostPage({ id }: { id: string }) {
   const [text, setText] = useState('');
   const send = () => {
     if (!user || !text.trim()) return;
-    addComment(id, user.uid, user.displayName, text.trim());
-    setText('');
+    addComment(id, text.trim())
+      .then(() => setText(''))
+      .catch((error: Error) => Alert.alert('댓글을 등록하지 못했어요', error.message));
   };
+  // 서버가 지울 수 있는 사람(쓴 사람 · 관리자 · 강사)을 canDelete 로 알려 준다
+  const confirmDelete = (title: string, message: string, run: () => Promise<void>, after?: () => void) =>
+    Alert.alert(title, message, [
+      { text: '닫기', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: () =>
+          void run()
+            .then(() => after?.())
+            .catch((error: Error) => Alert.alert('삭제하지 못했어요', error.message)),
+      },
+    ]);
   return (
     <Screen
       title="게시글"
@@ -348,10 +366,17 @@ export function PostPage({ id }: { id: string }) {
             </View>
           </View>
           <T>{post.content}</T>
-          <Pressable hitSlop={8} onPress={() => likePost(post.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <MaterialIcons name="favorite-border" size={20} color={palette.error} />
+          <Pressable hitSlop={8} onPress={() => void likePost(post.id).catch((error: Error) => Alert.alert('좋아요를 반영하지 못했어요', error.message))} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <MaterialIcons name={post.likedByMe ? 'favorite' : 'favorite-border'} size={20} color={palette.error} />
             <T variant="caption" tone="secondary">좋아요 {post.likeCount}</T>
           </Pressable>
+          {post.canDelete ? (
+            <Btn
+              label="글 삭제"
+              tone="danger"
+              onPress={() => confirmDelete('글 삭제', '이 글과 댓글을 모두 지울까요?', () => removePost(post.id), () => router.back())}
+            />
+          ) : null}
         </Card>
       ) : null}
       <SectionHeader title={`댓글 ${comments.length}`} />
@@ -360,7 +385,19 @@ export function PostPage({ id }: { id: string }) {
         <View key={comment.id} style={{ flexDirection: 'row', gap: 10 }}>
           <Avatar name={comment.authorName} size={30} />
           <View style={{ flex: 1, gap: 2, padding: 12, borderRadius: 14, backgroundColor: palette.surface, borderWidth: 0.5, borderColor: palette.border }}>
-            <T variant="caption" style={{ fontWeight: '700' }}>{comment.authorName}</T>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <T variant="caption" style={{ fontWeight: '700', flex: 1 }}>{comment.authorName}</T>
+              {comment.canDelete ? (
+                <Pressable
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="댓글 삭제"
+                  onPress={() => confirmDelete('댓글 삭제', '이 댓글을 지울까요?', () => removeComment(id, comment.id))}
+                >
+                  <T variant="caption" tone="hint">삭제</T>
+                </Pressable>
+              ) : null}
+            </View>
             <T>{comment.content}</T>
           </View>
         </View>

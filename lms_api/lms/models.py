@@ -1714,3 +1714,40 @@ class StudyTutorTurns(models.Model):
         db_table = 'study_tutor_turns'
         constraints = [models.CheckConstraint(condition=models.Q(role__in=('user', 'assistant')), name='ck_study_turn_role')]
         indexes = [models.Index(fields=['user', 'thread_key', 'id'], name='idx_study_turn_thread')]
+
+
+class Posts(models.Model):
+    """소통 피드 글 — 같은 기수만 본다. 좋아요 · 댓글 수는 아래 두 표에서 센다."""
+
+    cohort = models.ForeignKey(Cohorts, models.PROTECT)
+    author = models.ForeignKey(Users, models.PROTECT, related_name='posts')
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'posts'
+        indexes = [models.Index(fields=['cohort', '-created_at'], name='idx_post_cohort_created')]
+
+
+class PostComments(models.Model):
+    post = models.ForeignKey(Posts, models.CASCADE, related_name='comments')
+    author = models.ForeignKey(Users, models.PROTECT, related_name='post_comments')
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'post_comments'
+        indexes = [models.Index(fields=['post', 'created_at'], name='idx_post_comment_post')]
+
+
+class PostLikes(models.Model):
+    """한 사람이 한 글에 한 번 — 다시 누르면 취소."""
+
+    post = models.ForeignKey(Posts, models.CASCADE, related_name='likes')
+    user = models.ForeignKey(Users, models.CASCADE, related_name='post_likes')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'post_likes'
+        constraints = [models.UniqueConstraint(fields=['post', 'user'], name='uq_post_like_user')]
