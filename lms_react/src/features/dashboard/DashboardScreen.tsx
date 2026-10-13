@@ -16,6 +16,7 @@ import {
   useYoutubeRecommendations,
 } from '../../data/repository';
 import { useHolidays } from '../../data/holidays';
+import { examName, nextStageLabel, subjectsOf, upcomingExams } from '../qual/qualExams';
 import { dateKeyOf } from '../../data/seed';
 import { toTime } from '../../utils/format';
 import { AttendanceColorVars, RecordTypeLabels, SubmissionStatusLabels } from '../../domain/constants';
@@ -421,7 +422,9 @@ function CurriculumCard() {
 function QualExamCard() {
   // 대시보드의 곁가지 카드라 화면 전체를 막지 않는다. 못 불러오면 이 칸만 비운다.
   const { data: exams = [] } = useQualExams();
-  const upcoming = exams.slice(0, 2);
+  // 맨 앞 종목(정보처리기사)만 — 기사 종목끼리 날짜가 같아 여럿을 섞으면 같은 줄이 겹친다
+  const subject = subjectsOf(exams)[0];
+  const upcoming = upcomingExams(exams.filter((e) => examName(e) === subject)).slice(0, 2);
 
   return (
     <div className="panel side-card">
@@ -434,11 +437,14 @@ function QualExamCard() {
       {upcoming.length === 0 ? (
         <p className="hint">다가오는 시험 일정이 없습니다</p>
       ) : (
-        upcoming.map((exam) => (
-          <div key={`${exam.qualgbNm}-${exam.implSeq}`} className="exam-row">
-            <strong>{exam.qualgbNm}</strong>
+        upcoming.map(({ exam, next }) => (
+          <div key={`${exam.implYy}-${exam.implSeq}-${exam.description}`} className="exam-row">
+            <strong>
+              {examName(exam)} {exam.implSeq > 0 ? `${exam.implSeq}회` : ''}
+            </strong>
             <span className="hint">
-              필기 접수 {formatYmd(exam.docRegStartDt)} ~ {formatYmd(exam.docRegEndDt)}
+              {nextStageLabel(next)} · {formatYmd(next.stage.from)}
+              {next.stage.to !== undefined && next.stage.to !== next.stage.from ? ` ~ ${formatYmd(next.stage.to)}` : ''}
             </span>
           </div>
         ))
