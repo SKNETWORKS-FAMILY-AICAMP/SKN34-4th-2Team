@@ -11712,6 +11712,17 @@ a.coach-ask__card-title:hover {
   margin-left: auto;
 }
 
+.tutor__title {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 8px;
+  padding: 14px 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--primary);
+}
+
 .tutor__tabs {
   display: flex;
   flex: 1;

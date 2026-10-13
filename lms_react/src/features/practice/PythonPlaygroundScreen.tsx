@@ -148,7 +148,7 @@ function Playground({
     follow?.(nb.activeId);
   }, [follow, nb.activeId]);
 
-  // 튜터가 열려 있으면 오른쪽 아래 로봇(학습 도우미)을 숨긴다 — 패널 입력칸을 가린다. 패널의 「학습 도우미」 탭으로 연다
+  // 튜터가 열려 있으면 오른쪽 아래 로봇(학습 도우미)을 숨긴다 — 패널 입력칸을 가린다.
   useEffect(() => {
     const hide = tutorOpen && active;
     document.body.classList.toggle('py-tutor-open', hide);
