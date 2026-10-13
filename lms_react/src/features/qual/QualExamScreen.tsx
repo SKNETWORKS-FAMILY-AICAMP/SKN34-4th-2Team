@@ -113,7 +113,9 @@ export function QualExamScreen() {
         {syncMessage !== null && <p className="hint">{syncMessage}</p>}
 
         {upcoming.length === 0 ? (
-          <p className="qual-empty">남은 시험 일정이 없습니다</p>
+          <p className="qual-empty">
+            {exams.length === 0 ? '등록된 시험 일정이 없습니다.' : '현재 진행 중이거나 예정된 시험 일정이 없습니다.'}
+          </p>
         ) : (
           <div className="panel qual-list">
             {upcoming.map(({ exam, next }) => (

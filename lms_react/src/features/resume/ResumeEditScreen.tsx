@@ -705,13 +705,11 @@ function BasicInfo({
   );
 }
 
-/** 학생이 받은 피드백 — 항목 아래 댓글로 읽고 답글을 단다. */
+/** 학생이 받은 피드백 — 항목 아래에서 읽기만 한다. 작성은 검토자 패널에서 한다. */
 function SectionComments({ sectionKey, resume }: { sectionKey: string; resume: Resume }) {
-  const user = useCurrentUser();
   const all = useResumeFeedbacks(resume.id);
   const mine = all.filter((f) => f.sectionKey === sectionKey);
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState('');
   const has = mine.length > 0;
 
   return (
@@ -739,32 +737,6 @@ function SectionComments({ sectionKey, resume }: { sectionKey: string; resume: R
             </div>
           ))}
 
-          <div className="comments__reply">
-            <input
-              className="input"
-              value={draft}
-              placeholder="이 항목에 대한 피드백을 적어 주세요"
-              onChange={(e) => setDraft(e.target.value)}
-            />
-            <button
-              type="button"
-              className="btn btn--filled btn--sm"
-              disabled={draft.trim() === ''}
-              onClick={() => {
-                addResumeFeedback({
-                  resumeId: resume.id,
-                  sectionKey,
-                  content: draft.trim(),
-                  authorId: user.uid,
-                  authorName: user.displayName,
-                  parentId: has ? mine[0].id : '',
-                });
-                setDraft('');
-              }}
-            >
-              등록
-            </button>
-          </div>
         </div>
       )}
     </div>

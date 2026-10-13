@@ -7,6 +7,7 @@ import { useFullPracticeSets, useMyPracticeAttempts, usePracticeSets } from '../
 import { useCurrentUser } from '../auth/session';
 import { Icon } from '../../ui/Icon';
 import { NotebookCellView } from './NotebookCellView';
+import { FocusedPracticeNotebook } from './FocusedPracticeNotebook';
 import { NotebookToolbar } from './NotebookToolbar';
 import { PYODIDE_VERSION } from './pythonProtocol';
 import { usePythonRunner, type RunnerStatus } from './pythonRunner';
@@ -93,18 +94,20 @@ function PracticeSetGate({ setId, children }: { setId: string | null; children: 
 export function EmbeddedPlayground({
   setId,
   focusProblem,
+  focusRequest,
   note,
   active,
 }: {
   setId: string | null;
   focusProblem: number;
+  focusRequest?: number;
   note?: NoteCodeRequest;
   active: boolean;
 }) {
   return (
     <TutorProvider>
       <PracticeSetGate setId={setId}>
-        <Playground setId={setId} focusProblem={focusProblem} note={note} embedded active={active} />
+        <Playground setId={setId} focusProblem={focusProblem} focusRequest={focusRequest} note={note} embedded active={active} />
       </PracticeSetGate>
     </TutorProvider>
   );
@@ -113,12 +116,14 @@ export function EmbeddedPlayground({
 function Playground({
   setId,
   focusProblem,
+  focusRequest,
   note,
   embedded = false,
   active = true,
 }: {
   setId: string | null;
   focusProblem: number;
+  focusRequest?: number;
   note?: NoteCodeRequest;
   embedded?: boolean;
   active?: boolean;
@@ -128,17 +133,6 @@ function Playground({
   const nb = useNotebook(runner, mode.set, note ? { key: noteCodeStoreKey(note.noteId), intro: noteCodeIntro(note.title) } : undefined);
   useNoteCode(nb, note);
 
-  // 성취도평가 결과에서 「복습 문제 n개 풀기」로 들어오면 그 문제로 바로 간다
-  useEffect(() => {
-    if (!focusProblem) return;
-    const cell = nb.cells.find((c) => c.type === 'problem' && c.problemIndex === focusProblem - 1);
-    if (cell) {
-      nb.setActiveId(cell.id);
-      requestAnimationFrame(() => document.querySelector(`[data-cell-id="${cell.id}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
-    }
-    // 처음 한 번만
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   const lastId = nb.cells[nb.cells.length - 1]?.id ?? '';
 
   const tutor = useTutor();
@@ -148,27 +142,13 @@ function Playground({
   const topRef = useRef<HTMLDivElement>(null);
   const stuck = useStickyTop(playground, topRef);
 
-  // 들어오면 튜터를 열어 둔다 — 지금 고른 셀(없으면 앞 셀부터). 한 번만 연다: 사용자가 닫으면 그대로 둔다.
-  // 복습 세트는 문제 셀이 늦게 오므로 셀이 튜터에 올라올 때까지 기다린다.
-  // 좁은 화면에서는 튜터가 노트북을 덮는 서랍이라 열지 않는다(styles.css 의 1100px 기준과 같다).
-  const autoOpened = useRef(false);
-  const openFor = tutor?.openFor;
-  useEffect(() => {
-    if (autoOpened.current || !openFor) return;
-    if (!window.matchMedia('(min-width: 1101px)').matches) {
-      autoOpened.current = true;
-      return;
-    }
-    if (openFor([nb.activeId, ...nb.cells.map((c) => c.id)])) autoOpened.current = true;
-  }, [openFor, nb.activeId, nb.cells]);
-
   // 튜터가 열려 있으면 고른 셀을 따라간다
   const follow = tutor?.follow;
   useEffect(() => {
     follow?.(nb.activeId);
   }, [follow, nb.activeId]);
 
-  // 튜터가 열려 있으면 오른쪽 아래 로봇(학습 도우미)을 숨긴다 — 패널 입력칸을 가린다. 패널의 「학습 도우미」 탭으로 연다
+  // 튜터가 열려 있으면 오른쪽 아래 로봇(학습 도우미)을 숨긴다 — 패널 입력칸을 가린다.
   useEffect(() => {
     const hide = tutorOpen && active;
     document.body.classList.toggle('py-tutor-open', hide);
@@ -178,11 +158,11 @@ function Playground({
   }, [tutorOpen, active]);
 
   return (
-    <div className={`py-layout${tutorOpen ? ' py-layout--tutor' : ''}`}>
+    <div className={`py-layout${mode.set ? ' py-layout--focused' : ''}${tutorOpen ? ' py-layout--tutor' : ''}`}>
       {!embedded && <PlaygroundCrumbs mode={mode} />}
       <div className="screen__inner py-playground" ref={setPlayground}>
         {/* 제목 · 진행 막대 · 도구 줄은 스크롤해도 위에 붙어 있다. 붙어 있는 동안은 설명 줄을 접는다 */}
-        <div className={`py-top${stuck ? ' py-top--stuck' : ''}`} ref={topRef}>
+        {!mode.set && <div className={`py-top${stuck ? ' py-top--stuck' : ''}`} ref={topRef}>
           <header className="study-head">
             {note ? <NoteCodeTitle title={note.title} /> : <PlaygroundTitle mode={mode} />}
             <span className={`py-status py-status--${status}`} title={`Pyodide ${PYODIDE_VERSION}`}>
@@ -194,7 +174,7 @@ function Playground({
           </header>
 
           <NotebookToolbar nb={nb} set={mode.set} />
-        </div>
+        </div>}
 
         {setId && !mode.set && (
           <div className="py-kernel-note" role="status">
@@ -219,7 +199,7 @@ function Playground({
           </div>
         )}
 
-        <div className="py-notebook">
+        {mode.set ? <FocusedPracticeNotebook nb={nb} mode={mode} focusProblem={focusProblem} focusRequest={focusRequest} status={status} /> : <div className="py-notebook">
           {nb.cells.map((cell, index) => (
             <NotebookCellView key={cell.id} cell={cell} index={index} total={nb.cells.length} nb={nb} mode={mode} />
           ))}
@@ -237,12 +217,12 @@ function Playground({
               SQL 셀
             </button>
           </div>
-        </div>
+        </div>}
 
-        <p className="py-foot">
+        {!mode.set && <p className="py-foot">
           파일 읽기·인터넷 요청은 쓸 수 없습니다. torch·cv2 같은 모델 라이브러리도 브라우저에서는 돌지 않습니다. 그래프의 한글은 글꼴이 없어 네모로
           나오니 영어로 적어 주세요. 마지막 줄 끝에 <code>;</code>를 붙이면 값 표시를 숨깁니다.
-        </p>
+        </p>}
       </div>
       <TutorPanel />
     </div>

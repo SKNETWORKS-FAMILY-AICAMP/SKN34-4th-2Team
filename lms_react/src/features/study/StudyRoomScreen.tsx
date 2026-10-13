@@ -46,6 +46,7 @@ import { useCurrentUser } from '../auth/session';
 import { LessonDaysSection, setProgress } from './LessonDaysSection';
 import { noteDate, noteLabel } from './noteScope';
 import { VideoCard, youtubeThumb } from './VideoCard';
+import './studyHome.css';
 
 const packageTypeLabels: Record<string, string> = {
   review: '예복습',
@@ -78,61 +79,71 @@ export function StudyRoomScreen() {
   });
 
   return (
-    <div className="screen__inner study-room">
+    <div className="screen__inner study-room study-home">
       <header className="study-head">
         <div>
           <h1 className="study-head__title">학습실</h1>
           <p className="study-head__desc">
-            배정된 인프런 강의와 이번 주 커리큘럼 YouTube 추천을 확인하세요.
+            수업을 복습하고, 틀린 문제를 다시 풀고, 코드로 연습하세요.
           </p>
         </div>
       </header>
 
+      <div className="study-home__shortcuts" role="group" aria-label="학습 바로가기">
       {/* 공부방 — 수업 날짜마다 노트와 복습 문제가 있는 곳으로 들어가는 문 */}
       <section className="study-entry">
         <div>
-          <strong className="study-entry__title">공부방</strong>
-          <p className="study-entry__desc">수업 날짜마다 복습 노트와 복습 문제를 모아 둡니다.</p>
+          <span className="study-home__icon"><Icon name="menu_book" size={22} /></span>
+          <h2 className="study-entry__title">공부방</h2>
+          <p className="study-entry__desc">수업별 문제를 풀고 복습 노트를 확인하세요.</p>
           <StudyRoomSummary cohortId={user.cohortId} uid={user.uid} />
         </div>
         <Link className="btn btn--filled btn--md" to={RoutePaths.studyRoomNotes}>
-          공부방 열기
+          공부방 열기 <Icon name="arrow_forward" size={17} />
         </Link>
       </section>
 
       {/* 오답노트 — 틀린 복습 문제를 수업 날짜별로 */}
       <section className="study-entry">
         <div>
-          <strong className="study-entry__title">오답노트</strong>
-          <p className="study-entry__desc">틀린 복습 문제를 수업 날짜별로 모아 두고 다시 풀어 봅니다.</p>
+          <span className="study-home__icon"><Icon name="replay" size={22} /></span>
+          <h2 className="study-entry__title">오답노트</h2>
+          <p className="study-entry__desc">틀린 문제를 다시 풀고 해결한 기록을 확인하세요.</p>
           <WrongNotesSummary cohortId={user.cohortId} uid={user.uid} />
         </div>
         <Link className="btn btn--outline btn--md" to={RoutePaths.studyRoomWrongNotes}>
-          오답노트 열기
+          오답노트 열기 <Icon name="arrow_forward" size={17} />
         </Link>
       </section>
 
       {/* 연습장 — 문제 없이 코드를 바로 돌려 보는 곳 */}
       <section className="study-entry study-entry--quiet">
         <div>
-          <strong className="study-entry__title">연습장</strong>
-          <p className="study-entry__desc">수업 코드를 옮겨 적고 브라우저에서 바로 실행해 봅니다.</p>
+          <span className="study-home__icon"><Icon name="terminal" size={22} /></span>
+          <h2 className="study-entry__title">자유 연습장</h2>
+          <p className="study-entry__desc">코드를 직접 작성하고 실행하며 실험하세요.</p>
         </div>
         <PracticeLink className="btn btn--outline btn--md" setId={null}>
-          연습장 열기
+          연습장 열기 <Icon name="arrow_forward" size={17} />
         </PracticeLink>
       </section>
+      </div>
 
       <YoutubeRecommendations cohortName={user.cohortName} />
 
       <section className="study-list">
-        <h2 className="study-section__title">배정된 인프런 강의</h2>
+        <header className="study-home__course-head">
+          <div><h2 className="study-section__title">배정된 인프런 강의</h2>
+          <p className="study-section__desc">필요한 교과목과 강의를 찾아 학습을 이어가세요.</p></div>
+          <span className="study-home__count">{filtered.length}개 패키지</span>
+        </header>
         <label className="study-search">
           <Icon name="search" size={20} />
           <input
             className="study-search__input"
             value={query}
             placeholder="교과목·강의명 검색"
+            aria-label="배정된 인프런 강의 검색"
             onChange={(e) => setQuery(e.target.value)}
           />
         </label>
@@ -140,8 +151,9 @@ export function StudyRoomScreen() {
         {filtered.length === 0 ? (
           <div className="study-empty">
             <Icon name="menu_book" size={48} />
-            <p>배정된 인프런 강의가 없습니다</p>
-            <span className="hint">강의 배정 후 이곳에 표시됩니다.</span>
+            <p>{q ? '검색 결과가 없습니다' : '배정된 인프런 강의가 없습니다'}</p>
+            <span className="hint">{q ? '다른 교과목이나 강의명으로 검색해 보세요.' : '강의 배정 후 이곳에 표시됩니다.'}</span>
+            {q && <button type="button" className="btn btn--outline btn--sm" onClick={() => setQuery('')}>검색 초기화</button>}
           </div>
         ) : (
           filtered.map((pkg) => <PackageCard key={pkg.id} pkg={pkg} />)

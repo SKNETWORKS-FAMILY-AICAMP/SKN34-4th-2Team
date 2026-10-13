@@ -158,10 +158,17 @@ describe('로그인', () => {
 });
 
 describe('역할별 셸', () => {
-  it('학생 레일에는 학생 메뉴 10개가 있다', async () => {
+  it('학생 레일은 접힌 그룹을 펼쳐 학생 메뉴에 접근한다', async () => {
     await render();
     await loginAs('학생');
+    const groups = Array.from(container.querySelectorAll<HTMLButtonElement>('.rail__group'));
+    expect(groups.map((el) => el.querySelector('span')?.textContent)).toEqual([
+      '학습 · 평가', '이력서 · 취업', '출결 · 수강 안내', '소통 · 리워드',
+    ]);
+    expect(groups.every((el) => el.getAttribute('aria-expanded') === 'false')).toBe(true);
+    act(() => groups.forEach((el) => el.click()));
     const labels = Array.from(container.querySelectorAll('.rail__label')).map((el) => el.textContent);
+    expect(labels).toHaveLength(13);
     expect(labels).toContain('이력서 관리');
     expect(labels).toContain('마일리지');
     expect(labels).not.toContain('학생 관리');

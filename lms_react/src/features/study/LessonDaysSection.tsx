@@ -11,6 +11,7 @@ import { isLessonSet, RETRY_ALL_ID, retryDates, retryItems, retryTopics } from '
 import { useIsHidden } from '../practice/useIsHidden';
 import { reviewBoard, subjectFinished, type Subject, type SubjectDay } from './lessonDays';
 import { noteLabel } from './noteScope';
+import './lessonDays.css';
 
 const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -69,7 +70,7 @@ export function LessonDaysSection({ cohortId, uid }: { cohortId: string; uid: st
     subjectFinished(subject, board.subjects, cohortEnd ? dateKeyOf(cohortEnd) : undefined, todayKey());
 
   return (
-    <section className="review-board">
+    <section className="review-board lesson-days-board">
       {board.latest ? (
         <TodayHero subject={board.latest.subject} day={board.latest.day} progress={progressOf(board.latest.day.set!)} />
       ) : (
@@ -246,7 +247,7 @@ function SubjectRow({
           const note = notePath(subject, day);
           return (
             <li key={day.date} className="review-day">
-              <span className="review-day__date">{dayText(day.date)}</span>
+              <span className="review-day__date"><Icon name="calendar_today" size={15} />{dayText(day.date)}</span>
               <span className="review-day__title">
                 {day.set ? day.set.title || day.set.dayLabel : day.note ? noteLabel(day.note) : ''}
                 {!day.set && <span className="hint"> · 복습 문제 없음</span>}
@@ -263,6 +264,7 @@ function SubjectRow({
                 {day.set && p && (
                   <PracticeLink className="btn btn--outline btn--sm" setId={day.set.id}>
                     {actionText(p)}
+                    <Icon name="arrow_forward" size={16} />
                   </PracticeLink>
                 )}
                 {note && (

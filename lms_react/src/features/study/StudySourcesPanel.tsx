@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 
 import { readApiError } from '../../data/http';
 import {
@@ -43,7 +43,22 @@ import { repoName } from './lessonDays';
  */
 const PRACTICE_POLL_MS = 10_000;
 
-export function StudySourcesPanel({ cohortId, canUpload = false }: { cohortId: string; canUpload?: boolean }) {
+function ConnectionSettings({ compact, owners, children }: { compact: boolean; owners: GithubOwner[] | null; children: ReactNode }) {
+  if (!compact) return <><strong>연결된 GitHub</strong>{children}</>;
+  return (
+    <details className="study-sources__connection">
+      <summary>
+        <strong>GitHub 연결 설정</strong>
+        <span className="study-sources__connection-summary">
+          {owners === null ? '불러오는 중…' : owners.length ? owners.map((o) => o.owner).join(', ') : '연결된 계정 없음'}
+        </span>
+      </summary>
+      <div className="study-sources__connection-body">{children}</div>
+    </details>
+  );
+}
+
+export function StudySourcesPanel({ cohortId, canUpload = false, compact = false }: { cohortId: string; canUpload?: boolean; compact?: boolean }) {
   const sources = useStudySources().filter((s) => !s.cohortId || s.cohortId === cohortId);
   const [mode, setMode] = useState<'github' | 'folder'>('github');
   const [issues, setIssues] = useState<ScheduleIssue[]>([]);
@@ -173,7 +188,7 @@ export function StudySourcesPanel({ cohortId, canUpload = false }: { cohortId: s
         </div>
       ) : (
       <div className="study-sources__owners">
-        <strong>연결된 GitHub</strong>
+        <ConnectionSettings compact={compact} owners={owners}>
         <p className="hint">
           기수 조직이나 강사 개인 계정 이름을 연결하면, 그 안의 저장소가 학생 공부방에 자동으로 올라가요. 올리고 싶지 않은 저장소는 아래에서
           숨기세요. 비공개 저장소는 서버의 GitHub 계정이 읽을 수 있어야 해요 — 강사 개인 저장소라면 그 계정을 협업자(읽기)로 초대해 주세요.
@@ -208,6 +223,7 @@ export function StudySourcesPanel({ cohortId, canUpload = false }: { cohortId: s
             연결
           </Button>
         </form>
+        </ConnectionSettings>
         <Row gap={8}>
           <Button variant="outline" size="sm" disabled={busy || !owners?.length} onClick={() => void run(async () => apply(await syncStudySources(cohortId, true)))}>
             <Icon name="refresh" size={16} />
@@ -236,7 +252,7 @@ export function StudySourcesPanel({ cohortId, canUpload = false }: { cohortId: s
         <p className="hint">아직 올라간 저장소가 없어요. GitHub 조직이나 계정을 연결{canUpload ? '하거나 수업 자료 폴더를 올리' : ''}세요.</p>
       ) : (
         sources.map((src) => (
-          <div key={src.id} className={`media-row${src.isActive ? '' : ' media-row--off'}`}>
+          <div key={src.id} className={`media-row study-source-card${src.isActive ? '' : ' media-row--off'}`}>
             <span className="media-row__main media-row__main--plain">
               <span className="media-row__body">
                 <strong>
@@ -258,7 +274,7 @@ export function StudySourcesPanel({ cohortId, canUpload = false }: { cohortId: s
                   </a>
                 )}
                 <span className="hint">
-                  {src.branch}
+                  {compact ? '브랜치: ' : ''}{src.branch}
                   {src.allowedPrefixes.length > 0 && ` · ${src.allowedPrefixes.join(', ')}`}
                 </span>
                 <PracticeLine
@@ -284,11 +300,14 @@ export function StudySourcesPanel({ cohortId, canUpload = false }: { cohortId: s
               </span>
             </span>
             <Spacer />
+            <span className="study-source-card__visibility">
+            {compact && <span className="study-source-card__visibility-title">학생에게 공개</span>}
             <Toggle
               checked={src.isActive}
               label={src.isActive ? '공개' : '숨김'}
               onChange={(next) => void run(() => setStudySourceActive(src.id, next))}
             />
+            </span>
           </div>
         ))
       )}
