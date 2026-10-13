@@ -14,13 +14,13 @@
 #   docker build -f deploy/ai.Dockerfile -t lms-ai .
 
 # 복습 문제 검증기 — 학생 브라우저와 같은 Pyodide 로 문제를 돌려 본다(study_notes/practice/runner.py)
-FROM node:20-slim AS verifier
+FROM node:20-bookworm-slim AS verifier
 WORKDIR /verifier
 COPY practice_verifier/package.json practice_verifier/package-lock.json ./
 RUN npm ci --omit=dev
 COPY practice_verifier/ ./
 
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app
