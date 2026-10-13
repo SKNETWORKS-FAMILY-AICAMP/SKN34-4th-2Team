@@ -1,0 +1,76 @@
+/* 집중형 복습 화면과 동일한 중립 배경·파란 강조색을 사용한다. */
+.wn-review { gap: 20px; }
+.wn-review .study-head__title { font-size: 24px; letter-spacing: -0.5px; }
+.wn-review .study-head__desc { line-height: 1.65; color: var(--text-secondary); }
+.wn-review .wrong-summary {
+  gap: 16px 24px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.wn-stats { display: flex; flex: 1; gap: 32px; }
+.wn-stat { display: flex; flex-direction: column; gap: 5px; color: var(--text-secondary); font-size: 12px; }
+.wn-stat strong { color: var(--primary); font-size: 24px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.wn-stat small { margin-left: 5px; color: var(--text-secondary); font-size: 12px; font-weight: 400; }
+.wn-stat--solved strong { color: var(--success); }
+.wn-review .wrong-summary__toggle { margin: 0; gap: 8px; }
+.wn-review .wrong-summary__toggle input { width: 16px; height: 16px; accent-color: var(--primary); }
+.wn-review .btn { white-space: nowrap; }
+.wn-review .wrong-days { gap: 20px; }
+.wn-review .wrong-day { border-radius: 12px; }
+.wn-review .wrong-day__head {
+  padding: 18px 20px;
+  gap: 16px;
+  background: color-mix(in srgb, var(--primary) 3%, var(--surface));
+}
+.wn-day-info { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.wn-review .wrong-day__date { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; }
+.wn-review .wrong-day__title {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+  white-space: normal;
+  overflow: visible;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.wn-review .wrong-day__count { gap: 12px; font-size: 12px; }
+.wn-review .wrong-day__wrong { color: var(--primary); }
+.wn-review .wrong-list { padding: 0 8px; }
+.wn-review .wrong-list > li + li { border-top: 1px solid var(--divider); }
+.wn-review .wrong-item {
+  grid-template-columns: 28px auto minmax(0, 1fr) auto;
+  grid-template-areas: 'mark no kind action' 'mark topic topic action' 'mark meta meta action';
+  gap: 6px 10px;
+  padding: 16px 12px;
+  border-radius: 8px;
+  text-decoration: none;
+}
+.wn-review .wrong-item:hover { background: color-mix(in srgb, var(--primary) 5%, var(--surface)); }
+.wn-review .wrong-item__mark { grid-area: mark; align-self: start; margin-top: 3px; color: var(--primary); }
+.wn-review .wrong-item--solved .wrong-item__mark { color: var(--success); }
+.wn-review .wrong-item__no { grid-area: no; font-size: 12px; color: var(--text-secondary); }
+.wn-review .wrong-item__kind { grid-area: kind; color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, var(--surface)); font-size: 11px; }
+.wn-review .wrong-item__topic {
+  grid-area: topic;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: normal;
+  overflow: visible;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.wn-review .wrong-item__meta { grid-area: meta; color: var(--text-secondary); font-size: 12px; white-space: normal; }
+.wn-item-action { grid-area: action; display: inline-flex; align-items: center; gap: 5px; color: var(--primary); font-size: 12px; white-space: nowrap; }
+.wn-review .wrong-item--solved .wn-item-action { color: var(--text-secondary); }
+.wn-review .review-hero--empty { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 28px 24px; }
+@media (max-width: 640px) {
+  .wn-review .wrong-summary { padding: 16px; gap: 16px; }
+  .wn-stats { flex-basis: 100%; }
+  .wn-review .wrong-summary > .btn { width: 100%; justify-content: center; }
+  .wn-review .wrong-day__head { padding: 16px; gap: 12px; }
+  .wn-review .wrong-item { grid-template-columns: 22px auto minmax(0, 1fr); grid-template-areas: 'mark no kind' 'mark topic topic' 'mark meta meta' 'mark action action'; padding: 14px 8px; }
+  .wn-item-action { justify-self: end; }
+}
