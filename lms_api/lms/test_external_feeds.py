@@ -125,6 +125,59 @@ class WeekPickTests(SimpleTestCase):
         self.assertTrue(feeds.is_relevant("AWS 클라우드 입문", "클라우드"))
 
 
+    def test_project_week_adds_talk_queries(self):
+        rows = self.ROWS + [
+            _row("2026년 10월 16일 금요일", "최종프로젝트", "", ""),
+            _row("2026년 9월 16일 수요일", "LLM", "단위 프로젝트"),
+        ]
+        self.assertTrue(feeds.has_project_week(rows, date(2026, 10, 12)))  # 금요일 하루뿐이어도 그 주 전체
+        self.assertTrue(feeds.has_project_week(rows, date(2026, 9, 14)))  # 단위 프로젝트도
+        self.assertFalse(feeds.has_project_week(rows, date(2026, 10, 5)))
+        _, picked = feeds.pick_week_rows(rows, date(2026, 10, 14))
+        queries = feeds._search_queries(picked, project_week=True)
+        self.assertEqual([label for _, label, _ in queries[-2:]], ["발표 준비", "개발자 발표"])
+        self.assertEqual(queries[0][1], "클라우드")
+        self.assertLessEqual(len(queries), feeds.YT_MAX_QUERIES)
+
+    def test_talk_titles_pass_with_event_names(self):
+        self.assertTrue(feeds.is_relevant("[우아콘2024] 배달 앱 검색 개선기", "개발자 발표"))
+        self.assertTrue(feeds.is_relevant("if(kakao)2024 추천 시스템", "개발자 발표"))
+        self.assertTrue(feeds.is_relevant("발표 PPT 잘 만드는 법", "발표 준비"))
+        self.assertFalse(feeds.is_relevant("오늘 저녁 메뉴 추천", "개발자 발표"))
+
+    def test_videos_shown_before_go_last(self):
+        def video(i):
+            return {"videoId": f"v{i}", "title": f"클라우드 {i}", "channelTitle": f"ch{i}"}
+        with mock.patch.object(feeds, "_search_youtube", return_value=[video(1), video(2), video(3)]):
+            out = feeds._collect_videos("k", [("클라우드 강의", "클라우드", "medium")], {"v1"})
+        self.assertEqual([v["videoId"] for v in out], ["v2", "v3", "v1"])
+
+    def test_talks_are_a_quarter_after_every_three_study_videos(self):
+        def video(i, label):
+            return {"videoId": f"{label}{i}", "topicLabel": label}
+        videos = [video(i, label) for label in ("클라우드", "Django", "발표 준비", "개발자 발표") for i in range(10)]
+        out = feeds._mix(videos, 12)
+        labels = [v["topicLabel"] for v in out]
+        self.assertEqual(len(out), 12)
+        self.assertEqual(sum(label in feeds.LABEL_KEYWORDS for label in labels), 3)
+        self.assertEqual([label in feeds.LABEL_KEYWORDS for label in labels[:4]], [False, False, False, True])
+
+    def test_talks_fill_in_when_study_videos_run_short(self):
+        videos = [{"videoId": "s", "topicLabel": "클라우드"}] + [
+            {"videoId": f"t{i}", "topicLabel": "개발자 발표"} for i in range(10)
+        ]
+        self.assertEqual(len(feeds._mix(videos, 12)), 11)
+
+    def test_shown_before_reads_only_recent_past_weeks(self):
+        cur = mock.MagicMock()
+        cur.fetchall.return_value = [
+            ("youtubeCurriculum_cohort_34_20261005_v4", {"videos": [{"videoId": "old"}]}),
+            ("youtubeCurriculum_cohort_34_20261012_v4", {"videos": [{"videoId": "same-week"}]}),
+            ("youtubeCurriculum_cohort_34_20250101_v3", {"videos": [{"videoId": "too-old"}]}),
+        ]
+        self.assertEqual(feeds._shown_before(cur, "cohort_34", "20261012"), {"old"})
+
+
 class WeeklyYoutubeAccessTests(SimpleTestCase):
     def test_student_cannot_read_other_cohort(self):
         cur = mock.MagicMock()
