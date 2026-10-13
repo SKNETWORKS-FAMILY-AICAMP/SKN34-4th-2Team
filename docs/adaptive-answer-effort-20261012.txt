@@ -1,0 +1,43 @@
+Adaptive answer reasoning effort — 2026-10-12
+
+Configuration
+LMS_CHATBOT_ANSWER_REASONING_EFFORT=adaptive enables request-local low/medium
+selection immediately before answer generation. Unset/empty preserves the
+existing provider default. Fixed none/low/medium/high/xhigh/max remain unchanged.
+The setting is captured when a bot/worker starts; changing it requires a new
+process. Do not change shared model properties or environment during requests.
+Rollback: remove the adaptive value or restore the previous fixed value and
+restart the affected workers. No data/cache deletion or schema change is needed.
+
+Low eligibility
+One purpose and sufficient validated server data are required. Simple selected
+unit-period or whole-course calculation explanations and registered course/current
+period date explanations may use low. Automatic policy namespace selection,
+draft/unverified policy labels and provisional warnings alone do not force medium.
+Those warnings and all calculation facts remain in the original model input.
+
+Medium fallback
+Policy/formula/exception interpretation, comparisons, both bases, multiple tasks
+or scopes, uncertain/missing/conflicting data, past corrections, changed-policy
+assumptions, unrecognized question forms and out-of-range simulations use medium.
+Unit future scenarios qualify only for the explicitly named next unrecorded
+future class and an available single-status scenario. Whole-course progress has
+no such scenario, so whole-course future-status questions use medium.
+Medium does not authorize unsupported calculations or invent missing data.
+
+Implementation contract
+choose_answer_effort(state, basis=...) is pure and returns effort plus a bounded
+reason. It performs no model, database, cache or retrieval call. Startup creates
+separate low/medium Runnable bindings; each request selects one chain and never
+mutates the singleton model. Prompts, scope confirmation, permission checks,
+calculation, retrieval and streaming behavior are retained.
+answerReasoningEffort records actual selected effort; answerEffortReason accepts
+only the known enums. Visible TTFT and provider usage remain separately logged.
+
+Validation boundary
+Implementation's six mock tests cover classification, missing/invalid data,
+fixed/default compatibility, concurrent isolation and log allowlists. The primary
+performed eight controlled model calls and records that evaluation separately.
+No model call, push, develop merge or operational rollout was performed here.
+Representative low answers preserved key figures/conditions, but this does not
+establish universal accuracy or speed improvements. Keep rollout opt-in.

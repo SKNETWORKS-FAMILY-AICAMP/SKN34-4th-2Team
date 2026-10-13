@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { homeFor } from '../../app/routePaths';
 import { updateUser, useMyResumes } from '../../data/repository';
+import { todayKey } from '../../data/store';
 import { JobPreferencePresets } from '../../domain/constants';
 import type { ProfileTechItem, Resume, ResumeTechStackItem, User } from '../../domain/types';
 import { tourFor } from '../../tour/tours';
@@ -136,17 +137,7 @@ function PersonalInfoCard({ user }: { user: User }) {
 
       <hr className="mycard__rule" />
 
-      <label className="mycard__field">
-        <span className="mycard__field-label">생년월일</span>
-        <span className="mycard__date">
-          <Icon name="calendar_today" size={16} />
-          <input
-            type="date"
-            value={user.birthDate ?? ''}
-            onChange={(e) => updateUser(user.uid, { birthDate: e.target.value })}
-          />
-        </span>
-      </label>
+      <BirthDateField value={user.birthDate} onSave={(v) => updateUser(user.uid, { birthDate: v })} />
 
       <hr className="mycard__rule" />
 
@@ -167,6 +158,51 @@ function PersonalInfoCard({ user }: { user: User }) {
       />
     </section>
   );
+}
+
+/**
+ * 생년월일 — 칠 때는 칸에만 두고 칸을 벗어날 때 저장한다. 날짜 칸은 연도를 한 자리씩 칠 때마다
+ * 「0001-10-10」 「0019-10-10」으로 바뀌어, 바뀔 때마다 저장하면 중간 값이 저장되고 칸이 튀었다.
+ */
+export function BirthDateField({ value, onSave }: { value?: string; onSave(next: string): void }) {
+  const saved = value ?? '';
+  const [draft, setDraft] = useState(saved);
+  const [shown, setShown] = useState(saved);
+  if (saved !== shown) {
+    // 서버 값이 바뀌면(다른 기기에서 고침 · 저장 뒤 다시 받음) 칸도 따라간다
+    setShown(saved);
+    setDraft(saved);
+  }
+
+  const commit = () => {
+    if (draft === saved) return;
+    if (draft === '' || isBirthDate(draft)) onSave(draft);
+    else setDraft(saved);
+  };
+
+  return (
+    <label className="mycard__field">
+      <span className="mycard__field-label">생년월일</span>
+      <span className="mycard__date">
+        <Icon name="calendar_today" size={16} />
+        <input
+          type="date"
+          min="1900-01-01"
+          max={todayKey()}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+          }}
+        />
+      </span>
+    </label>
+  );
+}
+
+function isBirthDate(text: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) && text >= '1900-01-01' && text <= todayKey();
 }
 
 /** 라벨·값·연필 한 줄. 연필을 누르면 그 자리가 입력칸이 된다. */

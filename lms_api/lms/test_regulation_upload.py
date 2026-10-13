@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 from django.test import SimpleTestCase
 
 from chatbot.tests.test_regulation_ingestion import regulation_bytes
+from chatbot.tests.test_calendar_basis import CLAUSES
 from lms.cohort_documents import upload_document
 
 
@@ -11,7 +12,7 @@ class RegulationUploadTests(SimpleTestCase):
     def test_uploaded_file_is_the_runtime_calculation_source(self):
         from io import BytesIO
         from datetime import date, timedelta
-        from chatbot.active_policy_rules import _read_snapshot, load_active_snapshot, allowance_rules
+        from chatbot.active_policy_rules import _read_snapshot, load_active_snapshot, allowance_rules, validated_calendar_basis
         from chatbot.unit_period import calculate_unit_period_context
         from unittest.mock import MagicMock
         for term, percent, count, expected in [(3, 80, 3, True), (4, 90, 2, False)]:
@@ -20,6 +21,7 @@ class RegulationUploadTests(SimpleTestCase):
                 ('제1조(출결)', [f'단위기간 내 지각·조퇴·외출 누적 {count}회는 결석 1일로 환산한다.']),
                 ('제2조(장려금)', [f'단위기간 출석률 {percent}% 이상이면 훈련장려금 지급 대상이다.']),
                 ('제3조(수료)', [f'전체 훈련기간의 100일 이상({percent}% 이상) 이수하면 수료 기준을 충족한다.']),
+                ('제5조(단위기간의 산정)', CLAUSES),
             ], title=f'엔코아 AI 캠프 {term}기 테스트 규정')
             with patch('lms.cohort_documents.put_object') as put, \
                  patch('lms.cohort_documents.connection') as conn, \
@@ -41,7 +43,8 @@ class RegulationUploadTests(SimpleTestCase):
             days = [start + timedelta(days=i) for i in range(10)]
             context = calculate_unit_period_context(start, date(2026, 1, 31), today=days[-1],
                 scheduled_dates=days, attendance_records=dict(zip(days, ['late']*4+['present']*6)),
-                require_policy=True, rules=allowance_rules(snapshot))
+                require_policy=True, rules=allowance_rules(snapshot),
+                calendar_basis=validated_calendar_basis(snapshot), cohort=cohort)
             self.assertEqual(context['periods'][0]['requirement_met'], expected)
         _read_snapshot.cache_clear()
 

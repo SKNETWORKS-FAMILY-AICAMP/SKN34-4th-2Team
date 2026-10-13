@@ -1,8 +1,17 @@
 """B-route audit scheduling and fail-closed verification; no real LLM or DB."""
 import pytest
 from test_project_live_pipeline import pipeline, post
+from app.resume_review_v2.batch import CHUNK_SIZE
 from app.resume_review_v2.llm import LangChainReviewLLM
 from app.resume_review_v2.models import FactVerification
+
+
+@pytest.fixture(autouse=True)
+def stagewise(monkeypatch):
+    # These contracts pin the stage-by-stage resume path (RESUME_REVIEW_PIPELINE=0 and
+    # checkpoints saved before pipelining); pipelined resume: test_resume_review_pipeline.
+    from app.resume_review_v2 import batch
+    monkeypatch.setattr(batch, 'PIPELINE', False)
 
 
 def projects(db, count=11):
@@ -11,8 +20,14 @@ def projects(db, count=11):
 
 
 def stage_counts(result):
-    stages = result['telemetry']['stages']
-    return {stage: [(s['items'], s['status']) for s in stages if s['stage'] == stage]
+    """Per stage pass: experiences covered and status. Concurrent chunks of one pass count once."""
+    passes = []
+    for s in result['telemetry']['stages']:
+        if passes and passes[-1][0] == s['stage'] and passes[-1][2] == s['status']:
+            passes[-1][1] += s['items']
+        else:
+            passes.append([s['stage'], s['items'], s['status']])
+    return {stage: [(items, status) for name, items, status in passes if name == stage]
             for stage in ('analyze', 'write', 'verify')}
 
 
@@ -40,7 +55,7 @@ def test_eleven_timeout_drafts_resume_with_one_verify_only(pipeline, monkeypatch
         completed_reused=0, verification_resumed=11, reprocessed_experiences=0)
     assert all(r['candidate']['suggested_text'] == old['candidate']['suggested_text']
         for r, old in zip(audit['telemetry']['v2_results'], first['telemetry']['v2_results']))
-    assert audit['telemetry']['calls'] == 1
+    assert audit['telemetry']['calls'] == -(-11 // CHUNK_SIZE)  # one verify pass, split into chunks
     again = post(client, 'audit-again', previous_review_id='audit', review_phase='gap_audit')
     assert stage_counts(again) == {'analyze': [], 'write': [], 'verify': []}
     assert again['telemetry']['calls'] == 0
@@ -196,4 +211,7 @@ def test_golden_timeout_resume_preserves_verifier_quality_context(pipeline, monk
     post(client, 'initial')
     audit = post(client, 'audit', previous_review_id='initial', review_phase='gap_audit')
     assert stage_counts(audit) == {'analyze': [], 'write': [], 'verify': [(3, 'complete')]}
-    assert verification_inputs[0] == verification_inputs[1]
+    # The interrupted chunk is the first verification call; its sibling chunks of that
+    # pass come next. The resumed audit must send the interrupted payload unchanged.
+    first_pass = -(-3 // CHUNK_SIZE)
+    assert verification_inputs[0] in verification_inputs[first_pass:]

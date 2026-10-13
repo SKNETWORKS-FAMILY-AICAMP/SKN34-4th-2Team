@@ -34,6 +34,17 @@ export function reviewWorkCopy(resume: Resume): { base: string; tailored: string
   return { base: parts.base, tailored: parts.tailored };
 }
 
+/**
+ * 편집용 사본으로 옮긴 첨삭 작업본은 목록에서 뺀다 — 같은 내용 · 같은 이름이 두 줄로 보였다.
+ * 편집용 사본에서 다시 첨삭한 작업본도 뺀다. 결과는 그 편집용 사본에 덮어쓰고, 첨삭을 이어 갈 때도
+ * 편집용 사본에서 연다. 학생이 쓰는 것은 편집용 사본뿐이다. 작업본과 첨삭 기록은 DB 에 그대로 남는다.
+ */
+export function withoutPromotedWorkCopies(resumes: Resume[]): Resume[] {
+  const promoted = new Set(resumes.map((r) => r.sourceTailoredResumeId).filter((id): id is string => Boolean(id)));
+  const editing = new Set(resumes.filter((r) => r.sourceTailoredResumeId).map((r) => r.id));
+  return resumes.filter((r) => !promoted.has(r.id) && !editing.has(reviewWorkCopy(r)?.base ?? ''));
+}
+
 export interface ResumeRow {
   resume: Resume;
   /** 이 이력서를 원본으로 만든 공고 맞춤 이력서 — 줄을 누르면 밑으로 펼친다 */

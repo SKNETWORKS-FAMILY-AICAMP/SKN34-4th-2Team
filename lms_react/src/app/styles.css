@@ -7305,6 +7305,12 @@ body:has(.coach-ask:not([hidden], [hidden] .coach-ask)) .chatbot-launcher {
   color: var(--text-hint);
 }
 
+/* 마지막 줄의 ⋯ 메뉴가 패널 밑으로 펼쳐지므로 panel--flush 의 넘침 숨김을 푼다.
+   표는 위에 제목 · 밑에 여백이 있어 모서리 둥글림 밖으로 나가지 않는다. */
+.resume-others {
+  overflow: visible;
+}
+
 .resume-others__title {
   margin: 0;
   padding: 16px 18px 6px;

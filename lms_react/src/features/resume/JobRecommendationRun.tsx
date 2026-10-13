@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 
 import { jobApplyPath, jobApplyPostingPath } from '../../app/routePaths';
 import { http } from '../../data/http';
+import { waitForResumeWrites } from '../../data/repository';
 import { Icon } from '../../ui/Icon';
 import type { Resume } from '../../domain/types';
 import { JobPostingDialog } from '../jobs/JobPostingDialog';
@@ -71,8 +72,9 @@ export function requestJobs(resumeId: string, scope = '전체'): Promise<JobResu
   const key = `${resumeId}|${scope}`;
   const going = pending.get(key);
   if (going !== undefined) return going;
-  const promise = http
-    .post<Record<string, unknown>>('/jobs/recommend', { resumeId, topK: 10, scope })
+  // 서버가 DB 의 이력서를 읽으므로 방금 친 글이 다 도착한 뒤에 부른다
+  const promise = waitForResumeWrites(resumeId)
+    .then(() => http.post<Record<string, unknown>>('/jobs/recommend', { resumeId, topK: 10, scope }))
     .then(({ data }) => {
       const next = toResult(data);
       jobCache.set(resumeId, next);
@@ -345,6 +347,8 @@ export function JobRecommendationRun({ resume }: { resume: Resume }) {
 
   const reviewJob = async (job: JobPick) => {
     const options = { generalReview: false, jobId: job.jobId, jobCompany: job.company, jobTitle: job.title };
+    // 첨삭도 서버의 이력서를 읽는다 — 방금 친 글이 다 도착한 뒤에 연다
+    await waitForResumeWrites(resume.id);
     if (workCopy === undefined) {
       openReview(`job-review-${resume.id}-${job.jobId}`, { ...options, resumeId: resume.id });
       return;

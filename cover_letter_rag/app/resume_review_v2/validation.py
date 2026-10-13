@@ -5,7 +5,7 @@ import re
 from .models import (
     AnalystOutput, AssertionState, Evidence, Experience, FactType, OmittedEvidence,
     FactVerification, ReviewInput, RevisionPlan, ValidationIssue,
-    ValidationResult, WriterOutput, RevisionCandidate, ClaimType,
+    ValidationResult, WriterOutput, RevisionCandidate, ClaimType, SpellingFix,
 )
 from .policy import (REPRESENTATIVE_COLLECTION_MIN,
                      REPRESENTATIVE_SIGNAL_MIN)
@@ -46,12 +46,125 @@ def _technologies(text: str) -> set[str]:
 
 def _exact_source_quote(source: str, proposed: str) -> str | None:
     """Allow punctuation/whitespace trimming, never a paraphrased source quote."""
+    return source_quote(source, proposed)[0]
+
+
+# A quote this short could land on an unrelated span when one syllable may differ.
+TYPO_MIN_QUOTE = 8
+
+
+def _collapse_spaces(text):
+    """Whitespace runs as one space, with each kept character's index in ``text``."""
+    chars, index = [], []
+    for i, ch in enumerate(text):
+        if ch.isspace():
+            if not chars or chars[-1] == ' ':
+                continue
+            ch = ' '
+        chars.append(ch)
+        index.append(i)
+    return ''.join(chars), index
+
+
+def _initial(ch):
+    return (ord(ch) - 0xAC00) // 588 if '가' <= ch <= '힣' else None
+
+
+def _word_at(text, i):
+    start, end = i, i + 1
+    while start > 0 and not text[start - 1].isspace():
+        start -= 1
+    while end < len(text) and not text[end].isspace():
+        end += 1
+    return text[start:end]
+
+
+def _typo_pairs(found, proposed):
+    """Typo pairs for isolated Hangul syllable slips (꿭→꼭, 뛯→뜯), or None when not a typo-level quote.
+
+    The model sometimes corrects an obvious typo while quoting, and sometimes
+    fails to copy a rare syllable and emits a stray non-Korean character instead
+    (꿭→ꭿ). Both quote the source; only the first is a correction worth reporting.
+    A different number, letter or word (3개→4개, Redis→Kafka, 설계→개발) stays a paraphrase.
+    """
+    allowed = 1 if len(proposed) < 20 else 2
+    diffs = []
+    for i, (a, b) in enumerate(zip(found, proposed)):
+        if a != b:
+            diffs.append(i)
+            if len(diffs) > allowed:
+                return None
+    if not diffs or any(j - i < 2 for i, j in zip(diffs, diffs[1:])):
+        return None
+    pairs = []
+    for i in diffs:
+        source_char, quoted_char = found[i], proposed[i]
+        if _initial(source_char) is None:
+            return None
+        if _initial(quoted_char) is not None:
+            if _initial(quoted_char) != _initial(source_char):
+                return None
+            pairs.append((_word_at(found, i), _word_at(proposed, i)))
+        elif quoted_char.isascii() and quoted_char.isalnum():
+            return None  # A Latin letter or digit can change a fact or a technology name.
+        # Otherwise a garbled copy of the source syllable: accepted, not a correction.
+    return pairs
+
+
+def source_quote(source: str, proposed: str) -> tuple[str | None, list[tuple[str, str]]]:
+    """The source span a model quote refers to, and typo pairs (source word, corrected word).
+
+    The returned quote is always the source's own text, so downstream checks and
+    citations never see model wording. Beyond exact matches it tolerates collapsed
+    whitespace (quotes across line breaks) and isolated syllable typos the model
+    fixed while quoting, but only when exactly one source span fits.
+    """
     if proposed in source:
-        return proposed
+        return proposed, []
     trimmed = proposed.strip(" \t\r\n\"'“”‘’.,。")
     if trimmed and trimmed in source:
-        return trimmed
-    return None
+        return trimmed, []
+    wanted, _ = _collapse_spaces(trimmed)
+    wanted = wanted.strip()
+    if len(wanted) < TYPO_MIN_QUOTE:
+        return None, []
+    flat, index = _collapse_spaces(source)
+    span = lambda start: source[index[start]:index[start + len(wanted) - 1] + 1]
+    first = flat.find(wanted)
+    if first != -1:
+        return (span(first), []) if flat.find(wanted, first + 1) == -1 else (None, [])
+    found = None
+    for start in range(len(flat) - len(wanted) + 1):
+        pairs = _typo_pairs(flat[start:start + len(wanted)], wanted)
+        if pairs is not None:
+            if found is not None:
+                return None, []  # Ambiguous: never pick one of several near matches.
+            found = (start, pairs)
+    if found is None:
+        return None, []
+    return span(found[0]), found[1]
+
+
+def spelling_fixes(request: ReviewInput, extraction) -> list[SpellingFix]:
+    """Typos the analyst corrected while quoting this experience's own text or answer.
+
+    Writer and verifier receive them so the edit spells the word correctly and the
+    correction is not mistaken for a meaning change.
+    """
+    own = {request.experience.experience_id: request.factual_resume_sources().get(request.experience.experience_id)}
+    if request.answer:
+        own[request.answer_source_id] = request.answer
+    quotes = [(f.source_id, f.evidence_quote) for f in extraction.extracted_evidence]
+    quotes += [(c.source_id, c.evidence_quote) for c in getattr(extraction, 'intent_claims', [])]
+    fixes, seen = [], set()
+    for source_id, quote in quotes:
+        if not own.get(source_id):
+            continue
+        for wrong, right in source_quote(own[source_id], quote)[1]:
+            if (source_id, wrong) not in seen:
+                seen.add((source_id, wrong))
+                fixes.append(SpellingFix(source_id=source_id, wrong=wrong, right=right))
+    return fixes
 
 
 def validate_analysis(request: ReviewInput, analysis: AnalystOutput) -> tuple[dict[str, Evidence], RevisionPlan]:
@@ -337,7 +450,9 @@ def validate_candidate(
 
 
 def is_explicit_intention(text):
-    return bool(re.search(r'싶|계획입니다|계획하고 있|예정입니다|목표로 하|목표입니다|성장하겠|기여하겠|이해하겠|하고자|지원하고자',text))
+    # 「하고자」 alone is also a purpose connective on finished work (개선하고자 … 바꿨습니다); only
+    # 「하고자 합니다」 states an intention (2026-10-13: a past reason was rejected as an intent).
+    return bool(re.search(r'싶|계획입니다|계획하고 있|예정입니다|목표로 하|목표입니다|성장하겠|기여하겠|이해하겠|하고자\s*합니다|지원하고자',text))
 
 
 def validate_intent_sentence(sentence, intents):

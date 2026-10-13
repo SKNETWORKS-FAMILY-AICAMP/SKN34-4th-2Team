@@ -285,6 +285,24 @@ def _non_regular_match(kind: str) -> tuple[str, list[object]]:
 
 # 법인 표기 · 띄어쓰기를 뗀 회사 이름 — 사이트마다 「(주)비상교육」 「㈜비상교육」으로 달리 적는다
 _COMPANY_KEY_SQL = r"regexp_replace(company, '\(주\)|\(유\)|㈜|주식회사|유한회사|\s', '', 'g')"
+# 부르는 이름과 등기 이름이 다른 회사 — 「토스」의 운영사는 비바리퍼블리카다. 확신이 있는 것만 넣는다
+_COMPANY_ALIASES: dict[str, tuple[str, ...]] = {
+    "토스": ("비바리퍼블리카",),
+    "네이버": ("naver",),
+    "naver": ("네이버",),
+    "카카오": ("kakao",),
+    "kakao": ("카카오",),
+    "쿠팡": ("coupang",),
+    "coupang": ("쿠팡",),
+}
+
+
+def company_spellings(name: str) -> list[str]:
+    """회사 이름 → 회사 칸 앞부분과 견줄 소문자 열쇠들(법인 표기 · 띄어쓰기 뗌, 별칭 포함)."""
+    key = re.sub(r"\(주\)|\(유\)|㈜|주식회사|유한회사|\s", "", name or "").lower()
+    if not key:
+        return []
+    return list(dict.fromkeys([key, *_COMPANY_ALIASES.get(key, ())]))
 _SIZED_SMALLER = r"(?:^|,)\s*(?:중견기업|중소기업)\s*(?:,|$)"
 # 사람인이 중견 · 중소로만 적은 회사(한 번도 대기업으로 적지 않은 회사)의 잡코리아 공고가 아니다
 _NOT_SMALLER_ON_SARAMIN = (
@@ -434,6 +452,7 @@ class JobFilters:
     career_years: int | None = None                         # 몇 년차인지 말했으면
     employment_types: list[str] = field(default_factory=list)
     deadline_within_days: int | None = None                 # 마감 임박만 보기
+    companies: list[str] = field(default_factory=list)      # 회사 이름(이름 앞부분이 맞는 회사)
     keywords: list[str] = field(default_factory=list)       # 그 밖의 말
     exclude_keywords: list[str] = field(default_factory=list)  # 빼 달라는 말(스타트업, 파견)
     posted_within_days: int | None = None                   # 최근 올라온 것만. 0이면 오늘
@@ -446,7 +465,7 @@ class JobFilters:
     @property
     def is_empty(self) -> bool:
         return not any(
-            [self.roles, self.skills, self.regions, self.employment_types,
+            [self.roles, self.skills, self.regions, self.employment_types, self.companies,
              self.keywords, self.deadline_within_days, self.career != "무관",
              self.career_years is not None, self.exclude_keywords,
              self.posted_within_days is not None]
@@ -469,6 +488,7 @@ class JobFilters:
         if self.posted_within_days is not None:
             # "오늘"이라고 쓰지 않는다. 마지막 수집일에서 센다(`conditions`).
             parts.append("새로 올라온" if self.posted_within_days == 0 else f"최근 {self.posted_within_days}일 새로 올라온")
+        parts.extend(self.companies)
         parts.extend(self.keywords)
         parts.extend(f"{word} 제외" for word in self.exclude_keywords)
         return " · ".join(parts) if parts else "조건 없음"
@@ -656,6 +676,17 @@ def conditions(filters: JobFilters, as_of: datetime, *, listing: bool = False) -
         until = (as_of + timedelta(days=filters.deadline_within_days)).date().isoformat()
         where.append("deadline IS NOT NULL AND substr(deadline, 1, 10) <= %s")
         params.append(until)
+
+    # 회사 — 회사 칸에서 법인 표기 · 띄어쓰기를 뗀 이름의 **앞부분**이 맞아야 한다. 「토스」는 토스뱅크 · 토스증권은
+    # 잡고 「(주)엠토스솔루션스」는 안 잡는다. 여럿이면 하나만 맞아도 된다
+    names = _dedupe(filters.companies)
+    if names:
+        clauses = []
+        for name in names:
+            for spelling in company_spellings(name):
+                clauses.append(f"lower({_COMPANY_KEY_SQL}) LIKE %s")
+                params.append(spelling + "%")
+        where.append("(" + " OR ".join(clauses) + ")")
 
     # 직무 묶음·기술 묶음·키워드 묶음을 따로 걸어 모두 만족하게 한다(위 설명).
     roles, skills = _dedupe(filters.roles), _dedupe(filters.skills)

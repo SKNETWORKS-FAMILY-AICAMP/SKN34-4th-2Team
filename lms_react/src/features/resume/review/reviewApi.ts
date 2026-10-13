@@ -12,6 +12,7 @@ export class ReviewApiError extends Error {
   constructor(
     message: string,
     readonly statusCode: number,
+    readonly code?: string,
   ) {
     super(message);
   }
@@ -97,9 +98,9 @@ function failureMessage(status: number, detail: string | undefined): string {
   }
 }
 
-async function post(path: string, body: Json | FormData): Promise<Json> {
+async function post(path: string, body: Json | FormData, timeout = 180_000): Promise<Json> {
   try {
-    const { data } = await http.post<Json>(path, body, { timeout: 180_000 });
+    const { data } = await http.post<Json>(path, body, { timeout });
     return data;
   } catch (err) {
     const response = (err as { response?: { status?: number; data?: { detail?: unknown } } }).response;
@@ -108,10 +109,10 @@ async function post(path: string, body: Json | FormData): Promise<Json> {
         throw new ReviewApiError('답변 변경 경로가 서버에 아직 반영되지 않았습니다. Django 서버 반영 후 다시 시도해 주세요.',404);
       }
       const detail = typeof response.data?.detail === 'string' ? response.data.detail : undefined;
-      throw new ReviewApiError(failureMessage(response.status, detail), response.status);
+      throw new ReviewApiError(failureMessage(response.status, detail), response.status, detail);
     }
-    if ((err as { code?: string }).code === 'ECONNABORTED') {
-      throw new ReviewApiError('응답 시간이 초과됐습니다. 재시도는 같은 요청 ID로 처리됩니다.', 0);
+    if (['ECONNABORTED', 'ETIMEDOUT'].includes((err as { code?: string }).code ?? '')) {
+      throw new ReviewApiError('응답 시간이 초과됐습니다. 재시도는 같은 요청 ID로 처리됩니다.', 0, 'transport_timeout');
     }
     throw new ReviewApiError('첨삭 서버에 연결하지 못했습니다. 서버 주소와 실행 상태를 확인해 주세요.', 0);
   }
@@ -150,6 +151,17 @@ export const reviewApi = {
     answers: { question: string; answer: string; source_type?: 'memo' | 'answer' | 'selection'; selected_experience_id?: string }[]) =>
     post('/resume-review/question-answer', { resumeId, tailoredResumeId, questionId, answers }),
 
+  /**
+   * 공고 맞춤 지원 사본의 회사 문항 전체에 답을 쓴다 — 문항을 함께 계획해 경험이 겹치지 않게(app/question_workflow).
+   * 화면의 최신 메모 · 질문 답을 같이 보낸다. 저장은 하지 않는다. 문항이 여러 개라 1~3분 걸려 5분까지 기다린다
+   */
+  questionWorkflow: (resumeId: string, tailoredResumeId: string,
+    questions: { id: string; memo: string; notes: { question: string; answer: string }[] }[],
+    /** only: 그 문항만 다시 쓴다. plan: 앞서 받은 계획 — 있으면 계획을 다시 세우지 않아 30~60초로 끝난다 */
+    /** stage: 문항 전체를 여러 요청에 나눈다 — plan(계획만) → 문항마다 only → finish(answers 로 한 벌 검토) */
+    options: { only?: string; plan?: Json | null; stage?: 'all' | 'plan' | 'finish'; answers?: Record<string, Json> } = {}) =>
+    post('/resume-review/question-workflow', { resumeId, tailoredResumeId, questions, ...options }, 300_000),
+
   /** 공고용 사본을 뜬다. apply(공고 맞춤 지원)는 이력서 관리의 맞춤 첨삭 사본(review)과 따로 뜬다 */
   createTailored: (resumeId: string, jobId: string, purpose: 'review' | 'apply' = 'review') =>
     post('/resume-review/tailored', { resumeId, selectedJobId: jobId, purpose }),
@@ -170,6 +182,7 @@ export const reviewApi = {
       resumeId,
       reviewMode: request.review_mode,
       reviewPhase: request.review_phase,
+      asyncAttempt: request.async_attempt,
       requestId: request.request_id,
       expectedInputHash: request.expected_input_hash,
       expectedJobHash: request.expected_job_hash,

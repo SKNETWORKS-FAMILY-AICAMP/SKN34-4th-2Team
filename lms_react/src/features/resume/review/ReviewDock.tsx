@@ -27,6 +27,12 @@ export type OpenReviewOptions = Omit<ReviewWindowProps, 'dock'>;
 
 interface DockContextValue {
   openReview(key: string, options: OpenReviewOptions): void;
+  /**
+   * 첨삭 창이 열려 있는(내려둔 것 포함) 동안 그 첨삭이 고치는 이력서 — 일반 첨삭은 원본,
+   * 공고 맞춤은 맞춤 이력서. 편집기는 이 이력서를 잠근다. 첨삭과 편집기가 같은 이력서를
+   * 통째로 써서 서로 덮어쓰기 때문이다.
+   */
+  reviewingResumeId: string | null;
 }
 
 const DockContext = createContext<DockContextValue | null>(null);
@@ -45,6 +51,7 @@ const IDLE: ReviewDockStatus = {
   stageIndex: null,
   stageCount: null,
   failed: false,
+  editingResumeId: null,
 };
 
 export function ReviewDockHost({ children }: { children: ReactNode }) {
@@ -136,7 +143,13 @@ export function ReviewDockHost({ children }: { children: ReactNode }) {
     [minimized, close, report],
   );
 
-  const value = useMemo(() => ({ openReview }), [openReview]);
+  // 창이 알려 오기 전(막 열었을 때)은 연 옵션으로 안다
+  const reviewingResumeId =
+    panel === null
+      ? null
+      : (status.editingResumeId ??
+        (panel.options.generalReview ? panel.options.resumeId : panel.options.tailoredResumeId || null));
+  const value = useMemo(() => ({ openReview, reviewingResumeId }), [openReview, reviewingResumeId]);
 
   // 복습 · 연습장 창이 펼쳐지면 이 창은 내려놓는다(둘이 겹쳐 펼쳐지지 않게)
   const minimizeReview = useCallback(() => setMinimized(true), []);

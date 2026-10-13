@@ -30,6 +30,10 @@ export interface Posting {
   employment_type: string;
   education: string;
   deadline: string | null;
+  /** 회사가 정한 마감 시각 「15:00」. 날짜만 알면(그날 끝까지) null */
+  deadline_time?: string | null;
+  /** 오늘 마감인데 시각을 몰라 불러올 때 페이지를 열어 확인할 공고 */
+  check_page?: boolean;
   status: string;
   required_skills: string[];
   preferred_skills: string[];
@@ -47,8 +51,12 @@ export function careerLabel(careerType: string, minYears: number | null): string
   return '경력무관';
 }
 
-/** 마감은 날짜까지만. 시각 · 시간대는 지원 여부를 정하는 데 쓰이지 않는다 */
-const dateOnly = (value: string | null) => (value === null ? '' : (/^\d{4}-\d{2}-\d{2}/.exec(value)?.[0] ?? value));
+/** 마감은 날짜까지, 회사가 시각을 정했으면 시각도(「2026-10-13 15:00」). 저장값의 23:59:59 같은 시각은 마감 시각이 아니다 */
+export const deadlineText = (posting: Pick<Posting, 'deadline' | 'deadline_time'>) => {
+  if (posting.deadline === null) return '';
+  const day = /^\d{4}-\d{2}-\d{2}/.exec(posting.deadline)?.[0] ?? posting.deadline;
+  return posting.deadline_time ? `${day} ${posting.deadline_time}` : day;
+};
 
 /** 새 탭으로 연 공고 원문 — 주소의 공고를 보여 준다 */
 export function JobPostingScreen() {
@@ -143,7 +151,7 @@ export function JobPostingView({ jobId, asPage = false }: { jobId: string; asPag
       {closed && (
         <p className="posting__closed">
           <Icon name="info" size={16} />
-          {closedReason(posting.status, posting.deadline)} 수집해 둔 원문을 보여 드려요.
+          {closedReason(posting.status, posting.deadline, posting.deadline_time)} 수집해 둔 원문을 보여 드려요.
         </p>
       )}
 
@@ -162,7 +170,7 @@ export function JobPostingView({ jobId, asPage = false }: { jobId: string; asPag
         </div>
         <div>
           <dt>마감</dt>
-          <dd>{dateOnly(posting.deadline) || '미기재'}</dd>
+          <dd>{deadlineText(posting) || '미기재'}</dd>
         </div>
       </dl>
 

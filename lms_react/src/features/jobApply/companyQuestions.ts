@@ -19,8 +19,13 @@ export const COMMON_QUESTIONS: { key: string; question: string; limit: number }[
   { key: 'personality', question: '성격의 장단점', limit: 500 },
 ];
 
-// 문항 머리: "1.", "1)", "Q1.", "①", "문항 1." 따위. 점 · 괄호 뒤는 붙어 있어도 된다("1.해당 직무…") — 숫자가 이어지면("1.5년") 아니다
-const NUMBERED = /^\s*(?:문항\s*)?(?:Q\s*)?(?:\d{1,2}|[①-⑩])\s*(?:[.)．:]\s*(?=[^\d\s])|\s+(?=\S))/i;
+// 문항 머리: "1.", "1)", "Q1.", "①", "문항 1.", "[1-1]" 따위. 점 · 괄호 뒤는 붙어 있어도 된다("1.해당 직무…") — 숫자가 이어지면("1.5년") 아니다
+const NUMBERED =
+  /^\s*(?:\[\d{1,2}(?:-\d{1,2})?\]\s*(?=\S)|(?:문항\s*)?(?:Q\s*)?(?:\d{1,2}|[①-⑩])\s*(?:[.)．:]\s*(?=[^\d\s])|\s+(?=\S)))/i;
+// 하위 문항 머리 — "1)", "(1)", "가.", "가)", "1-1." 상위 문항("2. …적합한 인재인 이유 [각 항목 400자]") 아래에 오면 묶음이다
+const SUB_HEAD = /^\s*(?:\(\d{1,2}\)|\d{1,2}\)|[가-하][.)]|\d{1,2}-\d{1,2}[.)]?)\s*/;
+const SUB_PREFIX = /^\s*(?:\(\d{1,2}\)|[가-하][.)]|\d{1,2}-\d{1,2}[.)]?)\s*/;
+const squash = (text: string) => text.replace(/\s+/g, '');
 const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩';
 // "(공백 포함 600자 이내)", "600자 내외", "최대 1,000자" — 숫자만 꺼낸다
 const LIMIT = /(\d{1,2},?\d{3}|\d{2,4})\s*자/;
@@ -49,7 +54,7 @@ function stripNote(text: string): string {
 }
 
 function cleanQuestion(text: string): string {
-  let q = text.replace(NUMBERED, '').trim();
+  let q = text.replace(SUB_PREFIX, '').replace(NUMBERED, '').trim();
   const circled = CIRCLED.indexOf(q[0] ?? '');
   if (circled >= 0) q = q.slice(1).trim();
   return stripNote(q);
@@ -64,17 +69,22 @@ function cleanQuestion(text: string): string {
 export function splitQuestions(text: string, newId: () => string): CompanyQuestion[] {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== '');
   const numbered = lines.some((l) => NUMBERED.test(l) || CIRCLED.includes(l[0] ?? ''));
-  const out: { question: string; limit: number | null }[] = [];
+  const out: { question: string; limit: number | null; sub: boolean; group?: string }[] = [];
   for (const line of lines) {
-    const isHead = NUMBERED.test(line) || CIRCLED.includes(line[0] ?? '');
+    const isHead = NUMBERED.test(line) || CIRCLED.includes(line[0] ?? '') || SUB_PREFIX.test(line);
     const last = out[out.length - 1];
     const asks = ASKS.test(stripNote(line)) || (COUNTER.test(line) && stripNote(line).length >= 4);
     if (numbered ? isHead : !NOT_QUESTION.test(line) && asks) {
-      out.push({ question: cleanQuestion(line), limit: limitOf(line) });
+      out.push({ question: cleanQuestion(line), limit: limitOf(line), sub: SUB_HEAD.test(line) });
       continue;
     }
     if (last === undefined) continue;
     const rest = stripNote(line);
+    // 사이트 제목과 입력칸 안내에 같은 문장이 두 번 있어 함께 복사된다 — 이미 있는 문장이면 잇지 않는다(글자 수는 읽는다)
+    if (rest.length >= 4 && squash(last.question).includes(squash(rest))) {
+      last.limit ??= limitOf(line);
+      continue;
+    }
     // 번호 문항이 두 줄로 접힌 경우만 잇는다(끝에 글자 수가 붙어 있어도). 안내 문구는 버린다
     if (numbered && !NOT_QUESTION.test(line) && rest.length >= 2 && last.question.length < 200) {
       last.question = `${last.question} ${rest}`.trim();
@@ -84,9 +94,22 @@ export function splitQuestions(text: string, newId: () => string): CompanyQuesti
     // 문항 다음 줄의 글자 수 안내("(공백 포함 600자 이내)")
     if (last.limit === null && limitOf(line) !== null && line.length < 40) last.limit = limitOf(line);
   }
-  return out
+  // 상위 문항 바로 아래 하위 문항이 오면 상위 문항은 묶음 제목이다 — 따로 답하지 않고, 하위 문항마다 제목 · 「각 항목 N자」를 붙인다
+  const grouped: typeof out = [];
+  for (let i = 0; i < out.length; i += 1) {
+    const item = out[i];
+    if (!item.sub && out[i + 1]?.sub === true) {
+      for (let j = i + 1; j < out.length && out[j].sub; j += 1) {
+        out[j].group = item.question;
+        out[j].limit ??= item.limit;
+      }
+      continue;
+    }
+    grouped.push(item);
+  }
+  return grouped
     .filter((q) => q.question.length >= 4)
-    .map((q) => ({ id: newId(), question: q.question, limit: q.limit, answer: '' }));
+    .map((q) => ({ id: newId(), question: q.question, limit: q.limit, answer: '', ...(q.group ? { group: q.group } : {}) }));
 }
 
 const DEFAULT_SECTIONS = [

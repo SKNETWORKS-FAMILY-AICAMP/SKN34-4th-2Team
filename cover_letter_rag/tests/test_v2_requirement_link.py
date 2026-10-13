@@ -10,6 +10,14 @@ from app.resume_review_v2.requirement_matching import ground_matches, aggregate,
 from app.resume_review_v2.models import ReviewInput, Experience, SourceDocument
 
 
+@pytest.fixture(autouse=True)
+def stagewise(monkeypatch):
+    # Pins the one-stage-per-request checkpoint contract (RESUME_REVIEW_PIPELINE=0 and
+    # checkpoints saved before pipelining); pipelined resume: test_resume_review_pipeline.
+    from app.resume_review_v2 import batch
+    monkeypatch.setattr(batch, 'PIPELINE', False)
+
+
 @pytest.fixture
 def job_pipeline(pipeline, monkeypatch):
     client,reviews,calls,db=pipeline

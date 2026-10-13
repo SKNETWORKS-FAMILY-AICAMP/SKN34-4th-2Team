@@ -228,6 +228,37 @@ class PostgresPersistenceTests(TransactionTestCase):
         self.assertEqual((ResumeExperiences.objects.count(), ResumeEvidence.objects.count()), before[:2])
         self.assertEqual(ResumeExperienceBindings.objects.count(), before[2] + 3)
 
+    def test_rereview_of_editing_copy_writes_back_and_starts_from_its_latest_text(self):
+        # 2026-10-13: every 재첨삭 of an editing copy added one more same-named editing copy.
+        gateway = self.gateway()
+        job = {'job_id': 'test-job', 'snapshot_hash': 'snapshot-1', 'company': 'Test', 'title': 'Engineer'}
+        uid, cohort = self.user.firebase_uid, self.cohort.code
+        first = gateway.create_tailored_resume(cohort, 'base-pg', uid, job)
+        editing_id = gateway.promote_tailored_resume(cohort, 'base-pg', first['tailored_resume_id'], uid)
+        editing = Resumes.objects.get(legacy_id=editing_id)
+        # The student edits the editing copy, then reviews it again.
+        content = deepcopy(editing.content)
+        content['projects'][1]['description'] = '학생이 직접 고친 문장'
+        Resumes.objects.filter(pk=editing.pk).update(content=content)
+        work = gateway.create_tailored_resume(cohort, editing_id, uid, job)
+        self.assertEqual(work['content']['projects'][1]['description'], '학생이 직접 고친 문장')
+        work_row = Resumes.objects.get(legacy_id=f"{editing_id}/tailored/{work['tailored_resume_id']}")
+        reviewed = deepcopy(work_row.content)
+        reviewed['projects'][0]['description'] = '첨삭으로 다듬은 문장'
+        Resumes.objects.filter(pk=work_row.pk).update(content=reviewed)
+        self.assertEqual(gateway.promote_tailored_resume(cohort, editing_id, work['tailored_resume_id'], uid), editing_id)
+        editing.refresh_from_db()
+        self.assertEqual([p['description'] for p in editing.content['projects']], ['첨삭으로 다듬은 문장', '학생이 직접 고친 문장'])
+        self.assertEqual(Resumes.objects.filter(source_tailored_resume__isnull=False).count(), 1)
+        # Edited again after the write-back: the reopened work copy starts from the newest text.
+        content = deepcopy(editing.content)
+        content['projects'][1]['description'] = '두 번째로 고친 문장'
+        Resumes.objects.filter(pk=editing.pk).update(content=content)
+        again = gateway.create_tailored_resume(cohort, editing_id, uid, job)
+        self.assertEqual(again['tailored_resume_id'], work['tailored_resume_id'])
+        self.assertEqual(again['content']['projects'][1]['description'], '두 번째로 고친 문장')
+        self.assertEqual(again['reviewSession'], {})
+
     def test_real_django_save_roundtrip_and_reorder(self):
         from .commands import op_upsert_sql
         self.resume.refresh_from_db()

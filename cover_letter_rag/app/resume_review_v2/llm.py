@@ -13,6 +13,13 @@ from .policy import SECTION_RULES, SOURCE_POLICY, TARGET_POLICY, POLICY_VERSION
 from .section_semantics import section_contract, editorial_brief, rewrite_source_review
 
 
+def spelling_payload(request):
+    """Only when present, so payloads (and stage caches) stay unchanged for clean sources."""
+    if not request.spelling_fixes:
+        return {}
+    return {"spelling_fixes": [item.model_dump(mode='json') for item in request.spelling_fixes]}
+
+
 def scoped_evidence(request, evidence):
     """Resolve field scope from an available owning source, not a paraphrase."""
     owner = request.experience.experience_id
@@ -123,6 +130,7 @@ class LangChainReviewLLM:
             "approved_intents": [item.model_dump(mode='json') for item in request.approved_intents],
             "editorial_brief": editorial_brief(request),
             "original_for_editing": request.experience.current_text,
+            **spelling_payload(request),
             "job_requirements": [item.model_dump(mode="json") for item in request.job_requirements],
             "previous_draft_to_fix": previous_text,
             "rewrite_source_review": rewrite_source_review(request, previous_text, previous_candidate),
@@ -159,6 +167,7 @@ class LangChainReviewLLM:
             "approved_intents": [item.model_dump(mode='json') for item in request.approved_intents],
             "allowed_target_context": [item.model_dump(mode='json') for item in request.job_requirements],
             "original_experience_text": request.experience.current_text,
+            **spelling_payload(request),
             "previous_attempt": previous_attempt,
             "candidate_change_review": change_review,
             "suggested_text": candidate.suggested_text,

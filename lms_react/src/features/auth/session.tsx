@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react';
 
@@ -14,8 +15,9 @@ import { DemoAccounts } from '../../data/seed';
 import { fetchBootstrap, mapUser } from '../../data/bootstrap';
 import { http, readApiError, refreshAccess } from '../../data/http';
 import { queryClient, queryKeys } from '../../data/queryClient';
+import { subscribeBootstrap } from '../../data/bootstrapStore';
 import { useSessionStore } from '../../data/sessionStore';
-import { getDb } from '../../data/store';
+import { getDb, subscribe, type Database } from '../../data/store';
 import type { User, UserRole } from '../../domain/types';
 
 const STORAGE_KEY = 'lms_react_session_uid';
@@ -165,6 +167,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    const refresh = useSessionStore.getState().refresh;
     // 사용자부터 비운다 — 남아 있으면 로그인 화면이 홈으로 되돌려 보내 화면이 튄다
     setUid(null);
     setMustChange(false);
@@ -173,8 +176,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     useSessionStore.getState().clear();
     // 캐시는 로그인 화면으로 넘어간 뒤에 비운다 — 먼저 비우면 빈 대시보드가 잠깐 보인다
     setTimeout(() => queryClient.clear(), 0);
-    // 서버 /logout 은 하는 일이 없어 기다리지 않는다
-    void http.post('/logout').catch(() => undefined);
+    if (refresh) void http.post('/logout', { refresh }).catch(() => undefined);
   }, []);
 
   const changePassword = useCallback(async (next: string, current?: string) => {
@@ -186,7 +188,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return { ok: true as const };
     }
     try {
-      await http.post('/password', { password: next, currentPassword: current ?? '' });
+      const { data } = await http.post<{ access: string; refresh: string }>('/password', {
+        password: next, currentPassword: current ?? '',
+      });
+      if (!data.access || !data.refresh) throw new Error('새 로그인 정보를 받지 못했습니다. 다시 로그인해 주세요.');
+      useSessionStore.getState().setTokens(data.access, data.refresh);
       setMustChange(false);
       return { ok: true as const };
     } catch (error) {
@@ -216,15 +222,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const selectedCohortId = useSelectedCohortFor(uid ?? undefined);
   const cohorts = useCohorts();
 
+  // 마이페이지에서 고친 값(updateUser)은 화면 데이터에 바로 들어간다 — 로그인 때 받은 liveUser 에 머물지 않게 이쪽을 먼저 본다
+  const storedUser = useSyncExternalStore(isTestMode() ? subscribe : subscribeBootstrap, () => {
+    if (uid === null) return undefined;
+    const db = isTestMode() ? getDb() : queryClient.getQueryData<Database>(queryKeys.bootstrap);
+    return db?.users.find((u) => u.uid === uid);
+  });
+
   const user = useMemo(() => {
     if (uid === null) return null;
-    const found = isTestMode() ? (getDb().users.find((u) => u.uid === uid) ?? null) : liveUser;
+    const found = storedUser ?? (isTestMode() ? null : liveUser);
     if (found === null) return null;
     const signedIn = { ...found, mustChangePassword: mustChange };
     // 관리자는 상단에서 고른 기수로 본다(Flutter effectiveCohortIdProvider)
     const selected = signedIn.role === 'admin' ? cohorts.find((c) => c.cohortId === selectedCohortId) : undefined;
     return selected === undefined ? signedIn : { ...signedIn, cohortId: selected.cohortId, cohortName: selected.name };
-  }, [uid, mustChange, liveUser, cohorts, selectedCohortId]);
+  }, [uid, mustChange, storedUser, liveUser, cohorts, selectedCohortId]);
 
   const value = useMemo<Session>(
     () => ({ user, loading, signIn, signOut, changePassword, skipPasswordChange, switchRole }),

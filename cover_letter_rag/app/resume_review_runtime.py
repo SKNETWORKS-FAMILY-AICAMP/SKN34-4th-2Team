@@ -1,5 +1,6 @@
 """Shared v2 runtime using the existing PostgreSQL review/apply contract."""
 import re
+import threading
 import time
 from contextlib import contextmanager
 from app.firebase_gateway import FirebaseGateway
@@ -10,6 +11,173 @@ from app.resume_review_v2.batch import BatchReviewEngine, StageBoundary
 from app.resume_review_v2.models import (Experience, ReviewInput, Evidence, JobRequirement, Usage,
     EvidenceFacet, SourceDocument, ProjectSlot, ApplicantIntentClaim, SemanticUnit)
 from app.resume_review_v2.policy import POLICY_VERSION, MAX_PROGRESSIVE_QUESTIONS
+
+# 첨삭 요청 하나의 구간별 시간 — `[첨삭 시간]` 한 줄(공고 추천의 `[추천 시간]`과 같은 모양).
+# 단계마다 새 요청이라, 요청 사이에 LLM 밖에서 쓰는 시간이 어디인지 여기서 본다(2026-10-13).
+_phase = threading.local()
+
+
+def _mark(name, engine=None):
+    clock = getattr(_phase, 'clock', None)
+    if clock is None:
+        return
+    now = time.monotonic()
+    clock['marks'].append((name, now - clock['last']))
+    clock['last'] = now
+    if engine is not None:
+        clock['engine'] = engine
+
+
+def spelling_reviews(path, text, fixes):
+    """Typo-only edits for a field whose rewrite was not approved — fixing typos is polishing too.
+
+    Each edit replaces just the typo word (widened by neighbour words until it occurs once,
+    which the apply contract requires). Facts cannot change; apply/undo stay the normal path.
+    """
+    reviews = []
+    for fix in fixes:
+        start = text.find(fix.wrong)
+        if start < 0:
+            continue
+        end = start + len(fix.wrong)
+        for _ in range(4):
+            if text.count(text[start:end]) == 1:
+                break
+            left = text.rfind(' ', 0, max(start - 1, 0))
+            right = text.find(' ', end + 1)
+            start, end = left + 1, len(text) if right < 0 else right
+        quote = text[start:end]
+        if text.count(quote) != 1:
+            continue
+        reviews.append(SentenceReview(field_path=path, original_quote=quote,
+            suggested_revision=quote.replace(fix.wrong, fix.right, 1),
+            reason=f'오타로 보이는 글자를 고쳤어요: {fix.wrong} → {fix.right}',
+            status='formatting', edit_type='spelling', validation_status='READY'))
+    return reviews
+
+
+_TEMPLATE_BLANK = re.compile(r'\[[^\[\]\n]{1,40}\]')
+_SENTENCE_END = re.compile(r'[.!?。]\s|\n')
+
+
+def scoped_rewrite(text, revision, quotes):
+    """(original_quote, revision) that keeps a student's template blanks.
+
+    A draft left with blanks ([서비스], [입사하면 해 보고 싶은 일 한 줄]) gets a rewrite of its
+    written sentences only; replacing the whole field would delete the blanks and every
+    sentence around them. The edit is narrowed to the sentences its evidence came from.
+    None when those sentences themselves hold a blank.
+    """
+    from app.review_workflow import COMPANY_PLACEHOLDER, ROLE_PLACEHOLDER
+    identity = re.compile(f'{COMPANY_PLACEHOLDER}|{ROLE_PLACEHOLDER}')
+    blanks = [b for b in _TEMPLATE_BLANK.findall(text or '') if not identity.fullmatch(b)]
+    if not blanks or all(b in revision for b in blanks):
+        return text, revision
+    spans = [(text.find(q), text.find(q) + len(q)) for q in quotes if q and text.count(q) == 1]
+    if not spans:
+        return None
+    start, end = min(s for s, _ in spans), max(e for _, e in spans)
+    before = [m.end() for m in _SENTENCE_END.finditer(text, 0, start)]
+    start = before[-1] if before else 0
+    after = _SENTENCE_END.search(text, max(start, end - 1))
+    end = after.start() + 1 if after and after.group()[0] != '\n' else after.start() if after else len(text)
+    quote = text[start:end].strip()
+    if not quote or _TEMPLATE_BLANK.search(quote) or text.count(quote) != 1:
+        return None
+    return quote, revision
+
+
+def with_job_identity(result, source):
+    """The 회사명 · 직무명 card applies this text: fill the posting identity it promises."""
+    if result.candidate is None or not source:
+        return result
+    from app.review_workflow import fill_job_identity
+    result.candidate = result.candidate.model_copy(update={
+        'suggested_text': fill_job_identity(result.candidate.suggested_text, source),
+        'sentences': [s.model_copy(update={'text': fill_job_identity(s.text, source)})
+                      for s in result.candidate.sentences]})
+    return result
+
+
+def result_cards(result, path, text, source, reused=False):
+    """Cards for one experience. The final response and early previews use this same function,
+    so a card shown before the review completes is exactly the card the student can apply."""
+    candidate = result.candidate
+    ready = candidate is not None and result.validation.status == 'READY'
+    unchanged = result.validation.status == 'UNCHANGED'
+    question = result.proposed_question
+    quote, revision, blank_kept = text, candidate.suggested_text if ready else None, False
+    if ready:
+        scoped = scoped_rewrite(text, revision, [e.evidence_quote for e in result.selected_evidence])
+        # Never offer an edit that deletes the student's blanks.
+        ready, blank_kept = scoped is not None, scoped is None
+        quote, revision = scoped or (text, None)
+    cards = [SentenceReview(field_path=path, original_quote=quote,
+        reason='검증된 수정안이 정확히 적용되어 완료된 작성 상태를 재사용했습니다.' if reused else
+            '빈칸이 남은 문장을 지우지 않도록 원문을 유지했습니다.' if blank_kept else
+            '원문보다 명확한 개선이 없어 원문을 유지했습니다.' if unchanged else result.plan.reason or result.plan.objective,
+        suggested_revision=revision,
+        validation_status=('NEEDS_EVIDENCE' if candidate is None and result.validation.status == 'READY'
+            else 'UNCHANGED' if blank_kept else result.validation.status),
+        status='improved' if ready else 'unchanged' if unchanged else 'needs_confirmation' if (
+            question or candidate is None and result.validation.status in {'READY', 'NEEDS_EVIDENCE'}) else 'unchanged',
+        confirmation_question=question.question if question else None,
+        evidence_quotes=[e.evidence_quote for e in result.selected_evidence],
+        validation_issues=[i.code for i in result.validation.all_issues])]
+    if not ready and not reused:
+        # An approved rewrite already spells them right; otherwise offer the typo fixes alone.
+        identity = result.experience.experience_id
+        cards.extend(spelling_reviews(path, text, [f for f in result.spelling_fixes if f.source_id == identity]))
+        if source:
+            cards.extend(identity_reviews(path, text, source))
+    return cards
+
+
+def identity_reviews(path, text, source):
+    """[회사명] · [직무명] filled from the posting for a field whose rewrite was not approved.
+
+    Students write these placeholders on purpose; a tailored resume fills them. Each edit
+    replaces only the placeholder (and its particle), so the 회사명 · 직무명 card applies
+    exactly what it shows.
+    """
+    from app.review_workflow import fill_job_identity, COMPANY_PLACEHOLDER, ROLE_PLACEHOLDER
+    reviews, seen = [], set()
+    for match in re.finditer(rf'{COMPANY_PLACEHOLDER}(?:\s*의\s*{ROLE_PLACEHOLDER})?\S*|{ROLE_PLACEHOLDER}\S*', text or ''):
+        quote = match.group()
+        if quote in seen or text.count(quote) != 1:
+            continue
+        seen.add(quote)
+        filled = fill_job_identity(quote, source)
+        if filled != quote:
+            reviews.append(SentenceReview(field_path=path, original_quote=quote, suggested_revision=filled,
+                reason='지원 공고의 회사명 · 직무명으로 채웠어요.',
+                status='formatting', edit_type='spelling', validation_status='READY'))
+    return reviews
+
+
+def _log_review_time(clock, request):
+    try:
+        _print_review_time(clock, request)
+    except Exception:  # noqa: BLE001 — a timing log must never fail the review
+        pass
+
+
+def _print_review_time(clock, request):
+    from app.firebase_gateway import db_stats
+    end = time.monotonic()
+    marks = list(clock['marks'])
+    engine = clock.get('engine')
+    window = getattr(engine, 'llm_window', None) if isinstance(engine, BatchReviewEngine) else None
+    if window:
+        marks += [('엔진 준비', window[0] - clock['last']), ('LLM', window[1] - window[0]), ('마무리', end - window[1])]
+    else:
+        marks.append(('나머지', end - clock['last']))
+    calls0, secs0 = clock['db']
+    calls1, secs1 = clock.get('db_end') or db_stats()
+    stage = (engine.stages or [{}])[-1].get('stage', '-') if isinstance(engine, BatchReviewEngine) else '-'
+    print('[첨삭 시간] ' + ' · '.join(f'{name} {seconds:.1f}' for name, seconds in marks)
+          + f' · DB {calls1 - calls0}번 {secs1 - secs0:.1f}초 · 합계 {end - clock["start"]:.1f}초'
+          + f' (마지막 단계 {stage}, 요청 {str(request.request_id or "")[-8:]})', flush=True)
 
 
 def public_gap_question(q, request_id, path, title, owner_options=(), requirement_context=''):
@@ -92,6 +260,22 @@ class PostgresReviewGateway(FirebaseGateway):
                 (ident['user_pk'],prefix,prefix)).fetchone()
         return row[0] if row else None
 
+    def promoted_source_review(self, cohort_id, resume_id, uid):
+        """Latest finished review of the work copy this editing copy was promoted from.
+
+        Re-reviewing an editing copy (matched_…) starts a new work copy with no history, so
+        an unchanged resume was reviewed from scratch again (2026-10-13: 229s). Its items
+        reuse the old records only through the usual per-item identity checks.
+        """
+        with self._pg() as conn:
+            ident = self._cohort_user(conn, cohort_id, uid)
+            row = conn.execute('''SELECT a.response FROM resumes p
+                JOIN resume_ai_reviews a ON a.resume_id = p.source_tailored_resume_id AND a.user_id = p.user_id
+                WHERE (p.legacy_id = %s OR p.id::text = %s) AND p.cohort_id = %s AND p.user_id = %s
+                  AND a.status = 'complete' AND a.response IS NOT NULL
+                ORDER BY a.id DESC LIMIT 1''', (resume_id, resume_id, ident['cohort_pk'], ident['user_pk'])).fetchone()
+        return row[0] if row else None
+
     def apply_or_undo(self, uid, request, undo=False):
         # The existing per-resume advisory lock also serializes answer recovery
         # against apply/undo: a stale candidate cannot slip between the answer
@@ -151,12 +335,20 @@ class PostgresReviewGateway(FirebaseGateway):
         lock_id = int(digest([cohort_id, resume_id, uid, tailored_resume_id])[:15], 16)
         with self._pg() as conn:
             self._cohort_user(conn, cohort_id, uid)
-            if not conn.execute('SELECT pg_try_advisory_lock(%s)', (lock_id,)).fetchone()[0]:
-                raise ReviewConflict('review_stage_busy')
+            conn.commit()
+            # Autocommit: the lock is held by the session, not by a transaction left open for the
+            # whole review ("idle in transaction" for minutes).
+            conn.autocommit = True
             try:
-                yield
+                if not conn.execute('SELECT pg_try_advisory_lock(%s)', (lock_id,)).fetchone()[0]:
+                    raise ReviewConflict('review_stage_busy')
+                try:
+                    yield
+                finally:
+                    conn.execute('SELECT pg_advisory_unlock(%s)', (lock_id,))
             finally:
-                conn.execute('SELECT pg_advisory_unlock(%s)', (lock_id,))
+                if not conn.closed:
+                    conn.autocommit = False  # Pooled: hand it back in the default mode.
 
     def claim_review(self, cohort_id, resume_id, uid, request_id, fingerprint, tailored_resume_id=None):
         prefix = self._resume_legacy(resume_id, tailored_resume_id) + '/'
@@ -259,10 +451,19 @@ class ResumeReviewV2Service:
         return rows
 
     def review_as(self, uid, request):
-        if getattr(self.db, 'supports_stage_checkpoints', False) is True:
-            with self.db.review_execution(request.cohort_id, request.resume_id, uid, request.tailored_resume_id):
-                return self._review_as(uid, request)
-        return self._review_as(uid, request)
+        from app.firebase_gateway import db_stats
+        clock = _phase.clock = {'start': time.monotonic(), 'last': time.monotonic(), 'marks': [], 'db': db_stats()}
+        try:
+            if getattr(self.db, 'supports_stage_checkpoints', False) is True:
+                with self.db.review_execution(request.cohort_id, request.resume_id, uid, request.tailored_resume_id):
+                    _mark('작업 잠금')
+                    result = self._review_as(uid, request)
+                    clock['db_end'] = db_stats()  # Before the lock connection's own (request-long) exit
+                    return result
+            return self._review_as(uid, request)
+        finally:
+            _phase.clock = None
+            _log_review_time(clock, request)
 
     def _review_as(self, uid, request):
         request_started = time.monotonic()
@@ -270,6 +471,7 @@ class ResumeReviewV2Service:
         args = (request.cohort_id, request.resume_id, uid)
         tail = request.tailored_resume_id
         resume = db.get_owned_tailored_resume(request.cohort_id, request.resume_id, tail, uid) if tail else db.get_owned_resume(*args)
+        _mark('이력서')
         content = resume.get('content') or {}
         fields, excluded = extract_review_fields(content)
         content_hash = digest(content)
@@ -277,6 +479,15 @@ class ResumeReviewV2Service:
             raise ReviewConflict('resume_version_changed')
         previous = db.get_ai_review(*args, request.previous_review_id, tail) if request.previous_review_id else {}
         previous = previous or {}
+        if not previous and tail and not request.answers and not request.answer_changes:
+            # A new work copy of a promoted editing copy continues the review it was promoted from;
+            # a work copy refreshed from its edited editing copy continues its own last review.
+            # Either way items are reused only through the per-item identity checks.
+            own = db.latest_review_response(*args, tail)
+            found = (getattr(db, 'promoted_source_review', lambda *a: None)(*args) if own is None
+                     else own if isinstance(own, dict) and own.get('input_hash') != content_hash else None)
+            previous = found if isinstance(found, dict) else {}
+        _mark('이전 기록')
         from app.resume_review_v2.requirement_matching import UNASSIGNED_PATH, context_hash, aggregate, answer_disposition
         answer_links = []
         # Issued question identity, not client field_path, owns answer routing.
@@ -342,10 +553,12 @@ class ResumeReviewV2Service:
         if request.selected_job_id:
             from app.matching_handoff import load_selected_job
             job = load_selected_job(self.settings.matching_job_store_path, request.selected_job_id)
+            _mark('공고')
             source = job['source']
             if request.expected_job_hash and request.expected_job_hash != source['snapshot_hash']:
                 raise ReviewConflict('selected_job_changed')
             requirements = self.load_requirements(job)
+            _mark('요건')
         elif request.review_mode == 'job':
             raise ReviewInputError('selected_job_required')
         requirement_context = context_hash(source, requirements)
@@ -369,6 +582,7 @@ class ResumeReviewV2Service:
             [r.model_dump(mode='json') for r in requirements],
             'v2-local-ui-2', POLICY_VERSION, PIPELINE_VERSION, self.settings.openai_model, self.settings.openai_reasoning_effort])
         claimed = db.claim_review(*args, request.request_id, fingerprint, tail)
+        _mark('기록 확보')
         if claimed.get('response'):
             response = FirestoreResumeReviewResponse.model_validate(claimed['response'])
             response.telemetry['answer_edit_supported'] = True
@@ -453,11 +667,15 @@ class ResumeReviewV2Service:
                 telemetry.update(state)
                 db.review_progress(*args, request.request_id, telemetry, tail)
             engine = self.engine or BatchReviewEngine(self.settings.openai_model, self.settings.openai_reasoning_effort,
-                                                      budget_seconds=max(0, 165 - (time.monotonic() - request_started)),
+                                                      budget_seconds=max(0, (request.stage_budget_seconds or 165) - (time.monotonic() - request_started)),
                                                       on_progress=progress, stage_limited=staged)
             if isinstance(engine, BatchReviewEngine) and staged:
                 engine.stage_limited = True
                 engine.on_progress = progress
+            if isinstance(engine, BatchReviewEngine) and not engine.stage_efforts:
+                from app.resume_review_v2.batch import configured_stage_efforts
+                engine.stage_efforts = configured_stage_efforts()
+                telemetry['stage_efforts'] = dict(engine.stage_efforts)
             answers = [ConfirmationAnswer.model_validate(a) for a in previous.get('confirmed_answers', [])]
             answers.extend(request.answers)
             chosen = targets(fields)
@@ -574,6 +792,27 @@ class ResumeReviewV2Service:
                             or (c.source_type=='resume_text' and c.evidence_quote in available.get(c.source_id,''))
                             or (c.source_type=='user_answer' and c.evidence_quote in clean.answer)]
                     inputs[index] = clean
+            _mark('입력 만들기', engine=engine)
+            if isinstance(engine, BatchReviewEngine):
+                preview_lock, preview_cards = threading.Lock(), {}
+                resume_order = [r.experience.experience_id for r in inputs]
+                def preview(chunk_results):
+                    # Finished chunks only, built by the same result_cards as the final response:
+                    # an early card is exactly the card that becomes applicable when the review completes.
+                    for chunk_result in chunk_results:
+                        identity = chunk_result.experience.experience_id
+                        if identity not in chosen:
+                            continue
+                        path, text, _ = chosen[identity]
+                        filled = with_job_identity(chunk_result.model_copy(deep=True), source)
+                        cards = [c.model_dump(mode='json') for c in
+                                 result_cards(filled, path, text, source, identity in applied_reused) if c.suggested_revision]
+                        with preview_lock:
+                            preview_cards[identity] = cards
+                    with preview_lock:
+                        # Resume order, like the final cards: chunks finish in any order.
+                        telemetry['preview_reviews'] = [c for i in resume_order for c in preview_cards.get(i, [])]
+                engine.on_chunk_results = preview
             if can_resume:
                 results = engine.run_many(inputs, resume_records=resume_records,
                     **({'checkpoint': claimed.get('checkpoint', {})} if staged else {}))
@@ -591,6 +830,7 @@ class ResumeReviewV2Service:
                 identity = review_input.experience.experience_id
                 path, text, kind = chosen[identity]
                 evidence = review_input.experience.existing_evidence
+                result = with_job_identity(result, source)
                 record = result.model_dump(mode='json')
                 # Preserve atomic facts from earlier turns, including supersession.
                 from app.resume_review_v2.models import AnalystOutput
@@ -643,21 +883,7 @@ class ResumeReviewV2Service:
                 records.append(record)
                 for key in ('calls', 'input_tokens', 'output_tokens', 'latency_ms'):
                     setattr(usage, key, getattr(usage, key) + getattr(result.usage, key))
-                candidate = result.candidate
-                ready = candidate is not None and result.validation.status == 'READY'
-                unchanged = result.validation.status == 'UNCHANGED'
-                question = result.proposed_question
-                sentences.append(SentenceReview(field_path=path, original_quote=text,
-                    reason='검증된 수정안이 정확히 적용되어 완료된 작성 상태를 재사용했습니다.' if identity in applied_reused else
-                        '원문보다 명확한 개선이 없어 원문을 유지했습니다.' if unchanged else result.plan.reason or result.plan.objective,
-                    suggested_revision=candidate.suggested_text if ready else None,
-                    validation_status=('NEEDS_EVIDENCE' if candidate is None and result.validation.status == 'READY'
-                        else result.validation.status),
-                    status='improved' if ready else 'unchanged' if unchanged else 'needs_confirmation' if (
-                        question or candidate is None and result.validation.status in {'READY', 'NEEDS_EVIDENCE'}) else 'unchanged',
-                    confirmation_question=question.question if question else None,
-                    evidence_quotes=[e.evidence_quote for e in result.selected_evidence],
-                    validation_issues=[i.code for i in result.validation.all_issues]))
+                sentences.extend(result_cards(result, path, text, source, identity in applied_reused))
             refreshed = {r['experience']['experience_id'] for r in records}
             records.extend(r for r in old_records if r['experience']['experience_id'] not in refreshed)
             # Unselected, still-valid needs survive a fresh owning analysis. This
@@ -803,6 +1029,7 @@ class ResumeReviewV2Service:
             telemetry['attempted_calls'] = engine.attempted_calls if isinstance(engine, BatchReviewEngine) else usage.calls
             summary = '경험 근거와 문장 흐름을 검토했습니다.'
             telemetry.pop('stage_checkpoint', None)
+            telemetry.pop('preview_reviews', None)  # The response's sentence_reviews supersede previews.
             kept = sum(r['validation']['status'] == 'UNCHANGED' for r in records if r['experience']['experience_id'] in chosen
                        and r['experience']['experience_id'] not in applied_reused)
             if applied_reused:
@@ -840,8 +1067,15 @@ class ResumeReviewV2Service:
 
     def _processing_response(self, db, args, request, source, content_hash, telemetry, engine, retryable_error=None):
         checkpoint = engine.checkpoint
-        states = checkpoint.get('states', {})
-        waiting_verify = any(s.get('needs_verify') and not s.get('needs_write') for s in states.values())
+        if 'chunks' in checkpoint:
+            # Pipelined chunks: report the least advanced unfinished chunk.
+            unfinished = [c.get('states') for c in checkpoint['chunks'].values() if 'results' not in c]
+            unfinished += [None] * (getattr(engine, 'chunk_count', 0) - len(checkpoint['chunks']))
+            waiting_verify = bool(unfinished) and all(states and not any(s.get('needs_write') for s in states.values())
+                and any(s.get('needs_verify') for s in states.values()) for states in unfinished)
+        else:
+            states = checkpoint.get('states', {})
+            waiting_verify = any(s.get('needs_verify') and not s.get('needs_write') for s in states.values())
         telemetry.update(engine.usage.model_dump(), stages=engine.stages, attempted_calls=engine.attempted_calls,
             stage_checkpoint=checkpoint, execution={'state': 'verification_pending' if waiting_verify else 'processing',
             'stage': 'verify' if waiting_verify else 'write', 'retryable_error': retryable_error})

@@ -8,6 +8,7 @@ import os
 from typing import Any
 
 from chatbot.context_builder import safe_context_metrics
+from chatbot.answer_effort import EFFORT_REASONS
 
 FORBIDDEN_KEYS = {
     "question",
@@ -116,12 +117,23 @@ def build_generation_log_payload(
         payload["llmMs"] = max(0, int(llm_ms))
     for source, target in (
         ("supervisor_ms", "supervisorMs"),
+        ("schedule_fast_path", "scheduleFastPath"),
         ("shared_context_ms", "sharedContextMs"),
         ("supervisor_prepare_wall_ms", "supervisorPrepareWallMs"),
         ("shared_context_overlap_ms", "sharedContextOverlapMs"),
         ("parallel_prep_enabled", "parallelPrepEnabled"),
         ("answer_model_ms", "answerModelMs"),
         ("answer_ttft_ms", "answerTtftMs"),
+        ("answer_first_callback_ms", "answerFirstCallbackMs"),
+        ("answer_first_nonempty_callback_ms", "answerFirstNonemptyCallbackMs"),
+        ("answer_first_model_event_ms", "answerFirstModelEventMs"),
+        ("answer_visible_ttft_ms", "answerVisibleTtftMs"),
+        ("answer_stream_events", "answerStreamEvents"),
+        ("answer_visible_deltas", "answerVisibleDeltas"),
+        ("answer_nontext_events", "answerNontextEvents"),
+        ("answer_reasoning_events", "answerReasoningEvents"),
+        ("answer_reasoning_tokens", "answerReasoningTokens"),
+        ("answer_cached_input_tokens", "answerCachedInputTokens"),
         ("student_context_ms", "studentContextMs"),
         ("embedding_ms", "embeddingMs"),
         ("vector_query_ms_sum", "vectorQueryMsSum"),
@@ -144,6 +156,12 @@ def build_generation_log_payload(
         if snap.get(source) is not None:
             payload[target] = max(0, int(snap[source]))
     context_metrics = safe_context_metrics(snap.get('context_metrics'))
+    effort = snap.get('answer_reasoning_effort')
+    if isinstance(effort, str) and effort in {'default', 'none', 'low', 'medium', 'high', 'xhigh', 'max'}:
+        payload['answerReasoningEffort'] = effort
+    reason = snap.get('answer_effort_reason')
+    if isinstance(reason, str) and reason in EFFORT_REASONS:
+        payload['answerEffortReason'] = reason
     if context_metrics:
         payload['contextMetrics'] = context_metrics
     token_in = snap.get("tokenIn", snap.get("token_in"))

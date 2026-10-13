@@ -132,13 +132,15 @@ export function CaptureUpload({ onParsed }: { onParsed(questions: CompanyQuestio
       const data = fromLink
         ? await reviewApi.extractQuestionsFromLink(link.trim())
         : await reviewApi.extractQuestions(images.map((i) => i.blob));
-      const list = Array.isArray(data.questions) ? (data.questions as { question?: unknown; limit?: unknown }[]) : [];
+      const list = Array.isArray(data.questions) ? (data.questions as { question?: unknown; limit?: unknown; group?: unknown }[]) : [];
       onParsed(
         list.map((q) => ({
           id: nextId('cq'),
           question: String(q.question ?? ''),
           limit: typeof q.limit === 'number' ? q.limit : null,
           answer: '',
+          // 하위 문항이면 상위 문항(묶음 제목) — 같은 묶음은 한 경험으로 이어 쓴다
+          ...(typeof q.group === 'string' && q.group !== '' ? { group: q.group } : {}),
         })),
         Number(data.dropped ?? 0),
       );

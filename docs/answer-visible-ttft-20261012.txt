@@ -1,0 +1,48 @@
+Answer latency measurement and reasoning opt-in — 2026-10-12 KST
+
+Scope
+Answer-model configuration and numeric telemetry only. Supervisor, routing,
+retrieval, calculation, permissions, answer prompt and NDJSON contract remain
+unchanged. No model request or production rollout was performed by implementation.
+
+Measurement contract (relative to answer model invocation start)
+- answerTtftMs retains its legacy nonempty-callback meaning.
+- answerFirstCallbackMs is the first callback, including empty/nontext events.
+- answerFirstNonemptyCallbackMs explicitly labels the legacy observation and
+  stays absent when it was not observed, unlike the legacy zero default.
+- answerFirstModelEventMs is the first LangChain-delivered stream chunk. It is
+  not the provider's internal timestamp or HTTP first-byte time.
+- answerVisibleTtftMs is the first nonempty chunk.text immediately before
+  emitting answer_delta. It is absent when no model text was received.
+- Stream/visible/nontext/reasoning event counts are numeric only. A reasoning
+  event indicates a block type, not measured duration spent reasoning.
+- answerReasoningTokens and answerCachedInputTokens are provider usage
+  metadata when supplied. Missing usage is omitted, not estimated as zero.
+- Existing API firstTokenMs/handlerFirstTokenMs still measure public delivery.
+  Compare these with answerVisibleTtftMs to examine delivery overhead.
+No question, answer, reasoning text or raw provider metadata is added to logs.
+
+Experiment hook
+LMS_CHATBOT_ANSWER_REASONING_EFFORT=low supplies reasoning={"effort":"low"}
+to the answer ChatOpenAI Responses model only. The accepted documented values
+are none, low, medium, high, xhigh and max. Unknown values fail configuration.
+Unset/empty/whitespace omits the option, preserving the existing provider default.
+The current model's documented default is medium; it is not newly forced in code.
+The client is constructed once per bot/worker, so configuration changes require
+a new process or bot. Do not modify a singleton's environment mid-request.
+
+Evidence and limits
+The old timer's truthy callback check can include structured nontext blocks.
+SDK stream callbacks and visible text therefore represent different boundaries.
+Code alone does not establish how much a particular request spent reasoning
+versus SDK/network work. The primary's nine bounded synthetic model calls,
+including same-host default/low pairs, are recorded separately in
+ttft-independent-verification-20261012.json. No further live calls are authorized.
+Representative calculation accuracy was preserved in those samples, but that
+does not establish low-effort accuracy for all questions. Keep the setting opt-in.
+Prompt-cache usage, model variation and environment also affect timing.
+
+Official model support:
+https://developers.openai.com/api/docs/models/gpt-6-luna
+Reasoning behavior and tradeoffs:
+https://developers.openai.com/api/docs/guides/reasoning

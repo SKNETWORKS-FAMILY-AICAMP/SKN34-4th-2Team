@@ -1,0 +1,356 @@
+{
+  "calls": [
+    {
+      "endpoint": "responses.create",
+      "reasoning": null
+    },
+    {
+      "endpoint": "responses.create",
+      "reasoning": {
+        "effort": "low"
+      }
+    },
+    {
+      "endpoint": "responses.create",
+      "reasoning": {
+        "effort": "low"
+      }
+    },
+    {
+      "endpoint": "responses.create",
+      "reasoning": null
+    },
+    {
+      "endpoint": "responses.create",
+      "reasoning": null
+    },
+    {
+      "endpoint": "responses.create",
+      "reasoning": {
+        "effort": "low"
+      }
+    },
+    {
+      "endpoint": "responses.create",
+      "reasoning": {
+        "effort": "low"
+      }
+    },
+    {
+      "endpoint": "responses.create",
+      "reasoning": {
+        "effort": "low"
+      }
+    },
+    {
+      "endpoint": "responses.create",
+      "reasoning": {
+        "effort": "low"
+      }
+    }
+  ],
+  "results": [
+    {
+      "case": "ambiguous",
+      "mode": "low",
+      "question": "내 출석률이 80% 넘으려면 며칠 더 출석해야 해?",
+      "answer": "이번 단위기간 장려금 기준인가요, 전체 훈련기간 수료 기준인가요?",
+      "calls": 0,
+      "first_ms": 9.26,
+      "total_ms": 9.51,
+      "metrics": {
+        "answer_model_ms": 0,
+        "answer_ttft_ms": 0,
+        "answer_first_callback_ms": null,
+        "answer_first_nonempty_callback_ms": null,
+        "answer_first_model_event_ms": null,
+        "answer_visible_ttft_ms": null,
+        "answer_stream_events": 0,
+        "answer_visible_deltas": 0,
+        "answer_nontext_events": 0,
+        "answer_reasoning_events": 0,
+        "answer_reasoning_tokens": null,
+        "answer_cached_input_tokens": null,
+        "answer_reasoning_effort": "low"
+      },
+      "selection": {
+        "attendance_basis": "clarify"
+      }
+    },
+    {
+      "case": "unit",
+      "mode": "default",
+      "question": "이번 단위기간 80% 채우려면 며칠 더 출석해야 해?",
+      "answer": "현재 기록된 14일 중 인정 출석은 13일이고, 검토 중인 80% 기준의 예상 목표까지 **정상 출석 2일**이 더 필요해요. 이는 앞으로 추가 결석 환산이 없다는 가정이며, 지각·조퇴·외출이 1회 더 누적되면 결석 환산이 1일 추가돼요.\n\n단위기간 구분과 계산 기준은 검토 중이고, 실제 장려금 지급 여부는 별도 확인이 필요해요.",
+      "calls": 1,
+      "first_ms": 6265.85,
+      "total_ms": 7127.89,
+      "metrics": {
+        "answer_model_ms": 6976,
+        "answer_ttft_ms": 2298,
+        "answer_first_callback_ms": 1632,
+        "answer_first_nonempty_callback_ms": 2298,
+        "answer_first_model_event_ms": 1632,
+        "answer_visible_ttft_ms": 6115,
+        "answer_stream_events": 121,
+        "answer_visible_deltas": 115,
+        "answer_nontext_events": 6,
+        "answer_reasoning_events": 2,
+        "answer_reasoning_tokens": 452,
+        "answer_cached_input_tokens": 0,
+        "answer_reasoning_effort": "default"
+      },
+      "selection": {
+        "attendance_basis": "unit"
+      }
+    },
+    {
+      "case": "unit",
+      "mode": "low",
+      "question": "이번 단위기간 80% 채우려면 며칠 더 출석해야 해?",
+      "answer": "이번 단위기간은 **9월 16일~10월 15일**이고, 등록 커리큘럼 기준 수업 예정일은 18일이에요. 현재 기록된 14일 중 인정 출석은 13일(92.9%)이며, 계산상 **정상 출석 2일이 더 필요해요**.\n\n앞으로 남은 미기록 수업일은 4일이에요. 지각·조퇴·외출이 5회 누적되어 있어 **이런 예외 출결이 1회 더 생기면 결석 환산이 1일 추가돼요**.\n\n단위기간 구분과 출석 기준은 검토 중인 자료에 따른 예상이며, 실제 장려금 지급 여부는 별도 확인이 필요해요.",
+      "calls": 1,
+      "first_ms": 3298.53,
+      "total_ms": 4889.23,
+      "metrics": {
+        "answer_model_ms": 4868,
+        "answer_ttft_ms": 1052,
+        "answer_first_callback_ms": 772,
+        "answer_first_nonempty_callback_ms": 1052,
+        "answer_first_model_event_ms": 772,
+        "answer_visible_ttft_ms": 3279,
+        "answer_stream_events": 177,
+        "answer_visible_deltas": 171,
+        "answer_nontext_events": 6,
+        "answer_reasoning_events": 2,
+        "answer_reasoning_tokens": 175,
+        "answer_cached_input_tokens": 0,
+        "answer_reasoning_effort": "low"
+      },
+      "selection": {
+        "attendance_basis": "unit"
+      }
+    },
+    {
+      "case": "completion",
+      "mode": "low",
+      "question": "전체 훈련기간 수료하려면 며칠 더 출석해야 해?",
+      "answer": "전체 훈련기간 기준으로는 현재 예상 출석 인정일이 72일이고, 수료 기준에 필요한 108일까지 **정상 출석 36일이 더 필요해요.** 이 계산은 전체 120일 중 90% 이상 이수하는 기준을 적용한 예상이며, 해당 기준은 검토 중인 자료에 따른 것이어서 수료 확정은 아니에요.",
+      "calls": 1,
+      "first_ms": 1178.61,
+      "total_ms": 2418.19,
+      "metrics": {
+        "answer_model_ms": 2394,
+        "answer_ttft_ms": 1156,
+        "answer_first_callback_ms": 826,
+        "answer_first_nonempty_callback_ms": 1156,
+        "answer_first_model_event_ms": 826,
+        "answer_visible_ttft_ms": 1157,
+        "answer_stream_events": 89,
+        "answer_visible_deltas": 85,
+        "answer_nontext_events": 4,
+        "answer_reasoning_events": 0,
+        "answer_reasoning_tokens": 0,
+        "answer_cached_input_tokens": 3027,
+        "answer_reasoning_effort": "low"
+      },
+      "selection": {
+        "attendance_basis": "completion"
+      }
+    },
+    {
+      "case": "completion",
+      "mode": "default",
+      "question": "전체 훈련기간 수료하려면 며칠 더 출석해야 해?",
+      "answer": "현재 전체 훈련기간 기준으로 **인정 출석 72일**, 수료 예상 기준은 108일이라 **정상 출석 36일이 더 필요해요**. 다만 적용한 수료 기준은 검토 중인 자료에 따른 예상치라 수료가 확정된 것은 아니에요.",
+      "calls": 1,
+      "first_ms": 2258.22,
+      "total_ms": 2936.25,
+      "metrics": {
+        "answer_model_ms": 2916,
+        "answer_ttft_ms": 1135,
+        "answer_first_callback_ms": 726,
+        "answer_first_nonempty_callback_ms": 1135,
+        "answer_first_model_event_ms": 726,
+        "answer_visible_ttft_ms": 2240,
+        "answer_stream_events": 75,
+        "answer_visible_deltas": 69,
+        "answer_nontext_events": 6,
+        "answer_reasoning_events": 2,
+        "answer_reasoning_tokens": 144,
+        "answer_cached_input_tokens": 3027,
+        "answer_reasoning_effort": "default"
+      },
+      "selection": {
+        "attendance_basis": "completion"
+      }
+    },
+    {
+      "case": "missing",
+      "mode": "default",
+      "question": "이번 단위기간에 앞으로 며칠 더 출석해야 해?",
+      "answer": "이번 단위기간은 **9월 16일~10월 15일**이고, 등록 커리큘럼 기준 수업 예정일은 18일이에요. 현재 기록된 13일 중 인정 출석은 12일(92.3%)이며, 검토 중인 기준의 전체 기간 목표는 인정 출석 15일이에요.\n\n계산상 추가 인정 출석은 3일 필요하지만, 과거 미확인 수업일이 1일 있어 앞으로 정상 출석해야 할 날짜 수는 아직 확정할 수 없어요. 미확인 기록을 먼저 확인해 주세요. **지각·조퇴·외출이 1회 더 누적되면 결석 환산이 1일 추가돼요.**\n\n단위기간 구분과 출석 기준은 검토 중인 상태라, 실제 장려금 지급 여부는 별도 확인이 필요해요.",
+      "calls": 1,
+      "first_ms": 4606.55,
+      "total_ms": 5680.76,
+      "metrics": {
+        "answer_model_ms": 5657,
+        "answer_ttft_ms": 932,
+        "answer_first_callback_ms": 504,
+        "answer_first_nonempty_callback_ms": 932,
+        "answer_first_model_event_ms": 504,
+        "answer_visible_ttft_ms": 4585,
+        "answer_stream_events": 200,
+        "answer_visible_deltas": 194,
+        "answer_nontext_events": 6,
+        "answer_reasoning_events": 2,
+        "answer_reasoning_tokens": 479,
+        "answer_cached_input_tokens": 3027,
+        "answer_reasoning_effort": "default"
+      },
+      "selection": {
+        "attendance_basis": "unit"
+      }
+    },
+    {
+      "case": "missing",
+      "mode": "low",
+      "question": "이번 단위기간에 앞으로 며칠 더 출석해야 해?",
+      "answer": "이번 단위기간은 **9월 16일~10월 15일**이며, 등록 커리큘럼 기준 수업 예정일은 18일이에요. 기록된 13일 중 인정 출석은 12일(92.3%)이지만, 과거 미확인 기록 1일이 있어 앞으로 필요한 출석일을 확정할 수 없어요. 먼저 미확인 기록을 확인해 주세요.\n\n현재 지각·조퇴·외출은 5회 누적되어 있어, **1회 더 누적되면 결석 환산이 1일 추가돼요.** 단위기간 구분과 계산 기준은 검토 중이며, 실제 장려금 지급 여부는 별도 확인이 필요해요.",
+      "calls": 1,
+      "first_ms": 3582.09,
+      "total_ms": 5283.4,
+      "metrics": {
+        "answer_model_ms": 5262,
+        "answer_ttft_ms": 1756,
+        "answer_first_callback_ms": 1455,
+        "answer_first_nonempty_callback_ms": 1756,
+        "answer_first_model_event_ms": 1455,
+        "answer_visible_ttft_ms": 3563,
+        "answer_stream_events": 166,
+        "answer_visible_deltas": 160,
+        "answer_nontext_events": 6,
+        "answer_reasoning_events": 2,
+        "answer_reasoning_tokens": 128,
+        "answer_cached_input_tokens": 3027,
+        "answer_reasoning_effort": "low"
+      },
+      "selection": {
+        "attendance_basis": "unit"
+      }
+    },
+    {
+      "case": "both",
+      "mode": "low",
+      "question": "내 이번 단위기간 장려금과 전체 과정 수료 출석 현황을 각각 비교해줘",
+      "answer": "**이번 단위기간 장려금 기준:** 9월 16일~10월 15일은 등록 커리큘럼 기준 수업 예정일이 18일이고, 현재 **기록된 14일 중 인정 출석은 13일(92.9%)**이에요. 전체 기간 목표인 인정 출석 15일까지 정상 출석 2일이 더 필요하며, 앞으로 예정된 수업일은 4일이에요.\n\n지각이 현재 5회 누적되어 있어 **지각·조퇴·외출이 1회 더 누적되면 결석 환산이 1일 추가돼요.**\n\n**전체 과정 수료 기준:** 전체 예정 120일 중 기록된 78일에서 인정 출석은 72일이고, 제공된 기준상 필요한 인정 출석은 108일이에요. 따라서 현재 계산으로는 정상 출석 36일이 더 필요해요.\n\n단위기간 일정과 계산 기준은 검토 중인 자료에 따른 예상이며, 수료 기준도 검토 중인 자료예요. 실제 장려금 지급 여부와 수료 여부는 확정된 결과가 아니에요.",
+      "calls": 1,
+      "first_ms": 2352.02,
+      "total_ms": 4842.16,
+      "metrics": {
+        "answer_model_ms": 4821,
+        "answer_ttft_ms": 814,
+        "answer_first_callback_ms": 574,
+        "answer_first_nonempty_callback_ms": 814,
+        "answer_first_model_event_ms": 574,
+        "answer_visible_ttft_ms": 2332,
+        "answer_stream_events": 256,
+        "answer_visible_deltas": 250,
+        "answer_nontext_events": 6,
+        "answer_reasoning_events": 2,
+        "answer_reasoning_tokens": 117,
+        "answer_cached_input_tokens": 3027,
+        "answer_reasoning_effort": "low"
+      },
+      "selection": {
+        "attendance_basis": "both"
+      }
+    },
+    {
+      "case": "unit-select",
+      "mode": "low",
+      "question": "이번 단위기간 출석 어때?",
+      "answer": "이번 단위기간은 **9월 16일~10월 15일**이며, 등록 커리큘럼 기준 수업 예정일은 18일이에요.\n\n기록된 14일 중 인정 출석은 13일로 **출석률은 92.9%**예요. 추가 결석 환산 없이 정상 출석한다면 기준 예상치에 도달하기까지 정상 출석 2일이 더 필요해요.\n\n현재 지각이 5회 누적되어 있어요. 지각·조퇴·외출이 1회 더 누적되면 결석 환산이 1일 추가돼요. 단위기간 구분과 계산 기준은 검토 중이며, 실제 장려금 지급 여부는 별도 확인이 필요해요.",
+      "calls": 1,
+      "first_ms": 2318.98,
+      "total_ms": 3823.47,
+      "metrics": {
+        "answer_model_ms": 3792,
+        "answer_ttft_ms": 861,
+        "answer_first_callback_ms": 563,
+        "answer_first_nonempty_callback_ms": 861,
+        "answer_first_model_event_ms": 563,
+        "answer_visible_ttft_ms": 2289,
+        "answer_stream_events": 174,
+        "answer_visible_deltas": 168,
+        "answer_nontext_events": 6,
+        "answer_reasoning_events": 2,
+        "answer_reasoning_tokens": 125,
+        "answer_cached_input_tokens": 3027,
+        "answer_reasoning_effort": "low"
+      },
+      "selection": {
+        "attendance_basis": "unit"
+      }
+    },
+    {
+      "case": "late-followup",
+      "mode": "low",
+      "question": "다음 수업에 지각하면 3일 더 나가야 해?",
+      "answer": "아니에요. 다음 수업에 지각하면 기록된 수업일은 15일, 인정 출석일은 13일로 예상되며, 이후 정상 출석 기준으로 **추가 정상 출석 2일**이 더 필요해요.\n\n지각이 1회 더 누적되면 결석 환산이 1일 추가되는 계산이에요. 이는 다음 수업에 지각하는 경우의 잠정 예상이며, 단위기간 일정과 계산 기준이 검토 중이라 실제 장려금 지급 여부는 별도 확인이 필요해요.",
+      "calls": 1,
+      "first_ms": 935.04,
+      "total_ms": 2114.23,
+      "metrics": {
+        "answer_model_ms": 2091,
+        "answer_ttft_ms": 907,
+        "answer_first_callback_ms": 570,
+        "answer_first_nonempty_callback_ms": 907,
+        "answer_first_model_event_ms": 570,
+        "answer_visible_ttft_ms": 913,
+        "answer_stream_events": 128,
+        "answer_visible_deltas": 124,
+        "answer_nontext_events": 4,
+        "answer_reasoning_events": 0,
+        "answer_reasoning_tokens": 0,
+        "answer_cached_input_tokens": 3027,
+        "answer_reasoning_effort": "low"
+      },
+      "selection": {
+        "attendance_basis": "unit"
+      }
+    }
+  ],
+  "scope": "Synthetic graph with offline supervisor/retrieval/DB; real answer model only",
+  "review": {
+    "clarification_answer_calls": 0,
+    "resolver_checks": "14/14 independent cases",
+    "model_calls": 9,
+    "answer_checks": "9/9 manually passed: unit 2 days, completion 36 days, missing record refuses definite forecast, both separated, late followup 2 days",
+    "synthetic": true,
+    "comparison": {
+      "sample_pairs": 3,
+      "default_first_ms": 4376.87,
+      "low_first_ms": 2686.41,
+      "low_total_ms": 4196.94,
+      "default_total_ms": 5248.3
+    },
+    "limitations": [
+      "Supervisor, retrieval, DB and Redis were offline doubles.",
+      "Local synthetic answer timing is not production end-to-end latency.",
+      "Only three paired questions; order alternated but cache and response length vary.",
+      "Both modes use the scope fix; this compares default vs low reasoning only.",
+      "No production student data or production writes.",
+      "Low reasoning remains opt-in; merge alone does not change operating environment."
+    ],
+    "offline_checks": {
+      "django_auth_tests": 11,
+      "django_thread_tests": 3,
+      "scope_cases": "14/14 passed",
+      "frontend_build": "passed",
+      "react_chat_tests": 2,
+      "chatbot_tests": 210,
+      "store_checks": "UID/cohort/thread isolation, TTL argument, pending clears prior basis, expiry/outage/legacy fallback passed"
+    }
+  }
+}

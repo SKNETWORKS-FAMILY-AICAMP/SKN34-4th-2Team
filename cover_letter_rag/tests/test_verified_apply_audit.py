@@ -101,7 +101,8 @@ def test_one_manual_edit_keeps_other_applied_and_unmodified_experiences(applied_
     reviews['initial']=rebase_review_response(initial,db.get_owned_resume.return_value['content'])
     legacy=post(client,'unlinked-audit',previous_review_id='initial',review_phase='gap_audit')
     assert legacy['telemetry']['audit_resume']['reprocessed_experiences']==8
-    assert legacy['telemetry']['calls']==3
+    from app.resume_review_v2.batch import CHUNK_SIZE
+    assert legacy['telemetry']['calls']==3*-(-8//CHUNK_SIZE)  # analyze, write, verify of 8, each split into chunks
     reviews['initial']=bound
     audit=post(client,'audit',previous_review_id='initial',review_phase='gap_audit')
     assert audit['telemetry']['calls']==0

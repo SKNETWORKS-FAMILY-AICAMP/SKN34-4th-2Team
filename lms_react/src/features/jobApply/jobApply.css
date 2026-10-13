@@ -217,6 +217,27 @@
   font-weight: 600;
 }
 
+.apply-skill-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* 칩 색은 아이콘에만 — 범례는 테두리 · 배경 없이 */
+.apply-skill-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+}
+
 /* 만들기 · 만든 뒤 */
 .apply-plan {
   display: flex;
@@ -699,6 +720,11 @@
   font-size: 13px;
 }
 
+.qa-gap__nudge {
+  color: var(--warning);
+  font-size: 12px;
+}
+
 /* 캡처 올리기 */
 .apply-drop {
   display: flex;
@@ -1153,4 +1179,316 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
+}
+
+/* 다른 수강생이 정리한 문항(SharedQuestions.tsx) */
+.apply-shared {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.apply-shared__roles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.apply-shared__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.apply-shared__role-input {
+  max-width: 360px;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.apply-shared__suggest {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 520px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.apply-shared__suggest-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--primary);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.apply-shared__suggest-item span {
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.apply-shared__empty {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.apply-shared__card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+}
+
+.apply-shared__card--common {
+  border-color: color-mix(in srgb, var(--success) 40%, var(--border));
+  background: color-mix(in srgb, var(--success) 5%, var(--surface));
+}
+
+.apply-shared__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  font-size: 14px;
+}
+
+.apply-shared__card .apply-q-list li.is-diff span:first-child {
+  background: color-mix(in srgb, var(--warning) 22%, transparent);
+  border-radius: 4px;
+}
+
+.apply-shared__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.apply-shared__share {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+/* 바탕 이력서 바꾸기(4단계) */
+.apply-base {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.apply-base select {
+  width: auto;
+  max-width: 280px;
+}
+
+.apply-base .hint {
+  flex-basis: 100%;
+}
+
+/* 바탕 이력서가 지워진 자소서의 저장한 답(읽기 전용) */
+.apply-saved-answer {
+  white-space: pre-wrap;
+  line-height: 1.75;
+  margin: 0;
+}
+
+/* 문항 전체 답변(QuestionWorkflowAnswers) */
+/* 하위 문항의 묶음 제목 — 같은 묶음은 한 경험으로 이어 쓴다 */
+.qw-group {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+
+.qw-run {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* 쓰는 동안 단계 — 실제 단계가 아니라 지난 시간으로 어림한 순서 */
+.qw-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--divider);
+  border-radius: 10px;
+}
+
+.qw-steps ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.qw-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.qw-steps li.is-done .icon {
+  color: var(--success);
+}
+
+.qw-steps li.is-now {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.qw-steps li.is-now .icon {
+  color: var(--primary);
+  animation: qw-spin 1.2s linear infinite;
+}
+
+@keyframes qw-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qw-steps li.is-now .icon {
+    animation: none;
+  }
+}
+
+.qw-overlap {
+  display: grid;
+  gap: 4px;
+}
+
+.qw-overlap p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* 3단계 문항 목록의 묶음 제목 — 같은 묶음이 시작될 때 한 번 */
+.apply-q-group {
+  margin: 10px 0 2px;
+}
+
+/* 자소서 쓰기 창 — 첨삭 창(rv-window)과 같은 틀. 안쪽은 문항 카드를 세로로 */
+.aw-window {
+  width: min(980px, 100%);
+}
+
+.aw-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px 24px;
+}
+
+/* 첨삭 막대와 함께 내려두면 오른쪽으로 비켜 선다(복습 막대는 왼쪽으로 비킨다) */
+.rv-docked .aw-dockbar-wrap {
+  padding-left: 700px;
+}
+
+@media (max-width: 760px) {
+  .rv-docked .aw-dockbar-wrap {
+    padding-left: 0;
+    bottom: 96px;
+  }
+}
+
+.apply-write-open {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 자소서 쓰기 창 맨 위 공고 요건 — 접어 두고 펼친다 */
+.aw-reqs {
+  margin-bottom: 14px;
+  border: 1px solid var(--divider);
+  border-radius: 10px;
+}
+
+.aw-reqs__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.aw-reqs__toggle .hint {
+  flex: 1;
+}
+
+.aw-reqs__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.aw-reqs__group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.aw-reqs__group ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aw-req {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+p.aw-reqs {
+  padding: 0;
+  border: 0;
 }

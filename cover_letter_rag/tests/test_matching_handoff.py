@@ -434,3 +434,149 @@ def test_question_answer_proxy_writes_grounded_answer(store):
         assert client.post('/api/v1/resumes/question-answer/proxy', json={**body, 'question_id': 'nope'}).status_code == 422
         assert client.post('/api/v1/resumes/question-answer/proxy', json={**body, 'uid': 'other'}).status_code == 404
     finally: app.dependency_overrides.clear()
+
+
+def test_question_workflow_proxy_plans_all_questions_with_latest_memo(store):
+    from types import SimpleNamespace
+
+    from app.main import get_question_workflow_llm
+    from app.question_workflow.models import DraftOut, PartOut, PlanOut, QuestionPlanOut, ReviewOut, SentenceOut
+
+    seen = {}
+
+    def plan(payload):
+        seen['plan'] = payload
+        return PlanOut(questions=[QuestionPlanOut(question_id='cq1', parts=[PartOut(key='역량', quote='직무 역량')],
+                                                  lead_source_ids=[], angle='API 개발')])
+
+    def write(payload):
+        seen['memo'] = payload['memo']
+        return DraftOut(sentences=[SentenceOut(text='Python으로 REST API를 개발했습니다.', source_ids=['R1'], part_key='역량')])
+
+    llm = SimpleNamespace(plan=plan, write=write, review=lambda payload: ReviewOut())
+    app.dependency_overrides[get_context_gateway] = lambda: _TailoredGateway()
+    app.dependency_overrides[get_settings] = lambda: Settings(matching_job_store_path=store, openai_api_key='test')
+    app.dependency_overrides[get_question_workflow_llm] = lambda: llm
+    client = TestClient(app)
+    body = {'uid': 'user-1', 'cohort_id': 'cohort-1', 'resume_id': 'resume-1', 'tailored_resume_id': 'tailored_1',
+            'questions': [{'id': 'cq1', 'memo': 'REST API 직접 설계', 'notes': []}]}
+    try:
+        ok = client.post('/api/v1/resumes/question-workflow/proxy', json=body)
+        assert ok.status_code == 200, ok.text
+        data = ok.json()
+        assert data['questions'][0]['question_id'] == 'cq1' and data['questions'][0]['limit'] == 300
+        assert data['overlaps'] == []
+        assert data['requirements'] == [{'id': 'req-1', 'group': 'must', 'label': 'Python API 개발'}]
+        assert 'cq1: 직무 역량을 쓰시오.' in seen['plan']['questions']
+        assert 'REST API 직접 설계' in seen['memo']  # 화면의 최신 메모를 쓴다
+        assert client.post('/api/v1/resumes/question-workflow/proxy', json={**body, 'uid': 'other'}).status_code == 404
+    finally: app.dependency_overrides.clear()
+
+
+def test_question_workflow_proxy_rewrites_one_question_with_saved_plan(store):
+    from types import SimpleNamespace
+
+    from app.main import get_question_workflow_llm
+    from app.question_workflow.models import DraftOut, ReviewOut, SentenceOut
+
+    def plan(payload):
+        raise AssertionError('저장된 계획이 있으면 계획을 다시 세우지 않는다')
+
+    llm = SimpleNamespace(plan=plan, review=lambda payload: ReviewOut(),
+                          write=lambda payload: DraftOut(sentences=[
+                              SentenceOut(text='Python으로 REST API를 개발했습니다.', source_ids=['R1'], part_key='역량')]))
+    app.dependency_overrides[get_context_gateway] = lambda: _TailoredGateway()
+    app.dependency_overrides[get_settings] = lambda: Settings(matching_job_store_path=store, openai_api_key='test')
+    app.dependency_overrides[get_question_workflow_llm] = lambda: llm
+    client = TestClient(app)
+    saved = {'cq1': {'question_id': 'cq1', 'parts': [{'key': '역량', 'quote': '직무 역량'}], 'lead_source_ids': ['R1'],
+                     'angle': 'API 개발'}}
+    body = {'uid': 'user-1', 'cohort_id': 'cohort-1', 'resume_id': 'resume-1', 'tailored_resume_id': 'tailored_1',
+            'questions': [{'id': 'cq1', 'memo': '', 'notes': []}], 'only': 'cq1', 'plan': saved}
+    try:
+        ok = client.post('/api/v1/resumes/question-workflow/proxy', json=body)
+        assert ok.status_code == 200, ok.text
+        assert ok.json()['only'] == 'cq1' and ok.json()['coverage'] is None
+        assert client.post('/api/v1/resumes/question-workflow/proxy', json={**body, 'only': 'nope'}).status_code == 422
+    finally: app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize('company, title, role', [
+    ('(주)스마트에이아이연구소', '(주)스마트에이아이연구소와 AI AGENT 서비스 개발자 함께해요', 'AI AGENT 서비스 개발자'),
+    ('', '병원 및 로펌 유튜브 콘텐츠 크리에이터 찾습니다', '병원 및 로펌 유튜브 콘텐츠 크리에이터'),
+    ('', '프로젝트 매니저(PM) 경력 채용 공고', '프로젝트 매니저(PM)'),
+    ('', 'R&D 연구원 경력 채용 공고입니다.', 'R&D 연구원'),
+    ('', '실내디자이너를 모집해요', '실내디자이너'),
+    ('', '[토스씨엑스] IT Manager 채용 중', '[토스씨엑스] IT Manager'),
+    ('', '개발이 좋아 시작한 신입 개발자를 기다립니다', '개발이 좋아 시작한 신입 개발자'),
+    ('', '암 연구를 AI Agent로 혁신하는 제품을 함께 키워갈 개발자를 찾습니다', '개발자'),
+    ('', '함께일하실 인테리어 디자이너', '인테리어 디자이너'),
+    ('', '[기획팀] 소셜/캠페인 기획자(AE)/신입 및 경력', '[기획팀] 소셜/캠페인 기획자(AE)'),
+    ('', '[ ] 소프트웨어 B2B 영업사원 채용 / 경력', '[ ] 소프트웨어 B2B 영업사원'),
+    ('', '프리랜서 웹 디자이너분', '프리랜서 웹 디자이너'),
+    ('', '데이터 엔지니어(Python)', '데이터 엔지니어(Python)'),
+    ('', '석촌역 도보 2분 콘텐츠 마케터 2분', '석촌역 도보 2분 콘텐츠 마케터 2분'),  # 숫자 뒤 「분」은 호칭이 아니다
+])
+def test_recruiting_phrases_are_removed_from_role_title(company, title, role):
+    assert job_role_title(company, title) == role
+
+
+@pytest.mark.parametrize('text, filled', [
+    ('[회사명]의 [서비스]에 근거 있는 AI 기능을 붙이고 싶습니다.',
+     '(주)스마트에이아이연구소의 [서비스]에 근거 있는 AI 기능을 붙이고 싶습니다.'),
+    ('[회사명]은 AI 기능을 키우고 있습니다.', '(주)스마트에이아이연구소는 AI 기능을 키우고 있습니다.'),
+    ('[회사명]의 [직무명]으로 성장하겠습니다.', '(주)스마트에이아이연구소의 AI AGENT 서비스 개발자로 성장하겠습니다.'),
+    ('[직무명]을 지원했습니다.', 'AI AGENT 서비스 개발자를 지원했습니다.'),
+    ('[회사명]이라는 이름', '(주)스마트에이아이연구소이라는 이름'),  # 「이라는」은 조사 하나가 아니라 손대지 않는다
+    ('자리표시 없는 문장', '자리표시 없는 문장'),
+    ('[직무]에서 요구하는 역량', 'AI AGENT 서비스 개발자에서 요구하는 역량'),  # 원본 이력서가 쓰는 짧은 표기
+    ('[회사]의 [직무]로 일하고 싶습니다.', '(주)스마트에이아이연구소의 AI AGENT 서비스 개발자로 일하고 싶습니다.'),
+])
+def test_v2_suggestion_fills_posting_identity(text, filled):
+    from app.review_workflow import fill_job_identity
+    source = {'company': '(주)스마트에이아이연구소', 'title': '(주)스마트에이아이연구소와 AI AGENT 서비스 개발자 함께해요'}
+    assert fill_job_identity(text, source) == filled
+
+
+def test_unapproved_field_gets_placeholder_only_edits():
+    from app.resume_review_runtime import identity_reviews
+    text = '[회사명]에서 믿고 쓸 수 있는 AI 기능을 만들겠습니다. 장기적으로는 [회사명]의 AI 기능을 평가하겠습니다. [서비스명]은 그대로입니다.'
+    source = {'company': '(주)스마트에이아이연구소', 'title': 'AI AGENT 서비스 개발자 함께해요'}
+    reviews = identity_reviews('selfIntroduction.aspiration.body', text, source)
+    assert [(r.original_quote, r.suggested_revision) for r in reviews] == [
+        ('[회사명]에서', '(주)스마트에이아이연구소에서'), ('[회사명]의', '(주)스마트에이아이연구소의')]
+    assert all(text.count(r.original_quote) == 1 and r.status == 'formatting' for r in reviews)
+
+
+MOTIVATION_DRAFT = ('[회사명]의 [서비스]에 근거 있는 AI 기능을 붙이고 싶습니다\n'
+    '[회사명]의 [서비스·제품]은 [회사가 풀고 있는 문제 한 줄]. 이력서와 채용공고라는 실제 문서를 다뤄 보니, '
+    '사용자가 서비스를 믿느냐는 모델 성능보다 틀린 답을 얼마나 잘 걸러 내느냐에 달려 있었습니다. '
+    '[직무]에서 요구하는 [공고 자격요건 한두 개]는 제가 채용공고 파이프라인과 추천 검증을 만들면서 직접 부딪혀 본 일입니다. '
+    '[입사하면 해 보고 싶은 일 한 줄].')
+
+
+def test_rewrite_of_draft_with_blanks_replaces_only_its_sentence():
+    # 2026-10-13: a one-sentence rewrite replaced the whole field and deleted every blank around it.
+    from app.resume_review_runtime import scoped_rewrite
+    evidence = '이력서와 채용공고라는 실제 문서를 다뤄 보니, 사용자가 서비스를 믿느냐는 모델 성능보다 틀린 답을 얼마나 잘 걸러 내느냐에 달려 있었습니다.'
+    revision = '이력서와 채용공고라는 실제 문서를 다루며, 사용자가 서비스를 신뢰하는지는 모델 성능보다 잘못된 답을 얼마나 잘 걸러 내는지에 달려 있다는 점을 알게 되었습니다.'
+    quote, suggested = scoped_rewrite(MOTIVATION_DRAFT, revision, [evidence])
+    assert quote == evidence and suggested == revision
+    applied = MOTIVATION_DRAFT.replace(quote, suggested)
+    assert '[입사하면 해 보고 싶은 일 한 줄]' in applied and '직접 부딪혀 본 일입니다' in applied
+
+
+def test_draft_rewrite_is_withheld_when_its_sentence_holds_a_blank():
+    from app.resume_review_runtime import scoped_rewrite
+    evidence = '제가 채용공고 파이프라인과 추천 검증을 만들면서 직접 부딪혀 본 일입니다.'
+    assert scoped_rewrite(MOTIVATION_DRAFT, '채용공고 파이프라인과 추천 검증을 만들었습니다.', [evidence]) is None
+
+
+def test_field_without_blanks_or_with_kept_blanks_stays_whole():
+    from app.resume_review_runtime import scoped_rewrite
+    text = '[회사명]에 지원합니다. API를 만들었습니다.'
+    assert scoped_rewrite(text, '(주)회사에 지원합니다. API를 구현했습니다.', ['API를 만들었습니다.']) == (
+        text, '(주)회사에 지원합니다. API를 구현했습니다.')
+    text = '[서비스]를 만들고 싶습니다. API를 만들었습니다.'
+    assert scoped_rewrite(text, '[서비스]를 만들고 싶습니다. API를 구현했습니다.', []) == (
+        text, '[서비스]를 만들고 싶습니다. API를 구현했습니다.')

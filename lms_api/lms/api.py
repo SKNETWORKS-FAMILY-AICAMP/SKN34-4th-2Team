@@ -9,10 +9,12 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
+from functools import lru_cache
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth.hashers import check_password, make_password
+from django.conf import settings
 from django.db import connection, transaction
 from django.http import HttpRequest, StreamingHttpResponse
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -20,13 +22,13 @@ from ninja import Body, File, Form, NinjaAPI, Schema, UploadedFile
 from ninja.responses import Response
 from ninja.security import HttpBearer
 from pydantic import Field
-from rest_framework_simplejwt.exceptions import TokenError
-from rest_framework_simplejwt.tokens import RefreshToken
+
+from lms.auth_sessions import SessionUnavailable, client_ip, login_attempt_allowed
 
 from lms.bootstrap_service import build_bootstrap
 from lms.commands import _assert_cohort_writable, dispatch, resolve_cohort
 from lms.holidays import holidays_of
-from lms.jwt_auth import AuthError, issue_tokens, load_lms_user, user_from_access
+from lms.jwt_auth import AuthError, issue_tokens, load_lms_user, logout_refresh, rotate_refresh, user_from_access
 from lms.permissions import can_access_cohort
 from lms.posting_link import job_id_from_link
 from lms.publish import publish_scheduled_notices
@@ -37,6 +39,9 @@ from lms import apply_link, featured_postings, folder_upload, practice_auto, pra
 
 class LmsAuth(HttpBearer):
     def authenticate(self, request: HttpRequest, token: str):
+        validated = getattr(request, "lms_user", None)
+        if validated is not None:
+            return validated
         try:
             user = user_from_access(token)
         except AuthError:
@@ -50,7 +55,8 @@ api = NinjaAPI(
     version="1.0.0",
     urls_namespace="lms_api",
     auth=LmsAuth(),
-    docs_url="/docs" if os.environ.get("DJANGO_DEBUG", "1") == "1" else None,
+    docs_url="/docs" if settings.DEBUG else None,
+    openapi_url="/openapi.json" if settings.DEBUG else None,
 )
 
 
@@ -63,6 +69,11 @@ api.add_router('/cohorts', cohort_lifecycle_router)
 class LoginIn(Schema):
     email: str = ""
     password: str = ""
+
+
+@lru_cache(maxsize=1)
+def _dummy_password_hash() -> str:
+    return make_password("invalid-account-password")
 
 
 class RefreshIn(Schema):
@@ -111,6 +122,11 @@ def on_auth_error(request, exc: AuthError):
     return api.create_response(request, {"detail": str(exc) or "unauthenticated"}, status=401)
 
 
+@api.exception_handler(SessionUnavailable)
+def on_session_unavailable(request, exc: SessionUnavailable):
+    return api.create_response(request, {"detail": "인증 서비스를 일시적으로 사용할 수 없습니다."}, status=503)
+
+
 @api.get("/csrf", auth=None)
 @ensure_csrf_cookie
 def csrf(request):
@@ -121,6 +137,11 @@ def csrf(request):
 def login(request, body: LoginIn):
     email = (body.email or "").strip().lower()
     password = body.password or ""
+    invalid = {"ok": False, "message": "이메일 또는 비밀번호가 올바르지 않습니다."}
+    if not email or len(email) > 254 or not password or len(password) > 1024:
+        return Response(invalid, status=400)
+    if not login_attempt_allowed(email, client_ip(request)):
+        return Response({"ok": False, "message": "로그인 시도가 많습니다. 잠시 후 다시 시도해 주세요."}, status=429)
     with connection.cursor() as cur:
         cur.execute(
             """SELECT id, firebase_uid, email, password, role, is_active, must_change_password
@@ -129,13 +150,14 @@ def login(request, body: LoginIn):
         )
         user = _one(cur)
     if not user or not user["is_active"]:
-        return Response(
-            {"ok": False, "message": "등록되지 않은 이메일이거나 비활성 계정입니다."},
-            status=400,
-        )
+        # The same password hashing work and response for unknown/inactive accounts.
+        check_password(password, (user.get("password") if user else None) or _dummy_password_hash())
+        return Response(invalid, status=400)
     stored = user.get("password") or ""
     if not stored or not check_password(password, stored):
-        return Response({"ok": False, "message": "비밀번호가 올바르지 않습니다."}, status=400)
+        if not stored:
+            check_password(password, _dummy_password_hash())
+        return Response(invalid, status=400)
     with connection.cursor() as cur:
         cur.execute("UPDATE users SET last_login = now() WHERE id = %s", [user["id"]])
     lms_user = load_lms_user(user["firebase_uid"]) or {
@@ -174,20 +196,15 @@ def login(request, body: LoginIn):
 
 @api.post("/token/refresh", auth=None)
 def token_refresh(request, body: RefreshIn):
-    raw = body.refresh or ""
     try:
-        incoming = RefreshToken(raw)
-    except TokenError:
+        return rotate_refresh(body.refresh or "")
+    except AuthError:
         return Response({"detail": "invalid refresh"}, status=401)
-    uid = str(incoming.get("uid") or "")
-    user = load_lms_user(uid)
-    if not user or not user.get("is_active"):
-        return Response({"detail": "unauthenticated"}, status=401)
-    return issue_tokens(user)
 
 
 @api.post("/password")
-def password(request, body: dict[str, Any] = Body(...)):
+@transaction.atomic
+def password(request, body: dict[str, object] = Body(...)):
     user = _require_user(request)
     data = _data(body)
     if data.get("skip"):
@@ -199,18 +216,20 @@ def password(request, body: dict[str, Any] = Body(...)):
         return {"ok": True, "skipped": True}
     new_password = str(data.get("password") or data.get("newPassword") or "")
     current = str(data.get("currentPassword") or "")
-    if len(new_password) < 8:
-        return Response({"ok": False, "message": "비밀번호는 8자 이상이어야 합니다."}, status=400)
+    if not 8 <= len(new_password) <= 128:
+        return Response({"ok": False, "message": "비밀번호는 8~128자여야 합니다."}, status=400)
+    if not current or len(current) > 1024:
+        return Response({"ok": False, "message": "현재 비밀번호를 입력해 주세요."}, status=400)
     with connection.cursor() as cur:
         cur.execute(
-            "SELECT password, must_change_password FROM users WHERE id = %s",
+            "SELECT password, must_change_password FROM users WHERE id = %s FOR UPDATE",
             [user["id"]],
         )
         row = cur.fetchone()
         if not row:
             return Response({"ok": False, "message": "사용자를 찾을 수 없습니다."}, status=404)
-        stored, must_change = row[0] or "", bool(row[1])
-        if not must_change and (not stored or not check_password(current, stored)):
+        stored = row[0] or ""
+        if not stored or not check_password(current, stored):
             return Response({"ok": False, "message": "현재 비밀번호가 올바르지 않습니다."}, status=400)
         cur.execute(
             """UPDATE users
@@ -218,11 +237,17 @@ def password(request, body: dict[str, Any] = Body(...)):
                WHERE id = %s""",
             [make_password(new_password), user["id"]],
         )
-    return {"ok": True}
+    # Credential fingerprint makes every older access/refresh token invalid immediately.
+    updated = load_lms_user(user["firebase_uid"])
+    return {"ok": True, **issue_tokens(updated)}
 
 
 @api.post("/logout", auth=None)
-def logout(request):
+def logout(request, body: RefreshIn):
+    try:
+        logout_refresh(body.refresh or "")
+    except AuthError:
+        return Response({"detail": "invalid session"}, status=401)
     return {"ok": True}
 
 
@@ -277,6 +302,7 @@ def remove_push_token(request, body: PushTokenIn):
 
 
 class ChatIn(Schema):
+    threadId: str = Field(default='web', min_length=1, max_length=80, pattern=r'^[A-Za-z0-9._-]{1,80}$')
     message: str = ""
     question: str = ""
 
@@ -298,7 +324,7 @@ def chat(request, body: ChatIn):
     if not internal_token:
         return Response({"detail": "AI 서비스 내부 인증이 설정되지 않았습니다"}, status=503)
     payload = json.dumps(
-        {"message": message, "uid": user["firebase_uid"], "thread_id": "web"},
+        {"message": message, "uid": user["firebase_uid"], "thread_id": body.threadId},
         ensure_ascii=False,
     ).encode("utf-8")
     req = urllib.request.Request(
@@ -347,7 +373,7 @@ def chat_stream(request, body: ChatIn):
     req = urllib.request.Request(
         f"{base}/api/v1/student-chatbot/chat/stream",
         data=json.dumps({
-            "message": message, "uid": user["firebase_uid"], "thread_id": "web",
+            "message": message, "uid": user["firebase_uid"], "thread_id": body.threadId,
         }, ensure_ascii=False).encode("utf-8"),
         headers={
             "Content-Type": "application/json", "Accept": "application/x-ndjson",
@@ -380,6 +406,7 @@ def chat_stream(request, body: ChatIn):
 
 
 class ResumeReviewIn(Schema):
+    asyncAttempt: str | None = Field(default=None, min_length=1, max_length=100)
     resumeId: str
     """공고 맞춤 첨삭이면 그 공고 id. 없으면 이력서 자체를 본다."""
     selectedJobId: str | None = None
@@ -446,7 +473,13 @@ def _review_call(path: str, payload: dict, timeout: int = 180):
         except Exception:
             detail = None
         return Response({"detail": detail or "첨삭하지 못했습니다."}, status=exc.code)
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+    except TimeoutError:
+        return Response({"detail": "review_upstream_timeout"}, status=504)
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, TimeoutError):
+            return Response({"detail": "review_upstream_timeout"}, status=504)
+        return Response({"detail": "첨삭 서버에 연결하지 못했습니다."}, status=503)
+    except json.JSONDecodeError:
         return Response({"detail": "첨삭 서버에 연결하지 못했습니다."}, status=503)
 
 
@@ -801,6 +834,12 @@ def resume_review(request, body: ResumeReviewIn):
     ):
         if value:
             payload[key] = value
+    if body.asyncAttempt:
+        from lms.review_jobs import submit_or_poll
+        try:
+            return submit_or_poll(payload, body.asyncAttempt)
+        except Exception:
+            return Response({'detail': '첨삭 작업 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.'}, status=503)
     return _review_call("/api/v1/resumes/reviews/proxy", payload)
 
 
@@ -1089,6 +1128,54 @@ def resume_review_question_answer(request, body: QuestionAnswerIn):
     return _review_call("/api/v1/resumes/question-answer/proxy", payload, timeout=120)
 
 
+class QuestionWorkflowNoteIn(Schema):
+    question: str = Field(max_length=500)
+    answer: str = Field(max_length=3000)
+
+
+class QuestionWorkflowItemIn(Schema):
+    id: str = Field(max_length=100)
+    memo: str = Field(default='', max_length=2000)
+    notes: list[QuestionWorkflowNoteIn] = []
+    written: str = Field(default='', max_length=6000)  # 지금 답 칸의 글
+
+
+class QuestionWorkflowIn(Schema):
+    resumeId: str
+    tailoredResumeId: str
+    questions: list[QuestionWorkflowItemIn] = []
+    only: str | None = Field(default=None, max_length=100)  # 이 문항만 다시 쓰기
+    plan: dict | None = None  # 앞서 받은 계획 — 있으면 계획을 다시 세우지 않는다
+    # 문항 전체를 여러 요청에 나눈다 — plan: 계획만, finish: 문항별로 받은 답(answers)으로 한 벌 검토만
+    stage: Literal["all", "plan", "finish"] = "all"
+    answers: dict | None = None
+
+
+@api.post("/resume-review/question-workflow")
+def resume_review_question_workflow(request, body: QuestionWorkflowIn):
+    """공고 맞춤 지원 사본의 회사 문항 전체에 답을 쓴다 — 문항을 함께 계획해 경험이 겹치지 않게(app/question_workflow).
+
+    답만 돌려주고 저장은 하지 않는다. 문항이 여러 개라 한 번에 1~3분 걸린다.
+    """
+    row, error = _owned_resume(request, body.resumeId)
+    if error is not None:
+        return error
+    payload = {
+        "uid": row["firebase_uid"],
+        "cohort_id": row["code"],
+        "resume_id": _review_resume_id(row),
+        "tailored_resume_id": body.tailoredResumeId,
+        # 질문 답은 최근 12개만 — 첨삭 서버 요청 한도
+        "questions": [{"id": q.id, "memo": q.memo, "notes": [n.dict() for n in q.notes[-12:]], "written": q.written}
+                      for q in body.questions[:20]],
+        "only": body.only,
+        "plan": body.plan,
+        "stage": body.stage,
+        "answers": body.answers,
+    }
+    return _review_call("/api/v1/resumes/question-workflow/proxy", payload, timeout=300)
+
+
 class TailoredPromoteIn(Schema):
     resumeId: str
     tailoredResumeId: str
@@ -1372,31 +1459,38 @@ def jobs_chat_stream(request, body: JobChatIn):
 
 
 # 주요 기업 카드는 모든 수강생에게 같다. 후보를 고르는 정규식이 인덱스 없이 공고 전체를 훑어(7~9초) 10분 둔다.
-# 수업 시작에 여럿이 한꺼번에 열면 캐시가 빈 동안 같은 조회가 사람 수만큼 RDS 로 간다 — 한 번에 하나만 계산한다
+# 수업 시작에 여럿이 한꺼번에 열면 캐시가 빈 동안 같은 조회가 사람 수만큼 RDS 로 간다 — 한 번에 하나만 계산한다.
+# 카드에 오른 공고의 마감 시각(「15:00 마감」)이 오면 10분이 안 됐어도 버린다 — 지난 공고가 진행 중에 남지 않게
 _FEATURED_TTL = 600
-_featured_cache: dict[tuple[str, Any], tuple[float, list[dict]]] = {}
+_featured_cache: dict[tuple[str, Any], tuple[float, list[dict], datetime | None]] = {}
 _featured_lock = threading.Lock()
 
 
 def _featured_cards(view: Literal["live", "past"]) -> list[dict]:
-    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+    def fresh(hit) -> bool:
+        return hit is not None and time.monotonic() - hit[0] < _FEATURED_TTL and (hit[2] is None or now < hit[2])
+
+    now = datetime.now(ZoneInfo("Asia/Seoul"))
+    today = now.date()
     hit = _featured_cache.get((view, today))
-    if hit is not None and time.monotonic() - hit[0] < _FEATURED_TTL:
+    if fresh(hit):
         return hit[1]
     with _featured_lock:
         # 기다리는 동안 앞 요청이 채웠으면 그것을 쓴다
         hit = _featured_cache.get((view, today))
-        if hit is not None and time.monotonic() - hit[0] < _FEATURED_TTL:
+        if fresh(hit):
             return hit[1]
-        cards = _load_featured_cards(view, today)
+        cards, until = _load_featured_cards(view, now)
         # 날짜가 바뀌면 어제 것은 버린다
         for key in [k for k in _featured_cache if k[1] != today]:
             del _featured_cache[key]
-        _featured_cache[(view, today)] = (time.monotonic(), cards)
+        _featured_cache[(view, today)] = (time.monotonic(), cards, until)
         return cards
 
 
-def _load_featured_cards(view: Literal["live", "past"], today) -> list[dict]:
+def _load_featured_cards(view: Literal["live", "past"], now: datetime) -> tuple[list[dict], datetime | None]:
+    """(카드, 다음 마감 시각) — 다음 마감 시각이 오면 카드가 바뀐다."""
+    today = now.date()
     norm = featured_postings.NORM_SQL
     with connection.cursor() as cur:
         # 지원 방법 칸 · 회사 정보 표는 migration 0014 가 만든다(회사 표는 public 스키마). 없으면 빈 값으로 읽는다
@@ -1419,9 +1513,10 @@ def _load_featured_cards(view: Literal["live", "past"], today) -> list[dict]:
             when = "j.status = 'OPEN' AND (j.deadline IS NULL OR j.deadline = '' OR j.deadline >= %s)"
             params: list[Any] = [today.isoformat()]
         else:
-            # 상태는 보지 않는다 — 마감일이 지났는데 OPEN 으로 남은 공고도 지난 공채다
+            # 상태는 보지 않는다 — 마감일이 지났는데 OPEN 으로 남은 공고도 지난 공채다.
+            # 오늘 마감도 가져온다 — 마감 시각이 지났으면 지난 공채다(pick_past 가 고른다)
             when = "j.deadline >= %s AND j.deadline < %s"
-            params = [(today - timedelta(days=featured_postings.PAST_DAYS)).isoformat(), today.isoformat()]
+            params = [(today - timedelta(days=featured_postings.PAST_DAYS)).isoformat(), (today + timedelta(days=1)).isoformat()]
         cur.execute(
             f"""SELECT j.job_id, j.source, j.group_key, j.company, j.company_type, j.title, j.deadline, j.posted_at,
                        j.career_type, j.employment_type, j.tech_stack, j.status,
@@ -1435,7 +1530,7 @@ def _load_featured_cards(view: Literal["live", "past"], today) -> list[dict]:
         )
         rows = _dicts(cur)
     pick = featured_postings.pick_live if view == "live" else featured_postings.pick_past
-    return pick(rows, today, big_names, small_names)
+    return pick(rows, today, big_names, small_names, now=now), featured_postings.next_closing(rows, now, big_names, small_names)
 
 
 @api.get("/featured-postings")
@@ -1457,12 +1552,108 @@ def featured_posting_list(request, view: str = "live", tier: str = "", offset: i
     }
 
 
+class SharedQuestionItemIn(Schema):
+    question: str = Field(max_length=500)
+    limit: int | None = None
+
+
+class SharedQuestionsIn(Schema):
+    jobId: str = Field(min_length=1, max_length=255)
+    roleName: str = Field(min_length=1, max_length=255)
+    questions: list[SharedQuestionItemIn] = Field(max_length=20)
+    share: bool = True
+
+
+class SharedQuestionReportIn(Schema):
+    reason: str = Field(max_length=40)
+
+
+def _shared_call(fn, *args, **kwargs):
+    from lms import shared_questions
+
+    try:
+        return fn(*args, **kwargs)
+    except shared_questions.SharedQuestionError as exc:
+        return Response({"detail": exc.detail}, status=exc.status)
+
+
+def _role_id(value: str) -> bool:
+    import uuid
+
+    try:
+        uuid.UUID(value)
+        return True
+    except ValueError:
+        return False
+
+
+@api.get("/apply/shared-questions")
+def shared_question_list(request, jobId: str):
+    """공고 맞춤 지원 3단계 — 고른 공고의 회사 · 시즌에 다른 수강생이 정리한 문항(직무별 · 공통). shared_questions.py"""
+    from lms import shared_questions
+
+    user = _require_user(request)
+    return _shared_call(shared_questions.list_shared, user["id"], jobId)
+
+
+@api.post("/apply/shared-questions/check")
+def shared_question_check(request, body: SharedQuestionsIn):
+    """확정 전 — 이름은 다른데 문항이 같은 직무가 있으면 알려 준다(합칠지 묻는다)."""
+    from lms import shared_questions
+
+    user = _require_user(request)
+    questions = [q.dict() for q in body.questions]
+    return _shared_call(shared_questions.check, user["id"], body.jobId, body.roleName, questions)
+
+
+@api.post("/apply/shared-questions")
+def shared_question_save(request, body: SharedQuestionsIn):
+    """학생이 문항을 확정했을 때 남긴다. share=False 면 올린 학생만 본다. 답 · 메모는 받지 않는다."""
+    from lms import shared_questions
+
+    user = _require_user(request)
+    questions = [q.dict() for q in body.questions]
+    return _shared_call(shared_questions.save, user["id"], body.jobId, body.roleName, questions, share=body.share)
+
+
+@api.post("/apply/shared-questions/{role_id}/use")
+def shared_question_use(request, role_id: str):
+    """「이 문항으로 쓰기」 — 사용 수를 올린다(올린 학생 자신은 세지 않는다)."""
+    from lms import shared_questions
+
+    user = _require_user(request)
+    if not _role_id(role_id):
+        return Response({"detail": "정리를 찾을 수 없어요."}, status=404)
+    result = _shared_call(shared_questions.use, user["id"], role_id)
+    return result if isinstance(result, Response) else {"ok": True}
+
+
+@api.post("/apply/shared-questions/{role_id}/report")
+def shared_question_report(request, role_id: str, body: SharedQuestionReportIn):
+    """이상해요 — 2명이 누르면 숨긴다. recruit_role_reports 표가 생기기 전에는 503."""
+    from lms import shared_questions
+
+    user = _require_user(request)
+    if not _role_id(role_id):
+        return Response({"detail": "정리를 찾을 수 없어요."}, status=404)
+    return _shared_call(shared_questions.report, user["id"], role_id, body.reason)
+
+
+def _status_now(status: str, closes: datetime | None, now: datetime) -> str:
+    """마감 시각이 지났으면 EXPIRED — 밤 배치가 바꾸기 전까지 저장소는 OPEN 이다."""
+    return "EXPIRED" if status == "OPEN" and closes is not None and closes <= now else status
+
+
 @api.get("/postings/{job_id}", auth=None)
 def job_posting(request, job_id: str):
     """공고 원문 한 건 — 추천 카드에서 새 탭으로 여는 화면이 읽는다.
 
     채용 사이트에 공개된 공고를 수집해 둔 것이라 로그인 없이 준다. 새 탭은 로그인 정보
     (sessionStorage)를 넘겨받지 못한다. 마감돼 사이트에서 내려간 공고도 수집본으로 읽힌다.
+
+    저장소 상태는 밤 배치가 맞춘 것이라 낮에 마감 시각(「15:00 마감」)이 지나도 OPEN 이다 — 지났으면 EXPIRED 로 준다.
+    `deadline_time` 은 회사가 정한 마감 시각(모르면 null), `check_page` 는 오늘 마감인데 시각을 몰라
+    불러올 때 페이지를 열어 볼 공고다(`/posting-link`).
     """
     with connection.cursor() as cur:
         cur.execute(
@@ -1477,7 +1668,7 @@ def job_posting(request, job_id: str):
             # 같은 공고가 사람인 · 잡코리아에 함께 올라오면 수집기가 group_key 로 묶어 둔다.
             # 사이트마다 원문 링크를 준다. 사이트에서 내려간(REMOVED) 쪽은 링크가 죽어 뺀다
             cur.execute(
-                """SELECT job_id, source, source_url, status FROM jobs.jobs
+                """SELECT job_id, source, source_url, status, deadline FROM jobs.jobs
                    WHERE group_key = %s AND status <> 'REMOVED'
                    ORDER BY (job_id = %s) DESC, (status = 'OPEN') DESC, source""",
                 [row["group_key"], job_id],
@@ -1485,7 +1676,16 @@ def job_posting(request, job_id: str):
             row["links"] = _dicts(cur)
     if not row:
         return Response({"detail": "공고를 찾을 수 없습니다."}, status=404)
-    row.setdefault("links", [{k: row[k] for k in ("job_id", "source", "source_url", "status")}])
+    now = datetime.now(ZoneInfo("Asia/Seoul"))
+    closes = featured_postings.closing_time(row["deadline"])
+    row["status"] = _status_now(row["status"], closes, now)
+    row["deadline_time"] = closes.strftime("%H:%M") if closes else None
+    row["check_page"] = (
+        row["status"] == "OPEN" and closes is None and featured_postings.date_of(row["deadline"]) == now.date().isoformat()
+    )
+    row.setdefault("links", [{k: row[k] for k in ("job_id", "source", "source_url", "status", "deadline")}])
+    for link in row["links"]:
+        link["status"] = _status_now(link["status"], featured_postings.closing_time(link.pop("deadline")), now)
     del row["group_key"]
     for key in ("required_skills", "preferred_skills"):
         if isinstance(row[key], str):
@@ -1565,9 +1765,10 @@ def posting_by_link(request, url: str = ""):
     found = job_posting(request, job_id)
     if isinstance(found, Response):
         return Response({"detail": "아직 수집되지 않은 공고예요. 수집된 공고만 불러올 수 있어요."}, status=404)
-    if found["status"] in ("REMOVED", "EXPIRED"):
+    if found["status"] in ("REMOVED", "EXPIRED") or found.get("check_page"):
         # 둘 다 틀릴 수 있다. REMOVED 는 목록에서 몇 번 안 보였다는 뜻일 뿐이고, EXPIRED 는 목록 문구의
-        # 옛 마감일 기준이라 회사가 마감일을 늘리면 열린 공고가 걸린다(9/20 → 9/30 연장). 페이지를 열어 확인한다
+        # 옛 마감일 기준이라 회사가 마감일을 늘리면 열린 공고가 걸린다(9/20 → 9/30 연장). 페이지를 열어 확인한다.
+        # 오늘 마감인데 시각을 모르는 공고(사람인 목록은 날짜만 준다)도 열어 본다 — 오후에 마감됐을 수 있다
         alive = _verify_posting(job_id)
         if alive is True:
             # 공고 서버가 OPEN 으로 되돌렸다(EXPIRED 는 페이지 마감일이 안 지났을 때만). 다시 읽는다
@@ -1933,6 +2134,30 @@ RECORD_FILE_TYPES = {
 NOTICE_IMAGE_TYPES = {key: ext for key, ext in RECORD_FILE_TYPES.items() if key.startswith("image/") and key != "image/heic"}
 
 
+def _record_bytes_match_type(data: bytes, content_type: str) -> bool:
+    if content_type == "image/jpeg":
+        return data.startswith(b"\xff\xd8\xff") and data.rstrip().endswith(b"\xff\xd9")
+    if content_type == "image/png":
+        return data.startswith(b"\x89PNG\r\n\x1a\n") and data[12:16] == b"IHDR"
+    if content_type == "image/gif":
+        return data[:6] in (b"GIF87a", b"GIF89a") and data.endswith(b"\x3b")
+    if content_type == "image/webp":
+        return data.startswith(b"RIFF") and data[8:12] == b"WEBP" and int.from_bytes(data[4:8], "little") + 8 == len(data)
+    if content_type == "image/heic":
+        return len(data) >= 16 and data[4:8] == b"ftyp" and data[8:12] in (b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1")
+    if content_type == "application/pdf":
+        if not data.startswith(b"%PDF-"):
+            return False
+        try:
+            from io import BytesIO
+            from pypdf import PdfReader
+
+            return len(PdfReader(BytesIO(data), strict=True).pages) > 0
+        except Exception:
+            return False
+    return False
+
+
 @api.post("/uploads/notice-image")
 def upload_notice_image(request, file: UploadedFile = File(...)):
     import uuid
@@ -1991,6 +2216,8 @@ def upload_record_evidence(request, file: UploadedFile = File(...)):
     data = file.read(RECORD_FILE_MAX_BYTES + 1)
     if len(data) > RECORD_FILE_MAX_BYTES:
         return Response({"detail": "파일은 10MB 이하만 올릴 수 있습니다."}, status=400)
+    if not _record_bytes_match_type(data, content_type):
+        return Response({"detail": "파일 내용이 선택한 이미지/PDF 형식과 일치하지 않습니다."}, status=400)
     key = f"records/{user.get('cohort_code') or 'none'}/{user['firebase_uid']}/{uuid.uuid4().hex}{RECORD_FILE_TYPES[content_type]}"
     try:
         put_object(key, data, content_type)

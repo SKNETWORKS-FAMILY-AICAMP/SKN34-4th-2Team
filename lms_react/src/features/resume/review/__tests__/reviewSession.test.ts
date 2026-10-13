@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { changedRevisionSpans } from '../reviewDiff';
 import type { Json } from '../reviewApi';
+import { ReviewApiError } from '../reviewApi';
 
 const api = vi.hoisted(() => ({
   context: vi.fn(),
@@ -372,6 +373,92 @@ describe('공고 맞춤 첨삭 흐름 — job_resume_review_dialog.dart', () => 
     expect(api.review.mock.calls.at(-1)?.[1].request_id).toBe('canonical');
     expect(session.error).toBeNull();
     expect(session.result?.review_id).toBe('canonical');
+  });
+  it('polls a background job beyond eight polls without exposing pending candidates', async () => {
+    vi.useFakeTimers();
+    try {
+      const attempts: unknown[] = [];
+      for (let i = 0; i < 10; i++) api.review.mockImplementationOnce((_id, request) => {
+        attempts.push(request.async_attempt);
+        return Promise.resolve({ async_job: { state: 'running', stage: i < 5 ? 'analyze' : 'verify', elapsed_seconds: i * 3 } });
+      });
+      api.review.mockResolvedValueOnce({ ...firstReview, telemetry: { execution: { state: 'verified' } } });
+      const { session } = makeSession();
+      const done = session.review();
+      await vi.advanceTimersByTimeAsync(24000);
+      expect(session.result).toBeNull();
+      await vi.runAllTimersAsync();
+      await done;
+      expect(api.review).toHaveBeenCalledTimes(11);
+      expect(attempts[0]).toBeTruthy();
+      expect(new Set(attempts).size).toBe(1);
+      expect(session.result?.review_id).toBe(firstReview.review_id);
+    } finally { vi.useRealTimers(); }
+  });
+  it('shows finished chunks as view-only previews while polling and drops them when the review completes', async () => {
+    vi.useFakeTimers();
+    try {
+      const card = { field_path: 'projects[0].description', original_quote: 'API 구현', suggested_revision: 'API를 구현했습니다.' };
+      api.review
+        .mockResolvedValueOnce({ async_job: { state: 'running', stage: 'write', elapsed_seconds: 30, preview_reviews: [] } })
+        .mockResolvedValueOnce({ async_job: { state: 'running', stage: 'verify', elapsed_seconds: 60, preview_reviews: [card], done: 2, total: 12 } })
+        .mockResolvedValueOnce({ ...firstReview, telemetry: { execution: { state: 'verified' } } });
+      const { session } = makeSession();
+      const done = session.review();
+      await vi.advanceTimersByTimeAsync(3500);
+      expect(session.previewReviews).toEqual([card]);
+      expect(session.processingLabel).toBe('사실 검증 중 · 12개 중 2개 끝 · 60초 경과');
+      expect(session.result).toBeNull(); // Nothing is applicable before the review completes.
+      await vi.runAllTimersAsync();
+      await done;
+      expect(session.previewReviews).toEqual([]);
+      expect(session.result?.review_id).toBe(firstReview.review_id);
+    } finally { vi.useRealTimers(); }
+  });
+  it('transport timeout and busy recover automatically with the identical request', async () => {
+    vi.useFakeTimers();
+    try {
+      const ids: unknown[] = [];
+      api.review.mockImplementationOnce((_id, request) => {
+        ids.push(request.request_id);
+        throw new ReviewApiError('timeout', 0, 'transport_timeout');
+      }).mockImplementationOnce((_id, request) => {
+        ids.push(request.request_id);
+        throw new ReviewApiError('busy', 409, 'review_stage_busy');
+      }).mockImplementationOnce((_id, request) => {
+        ids.push(request.request_id);
+        return Promise.resolve(firstReview);
+      });
+      const { session } = makeSession();
+      const done = session.review();
+      await vi.runAllTimersAsync();
+      await done;
+      expect(ids).toHaveLength(3);
+      expect(ids[0]).toBeTruthy();
+      expect(new Set(ids).size).toBe(1);
+      expect(session.error).toBeNull();
+      expect(session.result?.review_id).toBe(firstReview.review_id);
+    } finally { vi.useRealTimers(); }
+  });
+  it('does not automatically retry input conflicts', async () => {
+    api.review.mockRejectedValueOnce(new ReviewApiError('changed', 409, 'request_id_reused_with_different_input'));
+    const { session } = makeSession();
+    await session.review();
+    expect(api.review).toHaveBeenCalledTimes(1);
+    expect(session.error).toBe('changed');
+  });
+  it('bounds timeout recovery and retains manual resume', async () => {
+    vi.useFakeTimers();
+    try {
+      api.review.mockRejectedValue(new ReviewApiError('timeout', 0, 'transport_timeout'));
+      const { session } = makeSession();
+      const done = session.review();
+      await vi.runAllTimersAsync();
+      await done;
+      expect(api.review).toHaveBeenCalledTimes(3);
+      expect(session.canRetryProcessing).toBe(true);
+      expect(session.result).toBeNull();
+    } finally { vi.useRealTimers(); }
   });
   it.each(['apply', 'skip'])('답변 index 0 이후 audit index 0은 별개이며 %s 후 queue와 마지막 질문을 완료한다', async (action) => {
     api.review.mockResolvedValueOnce({ ...firstReview, sentence_reviews: [], questions: [firstReview.questions[0]] });

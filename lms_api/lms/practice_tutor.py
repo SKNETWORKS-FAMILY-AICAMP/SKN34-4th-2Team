@@ -30,6 +30,11 @@ STRUGGLE_TRIES = 3
 REVEAL_AFTER_TRIES = 2  # 화면(ProblemCell)의 REVEAL_AFTER_TRIES 와 같다
 OFFTOPIC_STREAK = 3
 OFFTOPIC_WINDOW = timedelta(minutes=10)
+# 학생 한 명이 LLM 답을 받는 한도 — 연달아 누르기 · 매크로로 요금이 새지 않게. 잠긴 답 · 잡담 안내(LLM 아님)는 세지 않는다.
+# 강사 · 관리자는 세지 않는다(수업 준비로 많이 묻는다)
+PER_MINUTE = 5
+PER_DAY = 80
+UNLIMITED_ROLES = ("instructor", "admin")
 STREAK_REPLY = "이 창은 문제와 코드에 대한 질문만 받아요. 막힌 줄이나 오류를 물어봐 주세요."
 ACTIONS = ("ask", "more", "answer")
 # 잡담이 이어져 LLM 을 멈춘 동안에도 이런 질문은 받는다 — 막는 건 잡담이지 공부가 아니다
@@ -202,6 +207,25 @@ def _offtopic_streak(cur, user_id: int) -> bool:
     return len(kinds) == OFFTOPIC_STREAK and all(k == "offtopic" for k in kinds)
 
 
+def over_limit(cur, user: dict) -> str | None:
+    """LLM 답 한도를 넘었으면 학생에게 보여 줄 말. 하루는 한국 날짜로 센다."""
+    if user.get("role") in UNLIMITED_ROLES:
+        return None
+    cur.execute(
+        """SELECT count(*) FILTER (WHERE created_at > now() - interval '1 minute'),
+                  count(*) FILTER (WHERE created_at >= date_trunc('day', now() AT TIME ZONE 'Asia/Seoul') AT TIME ZONE 'Asia/Seoul')
+           FROM study_tutor_turns
+           WHERE user_id = %s AND role = 'assistant' AND llm AND created_at > now() - interval '1 day'""",
+        [user["id"]],
+    )
+    minute, today = cur.fetchone()
+    if minute >= PER_MINUTE:
+        return f"튜터는 1분에 {PER_MINUTE}번까지 답해요. 잠시 뒤에 다시 물어봐 주세요."
+    if today >= PER_DAY:
+        return f"오늘은 튜터에게 {PER_DAY}번까지 물을 수 있어요. 내일 다시 물어봐 주세요. 막힌 문제는 강사님께 물어봐도 좋아요."
+    return None
+
+
 def _save(cur, user_id: int, problem_id: int | None, key: str, question: str, answer: dict, level: int | None) -> None:
     cur.execute(
         """INSERT INTO study_tutor_turns (user_id, problem_id, thread_key, role, text, kind, hint_level, lines, llm, created_at)
@@ -248,6 +272,9 @@ def ask(user: dict, body: dict) -> dict:
             answer = {"type": "locked", "reply": locked_reply(problem, level), "lines": [], "llm": False}
         elif not ON_TOPIC.search(question) and _offtopic_streak(cur, user["id"]):
             answer = {"type": "offtopic", "reply": STREAK_REPLY, "lines": [], "llm": False}
+        # 한도는 LLM 을 부를 때만 — 넘으면 대화에 남기지 않고 화면이 안내를 띄운다(질문은 입력칸으로 돌아간다)
+        if answer is None and (limited := over_limit(cur, user)) is not None:
+            raise StudySourceError(429, limited)
 
     if answer is None:
         payload = {

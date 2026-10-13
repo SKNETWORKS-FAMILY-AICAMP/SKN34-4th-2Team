@@ -15,13 +15,16 @@
 
 - 진행 중(`pick_live`): 열린 공고, 마감 임박순. 날짜 없는 상시채용은 뒤로
 - 지난 공채(`pick_past`): 최근 1년 안에 마감한 공채. 회사 · 시즌마다 한 장, 최근 마감순 — 지난 문항으로 미리 쓰는 입구
+
+마감 시각이 적힌 공고(「15:00 마감」)는 그 시각이 지나면 진행 중에서 빠지고 지난 공채로 간다(`closing_time`).
+저장소 상태는 밤 배치가 EXPIRED 로 바꿀 때까지 OPEN 이라 여기서 지금 시각과 견준다.
 """
 
 from __future__ import annotations
 
 import json
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable
 
 TIERS = ("인기 기업", "대기업", "외국계")
@@ -103,6 +106,7 @@ BIG_TYPE = _BIG.pattern
 SMALLER_TYPE = r"(?:^|,)\s*(?:중견기업|중소기업)\s*(?:,|$)"
 
 PAST_DAYS = 365
+KST = timezone(timedelta(hours=9))
 
 
 def company_key(company: str) -> str:
@@ -145,6 +149,34 @@ def date_of(value: str | None) -> str | None:
     """「YYYY-MM-DD」. 상시채용 · 채용시 마감처럼 날짜가 없으면 None. 「2026.09.20」도 읽는다."""
     found = _DATE.match((value or "").strip())
     return "-".join(found.groups()) if found else None
+
+
+def closing_time(value: str | None) -> datetime | None:
+    """회사가 정한 마감 시각(한국 시간). 날짜만 알면 None — 그날 끝까지 열린 것으로 본다.
+
+    사람인 목록은 마감일에 23:59:59 를 붙이고, 「D-3」 은 수집한 시각(초 · 마이크로초까지)을 붙인다. 둘 다 마감
+    시각이 아니다. 회사가 정한 시각은 분 단위다(잡코리아 validThrough 「T15:00」, 사람인 상세 「14:00」).
+    0시는 그날 시작인지 날짜만 적은 것인지 몰라 시각 없음으로 둔다
+    (2026-10-13 열린 공고: 잡코리아 15:00 118건 · 17:00 49건 · 00:00 32건, 사람인은 거의 다 23:59:59).
+    """
+    text = (value or "").strip()
+    if "T" not in text:
+        return None
+    try:
+        moment = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if moment.second or moment.microsecond or (moment.hour, moment.minute) in ((23, 59), (0, 0)):
+        return None
+    return moment.astimezone(KST) if moment.tzinfo else moment.replace(tzinfo=KST)
+
+
+def next_closing(
+    rows: Iterable[dict[str, Any]], now: datetime,
+    big_names: frozenset[str] = frozenset(), small_names: frozenset[str] = frozenset(),
+) -> datetime | None:
+    """카드에 오를 공고 중 지금 다음으로 마감 시각이 오는 때 — 카드 캐시를 이때 버린다."""
+    return min((c for _, _, _, c in _qualified(rows, big_names, small_names) if c is not None and c > now), default=None)
 
 
 def is_open_hiring(title: str) -> bool:
@@ -208,7 +240,9 @@ def _groups(rows: Iterable[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     return groups
 
 
-def _card(copies: list[dict[str, Any]], tier: str, deadline: str | None, count: int, *, closed: bool) -> dict[str, Any]:
+def _card(
+    copies: list[dict[str, Any]], tier: str, deadline: str | None, closes: datetime | None, count: int, *, closed: bool
+) -> dict[str, Any]:
     head = copies[0]
     title = head.get("title") or ""
     return {
@@ -217,6 +251,7 @@ def _card(copies: list[dict[str, Any]], tier: str, deadline: str | None, count: 
         "title": title,
         "tier": tier,
         "deadline": deadline,
+        "deadline_time": closes.strftime("%H:%M") if closes else None,
         "season": season_of(title, head.get("posted_at"), head.get("deadline")),
         "career_type": head.get("career_type") or "",
         "posting_count": count,
@@ -229,50 +264,68 @@ def _card(copies: list[dict[str, Any]], tier: str, deadline: str | None, count: 
 
 
 def _qualified(rows: Iterable[dict[str, Any]], big_names: frozenset[str], small_names: frozenset[str]):
-    """(공고 사본들, 기업 구분, 마감일) — 기업 · 공고 조건을 넘은 것만. 한 사본이라도 넘으면 그 공고는 넘은 것으로 본다."""
+    """(공고 사본들, 기업 구분, 마감일, 마감 시각) — 기업 · 공고 조건을 넘은 것만. 한 사본이라도 넘으면 그 공고는 넘은 것으로 본다.
+
+    사본마다 마감이 다르면 가장 이른 것 — 같은 날이면 시각이 적힌 쪽(잡코리아 15:00 · 사람인은 날짜만).
+    """
     for copies in _groups(rows).values():
         tiers = [(r, tier_of(r.get("company") or "", r.get("company_type") or "", big_names, small_names)) for r in copies]
         passed = [(r, t) for r, t in tiers if t is not None and wanted(r, t)]
         if not passed:
             continue
         tier = min((t for _, t in passed), key=TIERS.index)
-        deadline = min((d for r in copies if (d := date_of(r.get("deadline")))), default=None)
-        yield copies, tier, deadline
+        dated = [(d, closing_time(r.get("deadline"))) for r in copies if (d := date_of(r.get("deadline")))]
+        deadline, closes = min(dated, key=lambda p: (p[0], p[1] is None, p[1].timestamp() if p[1] else 0), default=(None, None))
+        yield copies, tier, deadline, closes
+
+
+def _closed(deadline: str | None, closes: datetime | None, today: date, now: datetime | None) -> bool:
+    """마감일이 지났거나, 오늘 마감 시각이 지났다. `now` 가 없으면 날짜만 본다."""
+    if deadline is None:
+        return False
+    return deadline < today.isoformat() or (now is not None and closes is not None and closes <= now)
 
 
 def pick_live(
     rows: Iterable[dict[str, Any]], today: date,
-    big_names: frozenset[str] = frozenset(), small_names: frozenset[str] = frozenset(),
+    big_names: frozenset[str] = frozenset(), small_names: frozenset[str] = frozenset(), *, now: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    """진행 중 — 회사마다 카드 한 장. 마감이 가장 가까운 공고를 올리고 공고 수를 붙인다. 마감 임박순, 상시채용은 뒤로."""
-    by_company: dict[str, list[tuple[list[dict[str, Any]], str, str | None]]] = {}
-    for copies, tier, deadline in _qualified(rows, big_names, small_names):
-        if deadline is not None and deadline < today.isoformat():
-            continue  # 저장소 상태가 OPEN 이어도 마감일이 지난 공고가 있다
-        by_company.setdefault(card_key(copies[0].get("company") or ""), []).append((copies, tier, deadline))
+    """진행 중 — 회사마다 카드 한 장. 마감이 가장 가까운 공고를 올리고 공고 수를 붙인다. 마감 임박순, 상시채용은 뒤로.
+
+    `now` 를 주면 오늘 마감 시각이 지난 공고도 뺀다.
+    """
+    by_company: dict[str, list[tuple[list[dict[str, Any]], str, str | None, datetime | None]]] = {}
+    for copies, tier, deadline, closes in _qualified(rows, big_names, small_names):
+        if _closed(deadline, closes, today, now):
+            continue  # 저장소 상태가 OPEN 이어도 마감일 · 마감 시각이 지난 공고가 있다
+        by_company.setdefault(card_key(copies[0].get("company") or ""), []).append((copies, tier, deadline, closes))
 
     cards = []
     for postings in by_company.values():
-        postings.sort(key=lambda p: (p[2] is None, p[2] or "", p[0][0]["job_id"]))
-        copies, tier, deadline = postings[0]
-        cards.append(_card(copies, min((p[1] for p in postings), key=TIERS.index), deadline, len(postings), closed=False))
-    cards.sort(key=lambda c: (c["deadline"] is None, c["deadline"] or "", TIERS.index(c["tier"]), c["company"]))
+        postings.sort(key=lambda p: (p[2] is None, p[2] or "", p[3] is None, p[3].timestamp() if p[3] else 0, p[0][0]["job_id"]))
+        copies, tier, deadline, closes = postings[0]
+        cards.append(
+            _card(copies, min((p[1] for p in postings), key=TIERS.index), deadline, closes, len(postings), closed=False)
+        )
+    # 같은 날이면 시각이 적힌 쪽(15:00)이 하루 끝까지 여는 쪽보다 먼저 닫힌다
+    cards.sort(key=lambda c: (c["deadline"] is None, c["deadline"] or "", c["deadline_time"] or "24", TIERS.index(c["tier"]), c["company"]))
     return cards
 
 
 def pick_past(
     rows: Iterable[dict[str, Any]], today: date,
-    big_names: frozenset[str] = frozenset(), small_names: frozenset[str] = frozenset(),
+    big_names: frozenset[str] = frozenset(), small_names: frozenset[str] = frozenset(), *, now: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """지난 공채 — 최근 1년 안에 마감한 신입 공채. 회사 · 시즌마다 한 장, 최근 마감순.
 
     카드 제목은 개발 직무 공고를 먼저 — 같은 공채의 「재경」 공고가 대표로 오르지 않게.
+    `now` 를 주면 오늘 마감 시각이 지난 공고도 넣는다.
     """
     since = (today - timedelta(days=PAST_DAYS)).isoformat()
     by_season: dict[tuple[str, str], list[tuple[list[dict[str, Any]], str, str]]] = {}
-    for copies, tier, deadline in _qualified(rows, big_names, small_names):
+    for copies, tier, deadline, closes in _qualified(rows, big_names, small_names):
         head = copies[0]
-        if deadline is None or not (since <= deadline < today.isoformat()):
+        if deadline is None or deadline < since or not _closed(deadline, closes, today, now):
             continue
         if not (is_open_hiring(head.get("title") or "") or head.get("career_type") == "ENTRY"):
             continue
@@ -284,6 +337,6 @@ def pick_past(
         postings.sort(key=lambda p: (bool(_DEV_TITLE.search(p[0][0].get("title") or "")), p[2]), reverse=True)
         copies, _, _ = postings[0]
         last = max(p[2] for p in postings)
-        cards.append(_card(copies, min((p[1] for p in postings), key=TIERS.index), last, len(postings), closed=True))
+        cards.append(_card(copies, min((p[1] for p in postings), key=TIERS.index), last, None, len(postings), closed=True))
     cards.sort(key=lambda c: (c["deadline"], c["company"]), reverse=True)
     return cards

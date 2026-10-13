@@ -129,6 +129,8 @@ def _save_user_skills(cur, user_id: int, items) -> None:
 
 
 def op_update_profile(cur, user, p):
+    if {"password", "mustChangePassword", "lastLoginAt"} & p.keys():
+        raise ValueError("인증 정보는 전용 변경 기능을 사용해 주세요.")
     uid = p.get("uid") or user["firebase_uid"]
     if user["role"] != "admin" and uid != user["firebase_uid"]:
         raise PermissionError("owner only")
@@ -140,9 +142,10 @@ def op_update_profile(cur, user, p):
         "birthDate": "birth_date",
         "personalEmail": "personal_email",
         "photoStoragePath": "photo_storage_key",
-        "mustChangePassword": "must_change_password",
-        "lastLoginAt": "last_login",
     }
+    if p.get("birthDate") == "":
+        # 마이페이지에서 생년월일을 지우면 '' 가 온다 — date 칸에는 NULL 로 넣는다
+        p = {**p, "birthDate": None}
     if user["role"] == "admin":
         # 관리자만 — 학생 · 강사 정보 수정, 퇴소 · 복학(비활성)
         mapping.update({"displayName": "display_name", "seatNumber": "seat_number", "isActive": "is_active"})
@@ -159,9 +162,6 @@ def op_update_profile(cur, user, p):
         if src in p:
             fields.append(f"{col} = %s")
             args.append(p[src])
-    if "password" in p:
-        fields.append("password = %s")
-        args.append(make_password(str(p["password"])))
     target_user_id = resolve_user(cur, uid)
     if target_user_id is None:
         raise KeyError("user")

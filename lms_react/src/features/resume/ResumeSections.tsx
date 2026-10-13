@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, type TextareaHTMLAttributes } from 'react';
 import { Link } from 'react-router-dom';
 
 import { RoutePaths } from '../../app/routePaths';
@@ -25,6 +26,36 @@ export function period(start: string, end: string, isCurrent = false): string {
   return `${s} ~ ${e}`;
 }
 
+/**
+ * 글이 길어지면 칸이 따라 늘어나는 여러 줄 입력. 안쪽 스크롤 없이 문서처럼 읽힌다.
+ * 칸 너비가 바뀌면(패널을 끌거나 창을 줄이면) 줄바꿈이 달라지므로 그때도 다시 잰다.
+ */
+export function AutoTextarea({ value, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement> & { value: string }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const fit = () => {
+      el.style.height = 'auto';
+      // border-box 라 테두리 두께만큼 더한다(안 그러면 마지막 줄에 스크롤이 남는다)
+      el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+    };
+    fit();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    let width = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fit();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [value]);
+
+  return <textarea ref={ref} rows={3} {...rest} value={value} className="input input--area input--grow" />;
+}
+
 /** 편집용 한 칸 */
 export function Field({
   label,
@@ -43,9 +74,7 @@ export function Field({
     <label className="item-field">
       <span className="item-field__label">{label}</span>
       {multiline ? (
-        <textarea
-          className="input input--area"
-          rows={3}
+        <AutoTextarea
           value={value}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
@@ -171,9 +200,7 @@ export function SectionBody({
           {c.coreCompetencies.text.trim() === '' ? '미작성' : c.coreCompetencies.text}
         </p>
       ) : (
-        <textarea
-          className="input input--area"
-          rows={3}
+        <AutoTextarea
           value={c.coreCompetencies.text}
           onChange={(e) => patch({ coreCompetencies: { text: e.target.value } })}
         />
@@ -826,9 +853,7 @@ export function SectionBody({
                     {part.body.trim() === '' ? '미작성' : part.body}
                   </p>
                 ) : (
-                  <textarea
-                    className="input input--area"
-                    rows={3}
+                  <AutoTextarea
                     value={part.body}
                     onChange={(e) =>
                       patch({

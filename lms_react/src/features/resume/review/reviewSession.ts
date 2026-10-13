@@ -111,6 +111,11 @@ export interface ReviewDockStatus {
   stageIndex: number | null;
   stageCount: number | null;
   failed: boolean;
+  /**
+   * 이 첨삭이 고치는 이력서. 일반 첨삭은 원본, 공고 맞춤은 맞춤 이력서(첨삭 도중 새로 만들 수도 있다).
+   * 그동안 편집기는 이 이력서를 잠근다.
+   */
+  editingResumeId: string | null;
 }
 
 export interface ReviewSessionOptions {
@@ -139,6 +144,8 @@ export interface ReviewSessionOptions {
 export interface ReviewView {
   activeQuestion: Json | null;
   highlightedFieldPath: string | null;
+  /** 지금 묻거나 고치는 원문 문장 — 미리보기에서 그 문장을 칠하고 그리로 스크롤한다 */
+  highlightedQuotes: string[];
   remainingQuestionCount: number;
   reviewCompleted: boolean;
   currentStage: number;
@@ -175,6 +182,8 @@ export class ReviewSession {
   busyKind: BusyKind | null = null;
   busyStage = 0;
   processingLabel: string | null = null;
+  /** 첨삭이 도는 동안 먼저 끝난 묶음의 검증 통과 수정안 — 보기만 한다. 끝나면 같은 카드가 반영할 수 있게 나온다 */
+  previewReviews: Json[] = [];
   private retryAction: (() => Promise<void>) | null = null;
   private retryableReview = false;
   private retryKind: BusyKind = 'review';
@@ -595,11 +604,59 @@ export class ReviewSession {
   get canRetryProcessing(): boolean { return this.retryAction !== null; }
 
   private async requestReview(request: Json): Promise<Json> {
+    try {
+      return await this.pollReview(request);
+    } finally {
+      this.previewReviews = [];
+    }
+  }
+
+  private async pollReview(request: Json): Promise<Json> {
     this.retryableReview = true;
+    request.async_attempt = newId();
+    const pollingStarted = Date.now();
+    let recoveries = 0;
+    let timeoutRecoveries = 0;
     // Same logical request throughout. The B server executes at most one LLM
     // stage per response; v1 responses have no execution state and return once.
     for (let step = 0; step < 8; step++) {
-      const response = await reviewApi.review(this.opts.resumeId, request);
+      let response: Json;
+      for (;;) {
+        if (this.disposed) throw new Error('처리를 중단했습니다. 다시 열어 저장된 단계부터 이어갈 수 있습니다.');
+        try {
+          response = await reviewApi.review(this.opts.resumeId, request);
+          break;
+        } catch (err) {
+          // The server's resume lock prevents a replay from starting another
+          // worker. Keep this exact request, including answers and its ID.
+          const recoverable = err instanceof ReviewApiError && (
+            err.code === 'transport_timeout' ||
+            err.statusCode === 409 && err.code === 'review_stage_busy' ||
+            err.statusCode === 504 && err.code === 'review_upstream_timeout'
+          );
+          if (!recoverable || recoveries++ >= 12 || this.disposed) throw err;
+          if (err.code !== 'review_stage_busy' && timeoutRecoveries++ >= 2) throw err;
+          this.processingLabel = '응답이 지연되고 있습니다 · 같은 요청의 저장된 처리부터 자동으로 이어갑니다';
+          this.notify();
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+      }
+      const job = response.async_job as Json | undefined;
+      if (job) {
+        if (Date.now() - pollingStarted > 30 * 60_000) throw new Error('처리가 오래 지연되고 있습니다. 저장된 처리 재개를 눌러 주세요.');
+        const labels: Record<string, string> = { analyze: '이력서 근거 분석 중', write: '수정안 작성 중', verify: '사실 검증 중' };
+        // 서버가 묶음별 진행을 알려 주면 실제 단계와 끝난 항목 수를 보여 준다(요청 하나로 끝까지 도는 첨삭)
+        const total = Number(job.total) || 0;
+        const progress = total > 0 ? ` · ${total}개 중 ${Number(job.done) || 0}개 끝` : '';
+        this.processingLabel = `${job.state === 'queued' ? '첨삭 작업 대기 중' : labels[String(job.stage)] ?? '첨삭 처리 중'}${progress} · ${Number(job.elapsed_seconds) || 0}초 경과`;
+        if (Array.isArray(job.preview_reviews)) {
+          this.previewReviews = job.preview_reviews.filter((v): v is Json => v !== null && typeof v === 'object');
+        }
+        this.setBusyStage(job.stage === 'verify' ? 3 : 2);
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        step--; // Polling is not a model stage and does not spend the stage limit.
+        continue;
+      }
       const execution = ((response.telemetry as Json | undefined)?.execution as Json | undefined);
       if (!execution || execution.state === 'verified') {
         this.retryableReview = false;
@@ -637,6 +694,7 @@ export class ReviewSession {
       stageIndex: staged ? stage : null,
       stageCount: staged ? steps.length : null,
       failed: this.error !== null,
+      editingResumeId: this.opts.generalReview ? this.opts.resumeId : this.tailoredResumeId,
     });
   }
 
@@ -702,6 +760,8 @@ export class ReviewSession {
       throw new Error('공고별 이력서를 준비하지 못했습니다. 다시 시도해 주세요.');
     }
     this.tailoredResumeId = tailoredId;
+    // 새 맞춤 이력서가 생겼다 — 편집기가 바로 잠그게 알린다
+    this.reportDock();
     this.preview = content as Json;
     const session = tailored.review_session;
     this.restoreSession(session !== null && typeof session === 'object' ? (session as Json) : {});
@@ -1561,17 +1621,20 @@ export class ReviewSession {
     }
     let activeSuggestionFieldPath: string | null = null;
     let activeSuggestionStage: number | null = null;
+    let activeSuggestion: Json | null = null;
     for (const m of [...this.messages].reverse()) {
       const suggestion = suggestionOf(m);
       if (suggestion !== null && this.isSuggestionPending(suggestion)) {
         activeSuggestionFieldPath = str(suggestion.field_path);
         activeSuggestionStage = typeof suggestion.stage === 'number' ? suggestion.stage : null;
+        activeSuggestion = suggestion;
         break;
       }
       const identity = identityOf(m);
       if (identity !== null && this.isSuggestionPending(identity)) {
         activeSuggestionFieldPath = str(identity.field_path);
         activeSuggestionStage = identity._kind === 'polish' ? 1 : 4;
+        activeSuggestion = identity;
         break;
       }
     }
@@ -1600,7 +1663,10 @@ export class ReviewSession {
       : activeStage !== null && activeStage > 0
         ? activeStage
         : 0;
-    return { activeQuestion, highlightedFieldPath, remainingQuestionCount, reviewCompleted, currentStage };
+    // 요건 보기로 옮겨 간 동안은 문장을 칠하지 않는다(그 요건의 섹션만)
+    const highlightedQuotes =
+      this.requirementFocusPath !== null ? [] : quotesOf(activeQuestion ?? activeSuggestion);
+    return { activeQuestion, highlightedFieldPath, highlightedQuotes, remainingQuestionCount, reviewCompleted, currentStage };
   }
 
   /** 그린 뒤에 부른다 — 원본은 build 에서 질문을 다 마쳤으면 누락 점검을 예약했다 */
@@ -1646,6 +1712,23 @@ function questionKey(question: Json): string {
 function isIdentityPlaceholderSuggestion(sentence: Json): boolean {
   const original = str(sentence.original_quote) ?? '';
   return original.includes('[회사명]') || original.includes('[직무명]');
+}
+
+/**
+ * 질문 · 수정안이 가리키는 원문 문장. 수정안은 original_quote, 질문은 quote · context.quote, 문장 다듬기 묶음은
+ * 줄마다 original_quote 를 둔다. 미리보기가 이 글을 그대로 찾아 칠하므로 너무 짧은 조각은 뺀다.
+ */
+export function quotesOf(payload: Json | null): string[] {
+  if (payload === null) return [];
+  const found: unknown[] = [payload.original_quote, payload.quote];
+  const context = payload.context;
+  if (context !== null && typeof context === 'object' && !Array.isArray(context)) found.push((context as Json).quote);
+  for (const value of Object.values(payload)) {
+    if (!Array.isArray(value)) continue;
+    for (const row of value) if (row !== null && typeof row === 'object') found.push((row as Json).original_quote);
+  }
+  const quotes = found.filter((q): q is string => typeof q === 'string').map((q) => q.trim()).filter((q) => q.length >= 6);
+  return [...new Set(quotes)];
 }
 
 /** 자기소개서는 문항별 카드로 보이므로 body · subtitle 어느 칸을 물어도 그 문항 카드에 맞춘다 */
