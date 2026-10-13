@@ -55,7 +55,7 @@ QUAL_DATE_FIELDS = (
 
 YT_URL = "https://www.googleapis.com/youtube/v3/search"
 YT_TTL = timedelta(hours=12)
-YT_VERSION = "v5"
+YT_VERSION = "v6"
 YT_MAX_QUERIES = 5
 YT_PER_QUERY = 25  # 쿼터는 검색 한 번에 100 — 개수와 무관. 제목 거르기 · 지난 영상 빼기를 하므로 넉넉히 받는다
 YT_SEEN_WEEKS = 8  # 이만큼 지난 주에 보여 준 영상은 뒤로 미룬다
