@@ -11,7 +11,6 @@ import {
 import { readApiError } from '../../data/http';
 import { askTutor, fetchTutorThread, resetTutorThread, type TutorQuestion, type TutorTurn } from '../../data/repository';
 import { Icon } from '../../ui/Icon';
-import { OPEN_CHATBOT_EVENT } from '../chatbot/ChatbotHost';
 import { useTutor, type TutorTarget } from './TutorContext';
 
 const LADDER = ['방향', '위치', '거의'];
@@ -27,7 +26,6 @@ function threadKey(t: TutorTarget | null) {
  * - 문제 튜터: 문제 셀은 3단계 힌트(방향 → 위치 → 거의). 「힌트 더」를 눌러야 단계가 오른다.
  *   정답 코드는 주지 않는다 — 「정답 알려 줘」는 문제 아래 「모범답안 보기」 규칙을 알려 준다.
  *   일반 코드 셀은 코드 · 오류 설명.
- * - 학습 도우미: 출결 · 공지 같은 LMS 질문은 챗봇으로 보낸다.
  *
  * 한도는 없다. 잡담은 서버가 LLM 없이 돌려보내고, 이어지면 잠시 멈춘다.
  */
@@ -121,7 +119,6 @@ export function TutorPanel() {
   const { height: sheetHeight, grip } = useSheetHeight(rootRef);
   const target = tutor?.target ?? null;
   const key = threadKey(target);
-  const [tab, setTab] = useState<'tutor' | 'helper'>('tutor');
   const [turns, setTurns] = useState<ViewTurn[]>([]);
   const [level, setLevel] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -177,7 +174,6 @@ export function TutorPanel() {
   const isOpen = Boolean(target);
   useEffect(() => {
     if (!isOpen) return;
-    setTab('tutor');
     inputRef.current?.focus();
   }, [isOpen]);
 
@@ -253,15 +249,9 @@ export function TutorPanel() {
         />
       )}
       <header className="tutor__head">
-        <div className="tutor__tabs" role="tablist">
-          <button type="button" role="tab" aria-selected={tab === 'tutor'} onClick={() => setTab('tutor')}>
+        <div className="tutor__title">
             <Icon name="school" size={17} />
             {isProblem ? '문제 튜터' : '코드 튜터'}
-          </button>
-          <button type="button" role="tab" aria-selected={tab === 'helper'} onClick={() => setTab('helper')}>
-            <Icon name="smart_toy" size={17} />
-            학습 도우미
-          </button>
         </div>
         <button
           type="button"
@@ -296,19 +286,6 @@ export function TutorPanel() {
         </div>
       )}
 
-      {tab === 'helper' ? (
-        <div className="tutor__helper">
-          <Icon name="smart_toy" size={36} />
-          <p>
-            출결 · 공지 · 과제 제출 같은 <strong>LMS 질문</strong>은 학습 도우미가 답해요.
-            <br />
-            코드 · 문제 질문은 「{isProblem ? '문제 튜터' : '코드 튜터'}」 탭에서 물어보세요.
-          </p>
-          <button type="button" className="btn btn--outline btn--sm" onClick={() => window.dispatchEvent(new Event(OPEN_CHATBOT_EVENT))}>
-            학습 도우미 열기
-          </button>
-        </div>
-      ) : (
         <>
           <div className="tutor__target">
             <strong>{target.label}</strong>
@@ -416,7 +393,6 @@ export function TutorPanel() {
             지금 코드 · 실행 결과{isProblem ? ' · 채점 결과' : ''}를 함께 보내요. 문제와 코드에 대한 질문만 받아요.
           </p>
         </>
-      )}
     </aside>
   );
 }

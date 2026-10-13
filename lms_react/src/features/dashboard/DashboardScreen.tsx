@@ -20,6 +20,7 @@ import { dateKeyOf } from '../../data/seed';
 import { toTime } from '../../utils/format';
 import { AttendanceColorVars, RecordTypeLabels, SubmissionStatusLabels } from '../../domain/constants';
 import type { Notice } from '../../domain/types';
+import { visibleNotices } from '../../domain/visibleNotices';
 import { StudentTargets } from '../../tour/targets';
 import { useTourTarget } from '../../tour/useTourTarget';
 import { Icon } from '../../ui/Icon';
@@ -43,7 +44,7 @@ import { TodayReviewCard } from '../practice/TodayReviewCard';
  * 프로필·마일리지 → 오늘 복습 → 출석·미션 → 공지·추천·설문 → 나머지 카드.
  */
 export function DashboardScreen() {
-  const notices = useNotices();
+  const notices = visibleNotices(useNotices());
   const [openNotice, setOpenNotice] = useState<Notice | null>(null);
 
   return (

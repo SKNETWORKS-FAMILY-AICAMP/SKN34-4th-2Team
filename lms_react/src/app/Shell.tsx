@@ -37,8 +37,8 @@ function RailItem({ item, selected, mini }: { item: NavItem; selected: boolean; 
 
 function RailSection({ section, location, mini }: { section: NavSection; location: string; mini: boolean }) {
   const hasSelected = section.items.some((i) => isNavSelected(location, i.path));
-  // 첫 화면에서는 모든 묶음을 펼쳐 둔다(학생 · 강사 · 관리자 모두). 접는 것은 사용자가 한다
-  const [open, setOpen] = useState(true);
+  // 묶음은 기본으로 접고, 현재 화면이 속한 묶음만 펼친다.
+  const [open, setOpen] = useState(hasSelected);
 
   // 지금 화면이 든 묶음은 접혀 있었어도 연다
   useEffect(() => {
@@ -58,7 +58,7 @@ function RailSection({ section, location, mini }: { section: NavSection; locatio
 
   return (
     <div className="rail__section">
-      <button type="button" className="rail__group" onClick={() => setOpen((v) => !v)}>
+      <button type="button" className="rail__group" aria-expanded={open || hasSelected} onClick={() => setOpen((v) => !v)}>
         <span>{section.title}</span>
         <Icon name={open ? 'expand_less' : 'expand_more'} size={18} />
       </button>

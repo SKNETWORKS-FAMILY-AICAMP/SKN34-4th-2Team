@@ -1,0 +1,84 @@
+/* 날짜별 복습 목록: 오답노트와 같은 제목·보조 글씨·카드 간격. */
+.lesson-days-board .review-subjects {
+  gap: 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+.lesson-days-board .review-subject {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.lesson-days-board .review-subject > summary {
+  gap: 4px 10px;
+  padding: 14px 16px;
+  background: color-mix(in srgb, var(--primary) 3%, var(--surface));
+}
+.lesson-days-board .review-subject > summary > strong {
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.lesson-days-board .review-subject__meta,
+.lesson-days-board .review-subject__score { font-size: 12px; }
+.lesson-days-board .review-days {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--divider);
+}
+.lesson-days-board .review-days .review-day {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: 'date progress actions' 'title title actions';
+  gap: 4px 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.lesson-days-board .review-days .review-day__date {
+  grid-area: date;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.lesson-days-board .review-days .review-day__title {
+  grid-area: title;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: normal;
+  overflow: visible;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.lesson-days-board .review-days .review-day__title .hint { font-size: 12px; font-weight: 400; }
+.lesson-days-board .review-days .review-day__progress {
+  grid-area: progress;
+  width: 150px;
+  max-width: 100%;
+  font-size: 12px;
+}
+.lesson-days-board .review-days .review-day__actions {
+  grid-area: actions;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.lesson-days-board .review-subject__foot { padding: 0 16px 12px; }
+@media (max-width: 640px) {
+  .lesson-days-board .review-subject > summary { padding: 14px 12px; }
+  .lesson-days-board .review-subject__meta { white-space: normal; }
+  .lesson-days-board .review-days { padding: 8px; }
+  .lesson-days-board .review-days .review-day {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: 'date progress' 'title title' 'actions actions';
+    padding: 14px 12px;
+  }
+  .lesson-days-board .review-days .review-day__actions { margin-top: 4px; }
+}

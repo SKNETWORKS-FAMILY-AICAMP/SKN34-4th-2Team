@@ -19,6 +19,7 @@ import type {
 } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { StudySourcesPanel } from '../study/StudySourcesPanel';
+import './adminStudyRoom.css';
 import {
   Button,
   Card,
@@ -50,6 +51,7 @@ export function AdminStudyRoomScreen() {
   const cohorts = useCohorts();
   const sources = useStudySources();
   const navigate = useNavigate();
+  const [tab, setTab] = useState<'sources' | 'packages' | 'videos'>('sources');
   // 저장소가 있는 첫 기수부터 — 없으면 첫 기수
   const [sourceCohort, setSourceCohort] = useState(
     () => sources.find((s) => s.cohortId)?.cohortId ?? cohorts[0]?.cohortId ?? '',
@@ -57,7 +59,22 @@ export function AdminStudyRoomScreen() {
 
   return (
     <div className="admin-page admin-page--wide study-admin">
-      <PageHeader title="학습실 관리" description="인프런 강의 패키지 · 관심사 YouTube 추천 · 수업 저장소를 관리합니다." />
+      <PageHeader title="학습실 관리" description="학생에게 제공할 수업 자료와 강의를 관리하세요." />
+      <div className="study-admin__tabs" role="tablist" aria-label="학습실 관리 항목">
+        {(['sources', 'packages', 'videos'] as const).map((key, index, keys) => (
+          <button key={key} type="button" role="tab" id={`study-admin-tab-${key}`}
+            aria-controls={`study-admin-panel-${key}`} aria-selected={tab === key} tabIndex={tab === key ? 0 : -1}
+            onClick={() => setTab(key)} onKeyDown={(event) => {
+              const next = event.key === 'ArrowRight' ? keys[(index + 1) % keys.length]
+                : event.key === 'ArrowLeft' ? keys[(index + keys.length - 1) % keys.length]
+                : event.key === 'Home' ? keys[0] : event.key === 'End' ? keys[keys.length - 1] : null;
+              if (next) { event.preventDefault(); setTab(next); document.getElementById(`study-admin-tab-${next}`)?.focus(); }
+            }}>
+            {{ sources: '수업 자료', packages: '강의 패키지', videos: '추천 영상' }[key]}
+          </button>
+        ))}
+      </div>
+      <section className="study-admin__panel" role="tabpanel" id="study-admin-panel-packages" aria-labelledby="study-admin-tab-packages" hidden={tab !== 'packages'}>
       <SectionHead
         title="인프런 강의 패키지"
         desc="인프런 강의 패키지를 등록하고 기수에 공개하세요."
@@ -69,6 +86,7 @@ export function AdminStudyRoomScreen() {
         }
       />
 
+      {packages.length === 0 && <p className="study-admin__empty">등록된 강의 패키지가 없습니다. 패키지를 등록하고 기수에 공개하세요.</p>}
       {packages.map((p) => (
         <div key={p.id} className="media-row">
           <button
@@ -101,9 +119,11 @@ export function AdminStudyRoomScreen() {
         </div>
       ))}
 
+      </section>
+      <section className="study-admin__panel" role="tabpanel" id="study-admin-panel-videos" aria-labelledby="study-admin-tab-videos" hidden={tab !== 'videos'}>
       <SectionHead
-        title="관심사 YouTube 추천"
-        desc="선택적 수동 큐레이션입니다. 학생 학습실 추천은 커리큘럼 주차 + YouTube API로 자동 표시됩니다."
+        title="추천 영상"
+        desc="직접 등록한 추천 영상을 관리합니다. 학생에게는 수업 진도에 맞춘 자동 추천도 함께 제공됩니다."
         action={
           <button type="button" className="btn btn--filled btn--md">
             <Icon name="add" size={18} />
@@ -112,6 +132,7 @@ export function AdminStudyRoomScreen() {
         }
       />
 
+      {videos.length === 0 && <p className="study-admin__empty">직접 등록된 추천 영상이 없습니다. 수업 진도에 따른 자동 추천은 학생 학습실에서 제공됩니다.</p>}
       {videos.map((v) => (
         <div key={v.id} className="media-row">
           <a className="media-row__main" href={v.youtubeUrl} target="_blank" rel="noreferrer">
@@ -137,10 +158,13 @@ export function AdminStudyRoomScreen() {
         </div>
       ))}
 
+      </section>
+      <section className="study-admin__panel" role="tabpanel" id="study-admin-panel-sources" aria-labelledby="study-admin-tab-sources" hidden={tab !== 'sources'}>
       <SectionHead
-        title="수업 저장소"
-        desc="기수에 GitHub 조직이나 강사 계정을 연결하면 저장소가 학생 공부방에 자동으로 올라갑니다. 올리지 않을 저장소는 숨기세요."
+        title="수업 자료"
+        desc="학생에게 공개할 저장소와 복습 문제 자동 출제를 관리하세요."
         action={
+          <label className="study-admin__cohort">수업 자료 관리 기수
           <Select
             id="admin-source-cohort"
             aria-label="기수"
@@ -153,9 +177,11 @@ export function AdminStudyRoomScreen() {
               </option>
             ))}
           </Select>
+          </label>
         }
       />
-      {sourceCohort !== '' && <StudySourcesPanel cohortId={sourceCohort} />}
+      {sourceCohort !== '' && <StudySourcesPanel cohortId={sourceCohort} compact />}
+      </section>
     </div>
   );
 }

@@ -67,6 +67,7 @@ interface PracticeTab {
   key: string;
   setId: string | null;
   focus: number;
+  focusRequest: number;
   note?: NoteCodeRequest;
 }
 
@@ -129,8 +130,10 @@ export function PracticeDockHost({ children }: { children: ReactNode }) {
     const key = note ? `note:${note.noteId}` : (setId ?? 'free');
     setTabs((current) => {
       // 같은 노트면 새 탭 대신 그 탭에 이번 코드를 덧붙인다
-      if (current.some((t) => t.key === key)) return note ? current.map((t) => (t.key === key ? { ...t, note } : t)) : current;
-      const next = [...current, { key, setId: note ? null : setId, focus, note }];
+      if (current.some((t) => t.key === key)) return current.map((t) => t.key === key
+        ? { ...t, ...(note ? { note } : {}), ...(focus > 0 ? { focus, focusRequest: t.focusRequest + 1 } : {}) }
+        : t);
+      const next = [...current, { key, setId: note ? null : setId, focus, focusRequest: 0, note }];
       if (next.length <= MAX_TABS) return next;
       // 가장 먼저 연 탭을 닫는다. 탭마다 파이썬이 따로 떠서 많이 열면 브라우저가 무거워진다
       setNotice(`탭은 ${MAX_TABS}개까지 열 수 있어요. 가장 먼저 연 탭을 닫았어요.`);
@@ -224,7 +227,7 @@ export function PracticeDockHost({ children }: { children: ReactNode }) {
                 {!tabs.some((t) => t.key === 'free') && (
                   <button type="button" className="pd-tab pd-tab--add" onClick={() => open({ setId: null })} title="연습장 열기">
                     <Icon name="add" size={16} />
-                    연습장
+                    자유 연습장
                   </button>
                 )}
               </div>
@@ -236,6 +239,7 @@ export function PracticeDockHost({ children }: { children: ReactNode }) {
                         <EmbeddedPlayground
                           setId={tab.setId}
                           focusProblem={tab.focus}
+                          focusRequest={tab.focusRequest}
                           note={tab.note}
                           active={!minimized && tab.key === shown?.key}
                         />

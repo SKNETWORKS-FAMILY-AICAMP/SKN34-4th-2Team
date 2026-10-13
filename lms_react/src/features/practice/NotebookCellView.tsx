@@ -19,19 +19,23 @@ export function NotebookCellView({
   total,
   nb,
   mode,
+  focused = false,
+  onNext,
 }: {
   cell: Cell;
   index: number;
   total: number;
   nb: Notebook;
   mode: PracticeSetMode;
+  focused?: boolean;
+  onNext?: () => void;
 }) {
-  if (cell.type === 'problem') return <ProblemCellRow cell={cell} nb={nb} mode={mode} />;
+  if (cell.type === 'problem') return <ProblemCellRow cell={cell} nb={nb} mode={mode} focused={focused} onNext={onNext} />;
   return <CodeOrMarkdownCell cell={cell} index={index} total={total} nb={nb} />;
 }
 
 /** 복습 세트의 문제 셀 — 풀이는 ProblemCell 이, 실행·채점은 노트북의 대기열이 맡는다. */
-function ProblemCellRow({ cell, nb, mode }: { cell: Cell; nb: Notebook; mode: PracticeSetMode }) {
+function ProblemCellRow({ cell, nb, mode, focused, onNext }: { cell: Cell; nb: Notebook; mode: PracticeSetMode; focused: boolean; onNext?: () => void }) {
   const index = cell.problemIndex ?? 0;
   const problem = mode.set?.problems[index];
   const tutor = useTutor();
@@ -94,11 +98,11 @@ function ProblemCellRow({ cell, nb, mode }: { cell: Cell; nb: Notebook; mode: Pr
           }}
           onFocus={() => nb.setActiveId(cell.id)}
           focusSignal={nb.focusSignalOf(cell.id)}
-          onRunAndNext={() => nb.focusNext(cell.id)}
+          onRunAndNext={onNext ?? (() => nb.focusNext(cell.id))}
           markedLines={marked}
           tutorReader={reader}
           onAskTutor={
-            tutor && target
+            tutor && target && !focused
               ? () => {
                   nb.setActiveId(cell.id);
                   tutor.open(target());
@@ -106,7 +110,7 @@ function ProblemCellRow({ cell, nb, mode }: { cell: Cell; nb: Notebook; mode: Pr
               : undefined
           }
         />
-        <div className="pb__below">
+        {!focused && <div className="pb__below">
           <button
             type="button"
             className="py-icon-btn"
@@ -116,7 +120,7 @@ function ProblemCellRow({ cell, nb, mode }: { cell: Cell; nb: Notebook; mode: Pr
           >
             <Icon name="add" size={16} />
           </button>
-        </div>
+        </div>}
       </div>
     </article>
   );

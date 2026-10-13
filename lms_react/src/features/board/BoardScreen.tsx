@@ -11,6 +11,7 @@ import {
   usePosts,
 } from '../../data/repository';
 import type { Notice, Post } from '../../domain/types';
+import { visibleNotices } from '../../domain/visibleNotices';
 import { StudentTargets } from '../../tour/targets';
 import { useTourTarget } from '../../tour/useTourTarget';
 import {
@@ -59,7 +60,7 @@ export function BoardScreen() {
 }
 
 function NoticesTab() {
-  const notices = useNotices();
+  const notices = visibleNotices(useNotices());
   const ref = useTourTarget(StudentTargets.boardNotices);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<Notice | null>(null);

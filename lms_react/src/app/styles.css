@@ -7318,8 +7318,15 @@ body:has(.coach-ask:not([hidden], [hidden] .coach-ask)) .chatbot-launcher {
   font-weight: 700;
 }
 
+.resume-others__scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
 .resume-others__table {
   margin-bottom: 6px;
+  min-width: 900px;
+  table-layout: fixed;
 }
 
 .resume-others__table th,
@@ -7329,6 +7336,18 @@ body:has(.coach-ask:not([hidden], [hidden] .coach-ask)) .chatbot-launcher {
 
 .resume-others__link {
   font-weight: 600;
+}
+
+.resume-others__link,
+.resume-others__child-title {
+  min-width: 0;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+.resume-others__table th:not(:first-child),
+.resume-others__table td:not(:first-child) {
+  white-space: nowrap;
 }
 
 .resume-others__link:hover {
@@ -10980,7 +10999,8 @@ a.coach-ask__card-title:hover {
 }
 
 .resume-others__name {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -11696,6 +11716,17 @@ a.coach-ask__card-title:hover {
   display: flex;
   gap: 6px;
   margin-left: auto;
+}
+
+.tutor__title {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 8px;
+  padding: 14px 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--primary);
 }
 
 .tutor__tabs {
