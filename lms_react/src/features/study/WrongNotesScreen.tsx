@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
 import { usePageCrumbs } from '../../app/crumbs';
 import { RoutePaths } from '../../app/routePaths';
@@ -16,7 +16,7 @@ import './wrongNotes.css';
 /**
  * 오답노트 — 복습에서 틀린 문제를 수업 날짜별로 모은다(학습실 › 오답노트).
  *
- * 못 푼 문제는 「이날 다시 풀기」로 그날 것만, 「전체 다시 풀기」로 모두 연습장(창)에 연다.
+ * 못 푼 문제는 날짜 카드의 「다시 풀기」로 그날 것만, 「전체 다시 풀기」로 모두 연습장(창)에 연다.
  * 대시보드의 「지난번에 틀린 문제」와 달리 오늘 틀린 것도 바로 모은다 — 여기는 학생이 날짜를 골라 들어오는 곳이다.
  * 다시 풀어 통과하면 원래 세트에 통과로 남고 「해결한 문제」로 옮겨진다.
  */
@@ -91,26 +91,32 @@ export function WrongNotesScreen() {
 }
 
 function WrongDay({ day, showSolved }: { day: WrongNoteDay; showSolved: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const listId = useId();
   const solved = showSolved ? day.solved : [];
   return (
     <section className="wrong-day" aria-label={`${dayText(day.date)} 오답`}>
       <header className="wrong-day__head">
-        <div className="wn-day-info">
+        <button type="button" className="wn-day-toggle" aria-expanded={expanded} aria-controls={listId}
+          onClick={() => setExpanded((value) => !value)}>
+          <Icon name={expanded ? 'expand_less' : 'expand_more'} size={20} />
+        <span className="wn-day-info">
           <span className="wrong-day__date"><Icon name="calendar_today" size={15} />{dayText(day.date)}</span>
-          <h2 className="wrong-day__title">{day.sets.map(setLabel).join(' / ')}</h2>
+          <strong className="wrong-day__title">{day.sets.map(setLabel).join(' / ')}</strong>
           <span className="wrong-day__count">
             {day.wrong.length > 0 && <span className="wrong-day__wrong">다시 풀 문제 {day.wrong.length}개</span>}
             {day.solved.length > 0 && <span>해결 {day.solved.length}개</span>}
           </span>
-        </div>
+        </span>
+        </button>
         {day.wrong.length > 0 && (
           <PracticeLink className="btn btn--outline btn--sm" setId={retryDateId(day.date)}>
-            이날 다시 풀기
+            다시 풀기
             <Icon name="arrow_forward" size={16} />
           </PracticeLink>
         )}
       </header>
-      <ul className="wrong-list">
+      <ul className="wrong-list" id={listId} hidden={!expanded}>
         {day.wrong.map((item, k) => (
           <li key={`${item.set.id}:${item.index}`}>
             {/* 그날 오답 세트를 이 문제 자리로 연다 — 세트 안 순서가 곧 k */}

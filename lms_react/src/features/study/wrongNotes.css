@@ -17,18 +17,24 @@
 .wn-review .wrong-summary__toggle { margin: 0; gap: 8px; }
 .wn-review .wrong-summary__toggle input { width: 16px; height: 16px; accent-color: var(--primary); }
 .wn-review .btn { white-space: nowrap; }
-.wn-review .wrong-days { gap: 20px; }
+.wn-review .wrong-days { gap: 12px; }
 .wn-review .wrong-day { border-radius: 12px; }
 .wn-review .wrong-day__head {
-  padding: 18px 20px;
-  gap: 16px;
+  padding: 10px 16px;
+  gap: 12px;
+  border-bottom: 0;
   background: color-mix(in srgb, var(--primary) 3%, var(--surface));
 }
-.wn-day-info { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.wn-day-toggle { display: flex; align-items: center; gap: 10px; flex: 1 1 260px; min-width: 0; padding: 4px 0; border: 0; background: transparent; color: var(--text-primary); font: inherit; text-align: left; cursor: pointer; }
+.wn-day-toggle > .icon { flex-shrink: 0; color: var(--text-secondary); }
+.wn-day-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; border-radius: 4px; }
+.wn-day-info { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
 .wn-review .wrong-day__date { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; }
 .wn-review .wrong-day__title {
   margin: 0;
-  font-size: 16px;
+  flex-basis: 100%;
+  order: 1;
+  font-size: 14px;
   line-height: 1.5;
   white-space: normal;
   overflow: visible;
@@ -38,6 +44,8 @@
 .wn-review .wrong-day__count { gap: 12px; font-size: 12px; }
 .wn-review .wrong-day__wrong { color: var(--primary); }
 .wn-review .wrong-list { padding: 0 8px; }
+.wn-review .wrong-list[hidden] { display: none; }
+.wn-review .wrong-list:not([hidden]) { border-top: 1px solid var(--divider); }
 .wn-review .wrong-list > li + li { border-top: 1px solid var(--divider); }
 .wn-review .wrong-item {
   grid-template-columns: 28px auto minmax(0, 1fr) auto;
@@ -70,7 +78,7 @@
   .wn-review .wrong-summary { padding: 16px; gap: 16px; }
   .wn-stats { flex-basis: 100%; }
   .wn-review .wrong-summary > .btn { width: 100%; justify-content: center; }
-  .wn-review .wrong-day__head { padding: 16px; gap: 12px; }
+  .wn-review .wrong-day__head { padding: 10px 12px; gap: 8px; }
   .wn-review .wrong-item { grid-template-columns: 22px auto minmax(0, 1fr); grid-template-areas: 'mark no kind' 'mark topic topic' 'mark meta meta' 'mark action action'; padding: 14px 8px; }
   .wn-item-action { justify-self: end; }
 }
