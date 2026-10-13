@@ -102,8 +102,10 @@ def validate_intents(request, extracted):
         if c.id in new_ids:
             source = sources.get(c.source_id) if c.source_type == 'resume_text' else (
                 request.answer if c.source_id == request.answer_source_id else None)
-            if source is None or not _exact_source_quote(source, c.evidence_quote):
+            exact = _exact_source_quote(source, c.evidence_quote) if source is not None else None
+            if not exact:
                 raise ContractError('intent quote absent from source')
+            c.evidence_quote = exact  # Same as facts: downstream sees the source's own text.
         claims[c.id] = c
     if len({c.id for c in extracted}) != len(extracted):
         raise ContractError('duplicate extracted intent')

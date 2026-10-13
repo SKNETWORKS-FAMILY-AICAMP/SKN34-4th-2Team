@@ -59,9 +59,27 @@ def normalize_confirmed_answer(text):
     return cleaned
 
 
+# 공고 제목 끝의 모집 문구. 실제 사람인 · 잡코리아 제목 2만 건에서 직무명 뒤에 남던 것들(2026-10-13):
+# 찾습니다 · 구합니다 · 채용 공고입니다 · 모집해요 · 함께해요 · 모셔요 · 기다립니다 · 충원합니다 · 뽑습니다 …
 _RECRUITING_TITLE_SUFFIX = re.compile(
-    r'\s*(?:을|를)?\s*(?:찾고\s*있(?:어요|습니다)|모십니다|모집합니다|채용합니다|채용|모집)\s*[.!]?$',
+    r'\s*(?:을|를)?\s*(?:'
+    r'(?:채용|모집|구인|충원)\s*(?:공고)?\s*(?:입니다|합니다|해요|중(?:이에요|입니다)?|하고\s*있(?:어요|습니다))?'
+    r'|공고입니다'
+    r'|찾(?:습니다|아요|고\s*있(?:어요|습니다))'
+    r'|구(?:합니다|해요)'
+    r'|모(?:십니다|셔요|시고\s*있(?:어요|습니다))'
+    r'|뽑(?:습니다|아요)'
+    r'|기다(?:립니다|려요)'
+    r'|함께\s*(?:해요|합니다|성장해요)'
+    r'|지원해\s*주세요'
+    r')\s*[.!~]*$',
     re.IGNORECASE,
+)
+# 모집 문구를 뗀 뒤 끝에 남는 경력 구분과 호칭: "웹디자이너 경력직", "프리랜서 웹 디자이너분", "품질검사 하실분"
+_CAREER_TERM = r'(?:신입|경력(?:직)?)'
+_RECRUITING_TRAILING_TERMS = re.compile(
+    rf'(?:[\s/·,]+{_CAREER_TERM}(?:\s*(?:및|또는|[/·&,])\s*{_CAREER_TERM})*'  # 신입 · 경력직 · 신입 및 경력
+    r'|\s*(?:하실|할|일할)\s*분|(?<=[자너원사가])분)\s*$'  # 개발자분 · 디자이너분 · 직원분, 「부분」 「구분」은 아니다
 )
 _RECRUITING_CONDITION_BRACKET = re.compile(
     r'[\(\[【][^()\[\]【】]*(?:신입|경력|주니어|시니어|인턴|정규직|계약직|채용|모집|무관|이상|년차|'
@@ -83,6 +101,50 @@ def _has_final_consonant(text):
     return bool(match and (ord(match.group()) - ord('가')) % 28)
 
 
+_PARTICLE_PAIRS = {'은': ('은', '는'), '는': ('은', '는'), '이': ('이', '가'), '가': ('이', '가'),
+                   '을': ('을', '를'), '를': ('을', '를'), '과': ('과', '와'), '와': ('과', '와')}
+
+
+def _attach_particle(word, particle):
+    """'(주)스마트에이아이연구소' + 은 → '…연구소는'; 으로/로 follows the ㄹ rule."""
+    if particle in ('으로', '로'):
+        last = str(word or '').strip()[-1:]
+        rieul = bool(last and '가' <= last <= '힣' and (ord(last) - ord('가')) % 28 == 8)
+        return f"{word}{'로' if not _has_final_consonant(word) or rieul else '으로'}"
+    pair = _PARTICLE_PAIRS.get(particle)
+    if not pair:
+        return f'{word}{particle}'
+    return f"{word}{pair[0] if _has_final_consonant(word) else pair[1]}"
+
+
+_IDENTITY_PARTICLE = r'(?:(?P<particle>으로|은|는|이|가|을|를|로|과|와)(?![가-힣]))?'  # not 「이라는」 「으로서」
+
+
+COMPANY_PLACEHOLDER = r'\[(?:회사명|회사)\]'
+ROLE_PLACEHOLDER = r'\[(?:직무명|직무)\]'
+
+
+def fill_job_identity(text, job_source):
+    """[회사명] · [직무명] ([회사] · [직무]) in a v2 suggestion → the selected posting's company and role.
+
+    Company and role are posting facts, not resume facts, so filling them after
+    verification adds no claim. Other placeholders ([서비스명] …) have no source
+    and stay for the student. The following particle is fitted to the new word.
+    """
+    if not text or not job_source or not re.search(f'{COMPANY_PLACEHOLDER}|{ROLE_PLACEHOLDER}', text):
+        return text
+    company = str(job_source.get('company') or '').strip()
+    title = str(job_source.get('role_title') or '').strip() or job_role_title(company, job_source.get('title'))
+    if company and title:
+        text = re.sub(COMPANY_PLACEHOLDER + r'\s*의\s*' + ROLE_PLACEHOLDER + _IDENTITY_PARTICLE,
+            lambda m: f"{company}의 " + (_job_role_with_particle(title, m.group('particle')) if m.group('particle') else title), text)
+    for placeholder, value in ((COMPANY_PLACEHOLDER, company), (ROLE_PLACEHOLDER, title)):
+        if value:
+            text = re.sub(placeholder + _IDENTITY_PARTICLE,
+                lambda m, v=value: _attach_particle(v, m.group('particle')) if m.group('particle') else v, text)
+    return text
+
+
 def _job_role_with_particle(role, particle):
     """Attach a natural Korean particle to a selected-job role title."""
     has_batchim = _has_final_consonant(role)
@@ -100,6 +162,20 @@ def _job_role_with_particle(role, particle):
     return f'{role}{particle}'
 
 
+def _after_together_modifier(role):
+    """「제품을 함께 키워갈 개발자」 → 「개발자」. 함께 뒤 ㄹ 관형어(할 · 갈 · 일할 · 성장할)까지는 직무가 아니다."""
+    words = role.split()
+    for i in range(len(words) - 1, -1, -1):
+        if not words[i].startswith('함께'):
+            continue
+        for j in (i, i + 1):
+            last = words[j][-1:] if j < len(words) else ''
+            if last and '가' <= last <= '힣' and (ord(last) - ord('가')) % 28 == 8 and j + 1 < len(words):
+                return ' '.join(words[j + 1:])
+        break
+    return role
+
+
 def job_role_title(company, posting_title):
     """사람인 전체 공고 제목에서 이력서에 넣을 실제 직무명만 추린다."""
     company = str(company or '').strip()
@@ -115,7 +191,14 @@ def job_role_title(company, posting_title):
     # "(신입)", "(경력 3년 이상)", "[서울]"처럼 모집 조건을 담은 괄호는 직무명이 아니다. 그대로 두면
     # "공공 SI 사업 Java 개발자 (신입)에 지원하게 되었습니다"가 된다(2026-09-14 목업 첨삭).
     role = _RECRUITING_CONDITION_BRACKET.sub(' ', role)
-    role = _RECRUITING_TITLE_SUFFIX.sub('', role)
+    # "경력 채용 공고입니다"처럼 겹쳐 붙으므로 더 떼어 낼 것이 없을 때까지
+    while True:
+        stripped = _RECRUITING_TRAILING_TERMS.sub('', _RECRUITING_TITLE_SUFFIX.sub('', role))
+        stripped = re.sub(r'[\s|·:/_,-]+$', '', stripped)
+        if stripped == role or not stripped:
+            break
+        role = stripped
+    role = _after_together_modifier(role)
     role = re.sub(r'^[\s|·:/_-]+|[\s|·:/_-]+$', '', role)
     # 붙여 쓰인 대표 직무 표기는 이력서에서 읽기 좋은 형태로 통일한다.
     role = re.sub(r'(?i)(AI|ML|IT)\s*(엔지니어|개발자)', r'\1 \2', role)

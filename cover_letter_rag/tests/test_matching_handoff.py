@@ -499,3 +499,50 @@ def test_question_workflow_proxy_rewrites_one_question_with_saved_plan(store):
         assert ok.json()['only'] == 'cq1' and ok.json()['coverage'] is None
         assert client.post('/api/v1/resumes/question-workflow/proxy', json={**body, 'only': 'nope'}).status_code == 422
     finally: app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize('company, title, role', [
+    ('(주)스마트에이아이연구소', '(주)스마트에이아이연구소와 AI AGENT 서비스 개발자 함께해요', 'AI AGENT 서비스 개발자'),
+    ('', '병원 및 로펌 유튜브 콘텐츠 크리에이터 찾습니다', '병원 및 로펌 유튜브 콘텐츠 크리에이터'),
+    ('', '프로젝트 매니저(PM) 경력 채용 공고', '프로젝트 매니저(PM)'),
+    ('', 'R&D 연구원 경력 채용 공고입니다.', 'R&D 연구원'),
+    ('', '실내디자이너를 모집해요', '실내디자이너'),
+    ('', '[토스씨엑스] IT Manager 채용 중', '[토스씨엑스] IT Manager'),
+    ('', '개발이 좋아 시작한 신입 개발자를 기다립니다', '개발이 좋아 시작한 신입 개발자'),
+    ('', '암 연구를 AI Agent로 혁신하는 제품을 함께 키워갈 개발자를 찾습니다', '개발자'),
+    ('', '함께일하실 인테리어 디자이너', '인테리어 디자이너'),
+    ('', '[기획팀] 소셜/캠페인 기획자(AE)/신입 및 경력', '[기획팀] 소셜/캠페인 기획자(AE)'),
+    ('', '[ ] 소프트웨어 B2B 영업사원 채용 / 경력', '[ ] 소프트웨어 B2B 영업사원'),
+    ('', '프리랜서 웹 디자이너분', '프리랜서 웹 디자이너'),
+    ('', '데이터 엔지니어(Python)', '데이터 엔지니어(Python)'),
+    ('', '석촌역 도보 2분 콘텐츠 마케터 2분', '석촌역 도보 2분 콘텐츠 마케터 2분'),  # 숫자 뒤 「분」은 호칭이 아니다
+])
+def test_recruiting_phrases_are_removed_from_role_title(company, title, role):
+    assert job_role_title(company, title) == role
+
+
+@pytest.mark.parametrize('text, filled', [
+    ('[회사명]의 [서비스]에 근거 있는 AI 기능을 붙이고 싶습니다.',
+     '(주)스마트에이아이연구소의 [서비스]에 근거 있는 AI 기능을 붙이고 싶습니다.'),
+    ('[회사명]은 AI 기능을 키우고 있습니다.', '(주)스마트에이아이연구소는 AI 기능을 키우고 있습니다.'),
+    ('[회사명]의 [직무명]으로 성장하겠습니다.', '(주)스마트에이아이연구소의 AI AGENT 서비스 개발자로 성장하겠습니다.'),
+    ('[직무명]을 지원했습니다.', 'AI AGENT 서비스 개발자를 지원했습니다.'),
+    ('[회사명]이라는 이름', '(주)스마트에이아이연구소이라는 이름'),  # 「이라는」은 조사 하나가 아니라 손대지 않는다
+    ('자리표시 없는 문장', '자리표시 없는 문장'),
+    ('[직무]에서 요구하는 역량', 'AI AGENT 서비스 개발자에서 요구하는 역량'),  # 원본 이력서가 쓰는 짧은 표기
+    ('[회사]의 [직무]로 일하고 싶습니다.', '(주)스마트에이아이연구소의 AI AGENT 서비스 개발자로 일하고 싶습니다.'),
+])
+def test_v2_suggestion_fills_posting_identity(text, filled):
+    from app.review_workflow import fill_job_identity
+    source = {'company': '(주)스마트에이아이연구소', 'title': '(주)스마트에이아이연구소와 AI AGENT 서비스 개발자 함께해요'}
+    assert fill_job_identity(text, source) == filled
+
+
+def test_unapproved_field_gets_placeholder_only_edits():
+    from app.resume_review_runtime import identity_reviews
+    text = '[회사명]에서 믿고 쓸 수 있는 AI 기능을 만들겠습니다. 장기적으로는 [회사명]의 AI 기능을 평가하겠습니다. [서비스명]은 그대로입니다.'
+    source = {'company': '(주)스마트에이아이연구소', 'title': 'AI AGENT 서비스 개발자 함께해요'}
+    reviews = identity_reviews('selfIntroduction.aspiration.body', text, source)
+    assert [(r.original_quote, r.suggested_revision) for r in reviews] == [
+        ('[회사명]에서', '(주)스마트에이아이연구소에서'), ('[회사명]의', '(주)스마트에이아이연구소의')]
+    assert all(text.count(r.original_quote) == 1 and r.status == 'formatting' for r in reviews)

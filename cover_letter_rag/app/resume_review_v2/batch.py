@@ -1,6 +1,10 @@
 """Local site batch orchestration; preserves the per-experience v2 validators."""
+import copy
+import os
 import time
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pydantic import ConfigDict, create_model
 from .llm import LangChainReviewLLM
 from .engine import _add_usage, trace_review, unwritten_validation, failed_preparation
@@ -9,6 +13,28 @@ from .models import (AnalystOutput, WriterOutput, FactVerification, ReviewResult
 from .validation import validate_candidate, ContractError
 from .policy import BATCH_POLICY
 from .project_planning import prepare_review
+
+
+# Experiences per LLM request and concurrent requests per stage (11-12 experiences → 6 requests).
+# RESUME_REVIEW_CHUNK_SIZE=100 restores the former single request per stage.
+CHUNK_SIZE = max(1, int(os.environ.get('RESUME_REVIEW_CHUNK_SIZE') or 2))
+MAX_PARALLEL = 6
+# Process-wide cap on in-flight review requests. One review fits exactly; a second
+# concurrent review waits for a slot instead of tripping the tokens-per-minute limit
+# (2 workers x 6 x ~12k tokens/min stays under 200k TPM).
+LLM_SLOTS = threading.BoundedSemaphore(int(os.environ.get('RESUME_REVIEW_MAX_CONCURRENCY') or 6))
+RATE_LIMIT_RETRIES = 2
+
+
+def configured_stage_efforts():
+    """Analyze at low effort by default; Writer and Verifier keep the configured effort.
+
+    Three paired runs (2026-10-13, two postings): analyze 96s → 59s, output tokens −22%,
+    READY 8.3 → 8.0 and the same questions where it mattered (students see at most 3).
+    Lowering Writer too added contract failures and rejections. RESUME_REVIEW_ANALYZE_EFFORT=medium restores.
+    """
+    effort = (os.environ.get('RESUME_REVIEW_ANALYZE_EFFORT') or 'low').strip()
+    return {'analyze': effort}
 
 
 class StageBoundary(Exception):
@@ -38,14 +64,40 @@ class BatchReviewEngine:
         self.stage_limited = stage_limited
         self.request_calls = 0
         self.checkpoint = {}
+        self._lock = threading.RLock()
+        self.chunk_size = CHUNK_SIZE
+        # Reasoning effort per stage ('analyze' / 'write' / 'verify'); unset stages use reasoning_effort.
+        self.stage_efforts = {}
+        self._writer = threading.Lock()
+        self._progress_version = self._written_version = 0
+        self.llm_window = None  # (first request start, last request end) in this HTTP request, for timing logs
 
-    def _progress(self):
-        self.checkpoint.update(usage=self.usage.model_dump(), stages=self.stages,
-                               attempted_calls=self.attempted_calls)
-        if self.on_progress:
-            self.on_progress(dict(self.usage.model_dump(), stages=self.stages,
-                                  attempted_calls=self.attempted_calls,
-                                  stage_checkpoint=self.checkpoint))
+    def _progress(self, wait=True):
+        """Record bookkeeping and persist it through on_progress.
+
+        A write is a DB round trip (seconds from a dev PC to RDS). Chunks must not queue
+        behind each other's writes, so concurrent calls coalesce: one writer at a time
+        sends the newest state, and wait=False returns at once while another writes.
+        Callers that must be durable (stage end, single-threaded paths) wait.
+        """
+        with self._lock:
+            self.checkpoint.update(usage=self.usage.model_dump(), stages=self.stages,
+                                   attempted_calls=self.attempted_calls)
+            self._progress_version += 1
+        if not self.on_progress:
+            return
+        while self._writer.acquire(blocking=wait):
+            try:
+                with self._lock:
+                    if self._written_version == self._progress_version:
+                        return
+                    version = self._progress_version
+                    state = copy.deepcopy(dict(self.usage.model_dump(), stages=self.stages,
+                        attempted_calls=self.attempted_calls, stage_checkpoint=self.checkpoint))
+                self.on_progress(state)
+                self._written_version = version
+            finally:
+                self._writer.release()
 
     def _save_states(self, states, completed):
         for state in states.values():
@@ -102,6 +154,7 @@ class BatchReviewEngine:
             extracted_evidence=[e[x.evidence_id] for x in a.extracted_evidence],
             selected_evidence=[e[eid] for eid in p.core_evidence_ids + p.supporting_evidence_ids],
             omitted_evidence=p.omitted_evidence, plan=p, proposed_question=a.question,
+            spelling_fixes=r.spelling_fixes,
             candidate=candidate, validation=v, usage=Usage(),
             debug_trace={**trace_review(r, e, p, w, v, s['attempts']),
                          'writer_attempts': s['write_count'],
@@ -110,9 +163,40 @@ class BatchReviewEngine:
                          **({'extraction_failure':s['extraction_failure']} if s.get('extraction_failure') else {})}, **s['planning'])
 
     def _batch(self, method, items):
+        """One stage over many experiences, split into concurrent requests.
+
+        Generation time follows output length, so one envelope for 11-12
+        experiences took 120-220s and crossed the 165s request budget on slow
+        API hours. Experiences are analyzed independently; only the shared job
+        context is repeated per chunk. The whole group counts as one stage.
+        """
         if not items:
             return {}
-        from langchain_openai import ChatOpenAI
+        keys = list(items)
+        size = self.chunk_size
+        chunks = [{k: items[k] for k in keys[i:i + size]} for i in range(0, len(keys), size)]
+        prepared = [self._prepare(method, chunk) for chunk in chunks]
+        stage_outputs = self.checkpoint.get('stage_outputs', {})
+        if self.stage_limited and self.request_calls and any(p[-1] not in stage_outputs for p in prepared):
+            raise StageBoundary()
+        try:
+            if len(chunks) == 1:
+                return self._call_once(method, chunks[0], prepared[0])
+            rows, failure = {}, None
+            with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL, len(chunks))) as pool:
+                futures = [pool.submit(self._call_once, method, c, p) for c, p in zip(chunks, prepared)]
+                for future in futures:
+                    try:
+                        rows.update(future.result())
+                    except Exception as exc:  # Finished chunks stay in stage_outputs for the retry.
+                        failure = failure or exc
+            if failure:
+                raise failure
+            return rows
+        finally:
+            self._progress()  # Durable output, including every finished chunk, before control leaves this stage.
+
+    def _prepare(self, method, items):
         collector = LangChainReviewLLM.__new__(LangChainReviewLLM)
         captured = []
         collector._call = lambda system, payload, schema: captured.append((system, payload, schema))
@@ -127,49 +211,81 @@ class BatchReviewEngine:
         payload = shared_context_payload(captured)
         from app.review_workflow import digest
         stage_key = digest([method, payload])
-        cached = self.checkpoint.get('stage_outputs', {}).get(stage_key)
-        if cached:
-            result_type = WriterOutput if method == 'write' else schema
-            return {key: result_type.model_validate(row) for key, row in cached.items()}
-        if self.stage_limited and self.request_calls:
-            raise StageBoundary()
-        remaining = self.deadline - time.monotonic()
-        if remaining <= 0:
+        return captured, schema, envelope, original_payload, payload, stage_key
+
+    def _request(self, stage, system, payload, envelope):
+        """One LLM request inside a process-wide slot; rate limits wait and retry within the budget."""
+        from langchain_openai import ChatOpenAI
+        from openai import RateLimitError
+        if not LLM_SLOTS.acquire(timeout=max(0.0, self.deadline - time.monotonic())):
             raise TimeoutError('local_review_deadline_exceeded')
-        client = LangChainReviewLLM.__new__(LangChainReviewLLM)
-        client.model = ChatOpenAI(model=self.model_name, reasoning_effort=self.reasoning,
-            use_responses_api=True, max_retries=0, timeout=remaining)
-        client.attempted_calls, client.recorded_usage = 0, Usage()
-        self.attempted_calls += 1
-        self.request_calls += 1
-        started = time.monotonic()
-        stage = {'stage': method, 'items': len(items), 'status': 'running',
-            'budget_at_start_ms': round(remaining * 1000),
-            'payload_before_bytes': len(json.dumps(original_payload, ensure_ascii=False).encode()),
-            'payload_bytes': len(json.dumps(payload, ensure_ascii=False).encode())}
-        self.stages.append(stage)
-        self._progress()
         try:
-            result, usage = client._call(captured[0][0] +
-                '\n' + BATCH_POLICY,
-                payload, envelope)
-            _add_usage(self.usage, usage)
-            stage.update(status='complete', **usage.model_dump())
+            for attempt in range(RATE_LIMIT_RETRIES + 1):
+                remaining = self.deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError('local_review_deadline_exceeded')
+                client = LangChainReviewLLM.__new__(LangChainReviewLLM)
+                client.model = ChatOpenAI(model=self.model_name,
+                    reasoning_effort=self.stage_efforts.get(stage['stage'], self.reasoning),
+                    use_responses_api=True, max_retries=0, timeout=remaining)
+                client.attempted_calls, client.recorded_usage = 0, Usage()
+                try:
+                    return client._call(system, payload, envelope)
+                except RateLimitError:
+                    pause = 2 ** (attempt + 1)
+                    # Keep enough budget for the retried request itself.
+                    if attempt == RATE_LIMIT_RETRIES or self.deadline - time.monotonic() < pause + 30:
+                        raise
+                    with self._lock:
+                        stage['rate_limit_retries'] = attempt + 1
+                    time.sleep(pause)
+        finally:
+            LLM_SLOTS.release()
+
+    def _call_once(self, method, items, prepared):
+        captured, schema, envelope, original_payload, payload, stage_key = prepared
+        # Chunks run on worker threads; shared bookkeeping and progress writes are serialized.
+        with self._lock:
+            cached = self.checkpoint.get('stage_outputs', {}).get(stage_key)
+            if cached:
+                result_type = WriterOutput if method == 'write' else schema
+                return {key: result_type.model_validate(row) for key, row in cached.items()}
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('local_review_deadline_exceeded')
+            self.attempted_calls += 1
+            self.request_calls += 1
+            stage = {'stage': method, 'items': len(items), 'status': 'running',
+                'budget_at_start_ms': round(remaining * 1000),
+                'payload_before_bytes': len(json.dumps(original_payload, ensure_ascii=False).encode()),
+                'payload_bytes': len(json.dumps(payload, ensure_ascii=False).encode())}
+            self.stages.append(stage)
+        self._progress(wait=False)
+        started = time.monotonic()
+        try:
+            result, usage = self._request(stage, captured[0][0] + '\n' + BATCH_POLICY, payload, envelope)
             rows = {key: getattr(result, f'item_{i}') for i, key in enumerate(items)}
             if method == 'write':
                 rows = {key: WriterOutput(experience_id=row.experience_id, operation='replace_field',
                     original_quote=items[key][0].experience.current_text, sentences=row.sentences)
                     for key, row in rows.items()}
-            self.checkpoint.setdefault('stage_outputs', {})[stage_key] = {key:row.model_dump(mode='json') for key,row in rows.items()}
-            self.checkpoint.update(usage=self.usage.model_dump(), stages=self.stages, attempted_calls=self.attempted_calls)
-            self._progress()  # Durable output before control leaves this stage.
-            return rows
+            with self._lock:
+                _add_usage(self.usage, usage)
+                stage.update(status='complete', **usage.model_dump())
+                self.checkpoint.setdefault('stage_outputs', {})[stage_key] = {key:row.model_dump(mode='json') for key,row in rows.items()}
+                self.checkpoint.update(usage=self.usage.model_dump(), stages=self.stages, attempted_calls=self.attempted_calls)
+            return rows  # _batch persists before control leaves the stage.
         except Exception as exc:
-            stage.update(status='failed', error_type=type(exc).__name__)
+            with self._lock:
+                stage.update(status='failed', error_type=type(exc).__name__)
             raise
         finally:
-            stage['wall_ms'] = round((time.monotonic() - started) * 1000)
-            self._progress()
+            ended = time.monotonic()
+            with self._lock:
+                stage['wall_ms'] = round((ended - started) * 1000)
+                first = self.llm_window[0] if self.llm_window else started
+                self.llm_window = (min(first, started), max(ended, self.llm_window[1] if self.llm_window else ended))
+            self._progress(wait=False)
 
     def run_many(self, requests, resume_records=None, checkpoint=None):
         # The local adapter admits only records with identical owning inputs.

@@ -254,3 +254,124 @@ def test_writer_batch_preserves_shared_requirement_provenance(monkeypatch):
     assert len(result) == 4
     assert captured['shared_job_requirements'] == [requirement.model_dump(mode='json')]
     assert all('job_requirements' not in item for item in captured['items'].values())
+
+
+def _experiences(n):
+    return [ReviewInput(experience=Experience(experience_id=str(i), kind='project',
+        title='API', current_text='API 구현', field_path=f'projects[{i}].description',
+        content_hash='h')) for i in range(n)]
+
+
+def _fake_analyst(monkeypatch, on_call=None):
+    import langchain_openai
+    from app.resume_review_v2.llm import LangChainReviewLLM
+    monkeypatch.setattr(langchain_openai, 'ChatOpenAI', lambda **kwargs: object())
+    seen = []
+    def invoke(self, prompt, payload, schema):
+        items = payload.get('items', payload)
+        ids = [item['experience']['experience_id'] for item in items.values()]
+        seen.append(ids)
+        if on_call:
+            on_call(ids)
+        return schema.model_validate({key: ExtractionOutput(experience_id=item['experience']['experience_id'],
+            extracted_evidence=[]) for key, item in items.items()}), Usage(calls=1)
+    monkeypatch.setattr(LangChainReviewLLM, '_call', invoke)
+    return seen
+
+
+def test_stage_splits_into_concurrent_chunks(monkeypatch):
+    import threading
+    # Three chunks must be in flight together; a sequential run breaks the barrier.
+    barrier = threading.Barrier(3, timeout=5)
+    seen = _fake_analyst(monkeypatch, on_call=lambda ids: barrier.wait())
+    engine = BatchReviewEngine('fake', 'medium')
+    rows = engine._batch('analyze', {r.experience.experience_id: (r,) for r in _experiences(5)})
+    assert sorted(rows) == ['0', '1', '2', '3', '4']
+    assert all(rows[key].experience_id == key for key in rows)
+    assert sorted(map(len, seen)) == [1, 2, 2]
+    assert sorted(s['items'] for s in engine.stages) == [1, 2, 2]
+    assert all(s['status'] == 'complete' for s in engine.stages)
+    assert engine.usage.calls == 3
+
+
+def test_split_group_is_one_stage_in_stage_limited_requests(monkeypatch):
+    from app.resume_review_v2.batch import StageBoundary
+    _fake_analyst(monkeypatch)
+    engine = BatchReviewEngine('fake', 'medium', stage_limited=True)
+    rows = {r.experience.experience_id: (r,) for r in _experiences(5)}
+    assert len(engine._batch('analyze', rows)) == 5
+    assert len(engine._batch('analyze', rows)) == 5  # Cached chunks never cross the boundary.
+    with pytest.raises(StageBoundary):
+        engine._batch('analyze', {'9': _experiences(1)})
+
+
+def test_failed_chunk_is_retried_alone(monkeypatch):
+    failing = {'on': True}
+    def slow_last(ids):
+        if failing['on'] and '4' in ids:
+            raise TimeoutError('slow chunk')
+    seen = _fake_analyst(monkeypatch, on_call=slow_last)
+    engine = BatchReviewEngine('fake', 'medium')
+    rows = {r.experience.experience_id: (r,) for r in _experiences(5)}
+    with pytest.raises(TimeoutError):
+        engine._batch('analyze', rows)
+    assert len(engine.checkpoint['stage_outputs']) == 2
+    failing['on'] = False
+    seen.clear()
+    assert len(engine._batch('analyze', rows)) == 5
+    assert seen == [['4']]
+
+
+def test_process_wide_slots_cap_concurrent_requests(monkeypatch):
+    import threading
+    from app.resume_review_v2 import batch
+    monkeypatch.setattr(batch, 'LLM_SLOTS', threading.BoundedSemaphore(2))
+    lock, running, peak = threading.Lock(), [0], [0]
+    def track(ids):
+        with lock:
+            running[0] += 1
+            peak[0] = max(peak[0], running[0])
+        time.sleep(0.05)
+        with lock:
+            running[0] -= 1
+    _fake_analyst(monkeypatch, on_call=track)
+    engine = BatchReviewEngine('fake', 'medium')
+    assert len(engine._batch('analyze', {r.experience.experience_id: (r,) for r in _experiences(6)})) == 6
+    assert peak[0] == 2
+
+
+def test_rate_limit_waits_and_retries_inside_budget(monkeypatch):
+    import httpx
+    from openai import RateLimitError
+    from app.resume_review_v2 import batch
+    monkeypatch.setattr(batch.time, 'sleep', lambda seconds: None)
+    hits = []
+    def limited_once(ids):
+        hits.append(ids)
+        if len(hits) == 1:
+            response = httpx.Response(429, request=httpx.Request('POST', 'https://api.openai.com/v1/responses'))
+            raise RateLimitError('rate limited', response=response, body=None)
+    _fake_analyst(monkeypatch, on_call=limited_once)
+    engine = BatchReviewEngine('fake', 'medium')
+    rows = engine._batch('analyze', {r.experience.experience_id: (r,) for r in _experiences(1)})
+    assert list(rows) == ['0'] and len(hits) == 2
+    assert engine.stages[0]['rate_limit_retries'] == 1 and engine.stages[0]['status'] == 'complete'
+
+
+def test_slow_progress_writes_do_not_queue_chunks_and_stage_end_is_durable(monkeypatch):
+    import threading
+    # Each progress write is a DB round trip; chunks must not wait for each other's writes.
+    barrier = threading.Barrier(6, timeout=5)
+    _fake_analyst(monkeypatch, on_call=lambda ids: barrier.wait())
+    written = []
+    def slow_write(state):
+        time.sleep(0.3)
+        written.append(state)
+    engine = BatchReviewEngine('fake', 'medium', on_progress=slow_write)
+    started = time.monotonic()
+    rows = engine._batch('analyze', {r.experience.experience_id: (r,) for r in _experiences(12)})
+    assert len(rows) == 12
+    assert time.monotonic() - started < 3  # serialized writes took 6 chunks x 3 writes x 0.3s
+    last = written[-1]
+    assert [s['status'] for s in last['stages']] == ['complete'] * 6
+    assert len(last['stage_checkpoint']['stage_outputs']) == 6

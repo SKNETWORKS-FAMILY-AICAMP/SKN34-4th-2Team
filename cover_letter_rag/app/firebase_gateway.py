@@ -4,6 +4,9 @@ from typing import Any
 from copy import deepcopy
 import hashlib
 import json
+import threading
+import time
+from contextlib import contextmanager
 
 import firebase_admin
 from firebase_admin import auth, credentials
@@ -22,6 +25,54 @@ def tailored_resume_title(base: dict[str, Any], company: str, purpose: str = 're
     if not company:
         return base_title
     return f'{company} 자소서' if purpose == 'apply' else f'{company} 맞춤 이력서'
+
+
+_PG_POOLS: dict = {}
+_PG_POOLS_LOCK = threading.Lock()
+
+
+_DB_STATS = [0, 0.0]  # calls, seconds — for the per-request `[첨삭 시간]` log
+
+
+def db_stats() -> tuple[int, float]:
+    with _PG_POOLS_LOCK:
+        return _DB_STATS[0], _DB_STATS[1]
+
+
+@contextmanager
+def _pooled_connection():
+    """A pooled connection per connection target, used as ``with ... as conn`` like psycopg.connect.
+
+    Every review DB call used to open a new connection: 1.4s of TLS setup from a dev PC to RDS,
+    paid by each progress write — a staged review spent minutes connecting (2026-10-13).
+    On exit the pool commits (rolls back on error) and keeps the connection.
+    """
+    started = time.monotonic()
+    try:
+        with _pool().connection() as conn:
+            yield conn
+    finally:
+        with _PG_POOLS_LOCK:
+            _DB_STATS[0] += 1
+            _DB_STATS[1] += time.monotonic() - started
+
+
+def _pool():
+    from chatbot.database import connect_params
+    conninfo, params = connect_params()
+    key = (conninfo, tuple(sorted(params.items())))
+    pool = _PG_POOLS.get(key)
+    if pool is None:
+        with _PG_POOLS_LOCK:
+            pool = _PG_POOLS.get(key)
+            if pool is None:
+                from psycopg_pool import ConnectionPool
+                # No per-checkout ping (one more round trip per call); idle connections are
+                # closed after 4 minutes instead, before RDS or a NAT drops them.
+                pool = ConnectionPool(conninfo, kwargs=params, min_size=1, max_size=10, open=True,
+                                      max_idle=240, name='review-gateway')
+                _PG_POOLS[key] = pool
+    return pool
 
 
 class FirebaseAuthenticationError(Exception):
@@ -49,8 +100,7 @@ class FirebaseGateway:
         return firestore.client(app=self._app)
 
     def _pg(self):
-        from chatbot.database import connect
-        return connect()
+        return _pooled_connection()
 
     @staticmethod
     def _json_object(value):
