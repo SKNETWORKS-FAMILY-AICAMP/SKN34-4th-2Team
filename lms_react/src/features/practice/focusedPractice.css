@@ -104,6 +104,29 @@
 .pf-problems .pb__note { overflow-wrap: anywhere; }
 .pf-problems .pb__hint { line-height: 1.6; }
 
+.pf-completion {
+  position: sticky;
+  top: 70px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--primary) 11%, var(--surface));
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+.pf-completion__copy { flex: 1 1 260px; min-width: 0; }
+.pf-completion h2 { margin: 0; font-size: 16px; }
+.pf-completion p { margin: 4px 0 0; color: var(--text-secondary); font-size: 13px; }
+.pf-completion p span { color: var(--text-hint); }
+.pf-completion__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; }
+.pf-completion__actions .btn { white-space: nowrap; }
+.pf-completion__retry { background: color-mix(in srgb, var(--primary) 5%, var(--surface)); }
+
 .pf-details { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 .pf-details > summary {
   display: flex;
@@ -129,6 +152,7 @@
 .pf-details--guide > summary { color: var(--text-secondary); font-size: 12px; }
 
 .pd-pane .pf-navigation { scroll-margin-top: 12px; }
+.pd-pane .pf-completion { top: 0; }
 
 @media (max-width: 760px) {
   .pf-head { gap: 12px; padding-bottom: 12px; }
@@ -139,5 +163,6 @@
   .pf-navigation > div:first-child { flex-direction: column; align-items: flex-start; gap: 3px; }
   .pf-problems .pb__head { padding-inline: 12px; }
   .pf-problems .pb__prompt { padding: 14px 12px; }
+  .pf-completion__actions { width: 100%; justify-content: flex-start; margin-left: 0; }
   .pf-details > summary span { display: none; }
 }

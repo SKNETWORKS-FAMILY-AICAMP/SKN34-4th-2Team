@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { usePageCrumbs } from '../../app/crumbs';
 import { RoutePaths } from '../../app/routePaths';
@@ -97,17 +97,19 @@ export function EmbeddedPlayground({
   focusRequest,
   note,
   active,
+  onFinish,
 }: {
   setId: string | null;
   focusProblem: number;
   focusRequest?: number;
   note?: NoteCodeRequest;
   active: boolean;
+  onFinish?: () => void;
 }) {
   return (
     <TutorProvider>
       <PracticeSetGate setId={setId}>
-        <Playground setId={setId} focusProblem={focusProblem} focusRequest={focusRequest} note={note} embedded active={active} />
+        <Playground setId={setId} focusProblem={focusProblem} focusRequest={focusRequest} note={note} embedded active={active} onFinish={onFinish} />
       </PracticeSetGate>
     </TutorProvider>
   );
@@ -120,6 +122,7 @@ function Playground({
   note,
   embedded = false,
   active = true,
+  onFinish,
 }: {
   setId: string | null;
   focusProblem: number;
@@ -127,7 +130,9 @@ function Playground({
   note?: NoteCodeRequest;
   embedded?: boolean;
   active?: boolean;
+  onFinish?: () => void;
 }) {
+  const navigate = useNavigate();
   const { runner, status } = usePythonRunner();
   const mode = usePracticeSetMode(setId);
   const nb = useNotebook(runner, mode.set, note ? { key: noteCodeStoreKey(note.noteId), intro: noteCodeIntro(note.title) } : undefined);
@@ -199,7 +204,8 @@ function Playground({
           </div>
         )}
 
-        {mode.set ? <FocusedPracticeNotebook nb={nb} mode={mode} focusProblem={focusProblem} focusRequest={focusRequest} status={status} /> : <div className="py-notebook">
+        {mode.set ? <FocusedPracticeNotebook nb={nb} mode={mode} focusProblem={focusProblem} focusRequest={focusRequest} status={status}
+          onFinish={() => { onFinish?.(); navigate(RoutePaths.studyRoomNotes); }} /> : <div className="py-notebook">
           {nb.cells.map((cell, index) => (
             <NotebookCellView key={cell.id} cell={cell} index={index} total={nb.cells.length} nb={nb} mode={mode} />
           ))}
