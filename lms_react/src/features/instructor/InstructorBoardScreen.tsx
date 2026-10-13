@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { RoutePaths, instructorBoardNoticeEditPath } from '../../app/routePaths';
-import { deleteNotice, useNotices } from '../../data/repository';
+import { useNotices } from '../../data/repository';
 import { InstructorTargets } from '../../tour/targets';
 import { useTourTarget } from '../../tour/useTourTarget';
 import { useCurrentUser } from '../auth/session';
@@ -11,7 +11,6 @@ import {
   Button,
   Card,
   DataTable,
-  Dialog,
   PageHeader,
   Row,
   Spacer,
@@ -26,7 +25,6 @@ export function InstructorBoardScreen() {
   const navigate = useNavigate();
   const createRef = useTourTarget(InstructorTargets.boardCreate);
   const [query, setQuery] = useState('');
-  const [confirm, setConfirm] = useState<string | null>(null);
 
   const q = query.trim().toLowerCase();
   const rows = q === '' ? notices : notices.filter((n) => n.title.toLowerCase().includes(q));
@@ -70,53 +68,30 @@ export function InstructorBoardScreen() {
                 </Row>
               ),
             },
-            { key: 'author', header: '작성자', width: '120px', render: (n) => n.authorName },
+            {
+              key: 'author',
+              header: '작성자',
+              width: '150px',
+              render: (n) => <span style={{ whiteSpace: 'nowrap' }}>{n.authorName}</span>,
+            },
             { key: 'date', header: '작성일', width: '160px', render: (n) => formatDateTime(n.createdAt) },
             {
               key: 'actions',
               header: '',
-              width: '140px',
+              width: '80px',
               align: 'right',
-              render: (n) => (
+              render: (n) => n.authorId === user.uid ? (
                 <Row gap={4} wrap={false}>
                   <Spacer />
                   <Button size="sm" variant="outline" onClick={() => navigate(instructorBoardNoticeEditPath(n.id))}>
                     수정
                   </Button>
-                  <Button size="sm" variant="danger" onClick={() => setConfirm(n.id)}>
-                    삭제
-                  </Button>
                 </Row>
-              ),
+              ) : null,
             },
           ]}
         />
       </Card>
-
-      {confirm !== null && (
-        <Dialog
-          title="공지를 삭제할까요?"
-          onClose={() => setConfirm(null)}
-          actions={
-            <>
-              <Button variant="outline" onClick={() => setConfirm(null)}>
-                취소
-              </Button>
-              <Button
-                variant="danger"
-                onClick={() => {
-                  deleteNotice(confirm);
-                  setConfirm(null);
-                }}
-              >
-                삭제
-              </Button>
-            </>
-          }
-        >
-          <p className="muted">삭제하면 학생 게시판에서도 사라집니다.</p>
-        </Dialog>
-      )}
     </div>
   );
 }
