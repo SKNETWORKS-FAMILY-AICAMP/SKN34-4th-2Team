@@ -2098,6 +2098,76 @@ def quest_review(request, pk: int, body: dict[str, Any] = Body(...)):
     return _quest(request, lambda cur, user: {"submission": review_submission(cur, user, pk, _data(body))})
 
 
+def _post(request, call):
+    from lms.post_service import PostError
+
+    user = _require_user(request)
+    try:
+        with transaction.atomic(), connection.cursor() as cur:
+            return call(cur, user)
+    except PermissionError:
+        return Response({"detail": "forbidden"}, status=403)
+    except PostError as exc:
+        return Response({"detail": exc.detail}, status=exc.status)
+
+
+@api.get("/posts")
+def posts(request, cohort: str = "", before: int | None = None):
+    from lms.post_service import list_posts
+
+    return _post(request, lambda cur, user: list_posts(cur, user, cohort, before))
+
+
+@api.post("/posts")
+def post_create(request, body: dict[str, Any] = Body(...)):
+    from lms.post_service import create_post
+
+    return _post(request, lambda cur, user: {"post": create_post(cur, user, _data(body))})
+
+
+@api.delete("/posts/{pk}")
+def post_delete(request, pk: int):
+    from lms.post_service import delete_post
+
+    def run(cur, user):
+        delete_post(cur, user, pk)
+        return {"ok": True}
+
+    return _post(request, run)
+
+
+@api.post("/posts/{pk}/like")
+def post_like(request, pk: int):
+    from lms.post_service import toggle_like
+
+    return _post(request, lambda cur, user: {"post": toggle_like(cur, user, pk)})
+
+
+@api.get("/posts/{pk}/comments")
+def post_comments(request, pk: int):
+    from lms.post_service import list_comments
+
+    return _post(request, lambda cur, user: list_comments(cur, user, pk))
+
+
+@api.post("/posts/{pk}/comments")
+def post_comment_create(request, pk: int, body: dict[str, Any] = Body(...)):
+    from lms.post_service import create_comment
+
+    return _post(request, lambda cur, user: {"comment": create_comment(cur, user, pk, _data(body))})
+
+
+@api.delete("/posts/{pk}/comments/{comment_pk}")
+def post_comment_delete(request, pk: int, comment_pk: int):
+    from lms.post_service import delete_comment
+
+    def run(cur, user):
+        delete_comment(cur, user, pk, comment_pk)
+        return {"ok": True}
+
+    return _post(request, run)
+
+
 @api.post("/command")
 def command(request, body: CommandIn):
     user = _require_user(request)

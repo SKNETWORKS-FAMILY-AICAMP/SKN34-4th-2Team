@@ -222,7 +222,7 @@ html {
   display: flex;
   align-items: center;
   gap: 11px;
-  padding: 10px 12px;
+  padding: var(--rail-item-y) 12px;
   border-radius: 10px;
   color: var(--rail-fg);
   font-size: 14px;
@@ -1980,40 +1980,6 @@ html {
 }
 
 /* 학습 추천 카드 */
-.video-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-
-.video-card:hover {
-  border-color: var(--primary);
-}
-
-.video-card__thumb {
-  height: 72px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  background: var(--surface-variant);
-  color: var(--text-hint);
-}
-
-.video-card__title {
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-.video-card__tags {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
 .video-thumb {
   display: grid;
   place-items: center;
@@ -2124,6 +2090,16 @@ html {
 
 .timeline__item--done .timeline__dot {
   background: var(--primary);
+}
+
+.timeline__item--done .timeline__label,
+.timeline__item--done .hint {
+  opacity: 0.55;
+}
+
+.timeline__item--now .timeline__dot {
+  background: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 30%, transparent);
 }
 
 .timeline__label {
@@ -4299,18 +4275,8 @@ html {
   color: var(--text-secondary);
 }
 
-.qual-month {
-  margin-top: 10px;
-}
-
-.qual-month__title {
-  margin: 0 0 10px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.qual-month__card {
+.qual-list {
+  margin-top: 6px;
   gap: 18px;
   padding: 16px 16px 12px 12px;
 }
@@ -4342,9 +4308,14 @@ html {
 }
 
 .qual-exam__dday {
+  margin-left: auto;
   font-size: 11px;
   font-weight: 700;
   color: var(--error);
+}
+
+.qual-exam__dday--now {
+  color: var(--primary);
 }
 
 .qual-source {
@@ -5598,6 +5569,11 @@ html {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 12px;
+}
+
+/* 대시보드 — 좁은 칸에 3개를 한 줄로 */
+.study-videos--compact {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
 .study-video {

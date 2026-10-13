@@ -131,12 +131,15 @@
   --rail-border: var(--rail-dark-border);
 }
 
-/* 밀도 「좁게」 — AppSpace.compactRatio 0.65 */
+/* 밀도 「좁게」 — 카드 · 묶음 여백을 줄이고, 본문은 통째로 90%로 줄인다.
+   화면마다 px가 박혀 있어 여백만으로는 본문이 줄지 않는다. zoom은 길이에 배율을 곱할 뿐이라
+   고정 위치 대화상자도 화면을 그대로 덮는다. */
 :root {
   --gap-lg: 16px;
   --gap: 12px;
   --gap-sm: 8px;
   --pad: 16px;
+  --rail-item-y: 10px;
 }
 
 [data-density='compact'] {
@@ -144,4 +147,11 @@
   --gap: 8px;
   --gap-sm: 5px;
   --pad: 11px;
+  --rail-item-y: 7px;
+}
+
+@media screen {
+  [data-density='compact'] .screen {
+    zoom: 0.9;
+  }
 }

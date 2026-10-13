@@ -159,12 +159,22 @@ function FeedTab() {
   const user = useCurrentUser();
   const posts = usePosts();
   const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const submit = () => {
+  const submit = async () => {
     const content = draft.trim();
-    if (content === '') return;
-    createPost(user.uid, user.displayName, content);
-    setDraft('');
+    if (content === '' || sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      await createPost(user.uid, user.displayName, content);
+      setDraft('');
+    } catch {
+      setError('글을 올리지 못했어요. 잠시 후 다시 시도해 주세요.');
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -177,8 +187,9 @@ function FeedTab() {
           onChange={(e) => setDraft(e.target.value)}
         />
         <Row>
+          {error !== null && <span className="hint" role="alert">{error}</span>}
           <Spacer />
-          <Button onClick={submit} disabled={draft.trim() === ''}>
+          <Button onClick={() => void submit()} disabled={draft.trim() === '' || sending}>
             올리기
           </Button>
         </Row>
@@ -197,16 +208,28 @@ function FeedTab() {
 
 function FeedPost({ post }: { post: Post }) {
   const user = useCurrentUser();
-  const comments = usePostComments(post.id);
   const [expanded, setExpanded] = useState(false);
+  const comments = usePostComments(post.id, expanded);
   const [draft, setDraft] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  // 서버 글은 지울 수 있는지(쓴 사람 · 관리자 · 강사)를 알려 준다. 테스트 데이터는 쓴 사람만
+  const canDelete = (item: { canDelete?: boolean; authorId: string }) => item.canDelete ?? item.authorId === user.uid;
+  const attempt = (action: Promise<void>, message: string) => {
+    setError(null);
+    action.catch(() => setError(message));
+  };
 
-  const submitComment = () => {
+  const submitComment = async () => {
     const content = draft.trim();
     if (content === '') return;
-    createPostComment(post.id, user.uid, user.displayName, content);
-    setDraft('');
-    setExpanded(true);
+    setError(null);
+    try {
+      await createPostComment(post.id, user.uid, user.displayName, content);
+      setDraft('');
+      setExpanded(true);
+    } catch {
+      setError('댓글을 등록하지 못했어요. 잠시 후 다시 시도해 주세요.');
+    }
   };
 
   return (
@@ -218,16 +241,21 @@ function FeedPost({ post }: { post: Post }) {
           <p className="hint">{formatRelative(post.createdAt)}</p>
         </div>
         <Spacer />
-        {post.authorId === user.uid && (
-          <Button variant="text" size="sm" onClick={() => deletePost(post.id)}>
+        {canDelete(post) && (
+          <Button variant="text" size="sm" onClick={() => attempt(deletePost(post.id), '글을 지우지 못했어요.')}>
             삭제
           </Button>
         )}
       </Row>
       <p className="muted feed-post__content">{post.content}</p>
       <Row gap={8}>
-        <Button variant="outline" size="sm" onClick={() => likePost(post.id)}>
-          ♡ {post.likeCount}
+        <Button
+          variant="outline"
+          size="sm"
+          aria-pressed={post.likedByMe ?? false}
+          onClick={() => attempt(likePost(post.id), '좋아요를 반영하지 못했어요.')}
+        >
+          {post.likedByMe ? '♥' : '♡'} {post.likeCount}
         </Button>
         <Button
           variant="text"
@@ -255,11 +283,11 @@ function FeedPost({ post }: { post: Post }) {
                       <strong>{comment.authorName}</strong>
                       <span className="hint">{formatRelative(comment.createdAt)}</span>
                       <Spacer />
-                      {comment.authorId === user.uid && (
+                      {canDelete(comment) && (
                         <button
                           type="button"
                           className="feed-comment__delete"
-                          onClick={() => deletePostComment(post.id, comment.id)}
+                          onClick={() => attempt(deletePostComment(post.id, comment.id), '댓글을 지우지 못했어요.')}
                         >
                           삭제
                         </button>
@@ -279,10 +307,11 @@ function FeedPost({ post }: { post: Post }) {
               placeholder="댓글을 입력하세요."
               onChange={(event) => setDraft(event.target.value)}
             />
-            <Button size="sm" disabled={draft.trim() === ''} onClick={submitComment}>댓글 등록</Button>
+            <Button size="sm" disabled={draft.trim() === ''} onClick={() => void submitComment()}>댓글 등록</Button>
           </div>
         </div>
       )}
+      {error !== null && <p className="hint" role="alert">{error}</p>}
     </Card>
   );
 }

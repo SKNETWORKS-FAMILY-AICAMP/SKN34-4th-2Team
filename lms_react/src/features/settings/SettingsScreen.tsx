@@ -18,13 +18,13 @@ const themes: { id: ThemeMode; label: string; desc: string }[] = [
 ];
 
 const densities: { id: Density; label: string; desc: string }[] = [
-  { id: 'auto', label: '자동', desc: '화면 크기에 맞춥니다' },
+  { id: 'auto', label: '자동', desc: '노트북 같은 작은 화면은 좁게, 큰 모니터는 보통' },
   { id: 'normal', label: '보통', desc: '넓은 여백' },
   { id: 'compact', label: '좁게', desc: '한 화면에 더 많이' },
 ];
 
 export function SettingsScreen() {
-  const { theme, palette, density, setTheme, setPalette, setDensity } = useAppearance();
+  const { theme, palette, density, appliedDensity, setTheme, setPalette, setDensity } = useAppearance();
 
   return (
     <div className="settings">
@@ -86,7 +86,12 @@ export function SettingsScreen() {
             </span>
             <span className="opt__text">
               <strong>{item.label}</strong>
-              <span>{item.desc}</span>
+              <span>
+                {item.desc}
+                {item.id === 'auto' && density === 'auto' && (
+                  <> · 지금 {appliedDensity === 'compact' ? '좁게' : '보통'}</>
+                )}
+              </span>
             </span>
             <input
               type="radio"

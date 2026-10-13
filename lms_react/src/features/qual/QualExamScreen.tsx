@@ -5,9 +5,20 @@ import { readApiError } from '../../data/http';
 import type { QualExamSchedule } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { ErrorState, PageHeader, Skeleton } from '../../ui/components';
-import { formatYmd, parseYmd } from '../../utils/format';
+import { formatYmd } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
-import { nextScheduleDay } from './scheduleDate';
+import {
+  examName,
+  nextStageLabel,
+  roundLabel,
+  stageStatus,
+  stagesOf,
+  startOfToday,
+  subjectsOf,
+  upcomingExams,
+  type NextStage,
+  type QualStage,
+} from './qualExams';
 
 function syncedLabel(at: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -17,17 +28,14 @@ function syncedLabel(at: Date): string {
 /**
  * 자격 시험 일정 — features/dashboard/presentation/qual_exam_schedules_screen.dart
  *
- * 머리글이 없다. 가운데 좁은 줄기(560px)에 검색 한 줄, 「2026년 · 다가오는 N건」,
- * 그리고 시험 달로 묶인 타임라인 카드가 이어진다. 지난 시험은 목록에서 빠진다.
+ * 서버는 정보기술 분야 종목만 Q-Net 에서 받는다. 위쪽 칩으로 종목을 고르면
+ * 그 종목의 남은 회차가 다음 단계 날짜순으로 나온다. 다 끝난 회차는 빠진다.
  */
-const HAYSTACK = (e: QualExamSchedule) =>
-  [e.description, e.qualgbNm, e.qualgbCd, String(e.implSeq), e.implYy].join(' ').toLowerCase();
-
 export function QualExamScreen() {
   const examsQuery = useQualExams();
   const syncedAt = useQualExamsSyncedAt();
   const user = useCurrentUser();
-  const [query, setQuery] = useState('');
+  const [picked, setPicked] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
@@ -51,49 +59,42 @@ export function QualExamScreen() {
   }
 
   const exams = examsQuery.data ?? [];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const q = query.trim().toLowerCase();
-
-  const upcoming = exams
-    .filter((e) => {
-      const day = nextScheduleDay(e, today);
-      return day !== null && day.getTime() >= today.getTime();
-    })
-    .filter((e) => q === '' || HAYSTACK(e).includes(q))
-    .sort(
-      (a, b) =>
-        (nextScheduleDay(a, today)?.getTime() ?? Infinity) -
-        (nextScheduleDay(b, today)?.getTime() ?? Infinity),
-    );
-
-  // 시험 달로 묶는다 — groupByMonth
-  const months = new Map<string, QualExamSchedule[]>();
-  for (const exam of upcoming) {
-    const day = nextScheduleDay(exam, today);
-    const label = day === null ? '일정 미정' : `${day.getFullYear()}년 ${day.getMonth() + 1}월`;
-    const bucket = months.get(label);
-    if (bucket === undefined) months.set(label, [exam]);
-    else bucket.push(exam);
-  }
+  const today = startOfToday();
+  const subjects = subjectsOf(exams);
+  const subject = picked !== null && subjects.includes(picked) ? picked : subjects[0];
+  const upcoming = upcomingExams(
+    exams.filter((e) => examName(e) === subject),
+    today,
+  );
 
   return (
     <div className="qual-page">
       <div className="qual-column">
-        <PageHeader title="자격 시험 일정" description="다가오는 국가기술자격 시험의 접수 · 시험 · 발표 일정을 확인하세요." />
-        <label className="study-search">
-          <Icon name="search" size={20} />
-          <input
-            className="study-search__input"
-            value={query}
-            placeholder="자격명·회차 검색 (예: 정보처리, 기능사, 107)"
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </label>
+        <PageHeader
+          title="자격 시험 일정"
+          description="정보기술 분야 국가기술자격(Q-Net) 시험의 접수 · 시험 · 발표 일정을 확인하세요."
+        />
+
+        {subjects.length > 1 && (
+          <div className="mchips" role="radiogroup" aria-label="종목">
+            {subjects.map((name) => (
+              <button
+                key={name}
+                type="button"
+                role="radio"
+                aria-checked={name === subject}
+                className={`mchip${name === subject ? ' mchip--on' : ''}`}
+                onClick={() => setPicked(name)}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="qual-meta">
           <p className="qual-count">
-            진행 중 · 예정된 일정 {upcoming.length}건
+            {subject ?? '자격 시험'} · 남은 회차 {upcoming.length}개
           </p>
           {syncedAt !== undefined && <span className="hint">{syncedLabel(syncedAt)}</span>}
           {user.role === 'admin' && (
@@ -102,7 +103,7 @@ export function QualExamScreen() {
               className="btn btn--text btn--sm"
               onClick={() => void refresh()}
               disabled={syncing}
-              title="공공데이터포털에서 지금 다시 받기"
+              title="Q-Net 에서 지금 다시 받기"
             >
               <Icon name="refresh" size={16} />
               {syncing ? '받는 중…' : '지금 새로고침'}
@@ -112,71 +113,58 @@ export function QualExamScreen() {
         {syncMessage !== null && <p className="hint">{syncMessage}</p>}
 
         {upcoming.length === 0 ? (
-          <p className="qual-empty">{q ? '검색 조건에 맞는 시험 일정이 없습니다.' : exams.length ? '현재 진행 중이거나 예정된 시험 일정이 없습니다.' : '등록된 시험 일정이 없습니다.'}</p>
+          <p className="qual-empty">
+            {exams.length === 0 ? '등록된 시험 일정이 없습니다.' : '현재 진행 중이거나 예정된 시험 일정이 없습니다.'}
+          </p>
         ) : (
-          [...months.entries()].map(([month, items]) => (
-            <section key={month} className="qual-month">
-              <h2 className="qual-month__title">{month}</h2>
-              <div className="panel qual-month__card">
-                {items.map((exam) => (
-                  <ExamTimeline key={`${exam.qualgbNm}-${exam.implYy}-${exam.implSeq}`} exam={exam} />
-                ))}
-              </div>
-            </section>
-          ))
+          <div className="panel qual-list">
+            {upcoming.map(({ exam, next }) => (
+              <ExamTimeline
+                key={`${exam.jmCd ?? exam.qualgbNm}-${exam.implYy}-${exam.implSeq}-${exam.description}`}
+                exam={exam}
+                next={next}
+                today={today}
+              />
+            ))}
+          </div>
         )}
 
-        <p className="qual-source">출처: 한국산업인력공단 공공데이터</p>
+        <p className="qual-source">출처: 한국산업인력공단 공공데이터 (Q-Net)</p>
       </div>
     </div>
   );
 }
 
+function periodText(from?: string, to?: string): string {
+  return `${formatYmd(from)}${to !== undefined && to !== from ? ` ~ ${formatYmd(to)}` : ''}`;
+}
+
+function stageText(stage: QualStage): string {
+  const extra = (stage.extra ?? []).map(([from, to]) => ` · 추가 접수 ${periodText(from, to)}`).join('');
+  return periodText(stage.from, stage.to) + extra;
+}
+
 /** widgets/qual_exam_timeline.dart */
-function ExamTimeline({ exam }: { exam: QualExamSchedule }) {
-  const stages = [
-    { label: '필기 접수', from: exam.docRegStartDt, to: exam.docRegEndDt },
-    { label: '필기 시험', from: exam.docExamStartDt, to: exam.docExamEndDt },
-    { label: '필기 발표', from: exam.docPassDt, to: exam.docPassDt },
-    { label: '실기 접수', from: exam.pracRegStartDt, to: exam.pracRegEndDt },
-    { label: '실기 시험', from: exam.pracExamStartDt, to: exam.pracExamEndDt },
-    { label: '실기 발표', from: exam.pracPassDt, to: exam.pracPassDt },
-  ].filter((s) => s.from !== undefined);
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const day = nextScheduleDay(exam, today);
-  const days =
-    day === null ? null : Math.round((day.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
-  const dday = days === null ? '—' : days === 0 ? 'D-DAY' : days > 0 ? `D-${days}` : '종료';
-
+function ExamTimeline({ exam, next, today }: { exam: QualExamSchedule; next: NextStage; today: Date }) {
   return (
     <article className="qual-exam">
       <header className="qual-exam__head">
-        <strong>{exam.qualgbNm}</strong>
-        <span className="qual-exam__seq">
-          {exam.implYy}년 {exam.implSeq}회
+        <strong>{examName(exam)}</strong>
+        <span className="qual-exam__seq">{roundLabel(exam)}</span>
+        <span className={`qual-exam__dday${next.days === 0 ? ' qual-exam__dday--now' : ''}`}>
+          {nextStageLabel(next)}
         </span>
-        <span className="qual-exam__dday" title="접수·시험·발표 중 가장 가까운 일정 기준">{days === 0 ? '진행 중 · 오늘' : `다음 일정 ${dday}`}</span>
-        <span className="spacer" />
-        <span className="hint">{exam.description}</span>
       </header>
 
       <ol className="timeline">
-        {stages.map((stage) => {
-          const end = parseYmd(stage.to) ?? parseYmd(stage.from);
-          const done = end !== null && end.getTime() < today.getTime();
+        {stagesOf(exam).map((stage) => {
+          const status = stageStatus(stage, today);
           return (
-            <li key={stage.label} className={`timeline__item${done ? ' timeline__item--done' : ''}`}>
+            <li key={stage.label} className={`timeline__item timeline__item--${status}`}>
               <span className="timeline__dot" aria-hidden />
               <div>
                 <strong className="timeline__label">{stage.label}</strong>
-                <span className="hint">
-                  {formatYmd(stage.from)}
-                  {stage.to !== stage.from && stage.to !== undefined
-                    ? ` ~ ${formatYmd(stage.to)}`
-                    : ''}
-                </span>
+                <span className="hint">{stageText(stage)}</span>
               </div>
             </li>
           );

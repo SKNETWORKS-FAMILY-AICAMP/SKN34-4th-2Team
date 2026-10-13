@@ -24,6 +24,7 @@ _BLOCKER_NAMES = {
     'curriculum_sheets': '교육과정 시트', 'notices': '공지', 'scheduled_notices': '예약 공지',
     'assignments': '과제', 'submission_task_cohorts': '제출 과제',
     'student_counsel_notes': '상담', 'resumes': '이력서', 'cohort_seating': '좌석 배치',
+    'posts': '소통 피드',
 }
 
 

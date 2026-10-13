@@ -109,6 +109,8 @@ interface Appearance {
   theme: ThemeMode;
   palette: number;
   density: Density;
+  /** 지금 실제로 적용된 밀도 — 「자동」이 무엇으로 풀렸는지 보여 줄 때 쓴다. */
+  appliedDensity: 'normal' | 'compact';
   /** 지금 본문이 어두운가 — 화면 코드가 쓰기 쉽게 풀어 둔다. */
   dark: boolean;
   setTheme(next: ThemeMode): void;
@@ -217,6 +219,7 @@ function tint(hex: string): string {
 
 export function AppearanceProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<Stored>(read);
+  const [appliedDensity, setAppliedDensity] = useState<'normal' | 'compact'>('normal');
 
   useEffect(() => {
     const root = document.documentElement;
@@ -224,11 +227,18 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     root.dataset.theme = dark ? 'dark' : 'light';
     root.dataset.rail = state.theme === 'light' ? 'light' : 'dark';
 
-    // 밀도 「자동」은 화면 폭을 따른다. 좁은 화면에서 촘촘해진다.
+    // 밀도 「자동」은 창 크기를 따른다. 노트북(배율 125%면 폭 1536)처럼 폭이나 높이가 모자라면 촘촘해지고,
+    // 큰 모니터에서는 보통이다.
     const resolve = () =>
-      state.density === 'auto' ? (window.innerWidth < 1280 ? 'compact' : 'normal') : state.density;
+      state.density === 'auto'
+        ? window.innerWidth < 1600 || window.innerHeight < 800
+          ? 'compact'
+          : 'normal'
+        : state.density;
     const apply = () => {
-      root.dataset.density = resolve();
+      const next = resolve();
+      root.dataset.density = next;
+      setAppliedDensity(next);
     };
     apply();
 
@@ -272,12 +282,13 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
       theme: state.theme,
       palette: state.palette,
       density: state.density,
+      appliedDensity,
       dark: state.theme === 'dark',
       setTheme,
       setPalette,
       setDensity,
     }),
-    [state, setTheme, setPalette, setDensity],
+    [state, appliedDensity, setTheme, setPalette, setDensity],
   );
 
   return <AppearanceContext.Provider value={value}>{children}</AppearanceContext.Provider>;

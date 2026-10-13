@@ -576,62 +576,121 @@ export function dismissAlertToday(uid: string, popupId: string): void {
   }
 }
 
+// ── 소통 피드 ── 실제 앱은 서버(posts · post_comments · post_likes, /posts)에, 테스트는 메모리 저장소에 둔다
+
+const postKey = ['posts'] as const;
+
+interface PostRow extends Omit<Post, 'createdAt'> { createdAt?: string }
+interface PostCommentRow extends Omit<PostComment, 'createdAt'> { createdAt?: string }
+
+const postFromRow = (row: PostRow): Post => ({ ...row, createdAt: row.createdAt ? new Date(row.createdAt) : undefined });
+const commentFromRow = (row: PostCommentRow): PostComment => ({
+  ...row,
+  createdAt: row.createdAt ? new Date(row.createdAt) : undefined,
+});
+
+async function refreshPosts(): Promise<void> {
+  await queryClient.invalidateQueries({ queryKey: postKey });
+}
+
 export function usePosts(): Post[] {
-  return useDb((db) => db.posts);
+  const local = useDb((db) => db.posts);
+  const cohort = isTestMode() ? '' : apiCohortId();
+  const remote = useQuery({
+    queryKey: [...postKey, 'list', cohort],
+    queryFn: async () =>
+      (await http.get<{ posts: PostRow[] }>('/posts', { params: { cohort } })).data.posts.map(postFromRow),
+    enabled: !isTestMode(),
+  });
+  return isTestMode() ? local : (remote.data ?? []);
 }
 
-export function createPost(authorId: string, authorName: string, content: string): void {
-  mutate((db) => ({
-    posts: [
-      { id: nextId('p'), authorId, authorName, content, likeCount: 0, commentCount: 0, createdAt: new Date() },
-      ...db.posts,
-    ],
-  }));
+export async function createPost(authorId: string, authorName: string, content: string): Promise<void> {
+  if (isTestMode()) {
+    mutate((db) => ({
+      posts: [
+        { id: nextId('p'), authorId, authorName, content, likeCount: 0, commentCount: 0, createdAt: new Date() },
+        ...db.posts,
+      ],
+    }));
+    return;
+  }
+  await http.post('/posts', { content, cohort: apiCohortId() });
+  await refreshPosts();
 }
 
-export function deletePost(id: string): void {
-  mutate((db) => ({
-    posts: db.posts.filter((p) => p.id !== id),
-    postComments: db.postComments.filter((comment) => comment.postId !== id),
-  }));
+export async function deletePost(id: string): Promise<void> {
+  if (isTestMode()) {
+    mutate((db) => ({
+      posts: db.posts.filter((p) => p.id !== id),
+      postComments: db.postComments.filter((comment) => comment.postId !== id),
+    }));
+    return;
+  }
+  await http.delete(`/posts/${id}`);
+  await refreshPosts();
 }
 
-export function likePost(id: string): void {
-  mutate((db) => ({
-    posts: db.posts.map((p) => (p.id === id ? { ...p, likeCount: p.likeCount + 1 } : p)),
-  }));
+/** 좋아요 — 서버는 한 사람이 한 글에 한 번, 다시 누르면 취소한다 */
+export async function likePost(id: string): Promise<void> {
+  if (isTestMode()) {
+    mutate((db) => ({
+      posts: db.posts.map((p) => (p.id === id ? { ...p, likeCount: p.likeCount + 1 } : p)),
+    }));
+    return;
+  }
+  await http.post(`/posts/${id}/like`);
+  await refreshPosts();
 }
 
-export function usePostComments(postId: string): PostComment[] {
-  return useDb((db) => db.postComments.filter((comment) => comment.postId === postId));
+/** 댓글은 펼쳤을 때만 받는다(글마다 요청하지 않게) */
+export function usePostComments(postId: string, enabled = true): PostComment[] {
+  const local = useDb((db) => db.postComments.filter((comment) => comment.postId === postId));
+  const remote = useQuery({
+    queryKey: [...postKey, 'comments', postId],
+    queryFn: async () =>
+      (await http.get<{ comments: PostCommentRow[] }>(`/posts/${postId}/comments`)).data.comments.map(commentFromRow),
+    enabled: !isTestMode() && enabled,
+  });
+  return isTestMode() ? local : (remote.data ?? []);
 }
 
-export function createPostComment(
+export async function createPostComment(
   postId: string,
   authorId: string,
   authorName: string,
   content: string,
-): void {
-  mutate((db) => ({
-    postComments: [
-      ...db.postComments,
-      { id: nextId('pc'), postId, authorId, authorName, content, createdAt: new Date() },
-    ],
-    posts: db.posts.map((post) =>
-      post.id === postId ? { ...post, commentCount: post.commentCount + 1 } : post,
-    ),
-  }));
+): Promise<void> {
+  if (isTestMode()) {
+    mutate((db) => ({
+      postComments: [
+        ...db.postComments,
+        { id: nextId('pc'), postId, authorId, authorName, content, createdAt: new Date() },
+      ],
+      posts: db.posts.map((post) =>
+        post.id === postId ? { ...post, commentCount: post.commentCount + 1 } : post,
+      ),
+    }));
+    return;
+  }
+  await http.post(`/posts/${postId}/comments`, { content });
+  await refreshPosts();
 }
 
-export function deletePostComment(postId: string, commentId: string): void {
-  mutate((db) => ({
-    postComments: db.postComments.filter((comment) => comment.id !== commentId),
-    posts: db.posts.map((post) =>
-      post.id === postId
-        ? { ...post, commentCount: Math.max(0, post.commentCount - 1) }
-        : post,
-    ),
-  }));
+export async function deletePostComment(postId: string, commentId: string): Promise<void> {
+  if (isTestMode()) {
+    mutate((db) => ({
+      postComments: db.postComments.filter((comment) => comment.id !== commentId),
+      posts: db.posts.map((post) =>
+        post.id === postId
+          ? { ...post, commentCount: Math.max(0, post.commentCount - 1) }
+          : post,
+      ),
+    }));
+    return;
+  }
+  await http.delete(`/posts/${postId}/comments/${commentId}`);
+  await refreshPosts();
 }
 
 // ── 할 일 ─────────────────────────────────────────────

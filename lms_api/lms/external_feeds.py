@@ -4,6 +4,7 @@
 `functions/src/youtubeRecommendations.ts`)였다.
 
 - 시험 일정: `qualExamSchedules_{연도}`. bootstrap 이 그대로 내려 준다. 하루에 한 번 새로 받는다.
+  등급(기사·기능사)으로 받으면 종목 이름이 없고 상시 기능사가 매주 쏟아지므로, 정보기술 분야 종목만 `jmCd` 로 받는다.
 - YouTube: `youtubeCurriculum_{기수 코드}_{주 시작일}_v3`. `/study/youtube-weekly` 가 읽는다.
   12시간이 지나면 다시 검색한다. 검색 한 번에 쿼터 100을 쓰므로(하루 1만) 요청마다 부르지 않는다.
 
@@ -33,6 +34,20 @@ KST = ZoneInfo("Asia/Seoul")
 QUAL_URL = "https://apis.data.go.kr/B490007/qualExamSchd/getQualExamSchdList"
 QUAL_PAGE = 50
 QUAL_STALE = timedelta(hours=24)
+# 캐시 모양이 바뀌면 올린다. 옛 모양(등급 단위)은 하루를 기다리지 않고 다시 받는다.
+QUAL_VERSION = 2
+# Q-Net 종목 목록(InquiryListNationalQualifcationSVC)의 직무 분야 「정보기술」. 앞쪽이 칩 순서다.
+QUAL_SUBJECTS = (
+    ("1320", "정보처리기사"),
+    ("2290", "정보처리산업기사"),
+    ("6921", "프로그래밍기능사"),
+    ("1998", "컴퓨터시스템기사"),
+    ("2193", "사무자동화산업기사"),
+    ("6892", "정보기기운용기능사"),
+    ("0601", "정보관리기술사"),
+    ("0622", "컴퓨터시스템응용기술사"),
+    ("9545", "멀티미디어콘텐츠제작전문가"),
+)
 QUAL_DATE_FIELDS = (
     "docRegStartDt", "docRegEndDt", "docExamStartDt", "docExamEndDt", "docPassDt",
     "pracRegStartDt", "pracRegEndDt", "pracExamStartDt", "pracExamEndDt", "pracPassDt",
@@ -40,9 +55,10 @@ QUAL_DATE_FIELDS = (
 
 YT_URL = "https://www.googleapis.com/youtube/v3/search"
 YT_TTL = timedelta(hours=12)
-YT_VERSION = "v3"
+YT_VERSION = "v6"
 YT_MAX_QUERIES = 5
-YT_PER_QUERY = 6
+YT_PER_QUERY = 25  # 쿼터는 검색 한 번에 100 — 개수와 무관. 제목 거르기 · 지난 영상 빼기를 하므로 넉넉히 받는다
+YT_SEEN_WEEKS = 8  # 이만큼 지난 주에 보여 준 영상은 뒤로 미룬다
 YT_MAX_VIDEOS = 12
 
 _qual_lock = threading.Lock()
@@ -120,7 +136,32 @@ def _qual_rows(payload: dict) -> list[dict]:
     return [row for row in items if isinstance(row, dict)]
 
 
-def fetch_qual_exams(year: int) -> tuple[list[dict], int]:
+def _merge_extra_regs(items: list[dict]) -> list[dict]:
+    """같은 회차가 접수 기간만 다른 줄로 두 번 온다(정기 접수 + 추가 접수). 한 줄로 합친다.
+
+    먼저 시작한 접수를 본 접수로 두고, 나머지는 `docRegExtra` · `pracRegExtra` 에 [시작, 끝] 으로 붙인다.
+    """
+    groups: dict[tuple, list[dict]] = {}
+    for item in items:
+        groups.setdefault((item.get("jmCd"), item["implYy"], item["implSeq"], item["description"]), []).append(item)
+    merged: list[dict] = []
+    for rows in groups.values():
+        rows.sort(key=lambda r: (r["docRegStartDt"] or "99991231", r["pracRegStartDt"] or "99991231"))
+        head = dict(rows[0])
+        for kind in ("doc", "prac"):
+            main = (head[f"{kind}RegStartDt"], head[f"{kind}RegEndDt"])
+            extra: list[list] = []
+            for row in rows[1:]:
+                period = [row[f"{kind}RegStartDt"], row[f"{kind}RegEndDt"]]
+                if period[0] and tuple(period) != main and period not in extra:
+                    extra.append(period)
+            if extra:
+                head[f"{kind}RegExtra"] = extra
+        merged.append(head)
+    return merged
+
+
+def fetch_qual_exams(year: int, jm_cd: str = "") -> tuple[list[dict], int]:
     key = _env_key("DATA_GO_KR_SERVICE_KEY")
     if not key:
         raise FeedError(503, "DATA_GO_KR_SERVICE_KEY가 설정되지 않았습니다.")
@@ -128,10 +169,13 @@ def fetch_qual_exams(year: int) -> tuple[list[dict], int]:
     total = 0
     page = 1
     while True:
-        query = urllib.parse.urlencode({
+        params = {
             "serviceKey": key, "numOfRows": QUAL_PAGE, "pageNo": page,
             "dataFormat": "json", "implYy": year, "qualgbCd": "T",
-        })
+        }
+        if jm_cd:
+            params["jmCd"] = jm_cd
+        query = urllib.parse.urlencode(params)
         try:
             payload = _get_json(f"{QUAL_URL}?{query}")
         except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
@@ -154,6 +198,18 @@ def fetch_qual_exams(year: int) -> tuple[list[dict], int]:
     return items, total
 
 
+def fetch_qual_subjects(year: int) -> list[dict]:
+    """`QUAL_SUBJECTS` 종목마다 받아 종목 코드 · 이름을 붙인다. 종목 순서를 지킨다."""
+    out: list[dict] = []
+    for jm_cd, jm_nm in QUAL_SUBJECTS:
+        items, _ = fetch_qual_exams(year, jm_cd)
+        for item in items:
+            item["jmCd"] = jm_cd
+            item["jmNm"] = jm_nm
+        out.extend(_merge_extra_regs(items))
+    return out
+
+
 def sync_qual_exams(years: list[int] | None = None) -> dict[int, int]:
     """시험 일정을 받아 `system_cache` 에 쓴다. 다음 해 일정은 나온 뒤(보통 12월)에만 저장한다."""
     this_year = datetime.now(KST).year
@@ -161,14 +217,15 @@ def sync_qual_exams(years: list[int] | None = None) -> dict[int, int]:
     result: dict[int, int] = {}
     with _qual_lock:
         for year in targets:
-            items, total = fetch_qual_exams(year)
+            items = fetch_qual_subjects(year)
             if not items and year != this_year:
                 continue
             with connection.cursor() as cur:
                 _cache_write(cur, f"qualExamSchedules_{year}", {
                     "year": year,
+                    "version": QUAL_VERSION,
                     "items": items,
-                    "totalCount": total,
+                    "totalCount": len(items),
                     "syncedAt": datetime.now(timezone.utc).isoformat(),
                 })
             result[year] = len(items)
@@ -184,11 +241,13 @@ def qual_synced_at(year: int | None = None) -> datetime | None:
 
 
 def sync_qual_exams_if_stale() -> dict[int, int] | None:
-    """하루 넘게 묵었으면 새로 받는다. 키가 없으면 조용히 넘어간다."""
+    """하루 넘게 묵었거나 옛 모양이면 새로 받는다. 키가 없으면 조용히 넘어간다."""
     if not _env_key("DATA_GO_KR_SERVICE_KEY"):
         return None
-    synced = qual_synced_at()
-    if synced is not None and datetime.now(timezone.utc) - synced < QUAL_STALE:
+    with connection.cursor() as cur:
+        data, synced = _cache_read(cur, f"qualExamSchedules_{datetime.now(KST).year}")
+    fresh = synced is not None and datetime.now(timezone.utc) - synced < QUAL_STALE
+    if fresh and (data or {}).get("version") == QUAL_VERSION:
         return None
     return sync_qual_exams()
 
@@ -229,6 +288,53 @@ def topic_label(row: dict) -> str:
     return (row.get("topic") or "").strip() or (row.get("subject") or "").strip() or "커리큘럼"
 
 
+def _is_project(row: dict) -> bool:
+    """「단위 프로젝트」 · 「최종프로젝트」 같은 날은 배울 주제가 아니다. 검색하면 영어 · Revit 강의가 걸린다."""
+    return "프로젝트" in topic_label(row)
+
+
+# 제목 거르기에서 이것만 맞아서는 그 주제 영상이라 볼 수 없는 낱말
+GENERIC_WORDS = {
+    "framework", "programming", "project", "basic", "basics", "tutorial", "course", "intro", "and", "the",
+    "프로그래밍", "프로젝트", "애플리케이션", "엔지니어링", "기초", "개념", "실습", "활용", "구현", "개발", "이해",
+}
+
+
+def _compact(text: str) -> str:
+    return re.sub(r"[\s\-_/·.,()\[\]]+", "", (text or "").lower())
+
+
+def title_keywords(label: str) -> list[str]:
+    """영상 제목에 하나라도 있어야 하는 낱말 — 붙여 쓴 주제 전체와, 3자 이상인 그 주제만의 낱말.
+
+    「화면 구현」은 「화면구현」만 본다(「PC화면에 그림그리기」가 걸리지 않게).
+    """
+    words = [w for w in re.split(r"[\s\-_/·,()]+", (label or "").lower()) if w]
+    keys = [_compact(label)]
+    for w in words:
+        if w in GENERIC_WORDS:
+            continue
+        if len(w) >= 3 or len(words) == 1:
+            keys.append(_compact(w))
+    return [k for k in dict.fromkeys(keys) if len(k) >= 2]
+
+
+# 프로젝트가 있는 주에는 발표 영상도 찾는다 — (검색어, 주제, 길이, 제목 거르기 낱말)
+# 컨퍼런스 발표 제목에는 「발표」가 잘 없어서(「[우아콘2024] …」) 행사 이름으로도 받는다
+PROJECT_TALK_QUERIES = (
+    ("개발자 프로젝트 발표 잘하는 법", "발표 준비", "medium", ("발표", "ppt", "피티", "프레젠테이션")),
+    ("개발자 컨퍼런스 발표", "개발자 발표", None, (
+        "발표", "컨퍼런스", "콘퍼런스", "테크톡", "techtalk", "세미나", "pycon", "우아콘", "deview", "ifkakao", "feconf",
+    )),
+)
+LABEL_KEYWORDS = {label: keys for _, label, _, keys in PROJECT_TALK_QUERIES}
+
+
+def is_relevant(title: str, label: str) -> bool:
+    keys = list(LABEL_KEYWORDS.get(label) or title_keywords(label))
+    return not keys or any(k in _compact(title) for k in keys)
+
+
 def _variants(row: dict) -> list[str]:
     """교과목 이름(「AI 활용 애플리케이션 개발」)은 너무 넓어 검색을 흐린다. 주제 · 세부 내용으로 찾는다."""
     subject, topic, detail = ((row.get(k) or "").strip() for k in ("subject", "topic", "detail"))
@@ -245,10 +351,23 @@ def pick_week_rows(rows: list[dict], today: date) -> tuple[date, list[dict]]:
     """이번 주(월~일) 커리큘럼 행. 이번 주가 비었으면 오늘과 가까운 날짜로 채운다."""
     monday = today - timedelta(days=today.weekday())
     sunday = monday + timedelta(days=6)
-    dated = [(r, d) for r in rows if (d := _label_date(r.get("date_label") or "")) is not None]
+    dated = sorted(
+        ((r, d) for r in rows if (d := _label_date(r.get("date_label") or "")) is not None),
+        key=lambda x: x[1],
+    )
+    # 프로젝트 날은 바로 앞에 배운 주제로 바꾼다. 앞에 배운 주제가 없으면 뺀다
+    resolved: list[tuple[dict, date]] = []
+    last: dict | None = None
+    for r, d in dated:
+        if not _is_project(r):
+            last = r
+            resolved.append((r, d))
+        elif last is not None:
+            resolved.append((last, d))
+    dated = resolved
     by_distance = sorted(dated, key=lambda x: abs((x[1] - today).days))
 
-    picked = [r for r, d in sorted(dated, key=lambda x: x[1]) if monday <= d <= sunday]
+    picked = [r for r, d in dated if monday <= d <= sunday]
     if not picked and by_distance:
         nearest = by_distance[0][1]
         picked = [r for r, d in dated if nearest - timedelta(days=2) <= d <= nearest + timedelta(days=3)]
@@ -267,13 +386,25 @@ def pick_week_rows(rows: list[dict], today: date) -> tuple[date, list[dict]]:
     return monday, unique
 
 
-def _search_queries(rows: list[dict]) -> list[tuple[str, str, str | None]]:
+def has_project_week(rows: list[dict], monday: date) -> bool:
+    """이번 주(월~일)에 프로젝트 날(단위 · 최종)이 있는가 — 있으면 발표 영상도 찾는다"""
+    sunday = monday + timedelta(days=6)
+    return any(
+        _is_project(r) and (d := _label_date(r.get("date_label") or "")) is not None and monday <= d <= sunday
+        for r in rows
+    )
+
+
+def _search_queries(rows: list[dict], project_week: bool = False) -> list[tuple[str, str, str | None]]:
     per_row = [(topic_label(r), _variants(r)) for r in rows]
     queries: list[tuple[str, str, str | None]] = []
     seen: set[str] = set()
 
+    # 발표 검색은 자리만 남겨 두고 맨 뒤에 붙인다 — 화면은 이 순서대로 주제를 번갈아 보여 준다
+    limit = YT_MAX_QUERIES - (len(PROJECT_TALK_QUERIES) if project_week else 0)
+
     def push(query: str, label: str, duration: str | None) -> None:
-        if len(query) <= 2 or query.lower() in seen or len(queries) >= YT_MAX_QUERIES:
+        if len(query) <= 2 or query.lower() in seen or len(queries) >= limit:
             return
         seen.add(query.lower())
         queries.append((query, label, duration))
@@ -287,6 +418,10 @@ def _search_queries(rows: list[dict]) -> list[tuple[str, str, str | None]]:
     for label, variants in per_row:
         for v in variants[2:]:
             push(v, label, "medium")
+    if project_week:
+        limit = YT_MAX_QUERIES
+        for query, label, duration, _ in PROJECT_TALK_QUERIES:
+            push(query, label, duration)
     return queries
 
 
@@ -349,8 +484,10 @@ def _interleave(videos: list[dict], limit: int) -> list[dict]:
     return out
 
 
-def _collect_videos(key: str, queries: list[tuple[str, str, str | None]]) -> list[dict]:
+def _collect_videos(key: str, queries: list[tuple[str, str, str | None]], shown: set[str] = frozenset()) -> list[dict]:
+    """`shown`(지난주까지 보여 준 영상)은 새 영상이 모자랄 때만 뒤에 붙인다."""
     collected: list[dict] = []
+    again: list[dict] = []
     seen_ids: set[str] = set()
     seen_channels: set[str] = set()
     errors: list[str] = []
@@ -365,10 +502,13 @@ def _collect_videos(key: str, queries: list[tuple[str, str, str | None]]) -> lis
             continue
         fresh, rest = [], []
         for v in found:
-            if v["videoId"] in seen_ids:
+            if v["videoId"] in seen_ids or not is_relevant(v["title"], label):
                 continue
             seen_ids.add(v["videoId"])
             item = {**v, "topicLabel": label, "query": query}
+            if v["videoId"] in shown:
+                again.append(item)
+                continue
             channel = v["channelTitle"].strip().lower()
             if channel and channel in seen_channels:
                 rest.append(item)
@@ -377,9 +517,41 @@ def _collect_videos(key: str, queries: list[tuple[str, str, str | None]]) -> lis
                     seen_channels.add(channel)
                 fresh.append(item)
         collected += fresh + rest
-    if not collected and errors:
+    if not collected and not again and errors:
         raise FeedError(502, errors[0])
-    return _interleave(collected, YT_MAX_VIDEOS)
+    out = _mix(collected, YT_MAX_VIDEOS)
+    return out + _mix(again, YT_MAX_VIDEOS - len(out)) if len(out) < YT_MAX_VIDEOS else out
+
+
+def _mix(videos: list[dict], limit: int) -> list[dict]:
+    """학습 영상 3개마다 발표 영상 1개. 발표는 많아야 4분의 1 — 학습 영상이 모자랄 때만 더 넣는다."""
+    talks = [v for v in videos if v["topicLabel"] in LABEL_KEYWORDS]
+    study = [v for v in videos if v["topicLabel"] not in LABEL_KEYWORDS]
+    talk_count = min(len(talks), max(limit // 4, limit - len(study)))
+    talks = _interleave(talks, talk_count)
+    study = _interleave(study, limit - len(talks))
+    out: list[dict] = []
+    for i, v in enumerate(study, 1):
+        out.append(v)
+        if i % 3 == 0 and talks:
+            out.append(talks.pop(0))
+    return out + talks
+
+
+def _shown_before(cur, cohort_code: str, week_key: str) -> set[str]:
+    """지난 몇 주 추천 캐시에 들어 있던 영상 — 같은 주제가 이어져도 매주 다른 영상을 보여 주려고"""
+    prefix = f"youtubeCurriculum_{cohort_code}_"
+    cur.execute("SELECT key, data FROM system_cache WHERE key LIKE %s", [prefix.replace("_", r"\_") + "%"])
+    oldest = (datetime.strptime(week_key, "%Y%m%d") - timedelta(weeks=YT_SEEN_WEEKS)).strftime("%Y%m%d")
+    ids: set[str] = set()
+    for key, data in cur.fetchall():
+        week = key[len(prefix):].split("_")[0]
+        if not (oldest <= week < week_key):
+            continue
+        if isinstance(data, str):
+            data = json.loads(data)
+        ids.update(v.get("videoId") for v in (data or {}).get("videos") or [] if v.get("videoId"))
+    return ids
 
 
 def _cohort_for(cur, user: dict, cohort_code: str) -> dict:
@@ -432,7 +604,8 @@ def weekly_youtube(user: dict, cohort_code: str = "", *, force: bool = False, to
     sunday = monday + timedelta(days=6)
     week_key = monday.strftime("%Y%m%d")
     week_label = f"{monday.month}/{monday.day} ~ {sunday.month}/{sunday.day}"
-    topics = [topic_label(r) for r in picked]
+    queries = _search_queries(picked, has_project_week(rows, monday))
+    topics = list(dict.fromkeys(label for _, label, _ in queries))
     cache_key = f"youtubeCurriculum_{cohort['code']}_{week_key}_{YT_VERSION}"
     base = {"cohortId": cohort["code"], "weekKey": week_key, "weekLabel": week_label, "topics": topics}
 
@@ -459,8 +632,10 @@ def weekly_youtube(user: dict, cohort_code: str = "", *, force: bool = False, to
             cached, synced = _cache_read(cur, cache_key)
         if not force and cached is not None and synced is not None and datetime.now(timezone.utc) - synced < YT_TTL:
             return from_cache(cached, synced)
+        with connection.cursor() as cur:
+            shown = _shown_before(cur, cohort["code"], week_key)
         try:
-            videos = _collect_videos(key, _search_queries(picked))
+            videos = _collect_videos(key, queries, shown)
         except FeedError as exc:
             logger.warning("youtube weekly failed: %s", exc.detail)
             if cached:
@@ -469,6 +644,6 @@ def weekly_youtube(user: dict, cohort_code: str = "", *, force: bool = False, to
                     "message": "YouTube 추천을 가져오지 못했습니다. 잠시 뒤 다시 시도해 주세요."}
         with connection.cursor() as cur:
             _cache_write(cur, cache_key, {"weekKey": week_key, "weekLabel": week_label, "topics": topics,
-                                          "queries": [q for q, _, _ in _search_queries(picked)], "videos": videos})
+                                          "queries": [q for q, _, _ in queries], "videos": videos})
     return {**base, "videos": videos, "cached": False,
             "fetchedAt": datetime.now(timezone.utc).isoformat(), "message": None if videos else "찾은 영상이 없습니다."}

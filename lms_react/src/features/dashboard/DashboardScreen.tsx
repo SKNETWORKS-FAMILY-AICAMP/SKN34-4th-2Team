@@ -13,9 +13,11 @@ import {
   useMySubmissions,
   useNotices,
   useQualExams,
+  useWeeklyYoutube,
   useYoutubeRecommendations,
 } from '../../data/repository';
 import { useHolidays } from '../../data/holidays';
+import { examName, nextStageLabel, subjectsOf, upcomingExams } from '../qual/qualExams';
 import { dateKeyOf } from '../../data/seed';
 import { toTime } from '../../utils/format';
 import { AttendanceColorVars, RecordTypeLabels, SubmissionStatusLabels } from '../../domain/constants';
@@ -26,6 +28,7 @@ import { useTourTarget } from '../../tour/useTourTarget';
 import { Icon } from '../../ui/Icon';
 import { Badge } from '../../ui/components';
 import { MileageCreditCard } from '../mileage/MileageCreditCard';
+import { VideoCard, youtubeThumb } from '../study/VideoCard';
 import { formatDate, formatDueIn, formatYmd } from '../../utils/format';
 import { buildMissionGuidance, missionProgressOf } from '../../domain/missions';
 import type { MissionGuidanceItem } from '../../domain/missions';
@@ -422,7 +425,9 @@ function CurriculumCard() {
 function QualExamCard() {
   // 대시보드의 곁가지 카드라 화면 전체를 막지 않는다. 못 불러오면 이 칸만 비운다.
   const { data: exams = [] } = useQualExams();
-  const upcoming = exams.slice(0, 2);
+  // 맨 앞 종목(정보처리기사)만 — 기사 종목끼리 날짜가 같아 여럿을 섞으면 같은 줄이 겹친다
+  const subject = subjectsOf(exams)[0];
+  const upcoming = upcomingExams(exams.filter((e) => examName(e) === subject)).slice(0, 2);
 
   return (
     <div className="panel side-card">
@@ -435,11 +440,14 @@ function QualExamCard() {
       {upcoming.length === 0 ? (
         <p className="hint">다가오는 시험 일정이 없습니다</p>
       ) : (
-        upcoming.map((exam) => (
-          <div key={`${exam.qualgbNm}-${exam.implSeq}`} className="exam-row">
-            <strong>{exam.qualgbNm}</strong>
+        upcoming.map(({ exam, next }) => (
+          <div key={`${exam.implYy}-${exam.implSeq}-${exam.description}`} className="exam-row">
+            <strong>
+              {examName(exam)} {exam.implSeq > 0 ? `${exam.implSeq}회` : ''}
+            </strong>
             <span className="hint">
-              필기 접수 {formatYmd(exam.docRegStartDt)} ~ {formatYmd(exam.docRegEndDt)}
+              {nextStageLabel(next)} · {formatYmd(next.stage.from)}
+              {next.stage.to !== undefined && next.stage.to !== next.stage.from ? ` ~ ${formatYmd(next.stage.to)}` : ''}
             </span>
           </div>
         ))
@@ -475,55 +483,70 @@ function ApprovalCard() {
   );
 }
 
-/** 이번 주 학습 추천 — widgets/weekly_learning_recommend_section.dart */
+/**
+ * 이번 주 학습 추천 — widgets/weekly_learning_recommend_section.dart
+ *
+ * 학습실과 같은 「이번 주 커리큘럼 추천」(서버가 12시간 캐시)을 앞 3개만 보여 준다.
+ * 매니저가 직접 고른 영상이 있으면 그것부터 — 내 기술과 겹치는 태그가 많은 순서로.
+ */
 function WeeklyLearningSection() {
   const user = useCurrentUser();
-  const videos = useYoutubeRecommendations().filter((v) => v.isPublished);
+  const curated = useYoutubeRecommendations().filter((v) => v.isPublished);
+  const weekly = useWeeklyYoutube(user.cohortId);
 
-  const ranked = videos
+  const curatedCards = curated
     .map((v) => ({
       video: v,
-      score: v.tags.filter((t) => user.skills.some((s) => s.toLowerCase() === t.toLowerCase())).length,
+      matched: v.tags.filter((t) => user.skills.some((s) => s.toLowerCase() === t.toLowerCase())),
     }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
+    .sort((a, b) => b.matched.length - a.matched.length)
+    .map(({ video, matched }) => (
+      <VideoCard
+        key={`curated-${video.id}`}
+        href={video.youtubeUrl}
+        title={video.title}
+        thumb={youtubeThumb(video.videoId)}
+        meta={['매니저 추천', ...(matched.length > 0 ? [`내 스택과 ${matched.length}개 일치`] : [])]}
+      />
+    ));
+  const weeklyCards = (weekly.data?.videos ?? []).map((v) => (
+    <VideoCard
+      key={v.videoId}
+      href={v.url || `https://www.youtube.com/watch?v=${v.videoId}`}
+      title={v.title}
+      thumb={v.thumbnailUrl || youtubeThumb(v.videoId)}
+      meta={[v.channelTitle, v.topicLabel].filter((m) => m !== '')}
+    />
+  ));
+  const cards = [...curatedCards, ...weeklyCards].slice(0, 3);
+  const weekLabel = weekly.data?.weekLabel;
 
   return (
     <section className="section">
       <header className="section__head">
         <h2 className="section__title">이번 주 학습 추천</h2>
+        {weekLabel && <span className="hint">{weekLabel}</span>}
         <span className="spacer" />
         <Link className="section__more" to={RoutePaths.studyRoom}>
           학습실
         </Link>
       </header>
 
-      {ranked.length === 0 ? (
+      {cards.length === 0 ? (
         <div className="panel panel--empty">
-          <p>이번 주 추천 영상이 준비되면 여기에 표시됩니다.</p>
+          <p>
+            {weekly.isLoading
+              ? '이번 주 영상을 찾는 중…'
+              : weekly.isError
+                ? '추천을 불러오지 못했습니다. 학습실에서 다시 확인해 보세요.'
+                : (weekly.data?.message ?? '이번 주 추천 영상이 준비되면 여기에 표시됩니다.')}
+          </p>
           <Link className="btn btn--outline btn--md" to={RoutePaths.studyRoom}>
             학습실 바로가기
           </Link>
         </div>
       ) : (
-        <div className="grid grid--3">
-          {ranked.map(({ video, score }) => (
-            <a key={video.id} className="video-card" href={video.youtubeUrl} target="_blank" rel="noreferrer">
-              <span className="video-card__thumb">
-                <Icon name="play_circle" size={26} />
-              </span>
-              <strong className="video-card__title">{video.title}</strong>
-              <span className="video-card__tags">
-                {video.tags.slice(0, 3).map((t) => (
-                  <span key={t} className="skill-chip">
-                    {t}
-                  </span>
-                ))}
-              </span>
-              {score > 0 && <span className="hint">내 스택과 {score}개 일치</span>}
-            </a>
-          ))}
-        </div>
+        <div className="study-videos study-videos--compact">{cards}</div>
       )}
     </section>
   );

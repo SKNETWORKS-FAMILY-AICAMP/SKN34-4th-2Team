@@ -136,6 +136,9 @@ export interface Post {
   likeCount: number;
   commentCount: number;
   createdAt?: Date;
+  /** 서버 글: 내가 좋아요를 눌렀는지 · 지울 수 있는지(쓴 사람 · 관리자 · 강사) */
+  likedByMe?: boolean;
+  canDelete?: boolean;
 }
 
 export interface Todo {
@@ -449,6 +452,7 @@ export interface PostComment {
   authorName: string;
   content: string;
   createdAt?: Date;
+  canDelete?: boolean;
 }
 
 /** 이력서 첨삭 API sentence_reviews 항목과 대응하는 프런트 계약 */
@@ -990,6 +994,9 @@ export interface QualExamSchedule {
   qualgbCd: string;
   qualgbNm: string;
   description: string;
+  /** Q-Net 종목 코드 · 이름(정보처리기사 등). 등급 단위로 받던 옛 캐시에는 없다 */
+  jmCd?: string;
+  jmNm?: string;
   docRegStartDt?: string;
   docRegEndDt?: string;
   docExamStartDt?: string;
@@ -1000,6 +1007,9 @@ export interface QualExamSchedule {
   pracExamStartDt?: string;
   pracExamEndDt?: string;
   pracPassDt?: string;
+  /** 같은 회차의 추가 접수 기간들 — [시작, 끝] */
+  docRegExtra?: [string, string][];
+  pracRegExtra?: [string, string][];
 }
 
 // ── LLMOps ────────────────────────────────────────────
