@@ -36,7 +36,6 @@ SK네트웍스 Family AI 캠프 34기 4차 프로젝트 2팀.
 | `vectordb/` | 학생 챗봇 벡터 DB 적재 |
 | `chatbot_lab/` | 챗봇 실험용 (운영과 연결 안 됨) |
 | `lms_mobile/` | 모바일 앱 (Expo · React Native, 웹 도메인 코드를 함께 씀) |
-| `lms_expo/` | 모바일 앱 시작점 (Expo) |
 | `scripts/` | 실행 · 이전 · 적재 스크립트 |
 | `deploy/`, `docker-compose*.yml` | 배포 (Nginx · AI 서버 이미지) |
 | `docs/` | 설계 · 이전 · 점검 문서 |

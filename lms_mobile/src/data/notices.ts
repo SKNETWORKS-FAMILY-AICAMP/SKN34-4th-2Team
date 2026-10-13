@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import type { AlertPopup, Notice, Post, PostComment, ScheduledNotice } from '@web/domain/types';
 
 import { http, readApiError } from './http';
@@ -11,12 +12,43 @@ export function useNotices(): Notice[] {
   return useDb()?.notices ?? [];
 }
 
+// 소통 피드 — 웹과 같은 서버 표(posts · post_comments · post_likes, /posts). 학생은 자기 기수 글만 받는다.
+const postKey = ['posts'] as const;
+
+type Dated<T> = Omit<T, 'createdAt'> & { createdAt?: string };
+const withDate = <T extends { createdAt?: Date }>(row: Dated<T>): T =>
+  ({ ...row, createdAt: row.createdAt ? new Date(row.createdAt) : undefined }) as T;
+
+export async function refreshPosts(): Promise<void> {
+  await queryClient.invalidateQueries({ queryKey: postKey });
+}
+
+async function postCall(request: () => Promise<unknown>): Promise<void> {
+  try {
+    await request();
+  } catch (error) {
+    throw new Error(await readApiError(error));
+  }
+  await refreshPosts();
+}
+
 export function usePosts(): Post[] {
-  return useDb()?.posts ?? [];
+  const { data } = useQuery({
+    queryKey: [...postKey, 'list'],
+    queryFn: async () => (await http.get<{ posts: Dated<Post>[] }>('/posts')).data.posts.map((row) => withDate<Post>(row)),
+  });
+  return data ?? [];
 }
 
 export function useComments(postId: string): PostComment[] {
-  return (useDb()?.postComments ?? []).filter((comment) => comment.postId === postId);
+  const { data } = useQuery({
+    queryKey: [...postKey, 'comments', postId],
+    queryFn: async () =>
+      (await http.get<{ comments: Dated<PostComment>[] }>(`/posts/${postId}/comments`)).data.comments.map((row) =>
+        withDate<PostComment>(row),
+      ),
+  });
+  return data ?? [];
 }
 
 export function useScheduled(): ScheduledNotice[] {
@@ -105,43 +137,23 @@ export async function dismissAlertToday(popupId: string, dateKey: string): Promi
   await http.post(`/alert-popups/${popupId}/dismiss`, { dateKey });
 }
 
-/** 웹 repository 와 같다. 게시글 쓰기는 아직 서버 명령이 없어 화면 캐시에만 반영된다. */
-export function addPost(authorId: string, authorName: string, content: string): void {
-  patchBootstrap((db) => ({
-    posts: [
-      {
-        id: `p-${Date.now()}`,
-        authorId,
-        authorName,
-        content,
-        likeCount: 0,
-        commentCount: 0,
-        createdAt: new Date(),
-      },
-      ...db.posts,
-    ],
-  }));
+export async function addPost(content: string): Promise<void> {
+  await postCall(() => http.post('/posts', { content }));
 }
 
-export function removePost(id: string): void {
-  patchBootstrap((db) => ({
-    posts: db.posts.filter((post) => post.id !== id),
-    postComments: db.postComments.filter((comment) => comment.postId !== id),
-  }));
+export async function removePost(id: string): Promise<void> {
+  await postCall(() => http.delete(`/posts/${id}`));
 }
 
-export function likePost(id: string): void {
-  patchBootstrap((db) => ({
-    posts: db.posts.map((post) => (post.id === id ? { ...post, likeCount: post.likeCount + 1 } : post)),
-  }));
+/** 한 사람이 한 글에 한 번 — 다시 누르면 취소(서버) */
+export async function likePost(id: string): Promise<void> {
+  await postCall(() => http.post(`/posts/${id}/like`));
 }
 
-export function addComment(postId: string, authorId: string, authorName: string, content: string): void {
-  patchBootstrap((db) => ({
-    postComments: [
-      ...db.postComments,
-      { id: `pc-${Date.now()}`, postId, authorId, authorName, content, createdAt: new Date() },
-    ],
-    posts: db.posts.map((post) => (post.id === postId ? { ...post, commentCount: post.commentCount + 1 } : post)),
-  }));
+export async function addComment(postId: string, content: string): Promise<void> {
+  await postCall(() => http.post(`/posts/${postId}/comments`, { content }));
+}
+
+export async function removeComment(postId: string, commentId: string): Promise<void> {
+  await postCall(() => http.delete(`/posts/${postId}/comments/${commentId}`));
 }
