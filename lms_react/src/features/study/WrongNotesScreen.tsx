@@ -126,7 +126,7 @@ function WrongDay({ day, showSolved }: { day: WrongNoteDay; showSolved: boolean 
               <span className="wrong-item__meta">
                 {item.tries}회 시도 · 최근 {shortDate(item.lastTried)}
               </span>
-              <span className="wn-item-action">다시 풀기 <Icon name="chevron_right" size={17} /></span>
+              <span className="btn btn--outline btn--sm wn-item-action">다시 풀기 <Icon name="arrow_forward" size={16} /></span>
             </PracticeLink>
           </li>
         ))}
@@ -136,7 +136,7 @@ function WrongDay({ day, showSolved }: { day: WrongNoteDay; showSolved: boolean 
               <Icon name="check" size={16} className="wrong-item__mark" />
               <ProblemText set={s.set} index={s.index} />
               <span className="wrong-item__meta">{s.tries}번 만에 해결</span>
-              <span className="wn-item-action">다시 보기 <Icon name="chevron_right" size={17} /></span>
+              <span className="btn btn--outline btn--sm wn-item-action">다시 보기 <Icon name="arrow_forward" size={16} /></span>
             </PracticeLink>
           </li>
         ))}
