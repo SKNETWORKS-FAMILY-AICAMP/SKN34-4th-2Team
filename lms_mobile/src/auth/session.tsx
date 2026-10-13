@@ -126,6 +126,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     await unregisterPush();
+    const refresh = useSessionStore.getState().refresh;
     setOffline(false);
     setUid(null);
     setMustChange(false);
@@ -133,13 +134,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     chatHistory.clear();
     useSessionStore.getState().clear();
     setTimeout(() => queryClient.clear(), 0);
-    void http.post('/logout').catch(() => undefined);
+    if (refresh) void http.post('/logout', { refresh }).catch(() => undefined);
   }, []);
 
   const changePassword = useCallback(async (next: string, current?: string) => {
     if (next.length < 8) return { ok: false as const, message: '비밀번호는 8자 이상이어야 합니다.' };
     try {
-      await http.post('/password', { password: next, currentPassword: current ?? '' });
+      const { data } = await http.post<{ access: string; refresh: string }>('/password', {
+        password: next, currentPassword: current ?? '',
+      });
+      if (!data.access || !data.refresh) throw new Error('새 로그인 정보를 받지 못했습니다. 다시 로그인해 주세요.');
+      useSessionStore.getState().setTokens(data.access, data.refresh);
       setMustChange(false);
       return { ok: true as const };
     } catch (error) {
