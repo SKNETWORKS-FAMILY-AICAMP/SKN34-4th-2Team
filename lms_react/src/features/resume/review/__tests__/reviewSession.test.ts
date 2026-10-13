@@ -395,6 +395,26 @@ describe('공고 맞춤 첨삭 흐름 — job_resume_review_dialog.dart', () => 
       expect(session.result?.review_id).toBe(firstReview.review_id);
     } finally { vi.useRealTimers(); }
   });
+  it('shows finished chunks as view-only previews while polling and drops them when the review completes', async () => {
+    vi.useFakeTimers();
+    try {
+      const card = { field_path: 'projects[0].description', original_quote: 'API 구현', suggested_revision: 'API를 구현했습니다.' };
+      api.review
+        .mockResolvedValueOnce({ async_job: { state: 'running', stage: 'write', elapsed_seconds: 30, preview_reviews: [] } })
+        .mockResolvedValueOnce({ async_job: { state: 'running', stage: 'verify', elapsed_seconds: 60, preview_reviews: [card], done: 2, total: 12 } })
+        .mockResolvedValueOnce({ ...firstReview, telemetry: { execution: { state: 'verified' } } });
+      const { session } = makeSession();
+      const done = session.review();
+      await vi.advanceTimersByTimeAsync(3500);
+      expect(session.previewReviews).toEqual([card]);
+      expect(session.processingLabel).toBe('사실 검증 중 · 12개 중 2개 끝 · 60초 경과');
+      expect(session.result).toBeNull(); // Nothing is applicable before the review completes.
+      await vi.runAllTimersAsync();
+      await done;
+      expect(session.previewReviews).toEqual([]);
+      expect(session.result?.review_id).toBe(firstReview.review_id);
+    } finally { vi.useRealTimers(); }
+  });
   it('transport timeout and busy recover automatically with the identical request', async () => {
     vi.useFakeTimers();
     try {

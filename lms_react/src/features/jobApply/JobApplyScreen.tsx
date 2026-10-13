@@ -12,7 +12,7 @@ import { Badge, Button, Card, Select, TabPage, TextInput } from '../../ui/compon
 import { formatDate } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
 import { JobPostingDialog } from '../jobs/JobPostingDialog';
-import { careerLabel, type Posting } from '../jobs/JobPostingScreen';
+import { careerLabel, deadlineText, type Posting } from '../jobs/JobPostingScreen';
 import { closedReason } from '../jobs/postingStatus';
 import { ReviewApiError, reviewApi, type Json } from '../resume/review/reviewApi';
 import { DeleteResumeDialog } from '../resume/DeleteResumeDialog';
@@ -185,10 +185,13 @@ export function JobApplyScreen() {
     if (openId !== '' || openJob !== '') setParams({}, { replace: true });
   };
 
-  /** 공고 번호로 공고를 읽는다. 저장소 상태가 틀릴 수 있어(REMOVED · 늘어난 마감일) 링크로 불러올 때처럼 페이지를 열어 확인한다 */
+  /**
+   * 공고 번호로 공고를 읽는다. 저장소 상태가 틀릴 수 있어(REMOVED · 늘어난 마감일) 링크로 불러올 때처럼 페이지를 열어 확인한다.
+   * 오늘 마감인데 시각을 모르는 공고(`check_page`)도 — 오후에 이미 마감됐을 수 있다
+   */
   const readPosting = async (jobId: string): Promise<Posting> => {
     const { data } = await http.get<Posting>(`/postings/${encodeURIComponent(jobId)}`);
-    if (data.status === 'OPEN' || !data.source_url.startsWith('http')) return data;
+    if ((data.status === 'OPEN' && !data.check_page) || !data.source_url.startsWith('http')) return data;
     return (await http.get<Posting>('/posting-link', { params: { url: data.source_url } })).data;
   };
 
@@ -489,7 +492,7 @@ export function JobApplyScreen() {
           <StepHead no={2} title="공고가 요구하는 것" done={requirements.state === 'ready'} />
           {closed && (
             <div className="apply-warn">
-              <span>{closedReason(posting.status, posting.deadline)} 맞춤 첨삭은 열려 있는 공고만 할 수 있어요.</span>
+              <span>{closedReason(posting.status, posting.deadline, posting.deadline_time)} 맞춤 첨삭은 열려 있는 공고만 할 수 있어요.</span>
               {openCopy !== undefined && (
                 <Button size="sm" variant="outline" disabled={finding} onClick={() => void lookup(openCopy.source_url)}>
                   <Icon name="swap_horiz" size={16} />
@@ -650,7 +653,7 @@ function PostingSummary({ posting, onOpen, onChange }: { posting: Posting; onOpe
     posting.region,
     posting.employment_type,
     careerLabel(posting.career_type, posting.min_career_years),
-    posting.deadline ? `~ ${posting.deadline.slice(0, 10)}` : '',
+    posting.deadline ? `~ ${deadlineText(posting)}` : '',
   ].filter((v) => v !== '' && v !== null);
   return (
     <>

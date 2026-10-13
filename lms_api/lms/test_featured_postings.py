@@ -1,13 +1,14 @@
 """공고 맞춤 지원 첫 화면의 주요 기업 카드 — 어떤 회사 · 공고를 올리는가."""
 
-from datetime import date
+from datetime import date, datetime
 from unittest import TestCase
 
 from django.test import Client, SimpleTestCase
 
-from lms.featured_postings import date_of, pick_live, pick_past, season_of, tier_of, wanted
+from lms.featured_postings import KST, closing_time, date_of, next_closing, pick_live, pick_past, season_of, tier_of, wanted
 
 TODAY = date(2026, 9, 30)
+AFTERNOON = datetime(2026, 9, 30, 15, 30, tzinfo=KST)
 
 
 def job(job_id, company, *, company_type="미기재", title="백엔드 개발자 채용", deadline="2026-10-05T23:59",
@@ -155,6 +156,56 @@ class PickLiveTests(TestCase):
         cards = pick_live([job("A", "(주)카카오")], TODAY)
         self.assertIsNone(cards[0]["homepage"])
         self.assertFalse(pick_live([job("A", "(주)카카오", apply_method="SITE")], TODAY)[0]["homepage"])
+
+
+class ClosingTimeTests(TestCase):
+    def test_only_minute_times_set_by_the_company(self):
+        self.assertEqual(closing_time("2026-09-30T15:00"), datetime(2026, 9, 30, 15, tzinfo=KST), "잡코리아 validThrough")
+        self.assertEqual(closing_time("2026-09-30T14:00:00+09:00").hour, 14, "사람인 상세 페이지")
+        self.assertIsNone(closing_time("2026-09-30T23:59:59+09:00"), "사람인 목록 — 날짜만")
+        self.assertIsNone(closing_time("2026-09-30T23:59"))
+        self.assertIsNone(closing_time("2026-09-30T00:00"), "그날 시작인지 날짜만인지 모른다")
+        self.assertIsNone(closing_time("2026-10-03T23:04:12.345678+09:00"), "사람인 D-3 — 수집한 시각")
+        self.assertIsNone(closing_time("2026-09-30"))
+        self.assertIsNone(closing_time(None))
+
+    def test_live_drops_postings_past_their_closing_time(self):
+        rows = [
+            job("A", "(주)카카오", deadline="2026-09-30T14:00"),
+            job("A2", "(주)카카오", deadline="2026-10-02T23:59"),
+            job("B", "DB그룹", company_type="대기업", deadline="2026-09-30T16:00"),
+            job("C", "CJ(주)", company_type="대기업", deadline="2026-09-30T23:59:59+09:00"),
+        ]
+        cards = pick_live(rows, TODAY, now=AFTERNOON)
+        self.assertEqual([(c["job_id"], c["deadline_time"]) for c in cards], [("B", "16:00"), ("C", None), ("A2", None)])
+        self.assertEqual(cards[2]["posting_count"], 1, "마감된 공고는 회사 공고 수에서 빠진다")
+        self.assertEqual(len(pick_live(rows, TODAY)), 3, "now 가 없으면 날짜만 본다")
+
+    def test_earliest_copy_time_wins(self):
+        cards = pick_live(
+            [
+                job("SARAMIN-1", "(주)카카오", group_key="g", deadline="2026-09-30T23:59:59+09:00"),
+                job("JOBKOREA-1", "카카오", group_key="g", source="JOBKOREA_POC", deadline="2026-09-30T15:00"),
+            ],
+            TODAY,
+            now=datetime(2026, 9, 30, 10, tzinfo=KST),
+        )
+        self.assertEqual((cards[0]["job_id"], cards[0]["deadline_time"]), ("SARAMIN-1", "15:00"))
+
+    def test_past_takes_postings_closed_earlier_today(self):
+        rows = [
+            job("A", "(주)카카오", title="2026 하반기 신입 공채", deadline="2026-09-30T14:00"),
+            job("B", "DB그룹", company_type="대기업", title="2026 하반기 신입 공채", deadline="2026-09-30T16:00"),
+        ]
+        self.assertEqual([c["job_id"] for c in pick_past(rows, TODAY, now=AFTERNOON)], ["A"])
+
+    def test_next_closing_is_the_cache_deadline(self):
+        rows = [
+            job("A", "(주)카카오", deadline="2026-09-30T14:00"),
+            job("B", "DB그룹", company_type="대기업", deadline="2026-09-30T16:00"),
+            job("C", "작은회사", company_type="중소기업", deadline="2026-09-30T15:40"),
+        ]
+        self.assertEqual(next_closing(rows, AFTERNOON), datetime(2026, 9, 30, 16, tzinfo=KST), "카드에 안 오르는 공고는 보지 않는다")
 
 
 class PickPastTests(TestCase):

@@ -11,6 +11,14 @@ from app.resume_review_v2.project_planning import prepare_review
 from app.resume_review_v2.llm import LangChainReviewLLM
 
 
+@pytest.fixture(autouse=True)
+def stagewise(monkeypatch):
+    # Pins the one-stage-per-request checkpoint contract (RESUME_REVIEW_PIPELINE=0 and
+    # checkpoints saved before pipelining); pipelined resume: test_resume_review_pipeline.
+    from app.resume_review_v2 import batch
+    monkeypatch.setattr(batch, 'PIPELINE', False)
+
+
 def test_finished_question_flow_distinguishes_completed_unconfirmed_from_pending_requirement_assessment():
     from app.job_requirements import RequirementStatusRow
     from app.resume_review_v2.question_planning import information_status

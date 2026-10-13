@@ -12,6 +12,14 @@ from test_project_live_pipeline import pipeline, post
 from test_stage_checkpoints import staged
 
 
+@pytest.fixture(autouse=True)
+def stagewise(monkeypatch):
+    # Pins the one-stage-per-request checkpoint contract (RESUME_REVIEW_PIPELINE=0 and
+    # checkpoints saved before pipelining); pipelined resume: test_resume_review_pipeline.
+    from app.resume_review_v2 import batch
+    monkeypatch.setattr(batch, 'PIPELINE', False)
+
+
 # The B entrypoint temporarily replaces this function when its fixture imports it.
 production_service_factory = main.build_resume_review_service
 

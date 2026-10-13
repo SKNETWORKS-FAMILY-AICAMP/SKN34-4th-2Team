@@ -41,7 +41,32 @@ def submit_or_poll(payload, attempt):
     elapsed = max(0, int(time.time() - row['started']))
     if elapsed > 1800:
         return Response({'detail': '첨삭 작업 응답을 확인하지 못했습니다. 저장된 처리 재개를 눌러 주세요.'}, status=503)
-    return {'async_job': {'state': row['state'], 'stage': row.get('stage'), 'elapsed_seconds': elapsed}}
+    job = {'state': row['state'], 'stage': row.get('stage'), 'elapsed_seconds': elapsed}
+    if row['state'] == 'running':
+        previews, progress = preview_reviews({**payload, **(row.get('continuation') or {})})
+        job['preview_reviews'] = previews
+        if progress:
+            # One worker request runs the whole review: the AI server's progress is the real stage.
+            job.update(stage=progress.get('stage') or job['stage'], done=progress.get('done'), total=progress.get('total'))
+    return {'async_job': job}
+
+
+def preview_reviews(payload):
+    """(verified cards of finished chunks, progress) of the in-progress review.
+
+    Cards are view-only until the review completes. The AI server keeps both in the review's
+    telemetry; only those keys are read. Neither is required: any lookup problem shows none.
+    """
+    try:
+        from .models import ResumeAiReviews
+        resume = payload['resume_id'] + (f"/tailored/{payload['tailored_resume_id']}" if payload.get('tailored_resume_id') else '')
+        row = (ResumeAiReviews.objects
+               .filter(legacy_id=f"{resume}/{payload['request_id']}", user__firebase_uid=payload['uid'])
+               .values_list('telemetry__preview_reviews', 'telemetry__progress').first())
+        previews, progress = row or (None, None)
+        return (previews if isinstance(previews, list) else []), (progress if isinstance(progress, dict) else None)
+    except Exception:
+        return [], None
 
 
 @shared_task(bind=True, max_retries=70, ignore_result=True, acks_late=True, reject_on_worker_lost=True,
@@ -63,6 +88,9 @@ def run_review_job(self, key, payload):
         db.set(key, json.dumps({'started': started, **data}, ensure_ascii=False), ex=TTL)
     try:
         payload = dict(row.get('continuation') or payload)
+        # This worker calls the AI server directly (timeout 600s), not through nginx (210s):
+        # one request runs the whole review instead of one 165s slice per call.
+        payload['stage_budget_seconds'] = 540
         save(state='running', stage=row.get('stage', 'analyze'), continuation=payload)
         busy_retries = 0
         for _ in range(8):

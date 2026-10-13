@@ -657,7 +657,8 @@ class ProxyResumeReviewRequest(FirestoreResumeReviewRequest):
 def review_stored_resume_as_user(request: ProxyResumeReviewRequest) -> FirestoreResumeReviewResponse:
     """LMS 가 학생을 확인한 뒤 부른다. 이 창구는 바깥에 열지 않는다(Django 만 부른다)."""
     service = build_resume_review_service()
-    inner = FirestoreResumeReviewRequest(**request.model_dump(exclude={"uid"}))
+    inner = FirestoreResumeReviewRequest(**request.model_dump(exclude={"uid"}),
+                                         stage_budget_seconds=request.stage_budget_seconds)
     try:
         if inner.answer_changes and getattr(service, 'supports_answer_changes', False) is not True:
             raise ReviewInputError('answer_edit_not_supported')
@@ -684,7 +685,8 @@ def review_stored_resume(
 ) -> FirestoreResumeReviewResponse:
     try:
         id_token = extract_bearer_token(authorization)
-        return service.review(id_token, request)
+        # A browser call passes nginx (210s): only the proxy's worker path may extend the budget.
+        return service.review(id_token, request.model_copy(update={'stage_budget_seconds': None}))
     except FirebaseAuthenticationError as exc:
         raise HTTPException(status_code=401, detail="Firebase authentication failed") from exc
     except ResumeAccessError as exc:

@@ -342,6 +342,8 @@ def prepare_review(request, extraction):
         if extraction.question is not None:
             exc.diagnostics['question_reference_normalization'] = reconciliation['question_references']
         raise
+    from .validation import spelling_fixes
+    request = request.model_copy(update={'spelling_fixes': spelling_fixes(request, extraction)})
     try:
         return _prepare_validated(request,extraction,evidence,replaced_semantics,reconciliation)
     except ContractError as exc:

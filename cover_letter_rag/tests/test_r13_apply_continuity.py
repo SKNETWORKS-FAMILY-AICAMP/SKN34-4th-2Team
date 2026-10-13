@@ -14,6 +14,14 @@ from app.resume_review_v2.models import (Evidence, EvidenceFacet, ExtractionOutp
     QuestionNeed, QuestionTarget, RevisionSentence, WriterDraft, FactVerification, Usage, SemanticUnit, SourceRef)
 from app.resume_review_v2.llm import LangChainReviewLLM
 
+
+@pytest.fixture(autouse=True)
+def stagewise(monkeypatch):
+    # Pins the one-stage-per-request checkpoint contract (RESUME_REVIEW_PIPELINE=0 and
+    # checkpoints saved before pipelining); pipelined resume: test_resume_review_pipeline.
+    from app.resume_review_v2 import batch
+    monkeypatch.setattr(batch, 'PIPELINE', False)
+
 DATA=json.loads(Path(__file__).with_name('r13_apply_sources.json').read_text(encoding='utf-8'))
 
 

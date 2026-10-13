@@ -9,6 +9,14 @@ from app.resume_review_v2.validation import ContractError
 from app.resume_review_v2.question_planning import select_question,approved_question,render_question_text
 
 
+@pytest.fixture(autouse=True)
+def stagewise(monkeypatch):
+    # Pins the one-stage-per-request checkpoint contract (RESUME_REVIEW_PIPELINE=0 and
+    # checkpoints saved before pipelining); pipelined resume: test_resume_review_pipeline.
+    from app.resume_review_v2 import batch
+    monkeypatch.setattr(batch, 'PIPELINE', False)
+
+
 def case(ids=('e3','e4'),basis=None):
     quotes=['모델과 지표를 비교했습니다.','설정별 평가값을 확인했습니다.']
     req=ReviewInput(experience=Experience(experience_id='exp',kind='project',title='비교',

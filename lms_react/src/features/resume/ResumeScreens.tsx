@@ -11,7 +11,7 @@ import { Badge, Button, Card, Dialog, EmptyState, ErrorState, Skeleton, TabPage,
 import { formatDate, formatDateTime } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
 import { DeleteResumeDialog } from './DeleteResumeDialog';
-import { groupResumes, isApplyCopy, isTailored, type ResumeRow } from './resumeGroups';
+import { groupResumes, isApplyCopy, isTailored, withoutPromotedWorkCopies, type ResumeRow } from './resumeGroups';
 
 /**
  * 이력서 — features/resume/presentation/resume_screen.dart, resume_edit_screen.dart
@@ -110,7 +110,7 @@ export function ResumeScreen() {
 
   // 공고 맞춤 지원(문항 답변)에서 만든 자소서는 그 탭에서 관리한다. 여기의 공고 맞춤 이력서와 섞지 않는다
   const applyCopies = (query.data ?? []).filter(isApplyCopy);
-  const resumes = (query.data ?? []).filter((r) => !isApplyCopy(r));
+  const resumes = withoutPromotedWorkCopies((query.data ?? []).filter((r) => !isApplyCopy(r)));
   const base = resumes.find((r) => r.isBaseResume) ?? resumes.find((r) => !isTailored(r)) ?? resumes[0];
   const count = (status: string) => resumes.filter((r) => r.status === status).length;
 

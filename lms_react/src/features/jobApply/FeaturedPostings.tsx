@@ -22,6 +22,8 @@ export interface FeaturedPosting {
   tier: Tier;
   /** YYYY-MM-DD. 상시채용이면 null. 지난 공채면 마지막 마감일 */
   deadline: string | null;
+  /** 회사가 정한 마감 시각 「15:00」. 날짜만 알면(그날 끝까지) null */
+  deadline_time: string | null;
   /** 「2026 하반기」 · 「수시」 */
   season: string;
   career_type: string;
@@ -49,19 +51,28 @@ const VIEWS: { id: View; label: string; hint: string }[] = [
   { id: 'past', label: '지난 공채', hint: '최근 1년 · 최근 마감순 · 다음 공채 준비용' },
 ];
 
-/** 카드 오른쪽 위 마감 표시. 오늘 · 이틀 안은 색으로 알린다 */
+/**
+ * 카드 오른쪽 위 마감 표시. 오늘 · 이틀 안은 색으로 알린다.
+ * 마감 시각을 알면 붙이고(「오늘 15:00 마감」), 화면을 연 채로 그 시각이 지나면 마감으로 바꾼다 — 서버는 다음 조회부터 뺀다
+ */
 export function ddayOf(
   deadline: string | null,
-  today: Date,
+  now: Date,
   closed = false,
+  time: string | null = null,
 ): { label: string; tone: 'today' | 'soon' | 'later' | 'rolling' | 'closed' } {
   if (deadline === null) return { label: '상시', tone: 'rolling' };
   if (closed) return { label: `${Number(deadline.slice(5, 7))}/${Number(deadline.slice(8, 10))} 마감`, tone: 'closed' };
-  const start = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  const start = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
   const [y, m, d] = deadline.split('-').map(Number);
   const days = Math.round((Date.UTC(y, m - 1, d) - start) / 86_400_000);
-  if (days <= 0) return { label: '오늘마감', tone: 'today' };
-  return { label: `D-${days}`, tone: days <= 2 ? 'soon' : 'later' };
+  if (days <= 0) {
+    if (time === null) return { label: '오늘마감', tone: 'today' };
+    const [h, min] = time.split(':').map(Number);
+    if (days < 0 || now.getHours() * 60 + now.getMinutes() >= h * 60 + min) return { label: `${time} 마감됨`, tone: 'closed' };
+    return { label: `오늘 ${time} 마감`, tone: 'today' };
+  }
+  return { label: time === null ? `D-${days}` : `D-${days} ${time}`, tone: days <= 2 ? 'soon' : 'later' };
 }
 
 /** 회사명으로 정한 색 — 같은 회사는 늘 같은 색 */
@@ -96,6 +107,12 @@ export function FeaturedPostings({ onPick, busy = false }: { onPick(jobId: strin
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [reload, setReload] = useState(0);
+  // 마감 시각이 지나는 카드를 열어 둔 채로도 바꾼다
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -128,7 +145,6 @@ export function FeaturedPostings({ onPick, busy = false }: { onPick(jobId: strin
   };
 
   const allCount = page === null ? null : TIERS.reduce((sum, t) => sum + (page.counts[t] ?? 0), 0);
-  const today = new Date();
   const hint = VIEWS.find((v) => v.id === view)?.hint ?? '';
 
   return (
@@ -183,7 +199,7 @@ export function FeaturedPostings({ onPick, busy = false }: { onPick(jobId: strin
           {page === null
             ? Array.from({ length: 8 }, (_, i) => <li key={i} className="featured-card featured-card--skeleton" aria-hidden="true" />)
             : page.items.map((p) => {
-                const due = ddayOf(p.deadline, today, p.closed);
+                const due = ddayOf(p.deadline, now, p.closed, p.deadline_time);
                 return (
                   <li key={p.job_id}>
                     <button

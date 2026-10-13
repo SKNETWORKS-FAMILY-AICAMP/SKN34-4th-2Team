@@ -4,6 +4,9 @@ from typing import Any
 from copy import deepcopy
 import hashlib
 import json
+import threading
+import time
+from contextlib import contextmanager
 
 import firebase_admin
 from firebase_admin import auth, credentials
@@ -22,6 +25,58 @@ def tailored_resume_title(base: dict[str, Any], company: str, purpose: str = 're
     if not company:
         return base_title
     return f'{company} 자소서' if purpose == 'apply' else f'{company} 맞춤 이력서'
+
+
+_PG_POOLS: dict = {}
+_PG_POOLS_LOCK = threading.Lock()
+
+
+_DB_STATS = [0, 0.0]  # calls, seconds — for the per-request `[첨삭 시간]` log
+
+
+def db_stats() -> tuple[int, float]:
+    with _PG_POOLS_LOCK:
+        return _DB_STATS[0], _DB_STATS[1]
+
+
+@contextmanager
+def _pooled_connection():
+    """A pooled connection per connection target, used as ``with ... as conn`` like psycopg.connect.
+
+    Every review DB call used to open a new connection: 1.4s of TLS setup from a dev PC to RDS,
+    paid by each progress write — a staged review spent minutes connecting (2026-10-13).
+    On exit the pool commits (rolls back on error) and keeps the connection.
+    """
+    started = time.monotonic()
+    try:
+        with _pool().connection() as conn:
+            yield conn
+    finally:
+        with _PG_POOLS_LOCK:
+            _DB_STATS[0] += 1
+            _DB_STATS[1] += time.monotonic() - started
+
+
+def _pool():
+    from chatbot.database import connect_params
+    conninfo, params = connect_params()
+    # A review holds its resume lock on one connection for minutes. Keepalives keep a NAT or
+    # router from silently dropping it and let both ends notice a dead peer in about a minute
+    # (2026-10-13: a dropped lock connection blocked the next review for six minutes).
+    params = {**params, 'keepalives': 1, 'keepalives_idle': 30, 'keepalives_interval': 10, 'keepalives_count': 3}
+    key = (conninfo, tuple(sorted(params.items())))
+    pool = _PG_POOLS.get(key)
+    if pool is None:
+        with _PG_POOLS_LOCK:
+            pool = _PG_POOLS.get(key)
+            if pool is None:
+                from psycopg_pool import ConnectionPool
+                # No per-checkout ping (one more round trip per call); idle connections are
+                # closed after 4 minutes instead, before RDS or a NAT drops them.
+                pool = ConnectionPool(conninfo, kwargs=params, min_size=1, max_size=10, open=True,
+                                      max_idle=240, name='review-gateway')
+                _PG_POOLS[key] = pool
+    return pool
 
 
 class FirebaseAuthenticationError(Exception):
@@ -49,8 +104,7 @@ class FirebaseGateway:
         return firestore.client(app=self._app)
 
     def _pg(self):
-        from chatbot.database import connect
-        return connect()
+        return _pooled_connection()
 
     @staticmethod
     def _json_object(value):
@@ -157,7 +211,7 @@ class FirebaseGateway:
         with self._pg() as conn:
             ident = self._cohort_user(conn, cohort_id, uid)
             parent = conn.execute(
-                "SELECT id FROM resumes WHERE (legacy_id = %s OR id::text = %s) AND cohort_id = %s",
+                "SELECT id, source_tailored_resume_id FROM resumes WHERE (legacy_id = %s OR id::text = %s) AND cohort_id = %s",
                 (resume_id, resume_id, ident["cohort_pk"]),
             ).fetchone()
             if not parent:
@@ -177,6 +231,16 @@ class FirebaseGateway:
                 }, job_id)
                 if meta["jobSnapshotHash"] != snapshot_hash:
                     raise ResumeNotFoundError("tailored resume not found")
+                if purpose == 'review' and parent[1] is not None and meta["sourceResumeHash"] != source_hash:
+                    # 편집용 사본의 재첨삭 작업본은 이름이 (원본, 공고)로만 정해져 다시 열린다. 그 사이 편집용
+                    # 사본을 고쳤다면 옛 내용으로 첨삭하고 완료 때 덮어써 그 수정을 지운다 — 최신 내용으로 다시 뜬다.
+                    conn.execute("UPDATE resumes SET content=%s, status='draft', updated_at=now() WHERE id=%s",
+                                 (Jsonb(payload["content"]), existing[0]))
+                    conn.execute("""UPDATE resume_tailorings SET source_resume_hash=%s, review_session='{}'::jsonb,
+                                    review_progress='not_started', updated_at=now() WHERE resume_id=%s""",
+                                 (source_hash, existing[0]))
+                    meta = {**meta, "sourceResumeHash": source_hash, "reviewSession": {}, "reviewProgress": "not_started"}
+                    existing = (*existing[:7], 'draft', payload["content"])
                 if title and existing[1] != title:
                     conn.execute("UPDATE resumes SET title=%s, updated_at=now() WHERE id=%s", (title, existing[0]))
                 clone_existing_bindings(conn, user_id=ident['user_pk'], source_resume_id=parent[0], target_resume_id=existing[0])
@@ -422,6 +486,20 @@ class FirebaseGateway:
             ).fetchone()
             if not tailored_row:
                 raise ResumeNotFoundError("tailored resume not found")
+            editing = conn.execute(
+                """SELECT id, legacy_id FROM resumes WHERE (legacy_id = %s OR id::text = %s) AND cohort_id = %s
+                   AND user_id = %s AND source_tailored_resume_id IS NOT NULL""",
+                (resume_id, resume_id, ident["cohort_pk"], ident["user_pk"]),
+            ).fetchone()
+            if editing:
+                # 편집용 사본에서 다시 첨삭한 결과는 그 사본에 덮어쓴다. 새 편집용 사본을 또 뜨면 같은 이름이
+                # 재첨삭마다 한 줄씩 늘었다(2026-10-13). 작업본을 뜰 때 최신 내용에서 시작하므로 덮어써도 안전하다.
+                conn.execute("UPDATE resumes SET content=%s, updated_at=now() WHERE id=%s",
+                             (Jsonb(deepcopy(tailored.get("content") or {})), editing[0]))
+                # 항목 연결(binding)은 편집용 사본이 이미 갖고 있다 — 첨삭은 같은 항목의 글만 바꾼다.
+                conn.execute("UPDATE resumes SET status='ready', updated_at=now() WHERE id=%s", (tailored_row[0],))
+                conn.commit()
+                return editing[1]
             existing = conn.execute("SELECT id FROM resumes WHERE legacy_id = %s", (workspace_id,)).fetchone()
             if not existing:
                 created = conn.execute(

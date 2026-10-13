@@ -55,6 +55,15 @@ describe('마감 표시', () => {
     expect(ddayOf(null, today)).toEqual({ label: '상시', tone: 'rolling' });
     expect(ddayOf('2026-09-15', today, true)).toEqual({ label: '9/15 마감', tone: 'closed' });
   });
+
+  it('회사가 정한 마감 시각 — 지나면 마감으로', () => {
+    const morning = new Date(2026, 8, 30, 10, 0);
+    const afternoon = new Date(2026, 8, 30, 15, 0);
+    expect(ddayOf('2026-09-30', morning, false, '15:00')).toEqual({ label: '오늘 15:00 마감', tone: 'today' });
+    expect(ddayOf('2026-09-30', afternoon, false, '15:00')).toEqual({ label: '15:00 마감됨', tone: 'closed' });
+    expect(ddayOf('2026-09-30', afternoon, false, null)).toEqual({ label: '오늘마감', tone: 'today' });
+    expect(ddayOf('2026-10-02', afternoon, false, '17:00')).toEqual({ label: 'D-2 17:00', tone: 'soon' });
+  });
 });
 
 describe('주요 기업 카드', () => {

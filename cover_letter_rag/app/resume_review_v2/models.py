@@ -100,6 +100,13 @@ class SourceDocument(StrictModel):
     text: str
 
 
+class SpellingFix(StrictModel):
+    """An obvious typo in the source, found when the analyst quoted it corrected."""
+    source_id: str
+    wrong: str
+    right: str
+
+
 class ClaimType(StrEnum):
     TECHNOLOGY = 'technology_used'
     ACTION = 'action_performed'
@@ -282,6 +289,7 @@ class ReviewInput(StrictModel):
     section_profile: SectionSemanticProfile | None = None
     sentence_plan: SentencePlan | None = None
     approved_intents: list[ApplicantIntentClaim] = Field(default_factory=list)
+    spelling_fixes: list[SpellingFix] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def answer_needs_source(self):
@@ -464,3 +472,4 @@ class ReviewResult(StrictModel):
     debug_trace: dict = Field(default_factory=dict)
     requirement_matches: list[RequirementEvidenceMatch] | None = None
     requirement_warnings: list[str] = Field(default_factory=list)
+    spelling_fixes: list[SpellingFix] = Field(default_factory=list)
