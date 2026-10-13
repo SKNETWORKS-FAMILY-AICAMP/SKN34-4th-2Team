@@ -17,6 +17,7 @@ COPY lms_api /app
 COPY cover_letter_rag/app/__init__.py cover_letter_rag/app/models.py cover_letter_rag/app/job_requirements.py /app/cover_letter_rag/app/
 COPY cover_letter_rag/app/application_planning/ /app/cover_letter_rag/app/application_planning/
 COPY chatbot/cohort_document_rag.py chatbot/database.py /app/chatbot/
+COPY chatbot/active_policy_rules.py chatbot/calculation_rules.py chatbot/document_calculation_rules.py chatbot/unit_period.py /app/chatbot/
 COPY vectordb/policy_ingestion.py vectordb/utills.py /app/vectordb/
 RUN mkdir -p /app/media && chown lms:lms /app/media
 USER 10001:10001
