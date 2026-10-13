@@ -1,0 +1,308 @@
+{
+  "calls": [
+    {
+      "case": "unit",
+      "mode": "medium",
+      "endpoint": "responses.create",
+      "reasoning": {
+        "effort": "medium"
+      }
+    },
+    {
+      "case": "unit",
+      "mode": "adaptive",
+      "endpoint": "responses.create",
+      "reasoning": {
+        "effort": "low"
+      }
+    },
+    {
+      "case": "schedule",
+      "mode": "adaptive",
+      "endpoint": "responses.create",
+      "reasoning": {
+        "effort": "low"
+      }
+    },
+    {
+      "case": "schedule",
+      "mode": "medium",
+      "endpoint": "responses.create",
+      "reasoning": {
+        "effort": "medium"
+      }
+    },
+    {
+      "case": "policy",
+      "mode": "medium",
+      "endpoint": "responses.create",
+      "reasoning": {
+        "effort": "medium"
+      }
+    },
+    {
+      "case": "policy",
+      "mode": "adaptive",
+      "endpoint": "responses.create",
+      "reasoning": {
+        "effort": "medium"
+      }
+    },
+    {
+      "case": "mixed",
+      "mode": "adaptive",
+      "endpoint": "responses.create",
+      "reasoning": {
+        "effort": "medium"
+      }
+    },
+    {
+      "case": "mixed",
+      "mode": "medium",
+      "endpoint": "responses.create",
+      "reasoning": {
+        "effort": "medium"
+      }
+    }
+  ],
+  "results": [
+    {
+      "case": "unit",
+      "mode": "medium",
+      "answer": "이번 단위기간은 **9월 16일~10월 15일**이며, 등록 커리큘럼 기준 수업 예정일은 18일이에요.\n\n현재 기록된 14일 중 인정 출석은 13일(92.9%)이에요. 전체 기간 기준에 필요한 인정 출석일은 15일이므로, 추가 결석 환산 없이 정상 출석한다는 가정에서 **정상 출석 2일이 더 필요해요**. 앞으로 예정된 미기록 수업일은 4일이에요.\n\n지각·조퇴·외출이 5회 누적되어 있어, **이 중 1회가 더 누적되면 결석 환산이 1일 추가돼요**. 단위기간 구분과 계산 기준은 검토 중이며, 실제 장려금 지급 여부는 별도 확인이 필요해요.",
+      "wall_ms": 7977.88,
+      "metrics": {
+        "answer_model_ms": 7564,
+        "answer_ttft_ms": 2603,
+        "answer_first_callback_ms": 1899,
+        "answer_first_nonempty_callback_ms": 2603,
+        "answer_first_model_event_ms": 1899,
+        "answer_visible_ttft_ms": 6084,
+        "answer_stream_events": 197,
+        "answer_visible_deltas": 191,
+        "answer_nontext_events": 6,
+        "answer_reasoning_events": 2,
+        "answer_reasoning_tokens": 434,
+        "answer_cached_input_tokens": 0,
+        "answer_reasoning_effort": "medium",
+        "answer_effort_reason": "fixed_setting",
+        "token_in": 8353,
+        "token_out": 632
+      }
+    },
+    {
+      "case": "unit",
+      "mode": "adaptive",
+      "answer": "이번 단위기간은 **9월 16일~10월 15일**, 등록 커리큘럼 기준 수업 예정일은 18일이에요.\n\n기록된 14일 중 인정 출석은 13일(92.9%)이고, 단위기간 기준에 필요한 인정 출석일은 15일이에요. 앞으로 추가 결석 환산 없이 정상 출석하면 **2일 더** 출석해야 해요. 남은 예정 수업일은 4일이에요.\n\n지각·조퇴·외출이 1회 더 누적되면 결석 환산이 1일 추가돼요. 단위기간 구분과 계산 기준은 검토 중이며, 실제 장려금 지급 여부는 별도 확인이 필요해요.",
+      "wall_ms": 4979.16,
+      "metrics": {
+        "answer_model_ms": 4867,
+        "answer_ttft_ms": 1187,
+        "answer_first_callback_ms": 920,
+        "answer_first_nonempty_callback_ms": 1187,
+        "answer_first_model_event_ms": 920,
+        "answer_visible_ttft_ms": 3372,
+        "answer_stream_events": 172,
+        "answer_visible_deltas": 166,
+        "answer_nontext_events": 6,
+        "answer_reasoning_events": 2,
+        "answer_reasoning_tokens": 190,
+        "answer_cached_input_tokens": 0,
+        "answer_reasoning_effort": "low",
+        "answer_effort_reason": "simple_unit",
+        "token_in": 8209,
+        "token_out": 363
+      }
+    },
+    {
+      "case": "schedule",
+      "mode": "adaptive",
+      "answer": "이번 단위기간은 **2026년 9월 16일부터 10월 15일까지**예요. 단위기간 구분은 현재 검토 중인 일정이에요.",
+      "wall_ms": 1756.76,
+      "metrics": {
+        "answer_model_ms": 1656,
+        "answer_ttft_ms": 1179,
+        "answer_first_callback_ms": 811,
+        "answer_first_nonempty_callback_ms": 1179,
+        "answer_first_model_event_ms": 811,
+        "answer_visible_ttft_ms": 1187,
+        "answer_stream_events": 44,
+        "answer_visible_deltas": 40,
+        "answer_nontext_events": 4,
+        "answer_reasoning_events": 0,
+        "answer_reasoning_tokens": 0,
+        "answer_cached_input_tokens": 3027,
+        "answer_reasoning_effort": "low",
+        "answer_effort_reason": "simple_schedule",
+        "token_in": 4397,
+        "token_out": 44
+      }
+    },
+    {
+      "case": "schedule",
+      "mode": "medium",
+      "answer": "이번 단위기간은 **2026년 9월 16일부터 10월 15일까지**로 산정되어 있어요. 다만 기간 구분은 아직 검토 중이라 확정 일정은 아니에요.",
+      "wall_ms": 2460.23,
+      "metrics": {
+        "answer_model_ms": 2379,
+        "answer_ttft_ms": 749,
+        "answer_first_callback_ms": 468,
+        "answer_first_nonempty_callback_ms": 749,
+        "answer_first_model_event_ms": 468,
+        "answer_visible_ttft_ms": 1866,
+        "answer_stream_events": 54,
+        "answer_visible_deltas": 48,
+        "answer_nontext_events": 6,
+        "answer_reasoning_events": 2,
+        "answer_reasoning_tokens": 117,
+        "answer_cached_input_tokens": 3027,
+        "answer_reasoning_effort": "medium",
+        "answer_effort_reason": "fixed_setting",
+        "token_in": 4377,
+        "token_out": 171
+      }
+    },
+    {
+      "case": "policy",
+      "mode": "medium",
+      "answer": "무조건 공가로 인정되는 건 아니에요. 검토 중인 자료에 따르면 **운영진 승인**이 있어야 하고, 면접 확인서를 제출해 **면접일로부터 3영업일 이내**에 신청해야 해요. 면접에 참석했더라도 승인 없이 자동으로 공가 처리되지는 않는다고 안내돼 있어요.",
+      "wall_ms": 2877.29,
+      "metrics": {
+        "answer_model_ms": 2763,
+        "answer_ttft_ms": 1104,
+        "answer_first_callback_ms": 717,
+        "answer_first_nonempty_callback_ms": 1104,
+        "answer_first_model_event_ms": 717,
+        "answer_visible_ttft_ms": 2028,
+        "answer_stream_events": 85,
+        "answer_visible_deltas": 79,
+        "answer_nontext_events": 6,
+        "answer_reasoning_events": 2,
+        "answer_reasoning_tokens": 76,
+        "answer_cached_input_tokens": 3027,
+        "answer_reasoning_effort": "medium",
+        "answer_effort_reason": "fixed_setting",
+        "token_in": 4923,
+        "token_out": 161
+      }
+    },
+    {
+      "case": "policy",
+      "mode": "adaptive",
+      "answer": "면접에 다녀와도 **자동으로 공가 처리되지는 않으며**, 운영진 승인이 있어야 출석으로 인정된다는 검토 중인 안내가 있어요. 안내된 조건은 면접 확인서를 제출하고 **면접일로부터 3영업일 이내에 신청하는 것**이지만, 아직 검증되지 않은 자료라 확정 규정으로 단정할 수는 없어요.",
+      "wall_ms": 3447.65,
+      "metrics": {
+        "answer_model_ms": 3078,
+        "answer_ttft_ms": 927,
+        "answer_first_callback_ms": 489,
+        "answer_first_nonempty_callback_ms": 927,
+        "answer_first_model_event_ms": 489,
+        "answer_visible_ttft_ms": 2187,
+        "answer_stream_events": 96,
+        "answer_visible_deltas": 90,
+        "answer_nontext_events": 6,
+        "answer_reasoning_events": 2,
+        "answer_reasoning_tokens": 153,
+        "answer_cached_input_tokens": 3027,
+        "answer_reasoning_effort": "medium",
+        "answer_effort_reason": "policy_interpretation",
+        "token_in": 4899,
+        "token_out": 249
+      }
+    },
+    {
+      "case": "mixed",
+      "mode": "adaptive",
+      "answer": "이번 단위기간은 **9월 16일~10월 15일**이며, 등록 커리큘럼 기준 수업 예정일은 18일이에요. 현재까지 14일의 출결이 기록됐고, 앞으로 기록될 예정일은 4일이에요.\n\n기록된 14일 중 인정 출석은 13일로 **출석률은 92.9%**예요. 현재 제공된 기준으로 전체 기간 목표에 도달하려면 추가 결석 환산 없이 정상 출석 2일이 더 필요해요.\n\n지각은 5회 누적됐고, 현재 기준상 결석 환산은 1일이에요. 지각·조퇴·외출이 1회 더 누적되면 결석 환산이 1일 추가돼요.\n\n면접 공가는 검토 중인 자료에 따르면 운영진 승인을 받아야 하며, 면접 확인서를 제출하고 면접일로부터 3영업일 이내에 신청해야 해요. 면접에 참석했더라도 승인 없이 자동으로 출석 인정되지는 않는다고 안내되어 있어요.\n\n현재 단위기간 구분과 출석 계산 기준, 면접 공가 조건은 검토 중인 자료에 따른 예상 안내이며, 실제 장려금 지급이나 공가 인정 여부는 별도 확인이 필요해요.",
+      "wall_ms": 8081.01,
+      "metrics": {
+        "answer_model_ms": 7967,
+        "answer_ttft_ms": 1486,
+        "answer_first_callback_ms": 911,
+        "answer_first_nonempty_callback_ms": 1486,
+        "answer_first_model_event_ms": 911,
+        "answer_visible_ttft_ms": 5757,
+        "answer_stream_events": 297,
+        "answer_visible_deltas": 291,
+        "answer_nontext_events": 6,
+        "answer_reasoning_events": 2,
+        "answer_reasoning_tokens": 486,
+        "answer_cached_input_tokens": 3027,
+        "answer_reasoning_effort": "medium",
+        "answer_effort_reason": "compound_request",
+        "token_in": 8364,
+        "token_out": 784
+      }
+    },
+    {
+      "case": "mixed",
+      "mode": "medium",
+      "answer": "이번 단위기간은 **9월 16일~10월 15일**이며, 등록 커리큘럼 기준 수업 예정일은 18일이에요.\n\n기록된 14일 중 인정 출석은 13일(**92.9%**)이에요. 추가 결석 환산 없이 정상 출석한다는 가정에서는 전체 기간 기준에 도달하려면 정상 출석 2일이 더 필요해요.\n\n현재 지각이 5회 누적되어 있어요. 지각·조퇴·외출이 1회 더 누적되면 결석 환산이 1일 추가돼요.\n\n면접 공가에 관한 제공 자료에는 운영진 사전 승인, 면접 확인서 제출, 면접일로부터 3영업일 이내 신청이 조건으로 적혀 있고, 승인 없이 자동으로 공가 처리되지 않는다고 되어 있어요. 다만 이 내용은 검토 중인 자료라 확정된 신청 조건으로 확인할 수 없어요.\n\n단위기간 구분과 계산 기준이 검토 중이며, 실제 장려금 지급 여부는 별도 확인이 필요해요.",
+      "wall_ms": 8419.7,
+      "metrics": {
+        "answer_model_ms": 8336,
+        "answer_ttft_ms": 759,
+        "answer_first_callback_ms": 485,
+        "answer_first_nonempty_callback_ms": 759,
+        "answer_first_model_event_ms": 485,
+        "answer_visible_ttft_ms": 6507,
+        "answer_stream_events": 251,
+        "answer_visible_deltas": 243,
+        "answer_nontext_events": 8,
+        "answer_reasoning_events": 4,
+        "answer_reasoning_tokens": 634,
+        "answer_cached_input_tokens": 3027,
+        "answer_reasoning_effort": "medium",
+        "answer_effort_reason": "fixed_setting",
+        "token_in": 8396,
+        "token_out": 884
+      }
+    }
+  ],
+  "scope": "Synthetic answer-only; no real routing/search/DB. Four pairs, medium baseline vs adaptive.",
+  "review": {
+    "limitations": [
+      "Only one pair per question; not a statistically reliable benchmark.",
+      "Synthetic fixtures, answer-only; supervisor, retrieval, DB, production load excluded.",
+      "Reported input tokens, cache hits, output length and server latency vary between calls.",
+      "Live cases ran on initial selector; edge-case selector corrections require offline verification and preserve these four classifications.",
+      "No production configuration, records or deployment changed.",
+      "An unsupported qualifier occurred in a medium baseline; effort alone does not guarantee factual accuracy."
+    ],
+    "comparisons": {
+      "schedule": {
+        "medium_model_ms": 2379,
+        "adaptive_first_ms": 1187,
+        "adaptive_model_ms": 1656,
+        "medium_first_ms": 1866
+      },
+      "unit": {
+        "medium_model_ms": 7564,
+        "adaptive_first_ms": 3372,
+        "adaptive_model_ms": 4867,
+        "medium_first_ms": 6084
+      }
+    },
+    "adaptive_answers": "4/4 preserved expected facts and caveats",
+    "baseline_answers": "3/4 strict pass; mixed baseline added unsupported prior-approval wording (source only required approval)",
+    "api_calls": 8,
+    "requested_efforts": "Verified actual Responses requests: unit/schedule low; policy/mixed medium",
+    "offline_checks": {
+      "state_mutation": "none",
+      "concurrent_selection": "passed",
+      "selector_iterations": 1000,
+      "chatbot_tests": 216,
+      "selector_mean_ms": 0.1487,
+      "data_validation": "7/7",
+      "stream_and_telemetry": "passed",
+      "independent_classification": "16/16"
+    },
+    "rollout": {
+      "rollback": "unset or medium then restart AI process",
+      "setting": "LMS_CHATBOT_ANSWER_REASONING_EFFORT=adaptive",
+      "default": "unset preserves provider default",
+      "production_changed": false,
+      "branch": "perf/adaptive-answer-effort-20261012"
+    }
+  }
+}

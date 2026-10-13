@@ -1,0 +1,31 @@
+Resume Review background processing
+
+The browser supplies asyncAttempt to /api/resume-review. Django validates resume
+ownership, atomically queues one Celery task through the existing Redis broker,
+and returns short status responses. Polls retain the complete original payload
+and attempt ID. The worker advances the existing saved Analyze/Writer/Verifier
+checkpoints with their canonical review ID. It does not change AI quality rules.
+Validation timeout stays pending; unverified candidates cannot become READY.
+Clients without asyncAttempt retain the synchronous API contract.
+
+Runtime prerequisites
+- Django and Celery must use the same application image and REDIS_URL.
+- Start the existing worker service along with API; restarting only AI is not
+  sufficient. deploy/docker-compose.django.yml already includes Redis/worker.
+- Windows development: celery -A lms_server worker --pool=solo -l info, from
+  lms_api with the same environment as Django. No schema migration is required.
+- Status expires after one hour. Polling is bounded to 30 minutes. Resume is
+  available after failures; the AI's persisted checkpoints remain authoritative.
+
+Release verification
+Before Git reconciliation, the equivalent production transport implementation
+completed an authorized initial review of resume 33 through CloudFront:
+396.350 seconds, 133 HTTP requests all 200, maximum HTTP 0.201 seconds.
+Analyze/write/verify/rewrite/verify: five model calls; READY 10, UNCHANGED 1.
+No suggestion was applied. This verifies transport completion, not a new
+sentence-quality evaluation. The AI model, prompts, policy and rewrite cap
+were unchanged. Pure model latency remains a separate optimization task.
+
+Keep releases traceable: build from the merged Git commit, record its SHA in
+the image label and deployment manifest, and deploy the same image for API
+and worker. Never mix unrelated uncommitted source into release artifacts.

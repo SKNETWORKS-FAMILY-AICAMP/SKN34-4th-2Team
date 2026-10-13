@@ -1,9 +1,13 @@
-import { defineConfig } from 'vite';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { defineConfig, searchForWorkspaceRoot } from 'vite';
 import react from '@vitejs/plugin-react';
 
 // 다른 Django 를 볼 때(예: 병합 브랜치 미리보기) LMS_API_PROXY=http://127.0.0.1:8010 npm run dev
 const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const API_PROXY = { '/api': env.LMS_API_PROXY || 'http://127.0.0.1:8000' };
+const configRoot = fileURLToPath(new URL('.', import.meta.url));
+const materialSymbolsRoot = realpathSync(fileURLToPath(new URL('./node_modules/material-symbols', import.meta.url)));
 
 const COOP_COEP = {
   'Cross-Origin-Opener-Policy': 'same-origin',
@@ -19,6 +23,9 @@ export default defineConfig({
   // isolated 여야 한다. 배포(Django · nginx)에서도 이 두 헤더를 그대로 보낸다. 없어도 연습장은
   // 「입력값」 칸 방식으로 돈다.
   server: {
+    // A worktree may reuse node_modules through a junction. Permit only the
+    // icon-font package's real directory beyond Vite's normal workspace root.
+    fs: { strict: true, allow: [searchForWorkspaceRoot(configRoot), materialSymbolsRoot] },
     headers: COOP_COEP,
     // lms_api(Django) — 개발 중에는 같은 출처로 보이게 넘긴다
     proxy: API_PROXY,
