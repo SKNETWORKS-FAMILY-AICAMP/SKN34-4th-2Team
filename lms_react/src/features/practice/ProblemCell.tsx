@@ -1,4 +1,4 @@
-import { useDeferredValue, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import { useDeferredValue, useId, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 
 import type { WebGrade } from '../../data/repository';
 import type { PracticeAttempt, PracticeKind, PracticeProblem, PracticeReport, PracticeReportReason } from '../../domain/types';
@@ -99,6 +99,7 @@ export function ProblemCell({
   /** 튜터가 가리킨 줄 */
   markedLines?: number[];
 }) {
+  const answerId = useId();
   const [pick, setPick] = useState<number | null>(null);
   const [answer, setAnswer] = useState('');
   const [submitted, setSubmitted] = useState<boolean | null>(null);
@@ -335,7 +336,7 @@ export function ProblemCell({
               <label key={i} className={`pb__choice${cls}`}>
                 <input
                   type="radio"
-                  name={`pb-${number}`}
+                  name={`pb-${answerId}`}
                   checked={pick === i}
                   disabled={decided}
                   onChange={() => setPick(i)}
@@ -364,9 +365,9 @@ export function ProblemCell({
         <>
           <CodeEditor value={problem.starterCode} readOnly minLines={2} label={`문제 ${number} 코드`} markedLines={markedLines} language={codeLanguage} />
           <div className="pb__answer">
-            <label htmlFor={`pb-answer-${number}`}>출력을 그대로 적어 보세요</label>
+            <label htmlFor={answerId}>출력을 그대로 적어 보세요</label>
             <textarea
-              id={`pb-answer-${number}`}
+              id={answerId}
               value={answer}
               rows={2}
               spellCheck={false}

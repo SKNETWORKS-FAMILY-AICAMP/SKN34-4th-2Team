@@ -26,7 +26,7 @@ import type { Notebook } from './useNotebook';
  * 남기고, 셀 종류와 예시는 「셀 추가」 안으로, 가끔 쓰는 것(변수 초기화 · 파일 · 단축키)은
  * 「···」 안으로 넣었다. 셀 추가는 노트북 맨 아래 줄에도 있다.
  */
-export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | undefined }) {
+export function NotebookToolbar({ nb, set, focused = false }: { nb: Notebook; set: PracticeSet | undefined; focused?: boolean }) {
   const [showStdin, setShowStdin] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -39,7 +39,7 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
     <>
       <div className="py-toolbar">
         <span className="py-toolbar__run">
-          <button
+          {!focused && <button
             type="button"
             className="btn btn--filled btn--sm"
             onClick={nb.runAll}
@@ -49,7 +49,7 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
           >
             <Icon name="fast_forward" size={18} />
             <span className="py-toolbar__label py-toolbar__label--main">모두 실행</span>
-          </button>
+          </button>}
           {nb.busy && (
             <button type="button" className="btn btn--danger btn--sm" onClick={nb.stop}>
               <Icon name="stop" size={18} />
@@ -58,7 +58,7 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
           )}
         </span>
 
-        <MoreMenu
+        {!focused && <MoreMenu
           label="셀 추가"
           icon="add"
           align="left"
@@ -79,12 +79,12 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
         >
           <Icon name="add" size={18} />
           <span className="py-toolbar__label">셀 추가</span>
-        </MoreMenu>
+        </MoreMenu>}
 
-        <ProblemPicker nb={nb} />
+        {!focused && <ProblemPicker nb={nb} />}
 
         {/* 연습장의 주 기능이라 「···」 안에 두지 않는다 — 지금 셀(불러온 파일 포함)로 AI 가 복습 문제를 만든다 */}
-        <button
+        {!focused && <button
           type="button"
           className={`btn btn--outline btn--sm${making ? ' py-toolbar__on' : ''}`}
           onClick={() => setMaking((v) => !v)}
@@ -94,9 +94,9 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
         >
           <Icon name="auto_awesome" size={18} />
           <span className="py-toolbar__label">문제 만들기</span>
-        </button>
+        </button>}
 
-        {tutor && (
+        {tutor && !focused && (
           <button
             type="button"
             className={`btn btn--outline btn--sm${tutorOn ? ' py-toolbar__on' : ''}`}
@@ -129,7 +129,7 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
           label="더 보기"
           items={[
             { key: 'reset', icon: 'restart_alt', label: '변수 초기화', hint: '모든 변수를 비우고 실행 번호를 1부터', onSelect: nb.resetKernel },
-            {
+            ...(!focused ? [{
               key: 'clear',
               icon: 'delete_sweep',
               label: '모든 셀 지우기',
@@ -137,7 +137,7 @@ export function NotebookToolbar({ nb, set }: { nb: Notebook; set: PracticeSet | 
               danger: true,
               onSelect: () => setConfirmClear(true),
             },
-            { key: 'open', icon: 'upload_file', label: '불러오기…', hint: '.ipynb · .py · .sql 파일', divider: true, onSelect: file.openPicker },
+            { key: 'open', icon: 'upload_file', label: '불러오기…', hint: '.ipynb · .py · .sql 파일', divider: true, onSelect: file.openPicker }] : []),
             { key: 'ipynb', icon: 'download', label: '내려받기 · .ipynb', hint: 'Jupyter 노트북 · 출력 포함', onSelect: () => file.download('ipynb') },
             { key: 'py', icon: 'download', label: '내려받기 · .py', hint: '# %% 로 셀 구분', onSelect: () => file.download('py') },
             { key: 'keys', icon: 'keyboard_command_key', label: showKeys ? '단축키 닫기' : '단축키', divider: true, onSelect: () => setShowKeys((v) => !v) },
