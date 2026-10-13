@@ -110,6 +110,8 @@ class BatchReviewEngine:
         self._progress_version = self._written_version = 0
         self.llm_window = None  # (first request start, last request end) in this HTTP request, for timing logs
         self.pipeline = PIPELINE
+        # Called with each finished chunk's results, from that chunk's thread (pipelined only).
+        self.on_chunk_results = None
         # A pipelined chunk is a shallow copy whose counters, slots and progress belong to root.
         self.root, self.chunk_id = self, None
 
@@ -147,10 +149,34 @@ class BatchReviewEngine:
                     version = self._progress_version
                     state = copy.deepcopy(dict(self.usage.model_dump(), stages=self.stages,
                         attempted_calls=self.attempted_calls, stage_checkpoint=self.checkpoint))
+                    summary = self._progress_summary()
+                    if summary:
+                        state['progress'] = summary
                 self.on_progress(state)
                 self._written_version = version
             finally:
                 self._writer.release()
+
+    def _progress_summary(self):
+        """Least advanced unfinished chunk and finished experiences, for the waiting screen.
+
+        One worker request now runs the whole review, so the job's own stage stays at its
+        first value; this is what the student sees instead (pipelined reviews only).
+        """
+        groups, chunks = self.checkpoint.get('groups'), self.checkpoint.get('chunks', {})
+        if not groups:
+            return None
+        rank, stage, done = ('analyze', 'write', 'verify'), 'verify', 0
+        for chunk_id, keys in groups.items():
+            chunk = chunks.get(chunk_id, {})
+            if 'results' in chunk:
+                done += len(keys)
+                continue
+            states = chunk.get('states') or {}
+            here = 'analyze' if not states else 'write' if any(
+                s.get('needs_write') for s in states.values()) else 'verify'
+            stage = min(stage, here, key=rank.index)
+        return {'stage': stage, 'done': done, 'total': sum(len(k) for k in groups.values())}
 
     def _save_states(self, states, completed):
         for state in states.values():
@@ -410,13 +436,18 @@ class BatchReviewEngine:
         def run(chunk_id):
             done = saved.get(chunk_id, {}).get('results')
             if done is not None and {r['experience']['experience_id'] for r in done} == set(groups[chunk_id]):
-                return [ReviewResult.model_validate(r) for r in done]
+                results = [ReviewResult.model_validate(r) for r in done]
+                if self.on_chunk_results:
+                    self.on_chunk_results(results)  # Finished in an earlier request: show it again.
+                return results
             chunk_keys = groups[chunk_id]
             results = self._child(chunk_id).run_many([indexed[k] for k in chunk_keys],
                 {k: resume_records[k] for k in chunk_keys if k in resume_records},
                 copy.deepcopy(saved.get(chunk_id) or {}))
             with self._lock:
                 self.checkpoint['chunks'][chunk_id] = {'results': [r.model_dump(mode='json') for r in results]}
+            if self.on_chunk_results:
+                self.on_chunk_results(results)
             self._progress(wait=False)
             return results
 

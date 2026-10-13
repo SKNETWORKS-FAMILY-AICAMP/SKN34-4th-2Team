@@ -182,6 +182,8 @@ export class ReviewSession {
   busyKind: BusyKind | null = null;
   busyStage = 0;
   processingLabel: string | null = null;
+  /** 첨삭이 도는 동안 먼저 끝난 묶음의 검증 통과 수정안 — 보기만 한다. 끝나면 같은 카드가 반영할 수 있게 나온다 */
+  previewReviews: Json[] = [];
   private retryAction: (() => Promise<void>) | null = null;
   private retryableReview = false;
   private retryKind: BusyKind = 'review';
@@ -602,6 +604,14 @@ export class ReviewSession {
   get canRetryProcessing(): boolean { return this.retryAction !== null; }
 
   private async requestReview(request: Json): Promise<Json> {
+    try {
+      return await this.pollReview(request);
+    } finally {
+      this.previewReviews = [];
+    }
+  }
+
+  private async pollReview(request: Json): Promise<Json> {
     this.retryableReview = true;
     request.async_attempt = newId();
     const pollingStarted = Date.now();
@@ -635,7 +645,13 @@ export class ReviewSession {
       if (job) {
         if (Date.now() - pollingStarted > 30 * 60_000) throw new Error('처리가 오래 지연되고 있습니다. 저장된 처리 재개를 눌러 주세요.');
         const labels: Record<string, string> = { analyze: '이력서 근거 분석 중', write: '수정안 작성 중', verify: '사실 검증 중' };
-        this.processingLabel = `${job.state === 'queued' ? '첨삭 작업 대기 중' : labels[String(job.stage)] ?? '첨삭 처리 중'} · ${Number(job.elapsed_seconds) || 0}초 경과`;
+        // 서버가 묶음별 진행을 알려 주면 실제 단계와 끝난 항목 수를 보여 준다(요청 하나로 끝까지 도는 첨삭)
+        const total = Number(job.total) || 0;
+        const progress = total > 0 ? ` · ${total}개 중 ${Number(job.done) || 0}개 끝` : '';
+        this.processingLabel = `${job.state === 'queued' ? '첨삭 작업 대기 중' : labels[String(job.stage)] ?? '첨삭 처리 중'}${progress} · ${Number(job.elapsed_seconds) || 0}초 경과`;
+        if (Array.isArray(job.preview_reviews)) {
+          this.previewReviews = job.preview_reviews.filter((v): v is Json => v !== null && typeof v === 'object');
+        }
         this.setBusyStage(job.stage === 'verify' ? 3 : 2);
         await new Promise(resolve => setTimeout(resolve, 3000));
         step--; // Polling is not a model stage and does not spend the stage limit.

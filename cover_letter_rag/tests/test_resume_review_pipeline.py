@@ -2,6 +2,7 @@
 import copy
 from test_project_live_pipeline import pipeline  # noqa: F401 — fixture
 import threading
+import time
 import pytest
 from app.resume_review_v2 import batch
 from app.resume_review_v2.batch import BatchReviewEngine, StageBoundary
@@ -178,6 +179,60 @@ def test_new_work_copy_of_promoted_copy_reuses_its_source_review(pipeline, monke
     db.latest_review_response.return_value = {'review_id': 'again'}
     post(client, 'third', tailored_resume_id='tailored_new')
     db.promoted_source_review.assert_called_once()  # Only a work copy without history looks back.
+
+
+def test_preview_cards_are_exactly_final_cards_and_appear_per_chunk(pipeline, monkeypatch):
+    # Early cards must be the verified cards the student can apply at the end, nothing else.
+    from test_stage_checkpoints import staged
+    from test_project_live_pipeline import post
+    from test_gap_audit_resume import projects
+    monkeypatch.setattr(batch, 'PIPELINE', True)
+    client, reviews, calls, db = pipeline
+    projects(db, count=5)
+    for project in db.get_owned_resume.return_value['content']['projects']:
+        project['description'] = 'API 구현'  # The scripted writer's 'API를 구현했습니다.' is then a real edit.
+    saved = staged(db, reviews)
+    seen = []
+    write = db.review_progress.side_effect
+    def progress(cohort, resume, uid, rid, telemetry, tail=None):
+        seen.append(list(telemetry.get('preview_reviews', [])))
+        return write(cohort, resume, uid, rid, telemetry, tail)
+    db.review_progress.side_effect = progress
+    final = post(client, 'initial')
+    assert final['telemetry']['execution']['state'] == 'verified'
+    assert 'preview_reviews' not in final['telemetry']
+    growing = [len(p) for p in seen if p]
+    assert growing and growing == sorted(growing) and len(set(growing)) > 1  # Chunk by chunk.
+    previews = seen[-1]
+    assert previews and all(card['suggested_revision'] for card in previews)
+    assert all(card in final['sentence_reviews'] for card in previews)
+    final_order = [c['field_path'] for c in final['sentence_reviews'] if c in previews]
+    assert [c['field_path'] for c in previews] == final_order  # Resume order, not finishing order.
+    for snapshot in seen:
+        assert [c['field_path'] for c in snapshot] == [p for p in final_order if p in {c['field_path'] for c in snapshot}]
+    assert sorted(c['field_path'] for c in previews) == sorted(
+        c['field_path'] for c in final['sentence_reviews'] if c['suggested_revision'])
+    assert saved['initial']['checkpoint']['mode'] == 'pipelined'
+
+
+def test_progress_reports_least_advanced_chunk_and_finished_experiences():
+    # One request runs the whole review, so the waiting screen needs the engine's own progress.
+    written = []
+    release = threading.Event()
+    def on_call(method, chunk):
+        if chunk == '1' and method == 'analyze':
+            assert release.wait(5)
+    engine = Scripted(on_call, on_progress=written.append)
+    done = threading.Thread(target=lambda: engine.run_many(experiences()))
+    done.start()
+    for _ in range(100):  # Chunk 0 finishes while chunk 1 is still analyzing.
+        if any((w.get('progress') or {}).get('done') == 2 for w in written):
+            break
+        time.sleep(0.05)
+    assert any(w.get('progress') == {'stage': 'analyze', 'done': 2, 'total': 4} for w in written)
+    release.set()
+    done.join(5)
+    assert written[-1]['progress'] == {'stage': 'verify', 'done': 4, 'total': 4}
 
 
 def test_worker_budget_runs_whole_review_and_keeps_fingerprint(pipeline, monkeypatch):

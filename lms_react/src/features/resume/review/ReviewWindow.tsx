@@ -689,7 +689,8 @@ function ReviewChatPane({
         {session.busy &&
           (session.busyKind === 'review' ? (
             <><InitialReviewProgress currentStage={session.busyStage} generalReview={generalReview} canMinimize={canMinimize} />
-              {session.processingLabel && <div role="status">{session.processingLabel}</div>}</>
+              {session.processingLabel && <div role="status">{session.processingLabel}</div>}
+              <PreviewSuggestions items={session.previewReviews} /></>
           ) : (
             <CompactBusyCard label={session.processingLabel ?? busyLabel((session.busyKind ?? 'answer') as BusyKind)} />
           ))}
@@ -832,6 +833,32 @@ function InitialReviewProgress({
           );
         })}
       </ol>
+    </div>
+  );
+}
+
+/**
+ * 첨삭이 끝나기 전에 먼저 끝난 묶음의 수정안 — 검증을 통과한 것만, 보기만 한다.
+ * 끝나면 같은 카드가 반영할 수 있게 나온다(서버가 같은 함수로 만든다).
+ */
+function PreviewSuggestions({ items }: { items: Json[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="rv-card" aria-label="먼저 검증을 마친 수정안">
+      <strong className="rv-card__title">먼저 검증을 마친 수정안 {items.length}개</strong>
+      <p className="rv-card__reason">나머지 항목을 확인하는 동안 미리 볼 수 있어요. 반영은 첨삭이 끝나면 할 수 있어요.</p>
+      {items.map((row, i) => {
+        const original = String(row.original_quote ?? '');
+        return (
+          <div key={i} className="rv-polish">
+            <span className="rv-polish__body">
+              <span className="rv-polish__label">{fieldLabel(String(row.field_path ?? ''))}</span>
+              <span className="rv-polish__original">{original}</span>
+              <Revision original={original} revision={String(row.suggested_revision ?? '')} />
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

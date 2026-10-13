@@ -60,6 +60,10 @@ def _pooled_connection():
 def _pool():
     from chatbot.database import connect_params
     conninfo, params = connect_params()
+    # A review holds its resume lock on one connection for minutes. Keepalives keep a NAT or
+    # router from silently dropping it and let both ends notice a dead peer in about a minute
+    # (2026-10-13: a dropped lock connection blocked the next review for six minutes).
+    params = {**params, 'keepalives': 1, 'keepalives_idle': 30, 'keepalives_interval': 10, 'keepalives_count': 3}
     key = (conninfo, tuple(sorted(params.items())))
     pool = _PG_POOLS.get(key)
     if pool is None:

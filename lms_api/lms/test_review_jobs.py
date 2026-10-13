@@ -89,3 +89,24 @@ class ReviewJobTests(SimpleTestCase):
             jobs.run_review_job.run(key, self.payload)
         self.assertEqual(call.call_args.args[1]['request_id'], 'canonical')
 
+
+    def test_running_poll_shows_finished_chunk_previews_of_the_canonical_review(self):
+        key = self.queue()
+        self.db.set(key, json.dumps({'state': 'running', 'stage': 'write', 'started': 0,
+                                     'continuation': {**self.payload, 'request_id': 'canonical', 'tailored_resume_id': 't1'}}))
+        cards = [{'field_path': 'projects[0].description', 'suggested_revision': 'API를 구현했습니다.'}]
+        with patch('lms.models.ResumeAiReviews.objects') as rows, patch.object(jobs.time, 'time', return_value=60):
+            rows.filter.return_value.values_list.return_value.first.return_value = (
+                cards, {'stage': 'verify', 'done': 4, 'total': 12})
+            job = jobs.submit_or_poll(self.payload, 'attempt')['async_job']
+        rows.filter.assert_called_once_with(legacy_id='33/tailored/t1/canonical', user__firebase_uid='student-a')
+        self.assertEqual(job['preview_reviews'], cards)
+        # The worker's own stage stays 'write' for a one-request review; the AI progress wins.
+        self.assertEqual((job['stage'], job['done'], job['total']), ('verify', 4, 12))
+
+    def test_preview_lookup_problem_shows_none(self):
+        key = self.queue()
+        self.db.set(key, json.dumps({'state': 'running', 'stage': 'write', 'started': 0}))
+        with patch('lms.models.ResumeAiReviews.objects') as rows, patch.object(jobs.time, 'time', return_value=60):
+            rows.filter.side_effect = RuntimeError('db down')
+            self.assertEqual(jobs.submit_or_poll(self.payload, 'attempt')['async_job']['preview_reviews'], [])

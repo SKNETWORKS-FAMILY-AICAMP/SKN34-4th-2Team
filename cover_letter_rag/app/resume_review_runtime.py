@@ -87,6 +87,52 @@ def scoped_rewrite(text, revision, quotes):
     return quote, revision
 
 
+def with_job_identity(result, source):
+    """The 회사명 · 직무명 card applies this text: fill the posting identity it promises."""
+    if result.candidate is None or not source:
+        return result
+    from app.review_workflow import fill_job_identity
+    result.candidate = result.candidate.model_copy(update={
+        'suggested_text': fill_job_identity(result.candidate.suggested_text, source),
+        'sentences': [s.model_copy(update={'text': fill_job_identity(s.text, source)})
+                      for s in result.candidate.sentences]})
+    return result
+
+
+def result_cards(result, path, text, source, reused=False):
+    """Cards for one experience. The final response and early previews use this same function,
+    so a card shown before the review completes is exactly the card the student can apply."""
+    candidate = result.candidate
+    ready = candidate is not None and result.validation.status == 'READY'
+    unchanged = result.validation.status == 'UNCHANGED'
+    question = result.proposed_question
+    quote, revision, blank_kept = text, candidate.suggested_text if ready else None, False
+    if ready:
+        scoped = scoped_rewrite(text, revision, [e.evidence_quote for e in result.selected_evidence])
+        # Never offer an edit that deletes the student's blanks.
+        ready, blank_kept = scoped is not None, scoped is None
+        quote, revision = scoped or (text, None)
+    cards = [SentenceReview(field_path=path, original_quote=quote,
+        reason='검증된 수정안이 정확히 적용되어 완료된 작성 상태를 재사용했습니다.' if reused else
+            '빈칸이 남은 문장을 지우지 않도록 원문을 유지했습니다.' if blank_kept else
+            '원문보다 명확한 개선이 없어 원문을 유지했습니다.' if unchanged else result.plan.reason or result.plan.objective,
+        suggested_revision=revision,
+        validation_status=('NEEDS_EVIDENCE' if candidate is None and result.validation.status == 'READY'
+            else 'UNCHANGED' if blank_kept else result.validation.status),
+        status='improved' if ready else 'unchanged' if unchanged else 'needs_confirmation' if (
+            question or candidate is None and result.validation.status in {'READY', 'NEEDS_EVIDENCE'}) else 'unchanged',
+        confirmation_question=question.question if question else None,
+        evidence_quotes=[e.evidence_quote for e in result.selected_evidence],
+        validation_issues=[i.code for i in result.validation.all_issues])]
+    if not ready and not reused:
+        # An approved rewrite already spells them right; otherwise offer the typo fixes alone.
+        identity = result.experience.experience_id
+        cards.extend(spelling_reviews(path, text, [f for f in result.spelling_fixes if f.source_id == identity]))
+        if source:
+            cards.extend(identity_reviews(path, text, source))
+    return cards
+
+
 def identity_reviews(path, text, source):
     """[회사명] · [직무명] filled from the posting for a field whose rewrite was not approved.
 
@@ -289,12 +335,20 @@ class PostgresReviewGateway(FirebaseGateway):
         lock_id = int(digest([cohort_id, resume_id, uid, tailored_resume_id])[:15], 16)
         with self._pg() as conn:
             self._cohort_user(conn, cohort_id, uid)
-            if not conn.execute('SELECT pg_try_advisory_lock(%s)', (lock_id,)).fetchone()[0]:
-                raise ReviewConflict('review_stage_busy')
+            conn.commit()
+            # Autocommit: the lock is held by the session, not by a transaction left open for the
+            # whole review ("idle in transaction" for minutes).
+            conn.autocommit = True
             try:
-                yield
+                if not conn.execute('SELECT pg_try_advisory_lock(%s)', (lock_id,)).fetchone()[0]:
+                    raise ReviewConflict('review_stage_busy')
+                try:
+                    yield
+                finally:
+                    conn.execute('SELECT pg_advisory_unlock(%s)', (lock_id,))
             finally:
-                conn.execute('SELECT pg_advisory_unlock(%s)', (lock_id,))
+                if not conn.closed:
+                    conn.autocommit = False  # Pooled: hand it back in the default mode.
 
     def claim_review(self, cohort_id, resume_id, uid, request_id, fingerprint, tailored_resume_id=None):
         prefix = self._resume_legacy(resume_id, tailored_resume_id) + '/'
@@ -739,6 +793,26 @@ class ResumeReviewV2Service:
                             or (c.source_type=='user_answer' and c.evidence_quote in clean.answer)]
                     inputs[index] = clean
             _mark('입력 만들기', engine=engine)
+            if isinstance(engine, BatchReviewEngine):
+                preview_lock, preview_cards = threading.Lock(), {}
+                resume_order = [r.experience.experience_id for r in inputs]
+                def preview(chunk_results):
+                    # Finished chunks only, built by the same result_cards as the final response:
+                    # an early card is exactly the card that becomes applicable when the review completes.
+                    for chunk_result in chunk_results:
+                        identity = chunk_result.experience.experience_id
+                        if identity not in chosen:
+                            continue
+                        path, text, _ = chosen[identity]
+                        filled = with_job_identity(chunk_result.model_copy(deep=True), source)
+                        cards = [c.model_dump(mode='json') for c in
+                                 result_cards(filled, path, text, source, identity in applied_reused) if c.suggested_revision]
+                        with preview_lock:
+                            preview_cards[identity] = cards
+                    with preview_lock:
+                        # Resume order, like the final cards: chunks finish in any order.
+                        telemetry['preview_reviews'] = [c for i in resume_order for c in preview_cards.get(i, [])]
+                engine.on_chunk_results = preview
             if can_resume:
                 results = engine.run_many(inputs, resume_records=resume_records,
                     **({'checkpoint': claimed.get('checkpoint', {})} if staged else {}))
@@ -756,13 +830,7 @@ class ResumeReviewV2Service:
                 identity = review_input.experience.experience_id
                 path, text, kind = chosen[identity]
                 evidence = review_input.experience.existing_evidence
-                if result.candidate is not None and source:
-                    # The 회사명 · 직무명 card applies this text: fill the posting identity it promises.
-                    from app.review_workflow import fill_job_identity
-                    result.candidate = result.candidate.model_copy(update={
-                        'suggested_text': fill_job_identity(result.candidate.suggested_text, source),
-                        'sentences': [s.model_copy(update={'text': fill_job_identity(s.text, source)})
-                                      for s in result.candidate.sentences]})
+                result = with_job_identity(result, source)
                 record = result.model_dump(mode='json')
                 # Preserve atomic facts from earlier turns, including supersession.
                 from app.resume_review_v2.models import AnalystOutput
@@ -815,34 +883,7 @@ class ResumeReviewV2Service:
                 records.append(record)
                 for key in ('calls', 'input_tokens', 'output_tokens', 'latency_ms'):
                     setattr(usage, key, getattr(usage, key) + getattr(result.usage, key))
-                candidate = result.candidate
-                ready = candidate is not None and result.validation.status == 'READY'
-                unchanged = result.validation.status == 'UNCHANGED'
-                question = result.proposed_question
-                quote, revision, blank_kept = text, candidate.suggested_text if ready else None, False
-                if ready:
-                    scoped = scoped_rewrite(text, revision, [e.evidence_quote for e in result.selected_evidence])
-                    # Never offer an edit that deletes the student's blanks.
-                    ready, blank_kept = scoped is not None, scoped is None
-                    quote, revision = scoped or (text, None)
-                sentences.append(SentenceReview(field_path=path, original_quote=quote,
-                    reason='검증된 수정안이 정확히 적용되어 완료된 작성 상태를 재사용했습니다.' if identity in applied_reused else
-                        '빈칸이 남은 문장을 지우지 않도록 원문을 유지했습니다.' if blank_kept else
-                        '원문보다 명확한 개선이 없어 원문을 유지했습니다.' if unchanged else result.plan.reason or result.plan.objective,
-                    suggested_revision=revision,
-                    validation_status=('NEEDS_EVIDENCE' if candidate is None and result.validation.status == 'READY'
-                        else 'UNCHANGED' if blank_kept else result.validation.status),
-                    status='improved' if ready else 'unchanged' if unchanged else 'needs_confirmation' if (
-                        question or candidate is None and result.validation.status in {'READY', 'NEEDS_EVIDENCE'}) else 'unchanged',
-                    confirmation_question=question.question if question else None,
-                    evidence_quotes=[e.evidence_quote for e in result.selected_evidence],
-                    validation_issues=[i.code for i in result.validation.all_issues]))
-                if not ready and identity not in applied_reused:
-                    # An approved rewrite already spells them right; otherwise offer the typo fixes alone.
-                    sentences.extend(spelling_reviews(path, text,
-                        [f for f in result.spelling_fixes if f.source_id == identity]))
-                    if source:
-                        sentences.extend(identity_reviews(path, text, source))
+                sentences.extend(result_cards(result, path, text, source, identity in applied_reused))
             refreshed = {r['experience']['experience_id'] for r in records}
             records.extend(r for r in old_records if r['experience']['experience_id'] not in refreshed)
             # Unselected, still-valid needs survive a fresh owning analysis. This
@@ -988,6 +1029,7 @@ class ResumeReviewV2Service:
             telemetry['attempted_calls'] = engine.attempted_calls if isinstance(engine, BatchReviewEngine) else usage.calls
             summary = '경험 근거와 문장 흐름을 검토했습니다.'
             telemetry.pop('stage_checkpoint', None)
+            telemetry.pop('preview_reviews', None)  # The response's sentence_reviews supersede previews.
             kept = sum(r['validation']['status'] == 'UNCHANGED' for r in records if r['experience']['experience_id'] in chosen
                        and r['experience']['experience_id'] not in applied_reused)
             if applied_reused:
