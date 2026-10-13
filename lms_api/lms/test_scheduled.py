@@ -7,6 +7,7 @@ from unittest.mock import patch
 from django.test import Client, SimpleTestCase
 
 from lms.publish import publish_scheduled_notices
+from lms.services import SCHEDULED_ATTENDANCE_TITLE
 
 
 class ScheduledRouteTests(SimpleTestCase):
@@ -55,6 +56,18 @@ class _ScheduleCursor:
 
 
 class ScheduledPublisherTests(TestCase):
+    def test_attendance_schedule_reuses_notice_across_days(self):
+        cursor = _AttendanceCursor()
+        with patch("lms.publish.connection.cursor", return_value=cursor), \
+             patch("lms.publish.transaction.atomic", return_value=nullcontext()), \
+             patch("lms.publish.schedule_notice_vector"), \
+             patch("lms.publish.notify_new_notice"):
+            self.assertEqual(publish_scheduled_notices(ids=[7]), 1)
+            self.assertEqual(publish_scheduled_notices(ids=[7]), 1)
+        self.assertEqual(cursor.notices, 1)
+        self.assertEqual(cursor.updates, 1)
+        self.assertEqual(cursor.locks, 2)
+
     def test_once_schedule_cannot_be_published_twice(self):
         cursor = _ScheduleCursor()
         with patch("lms.publish.connection.cursor", return_value=cursor), \
@@ -65,3 +78,29 @@ class ScheduledPublisherTests(TestCase):
             self.assertEqual(publish_scheduled_notices(ids=[7]), 0)
         self.assertEqual(cursor.notices, 1)
         notify.assert_called_once()
+
+
+class _AttendanceCursor(_ScheduleCursor):
+    def __init__(self):
+        super().__init__()
+        self.updates = 0
+        self.locks = 0
+
+    def execute(self, sql, params=None):
+        if "pg_advisory_xact_lock" in sql:
+            self.locks += 1
+            self.rows = []
+        elif "SELECT id, vector_chunk_count FROM notices" in sql:
+            assert params == [34, SCHEDULED_ATTENDANCE_TITLE]
+            assert "source = 'scheduled'" in sql
+            self.rows = [(1, 0)] if self.notices else []
+        elif "UPDATE notices" in sql:
+            self.updates += 1
+            assert params[-1] == 1
+            self.rows = []
+        elif "UPDATE scheduled_notices" in sql:
+            self.rows = []
+        else:
+            super().execute(sql, params)
+            if "SELECT * FROM scheduled_notices" in sql:
+                self.rows = [(7, 34, "daily", None, SCHEDULED_ATTENDANCE_TITLE, "내용", True)]

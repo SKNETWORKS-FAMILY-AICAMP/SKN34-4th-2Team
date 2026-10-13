@@ -8,7 +8,28 @@ from django.db import connection, transaction
 from django.utils import timezone
 
 from lms.push import notify_new_notice
-from lms.services import schedule_notice_vector
+from lms.services import SCHEDULED_ATTENDANCE_TITLE, schedule_notice_vector
+
+
+def attendance_notice(cur, row, author_name, when):
+    """반복 출결 안내는 기수별 한 행을 재사용한다. 서로 다른 예약도 직렬화한다."""
+    cur.execute("SELECT pg_advisory_xact_lock(71423, %s)", [row["cohort_id"]])
+    cur.execute(
+        """SELECT id, vector_chunk_count FROM notices
+           WHERE cohort_id = %s AND source = 'scheduled' AND btrim(title) = %s
+           ORDER BY created_at DESC NULLS LAST, id DESC LIMIT 1 FOR UPDATE""",
+        [row["cohort_id"], SCHEDULED_ATTENDANCE_TITLE],
+    )
+    existing = cur.fetchone()
+    if existing:
+        cur.execute(
+            """UPDATE notices SET title = %s, content = %s, author_id = %s,
+               author_name = %s, is_favorite = %s, scheduled_notice_id = %s,
+               created_at = %s, updated_at = %s WHERE id = %s""",
+            [row["title"], row.get("content") or "", row.get("author_id"), author_name,
+             bool(row.get("is_favorite")), row["id"], when, when, existing[0]],
+        )
+    return existing
 
 
 def _time_parts(value) -> tuple[int, int]:
@@ -109,22 +130,24 @@ def publish_scheduled_notices(*, ids: list | None = None, now: datetime | None =
                     name_row = cur.fetchone()
                     author_name = name_row[0] if name_row else ""
 
-                cur.execute(
-                    """INSERT INTO notices
-                       (cohort_id, title, content, author_id, author_name, is_favorite,
-                        priority, vector_chunk_count, source, scheduled_notice_id, created_at, updated_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,0,0,'scheduled',%s, now(), now()) RETURNING id""",
-                    [
-                        row["cohort_id"],
-                        row.get("title") or "",
-                        row.get("content") or "",
-                        row.get("author_id"),
-                        author_name,
-                        bool(row.get("is_favorite")),
-                        row["id"],
-                    ],
-                )
-                notice_id = cur.fetchone()[0]
+                existing = attendance_notice(cur, row, author_name, when) if str(row.get("title") or "").strip() == SCHEDULED_ATTENDANCE_TITLE else None
+                if not existing:
+                    cur.execute(
+                        """INSERT INTO notices
+                           (cohort_id, title, content, author_id, author_name, is_favorite,
+                            priority, vector_chunk_count, source, scheduled_notice_id, created_at, updated_at)
+                           VALUES (%s,%s,%s,%s,%s,%s,0,0,'scheduled',%s, now(), now()) RETURNING id""",
+                        [
+                            row["cohort_id"],
+                            row.get("title") or "",
+                            row.get("content") or "",
+                            row.get("author_id"),
+                            author_name,
+                            bool(row.get("is_favorite")),
+                            row["id"],
+                        ],
+                    )
+                notice_id = existing[0] if existing else cur.fetchone()[0]
                 notify_new_notice(cur, row["cohort_id"], notice_id, row.get("title") or "", row.get("content") or "", None)
                 kind = (row.get("repeat_type") or "once").lower()
                 if kind in ("daily", "weekly"):
@@ -154,7 +177,7 @@ def publish_scheduled_notices(*, ids: list | None = None, now: datetime | None =
                             "author_id": row.get("author_id"),
                             "author_name": author_name,
                         },
-                        previous_chunk_count=0,
+                        previous_chunk_count=(existing[1] or 0) if existing else 0,
                     )
                 published += 1
     return published
