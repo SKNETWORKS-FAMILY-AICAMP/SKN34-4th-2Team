@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { PracticeAttempt, PracticeProblem, PracticeReview, PracticeSet } from '../../../domain/types';
@@ -86,6 +86,10 @@ const button = (text: string, scope: ParentNode = host) => [...scope.querySelect
   return copy.textContent?.trim() === text;
 })!;
 const panel = () => host.querySelector<HTMLElement>('.pf-problems > div:not([hidden])')!;
+const attempt = (index: number, passed: boolean): PracticeAttempt => ({
+  id: `a-${index}`, uid: 'student', setId: set.id, index, passed, tries: 1, answeredAt: new Date('2026-09-25'),
+});
+function LocationPath() { return <span data-testid="path">{useLocation().pathname}</span>; }
 async function type(element: HTMLTextAreaElement, value: string) {
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(element, value);
@@ -94,6 +98,75 @@ async function type(element: HTMLTextAreaElement, value: string) {
 }
 
 describe('집중형 복습', () => {
+  it('마지막 번호에 도달해도 미시도 문제가 있으면 완료 안내를 띄우지 않는다', async () => {
+    attempts = [attempt(0, true), attempt(1, false)];
+    await render(set.id, 3);
+    expect(host.querySelector('.pf-navigation')?.textContent).toContain('3 / 3');
+    expect(host.querySelector('.pf-progress')?.textContent).toContain('1 / 3');
+    expect(host.querySelector('[aria-label="풀이 시도 2 / 3"]')).not.toBeNull();
+    expect(host.querySelector('.pf-completion')).toBeNull();
+    attempts = [...attempts, attempt(2, false)];
+    await render(set.id, 3);
+    expect(host.querySelector('[aria-label="풀이 시도 3 / 3"]')).not.toBeNull();
+    expect(host.querySelector('.pf-completion')?.textContent).toContain('정답 1개 · 오답 2개');
+  });
+
+  it('모두 시도하고 오답이 남으면 정답·오답 수를 보여주고 같은 세션에서 첫 오답으로 이동한다', async () => {
+    attempts = [attempt(0, true), attempt(1, false), attempt(2, false)];
+    await render(set.id, 3);
+    expect(host.querySelector('.pf-completion')?.textContent).toContain('정답 1개 · 오답 2개');
+    expect(host.querySelector('.pf-completion')!.compareDocumentPosition(host.querySelector('.pf-problems')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(button('복습 종료 · 공부방으로')).toBeDefined();
+    expect(host.querySelector('.pf-completion')?.textContent).toContain('풀이 기록을 유지하고 공부방으로 돌아갑니다.');
+    await click(button('틀린 문제 다시 풀기'));
+    expect(panel().textContent).toContain('출력 문제');
+    expect(host.querySelector('.pf-navigation')?.textContent).toContain('2 / 3');
+  });
+
+  it('숨긴 문제를 제외한 대상이 모두 정답이면 결과를 읽을 때까지 열어 두고 마치기로 공부방에 돌아간다', async () => {
+    reviews = [{ setId: set.id, index: 1, decision: 'hidden', decidedBy: 'teacher', decidedAt: new Date() }];
+    attempts = [attempt(0, true), attempt(2, true)];
+    await act(async () => root.render(<MemoryRouter initialEntries={['/study-room']}><PracticeDockHost>
+      <PracticeLink setId={set.id}>복습 열기</PracticeLink><LocationPath />
+    </PracticeDockHost></MemoryRouter>));
+    await click(host.querySelector('a')!);
+    expect(host.querySelector('.pf-completion')?.textContent).toContain('모든 문제를 해결했어요!');
+    expect(host.querySelector('.pf-progress')?.textContent).toContain('2 / 2');
+    expect(host.querySelector('.pd-window')).not.toBeNull();
+    await click(button('복습 종료 · 공부방으로'));
+    expect(host.querySelector('.pd-window')).toBeNull();
+    expect(host.querySelector('[data-testid="path"]')?.textContent).toBe('/study-room/notes');
+    expect(attempts).toHaveLength(2);
+  });
+
+  it('오답 모음은 열린 대상 범위만 집계하고 통과 후에도 그 문제를 세션에 유지한다', async () => {
+    attempts = [attempt(0, false), attempt(1, false)];
+    await render('retry:all');
+    expect(host.querySelectorAll('.pf-list > button')).toHaveLength(2);
+    attempts = [attempt(0, true), attempt(1, false)];
+    await render('retry:all');
+    expect(host.querySelector('.pf-progress')?.textContent).toContain('1 / 2');
+    expect(host.querySelector('.pf-completion')?.textContent).toContain('정답 1개 · 오답 1개');
+    await click(button('틀린 문제 다시 풀기'));
+    expect(panel().textContent).toContain('출력 문제');
+  });
+
+  it('복습 마치기는 다른 연습장 탭을 보존하며 창을 내려 공부방 목록을 보여준다', async () => {
+    attempts = [attempt(0, true), attempt(1, true), attempt(2, true)];
+    await act(async () => root.render(<MemoryRouter initialEntries={['/study-room']}><PracticeDockHost>
+      <PracticeLink setId={null}>자유 열기</PracticeLink>
+      <PracticeLink setId={set.id}>복습 열기</PracticeLink>
+      <LocationPath />
+    </PracticeDockHost></MemoryRouter>));
+    await click([...host.querySelectorAll('a')].find((link) => link.textContent === '자유 열기')!);
+    await click([...host.querySelectorAll('a')].find((link) => link.textContent === '복습 열기')!);
+    await click(button('복습 종료 · 공부방으로'));
+    expect(host.querySelectorAll('.pd-pane')).toHaveLength(1);
+    expect(host.querySelector('.pd-pane')?.textContent).toContain('코드 셀');
+    expect(host.querySelector('.rv-layer')?.hasAttribute('hidden')).toBe(true);
+    expect(host.querySelector('[data-testid="path"]')?.textContent).toBe('/study-room/notes');
+  });
+
   it('문제 이동 후 선택 답안·출력 답안·실행 결과가 유지되고 튜터는 선택 문제를 따라간다', async () => {
     await render();
     expect(host.querySelector('.tutor')).toBeNull();

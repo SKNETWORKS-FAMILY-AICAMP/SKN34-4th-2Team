@@ -14,12 +14,13 @@ import type { PracticeSetMode } from './usePracticeSetMode';
 import './focusedPractice.css';
 
 /** 문제를 숨겨도 마운트를 유지한다. 선택 답안·실행 결과와 노트북 세션은 문제 이동 후에도 남는다. */
-export function FocusedPracticeNotebook({ nb, mode, focusProblem, focusRequest, status }: {
+export function FocusedPracticeNotebook({ nb, mode, focusProblem, focusRequest, status, onFinish }: {
   nb: Notebook;
   mode: PracticeSetMode;
   focusProblem: number;
   focusRequest?: number;
   status: RunnerStatus;
+  onFinish: () => void;
 }) {
   const set = mode.set!;
   const problems = nb.cells.filter((cell) => cell.type === 'problem' && !mode.hiddenOf(cell.problemIndex ?? 0));
@@ -33,6 +34,12 @@ export function FocusedPracticeNotebook({ nb, mode, focusProblem, focusRequest, 
   const inDock = useInPracticeDock();
   const selected = problems.find((cell) => cell.id === selectedId) ?? problems[0];
   const position = problems.findIndex((cell) => cell.id === selected?.id);
+  const attemptedCount = problems.filter((cell) => mode.attemptOf(cell.problemIndex ?? 0)).length;
+  const wrong = problems.filter((cell) => {
+    const attempt = mode.attemptOf(cell.problemIndex ?? 0);
+    return attempt && !attempt.passed;
+  });
+  const allAttempted = problems.length > 0 && attemptedCount === problems.length;
   const heading = useRef<HTMLDivElement>(null);
   const listId = useId();
   const setActiveId = nb.setActiveId;
@@ -71,8 +78,11 @@ export function FocusedPracticeNotebook({ nb, mode, focusProblem, focusRequest, 
       <header className="pf-head">
         <div className="pf-head__title">
           <h1>{title}</h1>
-          <span className="pf-progress" aria-label={`완료 ${mode.passedCount} / ${mode.visibleCount}`}>
-            완료 <strong>{mode.passedCount}</strong> / {mode.visibleCount}
+          <span className="pf-progress" aria-label={`해결 ${mode.passedCount} / ${mode.visibleCount}`}>
+            해결 <strong>{mode.passedCount}</strong> / {mode.visibleCount}
+          </span>
+          <span className="pf-progress" aria-label={`풀이 시도 ${attemptedCount} / ${problems.length}`}>
+            풀이 시도 <strong>{attemptedCount}</strong> / {problems.length}
           </span>
         </div>
         <div className="pf-head__actions">
@@ -125,6 +135,22 @@ export function FocusedPracticeNotebook({ nb, mode, focusProblem, focusRequest, 
           </button>
         </div>
       </div>
+      {allAttempted && (
+        <section className="pf-completion" aria-label="복습 결과">
+          <div className="pf-completion__copy">
+            <h2>{wrong.length === 0 ? '모든 문제를 해결했어요!' : '이번 복습 문제를 모두 풀어봤어요'}</h2>
+            <p>정답 {mode.passedCount}개 · 오답 {wrong.length}개<span> · 풀이 기록을 유지하고 공부방으로 돌아갑니다.</span></p>
+          </div>
+          <div className="pf-completion__actions">
+            {wrong.length > 0 && <button type="button" className="btn btn--outline btn--sm pf-completion__retry" onClick={() => select(wrong[0].id)}>
+              틀린 문제 다시 풀기
+            </button>}
+            <button type="button" className="btn btn--filled btn--sm" onClick={onFinish}>
+              복습 종료 · 공부방으로
+            </button>
+          </div>
+        </section>
+      )}
       <div className="pf-problems">
         {nb.cells.filter((cell) => cell.type === 'problem').map((cell) => (
           <div key={cell.id} hidden={cell.id !== selected?.id || mode.hiddenOf(cell.problemIndex ?? 0)}>

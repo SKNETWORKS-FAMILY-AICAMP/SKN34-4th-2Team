@@ -242,6 +242,7 @@ export function PracticeDockHost({ children }: { children: ReactNode }) {
                           focusRequest={tab.focusRequest}
                           note={tab.note}
                           active={!minimized && tab.key === shown?.key}
+                          onFinish={() => { closeTab(tab.key); setMinimized(true); }}
                         />
                       </InDockContext.Provider>
                     </div>
