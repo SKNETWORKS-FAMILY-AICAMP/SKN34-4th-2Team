@@ -159,6 +159,7 @@ export function ResumeScreen() {
             아직 다른 이력서가 없습니다.
           </p>
         ) : (
+          <div className="resume-others__scroll" role="region" aria-label="다른 이력서 목록" tabIndex={0}>
           <table className="table resume-others__table">
             <thead>
               <tr>
@@ -176,6 +177,7 @@ export function ResumeScreen() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </section>
 
