@@ -24,6 +24,13 @@ MAX_PARALLEL = 6
 # (2 workers x 6 x ~12k tokens/min stays under 200k TPM).
 LLM_SLOTS = threading.BoundedSemaphore(int(os.environ.get('RESUME_REVIEW_MAX_CONCURRENCY') or 6))
 RATE_LIMIT_RETRIES = 2
+# Each chunk runs analyze → write → verify → rewrite on its own instead of waiting for
+# the slowest chunk at every stage (2026-10-13, same resume and time: 163s → 125s).
+# RESUME_REVIEW_PIPELINE=0 restores stage-by-stage execution.
+PIPELINE = (os.environ.get('RESUME_REVIEW_PIPELINE') or '1').strip() != '0'
+# A pipelined chunk starts a new stage only with this much request budget left;
+# otherwise it saves and the next request continues it with a fresh budget.
+STAGE_MIN_SECONDS = {'analyze': 90, 'write': 60, 'verify': 45}
 
 
 def configured_stage_efforts():
@@ -35,6 +42,37 @@ def configured_stage_efforts():
     """
     effort = (os.environ.get('RESUME_REVIEW_ANALYZE_EFFORT') or 'low').strip()
     return {'analyze': effort}
+
+
+def analysis_weight(request):
+    """Expected Analyze output for one experience: it re-quotes its sources, so text length.
+
+    Projects also yield a project profile and more evidence per character (2026-10-13:
+    about 4 output tokens per source character against 2.8 for other sections).
+    """
+    chars = len(request.experience.current_text) + len(request.answer or '') + sum(
+        len(s.text) for s in request.resume_sources)
+    return chars * (1.4 if request.experience.kind == 'project' else 1.0)
+
+
+def balanced_groups(requests, size):
+    """Chunks of at most `size` with similar Analyze work, so no chunk holds two long projects.
+
+    The slowest chunk sets the review time; adjacent grouping put the two longest
+    projects together (63s) while a short pair finished in 22s. Same requests and calls,
+    only the neighbours change. Heaviest first into the lightest open chunk; deterministic.
+    """
+    if not requests:
+        return {}
+    count = -(-len(requests) // size)
+    loads, groups = [0.0] * count, [[] for _ in range(count)]
+    order = sorted(range(len(requests)), key=lambda i: (-analysis_weight(requests[i]), i))
+    for i in order:
+        g = min((g for g in range(count) if len(groups[g]) < size), key=lambda g: (loads[g], g))
+        groups[g].append(i)
+        loads[g] += analysis_weight(requests[i])
+    return {str(g): [requests[i].experience.experience_id for i in sorted(members)]
+            for g, members in enumerate(groups)}
 
 
 class StageBoundary(Exception):
@@ -71,6 +109,14 @@ class BatchReviewEngine:
         self._writer = threading.Lock()
         self._progress_version = self._written_version = 0
         self.llm_window = None  # (first request start, last request end) in this HTTP request, for timing logs
+        self.pipeline = PIPELINE
+        # A pipelined chunk is a shallow copy whose counters, slots and progress belong to root.
+        self.root, self.chunk_id = self, None
+
+    def _counters(self):
+        if self.root is not self:
+            return {}  # Counted once on the root checkpoint, not copied into every chunk.
+        return dict(usage=self.usage.model_dump(), stages=self.stages, attempted_calls=self.attempted_calls)
 
     def _progress(self, wait=True):
         """Record bookkeeping and persist it through on_progress.
@@ -80,6 +126,13 @@ class BatchReviewEngine:
         sends the newest state, and wait=False returns at once while another writes.
         Callers that must be durable (stage end, single-threaded paths) wait.
         """
+        if self.root is not self:
+            with self._lock:
+                # Publish a shallow copy: later top-level edits stay private until the next publish.
+                self.root.checkpoint.setdefault('chunks', {})[self.chunk_id] = dict(self.checkpoint)
+            # Chunks never wait for a DB write (about 1s each from a dev PC, queued across six
+            # chunks it added ~30s per request); the root writes durably before control leaves.
+            return self.root._progress(wait=False)
         with self._lock:
             self.checkpoint.update(usage=self.usage.model_dump(), stages=self.stages,
                                    attempted_calls=self.attempted_calls)
@@ -108,8 +161,7 @@ class BatchReviewEngine:
             evidence=[e.model_dump(mode='json') for e in s['evidence'].values()],
             needs_write=s['needs_write'], needs_verify=s.get('needs_verify', False),
             write_count=s['write_count']) for key, s in states.items()},
-            completed={key: r.model_dump(mode='json') for key, r in completed.items()},
-            usage=self.usage.model_dump(), stages=self.stages, attempted_calls=self.attempted_calls)
+            completed={key: r.model_dump(mode='json') for key, r in completed.items()}, **self._counters())
         self._progress()
 
     @staticmethod
@@ -177,8 +229,12 @@ class BatchReviewEngine:
         chunks = [{k: items[k] for k in keys[i:i + size]} for i in range(0, len(keys), size)]
         prepared = [self._prepare(method, chunk) for chunk in chunks]
         stage_outputs = self.checkpoint.get('stage_outputs', {})
-        if self.stage_limited and self.request_calls and any(p[-1] not in stage_outputs for p in prepared):
-            raise StageBoundary()
+        if self.stage_limited and any(p[-1] not in stage_outputs for p in prepared):
+            if self.root is not self:
+                if self.deadline - time.monotonic() < STAGE_MIN_SECONDS.get(method, 45):
+                    raise StageBoundary()
+            elif self.request_calls:
+                raise StageBoundary()
         try:
             if len(chunks) == 1:
                 return self._call_once(method, chunks[0], prepared[0])
@@ -244,6 +300,7 @@ class BatchReviewEngine:
 
     def _call_once(self, method, items, prepared):
         captured, schema, envelope, original_payload, payload, stage_key = prepared
+        root = self.root
         # Chunks run on worker threads; shared bookkeeping and progress writes are serialized.
         with self._lock:
             cached = self.checkpoint.get('stage_outputs', {}).get(stage_key)
@@ -253,13 +310,15 @@ class BatchReviewEngine:
             remaining = self.deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError('local_review_deadline_exceeded')
-            self.attempted_calls += 1
-            self.request_calls += 1
+            root.attempted_calls += 1
+            root.request_calls += 1
             stage = {'stage': method, 'items': len(items), 'status': 'running',
                 'budget_at_start_ms': round(remaining * 1000),
                 'payload_before_bytes': len(json.dumps(original_payload, ensure_ascii=False).encode()),
                 'payload_bytes': len(json.dumps(payload, ensure_ascii=False).encode())}
-            self.stages.append(stage)
+            if self.chunk_id is not None:
+                stage['chunk'] = self.chunk_id
+            root.stages.append(stage)
         self._progress(wait=False)
         started = time.monotonic()
         try:
@@ -270,10 +329,10 @@ class BatchReviewEngine:
                     original_quote=items[key][0].experience.current_text, sentences=row.sentences)
                     for key, row in rows.items()}
             with self._lock:
-                _add_usage(self.usage, usage)
+                _add_usage(root.usage, usage)
                 stage.update(status='complete', **usage.model_dump())
                 self.checkpoint.setdefault('stage_outputs', {})[stage_key] = {key:row.model_dump(mode='json') for key,row in rows.items()}
-                self.checkpoint.update(usage=self.usage.model_dump(), stages=self.stages, attempted_calls=self.attempted_calls)
+                self.checkpoint.update(self._counters())
             return rows  # _batch persists before control leaves the stage.
         except Exception as exc:
             with self._lock:
@@ -283,11 +342,108 @@ class BatchReviewEngine:
             ended = time.monotonic()
             with self._lock:
                 stage['wall_ms'] = round((ended - started) * 1000)
-                first = self.llm_window[0] if self.llm_window else started
-                self.llm_window = (min(first, started), max(ended, self.llm_window[1] if self.llm_window else ended))
+                window = root.llm_window
+                root.llm_window = (min(window[0], started), max(window[1], ended)) if window else (started, ended)
             self._progress(wait=False)
 
     def run_many(self, requests, resume_records=None, checkpoint=None):
+        checkpoint = checkpoint or {}
+        stagewise_saved = 'chunks' not in checkpoint and any(
+            key in checkpoint for key in ('analyses', 'states', 'stage_outputs', 'completed'))
+        # A small group (one answered question) is one chunk: still one request, not one per stage.
+        if self.pipeline and self.root is self and requests and not stagewise_saved:
+            return self._run_pipelined(requests, resume_records or {}, checkpoint)
+        return self._run_stagewise(requests, resume_records, checkpoint)
+
+    def _out_of_time(self):
+        """A pipelined chunk interrupted by the request deadline continues in the next request."""
+        return self.stage_limited and self.root is not self and self.deadline - time.monotonic() < 5
+
+    def _child(self, chunk_id):
+        child = copy.copy(self)
+        child.root, child.chunk_id = self, chunk_id
+        child.chunk_size = 10 ** 6  # One request per stage inside the chunk.
+        child.checkpoint, child.pipeline = {}, False
+        return child
+
+    def _work_groups(self, requests, resume_records):
+        """Balance only experiences that call the LLM; reused records share one call-free chunk."""
+        def reused(r):
+            record = resume_records.get(r.experience.experience_id)
+            return record is not None and not any(i.get('code') == 'verification_unavailable'
+                for i in (record.get('validation') or {}).get('factual_issues') or [])
+        groups = balanced_groups([r for r in requests if not reused(r)], self.chunk_size)
+        kept = [r.experience.experience_id for r in requests if reused(r)]
+        if kept:
+            groups[str(len(groups))] = kept
+        return groups
+
+    def _run_pipelined(self, requests, resume_records, checkpoint):
+        """Chunks of CHUNK_SIZE experiences run the whole review concurrently.
+
+        Each chunk keeps its own checkpoint under checkpoint['chunks'][id]; a finished
+        chunk is stored as results only. When the request budget runs out, finished and
+        interrupted chunks are saved and StageBoundary hands the rest to the next request.
+        """
+        from .audit_resume import stage_signature
+        indexed = {r.experience.experience_id: r for r in requests}
+        if len(indexed) != len(requests):
+            raise ContractError('duplicate experience identity')
+        signature = stage_signature(requests, self.model_name, self.reasoning)
+        if checkpoint.get('input_signature') != signature:
+            checkpoint = {}
+        self.checkpoint = checkpoint
+        if checkpoint:
+            self.usage = Usage.model_validate(checkpoint.get('usage', {}))
+            self.stages = list(checkpoint.get('stages', []))
+            self.attempted_calls = checkpoint.get('attempted_calls', 0)
+        saved = checkpoint.get('chunks', {})
+        self.checkpoint.update(input_signature=signature, mode='pipelined', chunks=dict(saved))
+        # A resumed review keeps the grouping its chunk checkpoints were saved under.
+        keys = list(indexed)
+        groups = checkpoint.get('groups') or ({  # Saved before balancing: chunks were adjacent.
+            str(i // self.chunk_size): keys[i:i + self.chunk_size] for i in range(0, len(keys), self.chunk_size)}
+            if saved else self._work_groups(requests, resume_records))
+        self.checkpoint['groups'] = groups
+        self.chunk_count = len(groups)
+
+        def run(chunk_id):
+            done = saved.get(chunk_id, {}).get('results')
+            if done is not None and {r['experience']['experience_id'] for r in done} == set(groups[chunk_id]):
+                return [ReviewResult.model_validate(r) for r in done]
+            chunk_keys = groups[chunk_id]
+            results = self._child(chunk_id).run_many([indexed[k] for k in chunk_keys],
+                {k: resume_records[k] for k in chunk_keys if k in resume_records},
+                copy.deepcopy(saved.get(chunk_id) or {}))
+            with self._lock:
+                self.checkpoint['chunks'][chunk_id] = {'results': [r.model_dump(mode='json') for r in results]}
+            self._progress(wait=False)
+            return results
+
+        outcomes, failure, boundary = {}, None, False
+        with ThreadPoolExecutor(max_workers=len(groups)) as pool:
+            futures = {chunk_id: pool.submit(run, chunk_id) for chunk_id in groups}
+            for chunk_id, future in futures.items():
+                try:
+                    outcomes[chunk_id] = future.result()
+                except StageBoundary:
+                    boundary = True
+                except Exception as exc:
+                    failure = failure or exc
+        self._progress()  # Every finished and interrupted chunk is durable before control leaves.
+        if failure and not (self.stage_limited and self.deadline - time.monotonic() < 5):
+            raise failure
+        if failure or boundary:
+            raise StageBoundary()
+        by_id = {r.experience.experience_id: r for chunk_id in groups for r in outcomes[chunk_id]}
+        results = [by_id[key] for key in indexed]
+        for r in results:
+            r.usage = Usage()
+        if results:
+            results[0].usage = self.usage.model_copy()
+        return results
+
+    def _run_stagewise(self, requests, resume_records=None, checkpoint=None):
         # The local adapter admits only records with identical owning inputs.
         # Completed results are reused; unavailable verification resumes from
         # the saved draft, never from a fabricated successful verdict.
@@ -303,7 +459,7 @@ class BatchReviewEngine:
             checkpoint = {}  # No partial stage can survive changed owning inputs.
         self.checkpoint = checkpoint
         self.checkpoint['input_signature'] = signature
-        if checkpoint:
+        if checkpoint and self.root is self:
             self.usage = Usage.model_validate(checkpoint.get('usage', {}))
             self.stages = list(checkpoint.get('stages', []))
             self.attempted_calls = checkpoint.get('attempted_calls', 0)
@@ -313,7 +469,7 @@ class BatchReviewEngine:
         # Save raw extraction before planning; a process crash here must not pay
         # for another Analyze. Input identity is checked before any restore.
         self.checkpoint.update(input_signature=signature, analyses={k:v.model_dump(mode='json') for k,v in analyses.items()},
-            usage=self.usage.model_dump(), stages=self.stages, attempted_calls=self.attempted_calls)
+            **self._counters())
         self._progress()
         states = {}
         completed = {key: ReviewResult.model_validate(value) for key, value in checkpoint.get('completed', {}).items()}
@@ -426,6 +582,8 @@ class BatchReviewEngine:
             except StageBoundary:
                 raise
             except Exception:
+                if self._out_of_time():
+                    raise StageBoundary()
                 if not attempt:
                     raise
                 break  # Existing failing candidates remain non-applicable.
@@ -461,6 +619,8 @@ class BatchReviewEngine:
             except StageBoundary:
                 raise
             except Exception as exc:
+                if self._out_of_time():
+                    raise StageBoundary()  # The saved draft is verified in the next request.
                 # A timeout cannot turn unverified text into an apply-ready revision,
                 # and cannot erase independent candidates already verified successfully.
                 for k in verify:

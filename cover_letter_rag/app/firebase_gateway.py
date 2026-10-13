@@ -207,7 +207,7 @@ class FirebaseGateway:
         with self._pg() as conn:
             ident = self._cohort_user(conn, cohort_id, uid)
             parent = conn.execute(
-                "SELECT id FROM resumes WHERE (legacy_id = %s OR id::text = %s) AND cohort_id = %s",
+                "SELECT id, source_tailored_resume_id FROM resumes WHERE (legacy_id = %s OR id::text = %s) AND cohort_id = %s",
                 (resume_id, resume_id, ident["cohort_pk"]),
             ).fetchone()
             if not parent:
@@ -227,6 +227,16 @@ class FirebaseGateway:
                 }, job_id)
                 if meta["jobSnapshotHash"] != snapshot_hash:
                     raise ResumeNotFoundError("tailored resume not found")
+                if purpose == 'review' and parent[1] is not None and meta["sourceResumeHash"] != source_hash:
+                    # 편집용 사본의 재첨삭 작업본은 이름이 (원본, 공고)로만 정해져 다시 열린다. 그 사이 편집용
+                    # 사본을 고쳤다면 옛 내용으로 첨삭하고 완료 때 덮어써 그 수정을 지운다 — 최신 내용으로 다시 뜬다.
+                    conn.execute("UPDATE resumes SET content=%s, status='draft', updated_at=now() WHERE id=%s",
+                                 (Jsonb(payload["content"]), existing[0]))
+                    conn.execute("""UPDATE resume_tailorings SET source_resume_hash=%s, review_session='{}'::jsonb,
+                                    review_progress='not_started', updated_at=now() WHERE resume_id=%s""",
+                                 (source_hash, existing[0]))
+                    meta = {**meta, "sourceResumeHash": source_hash, "reviewSession": {}, "reviewProgress": "not_started"}
+                    existing = (*existing[:7], 'draft', payload["content"])
                 if title and existing[1] != title:
                     conn.execute("UPDATE resumes SET title=%s, updated_at=now() WHERE id=%s", (title, existing[0]))
                 clone_existing_bindings(conn, user_id=ident['user_pk'], source_resume_id=parent[0], target_resume_id=existing[0])
@@ -472,6 +482,20 @@ class FirebaseGateway:
             ).fetchone()
             if not tailored_row:
                 raise ResumeNotFoundError("tailored resume not found")
+            editing = conn.execute(
+                """SELECT id, legacy_id FROM resumes WHERE (legacy_id = %s OR id::text = %s) AND cohort_id = %s
+                   AND user_id = %s AND source_tailored_resume_id IS NOT NULL""",
+                (resume_id, resume_id, ident["cohort_pk"], ident["user_pk"]),
+            ).fetchone()
+            if editing:
+                # 편집용 사본에서 다시 첨삭한 결과는 그 사본에 덮어쓴다. 새 편집용 사본을 또 뜨면 같은 이름이
+                # 재첨삭마다 한 줄씩 늘었다(2026-10-13). 작업본을 뜰 때 최신 내용에서 시작하므로 덮어써도 안전하다.
+                conn.execute("UPDATE resumes SET content=%s, updated_at=now() WHERE id=%s",
+                             (Jsonb(deepcopy(tailored.get("content") or {})), editing[0]))
+                # 항목 연결(binding)은 편집용 사본이 이미 갖고 있다 — 첨삭은 같은 항목의 글만 바꾼다.
+                conn.execute("UPDATE resumes SET status='ready', updated_at=now() WHERE id=%s", (tailored_row[0],))
+                conn.commit()
+                return editing[1]
             existing = conn.execute("SELECT id FROM resumes WHERE legacy_id = %s", (workspace_id,)).fetchone()
             if not existing:
                 created = conn.execute(

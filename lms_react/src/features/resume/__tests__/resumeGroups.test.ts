@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Resume } from '../../../domain/types';
-import { applyCopyTitle, groupResumes, isApplyCopy, resumeStatusFromServer, resumeStatusToServer, reviewWorkCopy } from '../resumeGroups';
+import {
+  applyCopyTitle, groupResumes, isApplyCopy, resumeStatusFromServer, resumeStatusToServer, reviewWorkCopy, withoutPromotedWorkCopies,
+} from '../resumeGroups';
 
 const r = (id: string, extra: Partial<Resume> = {}): Resume => ({
   id, userId: 'u', title: id, status: 'draft', sections: {}, content: {} as Resume['content'], isBaseResume: false,
@@ -79,5 +81,19 @@ describe('자소서 이름', () => {
     expect(applyCopyTitle('(주)넥스트그라운드 맞춤 이력서')).toBe('(주)넥스트그라운드 자소서');
     expect(applyCopyTitle('신세계 지원서')).toBe('신세계 자소서');
     expect(applyCopyTitle('신세계 자소서')).toBe('신세계 자소서');
+  });
+});
+
+describe('편집용 사본으로 옮긴 첨삭 작업본', () => {
+  it('편집용 사본이 생기면 작업본은 목록에서 빠진다 — 같은 이름이 두 줄로 보였다', () => {
+    const work = r('BASE/tailored/tailored_a', { baseResumeId: 'BASE' });
+    const edit = r('matched_x', { baseResumeId: 'BASE', sourceTailoredResumeId: 'BASE/tailored/tailored_a' });
+    const other = r('BASE/tailored/tailored_b', { baseResumeId: 'BASE' });
+    expect(withoutPromotedWorkCopies([r('BASE'), work, edit, other]).map((x) => x.id)).toEqual(['BASE', 'matched_x', 'BASE/tailored/tailored_b']);
+  });
+  it('편집용 사본에서 다시 첨삭한 작업본도 빠진다 — 결과는 그 편집용 사본에 덮어쓴다', () => {
+    const edit = r('matched_x', { baseResumeId: 'BASE', sourceTailoredResumeId: 'BASE/tailored/tailored_a' });
+    const rework = r('matched_x/tailored/tailored_c', { baseResumeId: 'matched_x' });
+    expect(withoutPromotedWorkCopies([r('BASE'), edit, rework]).map((x) => x.id)).toEqual(['BASE', 'matched_x']);
   });
 });

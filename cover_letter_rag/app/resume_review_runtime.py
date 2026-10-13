@@ -56,6 +56,37 @@ def spelling_reviews(path, text, fixes):
     return reviews
 
 
+_TEMPLATE_BLANK = re.compile(r'\[[^\[\]\n]{1,40}\]')
+_SENTENCE_END = re.compile(r'[.!?。]\s|\n')
+
+
+def scoped_rewrite(text, revision, quotes):
+    """(original_quote, revision) that keeps a student's template blanks.
+
+    A draft left with blanks ([서비스], [입사하면 해 보고 싶은 일 한 줄]) gets a rewrite of its
+    written sentences only; replacing the whole field would delete the blanks and every
+    sentence around them. The edit is narrowed to the sentences its evidence came from.
+    None when those sentences themselves hold a blank.
+    """
+    from app.review_workflow import COMPANY_PLACEHOLDER, ROLE_PLACEHOLDER
+    identity = re.compile(f'{COMPANY_PLACEHOLDER}|{ROLE_PLACEHOLDER}')
+    blanks = [b for b in _TEMPLATE_BLANK.findall(text or '') if not identity.fullmatch(b)]
+    if not blanks or all(b in revision for b in blanks):
+        return text, revision
+    spans = [(text.find(q), text.find(q) + len(q)) for q in quotes if q and text.count(q) == 1]
+    if not spans:
+        return None
+    start, end = min(s for s, _ in spans), max(e for _, e in spans)
+    before = [m.end() for m in _SENTENCE_END.finditer(text, 0, start)]
+    start = before[-1] if before else 0
+    after = _SENTENCE_END.search(text, max(start, end - 1))
+    end = after.start() + 1 if after and after.group()[0] != '\n' else after.start() if after else len(text)
+    quote = text[start:end].strip()
+    if not quote or _TEMPLATE_BLANK.search(quote) or text.count(quote) != 1:
+        return None
+    return quote, revision
+
+
 def identity_reviews(path, text, source):
     """[회사명] · [직무명] filled from the posting for a field whose rewrite was not approved.
 
@@ -181,6 +212,22 @@ class PostgresReviewGateway(FirebaseGateway):
             ident = self._cohort_user(conn, cohort_id, uid)
             row = conn.execute('SELECT response FROM resume_ai_reviews WHERE user_id=%s AND left(legacy_id,length(%s))=%s AND response IS NOT NULL ORDER BY id DESC LIMIT 1',
                 (ident['user_pk'],prefix,prefix)).fetchone()
+        return row[0] if row else None
+
+    def promoted_source_review(self, cohort_id, resume_id, uid):
+        """Latest finished review of the work copy this editing copy was promoted from.
+
+        Re-reviewing an editing copy (matched_…) starts a new work copy with no history, so
+        an unchanged resume was reviewed from scratch again (2026-10-13: 229s). Its items
+        reuse the old records only through the usual per-item identity checks.
+        """
+        with self._pg() as conn:
+            ident = self._cohort_user(conn, cohort_id, uid)
+            row = conn.execute('''SELECT a.response FROM resumes p
+                JOIN resume_ai_reviews a ON a.resume_id = p.source_tailored_resume_id AND a.user_id = p.user_id
+                WHERE (p.legacy_id = %s OR p.id::text = %s) AND p.cohort_id = %s AND p.user_id = %s
+                  AND a.status = 'complete' AND a.response IS NOT NULL
+                ORDER BY a.id DESC LIMIT 1''', (resume_id, resume_id, ident['cohort_pk'], ident['user_pk'])).fetchone()
         return row[0] if row else None
 
     def apply_or_undo(self, uid, request, undo=False):
@@ -378,6 +425,14 @@ class ResumeReviewV2Service:
             raise ReviewConflict('resume_version_changed')
         previous = db.get_ai_review(*args, request.previous_review_id, tail) if request.previous_review_id else {}
         previous = previous or {}
+        if not previous and tail and not request.answers and not request.answer_changes:
+            # A new work copy of a promoted editing copy continues the review it was promoted from;
+            # a work copy refreshed from its edited editing copy continues its own last review.
+            # Either way items are reused only through the per-item identity checks.
+            own = db.latest_review_response(*args, tail)
+            found = (getattr(db, 'promoted_source_review', lambda *a: None)(*args) if own is None
+                     else own if isinstance(own, dict) and own.get('input_hash') != content_hash else None)
+            previous = found if isinstance(found, dict) else {}
         _mark('이전 기록')
         from app.resume_review_v2.requirement_matching import UNASSIGNED_PATH, context_hash, aggregate, answer_disposition
         answer_links = []
@@ -558,7 +613,7 @@ class ResumeReviewV2Service:
                 telemetry.update(state)
                 db.review_progress(*args, request.request_id, telemetry, tail)
             engine = self.engine or BatchReviewEngine(self.settings.openai_model, self.settings.openai_reasoning_effort,
-                                                      budget_seconds=max(0, 165 - (time.monotonic() - request_started)),
+                                                      budget_seconds=max(0, (request.stage_budget_seconds or 165) - (time.monotonic() - request_started)),
                                                       on_progress=progress, stage_limited=staged)
             if isinstance(engine, BatchReviewEngine) and staged:
                 engine.stage_limited = True
@@ -764,12 +819,19 @@ class ResumeReviewV2Service:
                 ready = candidate is not None and result.validation.status == 'READY'
                 unchanged = result.validation.status == 'UNCHANGED'
                 question = result.proposed_question
-                sentences.append(SentenceReview(field_path=path, original_quote=text,
+                quote, revision, blank_kept = text, candidate.suggested_text if ready else None, False
+                if ready:
+                    scoped = scoped_rewrite(text, revision, [e.evidence_quote for e in result.selected_evidence])
+                    # Never offer an edit that deletes the student's blanks.
+                    ready, blank_kept = scoped is not None, scoped is None
+                    quote, revision = scoped or (text, None)
+                sentences.append(SentenceReview(field_path=path, original_quote=quote,
                     reason='검증된 수정안이 정확히 적용되어 완료된 작성 상태를 재사용했습니다.' if identity in applied_reused else
+                        '빈칸이 남은 문장을 지우지 않도록 원문을 유지했습니다.' if blank_kept else
                         '원문보다 명확한 개선이 없어 원문을 유지했습니다.' if unchanged else result.plan.reason or result.plan.objective,
-                    suggested_revision=candidate.suggested_text if ready else None,
+                    suggested_revision=revision,
                     validation_status=('NEEDS_EVIDENCE' if candidate is None and result.validation.status == 'READY'
-                        else result.validation.status),
+                        else 'UNCHANGED' if blank_kept else result.validation.status),
                     status='improved' if ready else 'unchanged' if unchanged else 'needs_confirmation' if (
                         question or candidate is None and result.validation.status in {'READY', 'NEEDS_EVIDENCE'}) else 'unchanged',
                     confirmation_question=question.question if question else None,
@@ -963,8 +1025,15 @@ class ResumeReviewV2Service:
 
     def _processing_response(self, db, args, request, source, content_hash, telemetry, engine, retryable_error=None):
         checkpoint = engine.checkpoint
-        states = checkpoint.get('states', {})
-        waiting_verify = any(s.get('needs_verify') and not s.get('needs_write') for s in states.values())
+        if 'chunks' in checkpoint:
+            # Pipelined chunks: report the least advanced unfinished chunk.
+            unfinished = [c.get('states') for c in checkpoint['chunks'].values() if 'results' not in c]
+            unfinished += [None] * (getattr(engine, 'chunk_count', 0) - len(checkpoint['chunks']))
+            waiting_verify = bool(unfinished) and all(states and not any(s.get('needs_write') for s in states.values())
+                and any(s.get('needs_verify') for s in states.values()) for states in unfinished)
+        else:
+            states = checkpoint.get('states', {})
+            waiting_verify = any(s.get('needs_verify') and not s.get('needs_write') for s in states.values())
         telemetry.update(engine.usage.model_dump(), stages=engine.stages, attempted_calls=engine.attempted_calls,
             stage_checkpoint=checkpoint, execution={'state': 'verification_pending' if waiting_verify else 'processing',
             'stage': 'verify' if waiting_verify else 'write', 'retryable_error': retryable_error})

@@ -6,6 +6,14 @@ from app.resume_review_v2.llm import LangChainReviewLLM
 from app.resume_review_v2.models import FactVerification
 
 
+@pytest.fixture(autouse=True)
+def stagewise(monkeypatch):
+    # These contracts pin the stage-by-stage resume path (RESUME_REVIEW_PIPELINE=0 and
+    # checkpoints saved before pipelining); pipelined resume: test_resume_review_pipeline.
+    from app.resume_review_v2 import batch
+    monkeypatch.setattr(batch, 'PIPELINE', False)
+
+
 def projects(db, count=11):
     db.get_owned_resume.return_value['content']['projects'] = [
         {'id': f'p{i}', 'name': f'서비스 {i}', 'description': 'API를 구현했습니다.'} for i in range(count)]

@@ -63,6 +63,9 @@ def run_review_job(self, key, payload):
         db.set(key, json.dumps({'started': started, **data}, ensure_ascii=False), ex=TTL)
     try:
         payload = dict(row.get('continuation') or payload)
+        # This worker calls the AI server directly (timeout 600s), not through nginx (210s):
+        # one request runs the whole review instead of one 165s slice per call.
+        payload['stage_budget_seconds'] = 540
         save(state='running', stage=row.get('stage', 'analyze'), continuation=payload)
         busy_retries = 0
         for _ in range(8):

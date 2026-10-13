@@ -111,6 +111,10 @@ class FirestoreResumeReviewRequest(StrictModel):
     review_focus: str | None = Field(default=None, max_length=2_000)
     answers: list[ConfirmationAnswer] = Field(default_factory=list, max_length=10)
     answer_changes: list[AnswerChange] = Field(default_factory=list, max_length=1)
+    # Request budget for the LLM stages. Only the Celery worker sets it: it calls this server
+    # directly (600s timeout), not through nginx (210s), so one request can finish the review.
+    # Excluded from dumps: the same review keeps one fingerprint on either path.
+    stage_budget_seconds: int | None = Field(default=None, ge=30, le=540, exclude=True)
 
     @field_validator("cohort_id", "resume_id")
     @classmethod

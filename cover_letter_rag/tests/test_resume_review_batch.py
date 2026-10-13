@@ -99,6 +99,7 @@ def inputs():
 class FakeBatch(BatchReviewEngine):
     def __init__(self, invalid=False, fail_verify=False):
         super().__init__('fake', 'medium')
+        self.pipeline = False  # Stage loop orchestration; pipelined chunks: test_resume_review_pipeline.
         self.calls = []
         self.invalid, self.fail_verify = invalid, fail_verify
 

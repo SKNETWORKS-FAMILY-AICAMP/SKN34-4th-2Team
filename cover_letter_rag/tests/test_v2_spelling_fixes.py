@@ -98,3 +98,16 @@ def test_rejected_field_still_gets_typo_only_edits_that_apply_cleanly():
     assert text.count(edit.original_quote) == 1  # the apply contract replaces exactly one span
     assert edit.suggested_revision == edit.original_quote.replace('꿭', '꼭', 1)
     assert (edit.status, edit.edit_type, edit.validation_status, edit.validation_issues) == ('formatting', 'spelling', 'READY', [])
+
+
+@pytest.mark.parametrize('text,intent', [
+    # 2026-10-13: a student's past reason ("…가 맞다고 보고 옮겼습니다") was rejected as an unstated intent.
+    ('PC 사용과 링크 공유가 불편한 앱 중심 화면을 개선하고자 React 웹을 기본으로 바꿨습니다.', False),
+    ('관계형 조회가 필요해 PostgreSQL로 옮기고자 했던 이유는 중복 저장이었습니다.', False),
+    ('앞으로 서비스를 총괄하고자 합니다.', True),
+    ('귀사에 지원하고자 하는 이유는 데이터 품질입니다.', True),
+    ('검색 품질을 더 높이고 싶습니다.', True),
+])
+def test_purpose_connective_on_finished_work_is_not_an_intention(text, intent):
+    from app.resume_review_v2.validation import is_explicit_intention
+    assert is_explicit_intention(text) is intent

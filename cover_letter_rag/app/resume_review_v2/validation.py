@@ -450,7 +450,9 @@ def validate_candidate(
 
 
 def is_explicit_intention(text):
-    return bool(re.search(r'싶|계획입니다|계획하고 있|예정입니다|목표로 하|목표입니다|성장하겠|기여하겠|이해하겠|하고자|지원하고자',text))
+    # 「하고자」 alone is also a purpose connective on finished work (개선하고자 … 바꿨습니다); only
+    # 「하고자 합니다」 states an intention (2026-10-13: a past reason was rejected as an intent).
+    return bool(re.search(r'싶|계획입니다|계획하고 있|예정입니다|목표로 하|목표입니다|성장하겠|기여하겠|이해하겠|하고자\s*합니다|지원하고자',text))
 
 
 def validate_intent_sentence(sentence, intents):

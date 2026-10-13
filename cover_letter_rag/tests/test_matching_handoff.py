@@ -546,3 +546,37 @@ def test_unapproved_field_gets_placeholder_only_edits():
     assert [(r.original_quote, r.suggested_revision) for r in reviews] == [
         ('[회사명]에서', '(주)스마트에이아이연구소에서'), ('[회사명]의', '(주)스마트에이아이연구소의')]
     assert all(text.count(r.original_quote) == 1 and r.status == 'formatting' for r in reviews)
+
+
+MOTIVATION_DRAFT = ('[회사명]의 [서비스]에 근거 있는 AI 기능을 붙이고 싶습니다\n'
+    '[회사명]의 [서비스·제품]은 [회사가 풀고 있는 문제 한 줄]. 이력서와 채용공고라는 실제 문서를 다뤄 보니, '
+    '사용자가 서비스를 믿느냐는 모델 성능보다 틀린 답을 얼마나 잘 걸러 내느냐에 달려 있었습니다. '
+    '[직무]에서 요구하는 [공고 자격요건 한두 개]는 제가 채용공고 파이프라인과 추천 검증을 만들면서 직접 부딪혀 본 일입니다. '
+    '[입사하면 해 보고 싶은 일 한 줄].')
+
+
+def test_rewrite_of_draft_with_blanks_replaces_only_its_sentence():
+    # 2026-10-13: a one-sentence rewrite replaced the whole field and deleted every blank around it.
+    from app.resume_review_runtime import scoped_rewrite
+    evidence = '이력서와 채용공고라는 실제 문서를 다뤄 보니, 사용자가 서비스를 믿느냐는 모델 성능보다 틀린 답을 얼마나 잘 걸러 내느냐에 달려 있었습니다.'
+    revision = '이력서와 채용공고라는 실제 문서를 다루며, 사용자가 서비스를 신뢰하는지는 모델 성능보다 잘못된 답을 얼마나 잘 걸러 내는지에 달려 있다는 점을 알게 되었습니다.'
+    quote, suggested = scoped_rewrite(MOTIVATION_DRAFT, revision, [evidence])
+    assert quote == evidence and suggested == revision
+    applied = MOTIVATION_DRAFT.replace(quote, suggested)
+    assert '[입사하면 해 보고 싶은 일 한 줄]' in applied and '직접 부딪혀 본 일입니다' in applied
+
+
+def test_draft_rewrite_is_withheld_when_its_sentence_holds_a_blank():
+    from app.resume_review_runtime import scoped_rewrite
+    evidence = '제가 채용공고 파이프라인과 추천 검증을 만들면서 직접 부딪혀 본 일입니다.'
+    assert scoped_rewrite(MOTIVATION_DRAFT, '채용공고 파이프라인과 추천 검증을 만들었습니다.', [evidence]) is None
+
+
+def test_field_without_blanks_or_with_kept_blanks_stays_whole():
+    from app.resume_review_runtime import scoped_rewrite
+    text = '[회사명]에 지원합니다. API를 만들었습니다.'
+    assert scoped_rewrite(text, '(주)회사에 지원합니다. API를 구현했습니다.', ['API를 만들었습니다.']) == (
+        text, '(주)회사에 지원합니다. API를 구현했습니다.')
+    text = '[서비스]를 만들고 싶습니다. API를 만들었습니다.'
+    assert scoped_rewrite(text, '[서비스]를 만들고 싶습니다. API를 구현했습니다.', []) == (
+        text, '[서비스]를 만들고 싶습니다. API를 구현했습니다.')
