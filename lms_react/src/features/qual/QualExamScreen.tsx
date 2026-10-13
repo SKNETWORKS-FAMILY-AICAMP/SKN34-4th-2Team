@@ -7,6 +7,7 @@ import { Icon } from '../../ui/Icon';
 import { ErrorState, PageHeader, Skeleton } from '../../ui/components';
 import { formatYmd, parseYmd } from '../../utils/format';
 import { useCurrentUser } from '../auth/session';
+import { nextScheduleDay } from './scheduleDate';
 
 function syncedLabel(at: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -21,9 +22,6 @@ function syncedLabel(at: Date): string {
  */
 const HAYSTACK = (e: QualExamSchedule) =>
   [e.description, e.qualgbNm, e.qualgbCd, String(e.implSeq), e.implYy].join(' ').toLowerCase();
-
-/** 이 시험이 언제인지 — 필기 시험일이 있으면 그날, 없으면 실기 시험일 */
-const examDayOf = (e: QualExamSchedule) => e.docExamStartDt ?? e.pracExamStartDt;
 
 export function QualExamScreen() {
   const examsQuery = useQualExams();
@@ -59,20 +57,20 @@ export function QualExamScreen() {
 
   const upcoming = exams
     .filter((e) => {
-      const day = parseYmd(examDayOf(e));
+      const day = nextScheduleDay(e, today);
       return day !== null && day.getTime() >= today.getTime();
     })
     .filter((e) => q === '' || HAYSTACK(e).includes(q))
     .sort(
       (a, b) =>
-        (parseYmd(examDayOf(a))?.getTime() ?? Infinity) -
-        (parseYmd(examDayOf(b))?.getTime() ?? Infinity),
+        (nextScheduleDay(a, today)?.getTime() ?? Infinity) -
+        (nextScheduleDay(b, today)?.getTime() ?? Infinity),
     );
 
   // 시험 달로 묶는다 — groupByMonth
   const months = new Map<string, QualExamSchedule[]>();
   for (const exam of upcoming) {
-    const day = parseYmd(examDayOf(exam));
+    const day = nextScheduleDay(exam, today);
     const label = day === null ? '일정 미정' : `${day.getFullYear()}년 ${day.getMonth() + 1}월`;
     const bucket = months.get(label);
     if (bucket === undefined) months.set(label, [exam]);
@@ -95,7 +93,7 @@ export function QualExamScreen() {
 
         <div className="qual-meta">
           <p className="qual-count">
-            {today.getFullYear()}년 · 다가오는 {upcoming.length}건
+            진행 중 · 예정된 일정 {upcoming.length}건
           </p>
           {syncedAt !== undefined && <span className="hint">{syncedLabel(syncedAt)}</span>}
           {user.role === 'admin' && (
@@ -114,7 +112,7 @@ export function QualExamScreen() {
         {syncMessage !== null && <p className="hint">{syncMessage}</p>}
 
         {upcoming.length === 0 ? (
-          <p className="qual-empty">조건에 맞는 시험 일정이 없습니다</p>
+          <p className="qual-empty">{q ? '검색 조건에 맞는 시험 일정이 없습니다.' : exams.length ? '현재 진행 중이거나 예정된 시험 일정이 없습니다.' : '등록된 시험 일정이 없습니다.'}</p>
         ) : (
           [...months.entries()].map(([month, items]) => (
             <section key={month} className="qual-month">
@@ -145,9 +143,11 @@ function ExamTimeline({ exam }: { exam: QualExamSchedule }) {
     { label: '실기 발표', from: exam.pracPassDt, to: exam.pracPassDt },
   ].filter((s) => s.from !== undefined);
 
-  const day = parseYmd(examDayOf(exam));
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const day = nextScheduleDay(exam, today);
   const days =
-    day === null ? null : Math.round((day.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+    day === null ? null : Math.round((day.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
   const dday = days === null ? '—' : days === 0 ? 'D-DAY' : days > 0 ? `D-${days}` : '종료';
 
   return (
@@ -157,15 +157,15 @@ function ExamTimeline({ exam }: { exam: QualExamSchedule }) {
         <span className="qual-exam__seq">
           {exam.implYy}년 {exam.implSeq}회
         </span>
-        <span className="qual-exam__dday">{dday}</span>
+        <span className="qual-exam__dday" title="접수·시험·발표 중 가장 가까운 일정 기준">{days === 0 ? '진행 중 · 오늘' : `다음 일정 ${dday}`}</span>
         <span className="spacer" />
         <span className="hint">{exam.description}</span>
       </header>
 
       <ol className="timeline">
         {stages.map((stage) => {
-          const start = parseYmd(stage.from);
-          const done = start !== null && start.getTime() < Date.now();
+          const end = parseYmd(stage.to) ?? parseYmd(stage.from);
+          const done = end !== null && end.getTime() < today.getTime();
           return (
             <li key={stage.label} className={`timeline__item${done ? ' timeline__item--done' : ''}`}>
               <span className="timeline__dot" aria-hidden />
