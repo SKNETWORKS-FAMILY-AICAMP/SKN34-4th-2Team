@@ -160,9 +160,9 @@ export function WriteDockHost({ children }: { children: ReactNode }) {
                     <span>마감된 공고입니다. 자소서 쓰기 · 다듬기는 미리 사용해 보실 수 있어요(마감 당시 공고 요건 기준).</span>
                   </div>
                 )}
-                <RequirementBar key={target.editId} jobId={target.jobId} given={target.requirements}
+                <RequirementBar key={`requirements:${target.editId}`} jobId={target.jobId} given={target.requirements}
                   onClosed={() => setJobClosed(true)} />
-                <QuestionWorkflowAnswers key={target.editId} resumeId={target.resumeId} tailoredId={target.tailoredId}
+                <QuestionWorkflowAnswers key={`answers:${target.editId}`} resumeId={target.resumeId} tailoredId={target.tailoredId}
                   editId={target.editId} onStatus={report} onJobClosed={() => setJobClosed(true)} />
               </div>
             </div>

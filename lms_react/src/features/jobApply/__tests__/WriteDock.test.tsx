@@ -114,6 +114,22 @@ describe('자소서 쓰기 창', () => {
 });
 
 describe('쓰기 창의 공고 요건', () => {
+  it('자소서를 반복 전환하고 상태를 갱신해도 요건과 문항 영역은 하나씩 유지한다', async () => {
+    for (const id of ['열기1', '열기2', '열기1', '열기2', '열기1']) {
+      await act(async () => button(id).click());
+      expect(host.querySelectorAll('.aw-reqs__toggle')).toHaveLength(1);
+      expect(host.querySelector('.aw-body')?.textContent?.match(/문항 카드/g)).toHaveLength(1);
+      report({ busy: true, label: '문항 쓰는 중' });
+      act(() => button('내려두기').click());
+      report({ busy: false });
+      act(() => (host.querySelector('.aw-dockbar-wrap') as HTMLElement).click());
+      expect(host.querySelectorAll('.aw-reqs__toggle')).toHaveLength(1);
+      act(() => button('공고 요건 보기').click());
+      expect([...host.querySelectorAll('.aw-req')].map((chip) => chip.textContent))
+        .toEqual(id === '열기1' ? ['Python', 'AWS'] : ['데이터 분석']);
+    }
+  });
+
   it('접어 두고 필수 · 우대 수를 보이다가, 펼치면 요건과 공고 원문을 보여 준다 — 2단계 요건을 그대로 쓴다', () => {
     act(() => button('열기1').click());
     const toggle = button('공고 요건 보기');
