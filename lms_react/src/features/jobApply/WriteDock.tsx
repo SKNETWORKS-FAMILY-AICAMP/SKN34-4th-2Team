@@ -199,7 +199,7 @@ function WriteDockBar({ status, finished, elapsed, onOpen }: {
   const title = failed ? '자소서 초안을 쓰지 못했어요' : finished ? '자소서 초안 완료' : status.busy ? '자소서 초안 쓰는 중' : '자소서 쓰기';
   const detail = failed ? '창을 열어 다시 시도해 주세요'
     : finished ? '결과를 확인해 주세요'
-      : status.busy ? `${status.label} · 보통 2분 남짓 걸려요` : '창을 내려두었어요';
+      : status.busy ? `${status.label} · 보통 2분~3분 남짓 걸려요` : '창을 내려두었어요';
   return (
     <div className="rv-dockbar-wrap aw-dockbar-wrap">
       <div className={`rv-dockbar is-${tone}${finished ? ' is-finished' : ''}`} role="status" aria-live="polite"
@@ -260,7 +260,10 @@ function RequirementBar({ jobId, given, onClosed }: { jobId: string; given?: Pos
 
   if (failed) return <p className="hint aw-reqs">공고 요건을 불러오지 못했어요. 공고 맞춤 지원 2단계에서 볼 수 있어요.</p>;
   if (rows === null) return <p className="hint aw-reqs">공고 요건을 불러오고 있어요…</p>;
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    // 요건 문장 없이 분야 목록 · 이미지만 있는 공고 — 칸이 사라지면 고장처럼 보여 한 줄로 알린다
+    return <p className="hint aw-reqs">이 공고는 요건을 글로 적지 않았어요. 자소서는 이력서 · 메모를 바탕으로 써요.</p>;
+  }
   const groups = GROUPS.map((g) => ({ ...g, rows: rows.filter((r) => r.group === g.key) })).filter((g) => g.rows.length > 0);
   return (
     <section className={`aw-reqs${open ? ' is-open' : ''}`}>

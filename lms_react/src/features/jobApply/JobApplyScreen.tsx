@@ -707,7 +707,7 @@ function RequirementList({ requirements, onRetry }: { requirements: Requirements
     );
   }
   if (requirements.rows.length === 0) {
-    return <p className="hint">공고 원문에서 요건을 뽑지 못했어요. 원문 보기로 직접 확인해 주세요.</p>;
+    return <p className="hint">이 공고는 요건을 글로 적지 않았어요(분야 목록 · 이미지만 있어요). 원문 보기로 확인해 보세요. 자소서는 이력서 · 메모를 바탕으로 써요.</p>;
   }
   const groups = ['must', 'preferred', 'task'].map((g) => ({ g, rows: requirements.rows.filter((r) => r.group === g) }));
   return (

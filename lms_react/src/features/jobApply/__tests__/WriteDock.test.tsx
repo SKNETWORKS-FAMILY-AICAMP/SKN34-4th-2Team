@@ -151,4 +151,11 @@ describe('쓰기 창의 공고 요건', () => {
     expect(api.requirements).not.toHaveBeenCalled(); // 요건은 넘겨받았다
     expect(document.querySelector('[role="note"]')?.textContent).toContain('마감된 공고입니다');
   });
+
+  it('요건이 하나도 없는 공고는 칸을 없애지 않고 한 줄로 알린다', async () => {
+    api.requirements.mockResolvedValueOnce({ requirements: [] });
+    act(() => button('열기2').click());
+    await act(async () => { await Promise.resolve(); });
+    expect(document.body.textContent).toContain('이 공고는 요건을 글로 적지 않았어요');
+  });
 });
