@@ -98,6 +98,7 @@ if (!only || only === 'instructor') {
   { const p2 = await session('instructor', { size: [1194, 834] }); await shot(p2.page, 'in-presence-pad'); await p2.ctx.close(); }
   try { await page.getByLabel('메뉴').first().click({ timeout: 3000 }); await page.waitForTimeout(900); await shot(page, 'in-drawer'); await page.keyboard.press('Escape'); } catch (e) { console.log('drawer fail'); }
   await go(page, '/(instructor)/resumes'); await shot(page, 'in-resumes');
+  try { await tap(page, '데이터 엔지니어 지원 이력서', 1500); await shot(page, 'in-resume-view'); } catch (e) { console.log('resume view fail'); }
   await go(page, '/(instructor)/board'); await shot(page, 'in-board');
   await go(page, '/(instructor)/exams'); await shot(page, 'in-exams');
   const ex = ids.exams?.[0];
