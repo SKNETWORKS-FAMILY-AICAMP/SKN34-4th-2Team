@@ -39,4 +39,4 @@ def sync_qual_exams():
 
     return sync()
 
-from lms.review_jobs import run_review_job  # Register checkpoint continuation tasks.
+from lms.review_jobs import run_question_workflow_job, run_review_job  # Register checkpoint continuation tasks.

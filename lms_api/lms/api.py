@@ -1149,6 +1149,8 @@ class QuestionWorkflowIn(Schema):
     # 문항 전체를 여러 요청에 나눈다 — plan: 계획만, finish: 문항별로 받은 답(answers)으로 한 벌 검토만
     stage: Literal["all", "plan", "finish"] = "all"
     answers: dict | None = None
+    # 있으면 백그라운드(Celery)로 — 같은 번호로 다시 물으면 상태나 결과를 돌려준다(이력서 첨삭과 같은 방식)
+    asyncAttempt: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 @api.post("/resume-review/question-workflow")
@@ -1173,6 +1175,12 @@ def resume_review_question_workflow(request, body: QuestionWorkflowIn):
         "stage": body.stage,
         "answers": body.answers,
     }
+    if body.asyncAttempt:
+        from lms.review_jobs import submit_or_poll_workflow
+        try:
+            return submit_or_poll_workflow(payload, body.asyncAttempt)
+        except Exception:
+            return Response({'detail': '자소서 쓰기 작업 상태를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.'}, status=503)
     return _review_call("/api/v1/resumes/question-workflow/proxy", payload, timeout=300)
 
 
@@ -1803,6 +1811,8 @@ def _verify_posting(job_id: str) -> bool | None:
 
 class JobRequirementsIn(Schema):
     jobId: str = Field(min_length=1, max_length=200)
+    # 이미 만든 자소서의 쓰기 창 — 마감된 공고의 요건도 보여 준다(새로 만들 때는 막는다)
+    allowClosed: bool = False
 
 
 @api.post("/resume-review/requirements")
@@ -1813,7 +1823,8 @@ def resume_review_requirements(request, body: JobRequirementsIn):
     저장한 것을 첫 첨삭과 같이 쓴다. 마감 · 이미지 공고면 첨삭과 같은 까닭(409 · 422)으로 막힌다.
     """
     _require_user(request)
-    return _review_call("/api/v1/resumes/job-requirements/proxy", {"job_id": body.jobId}, timeout=60)
+    return _review_call("/api/v1/resumes/job-requirements/proxy",
+                        {"job_id": body.jobId, "allow_closed": body.allowClosed}, timeout=60)
 
 
 @api.get("/bootstrap")

@@ -62,7 +62,7 @@ export function DashboardScreen() {
 
         <section className="section">
           <header className="section__head">
-            <h2 className="section__title">시스템 공지</h2>
+            <h2 className="section__title">시스템 공지 모두들 화이팅</h2>
             <span className="spacer" />
             <Link className="section__more" to={RoutePaths.board}>
               더보기 <Icon name="chevron_right" size={16} />

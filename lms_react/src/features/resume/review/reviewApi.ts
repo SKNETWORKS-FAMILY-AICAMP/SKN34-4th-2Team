@@ -32,6 +32,8 @@ function failureMessage(status: number, detail: string | undefined): string {
       return '저장된 원 질문을 찾을 수 없어 답변을 안전하게 변경할 수 없습니다.';
     case '409:selected_job_closed':
     case '409:selected_job_expired':
+    case '422:selected_job_closed': // 사본 만들기 창구는 막힘을 422 로 돌려준다
+    case '422:selected_job_expired':
       return '선택한 공고가 마감되어 맞춤 첨삭을 할 수 없습니다. 다른 공고를 선택해 주세요.';
     case '422:selected_job_full_text_unavailable':
       return '이 공고는 상세 내용이 이미지뿐이라 원문 근거 첨삭을 할 수 없습니다. 텍스트 공고를 선택해 주세요.';
@@ -98,6 +100,42 @@ function failureMessage(status: number, detail: string | undefined): string {
   }
 }
 
+const WORKFLOW_POLL_MS = 3_000;
+const WORKFLOW_LIMIT_MS = 15 * 60_000;
+
+function attemptId(): string {
+  const random = new Uint32Array(1);
+  crypto.getRandomValues(random);
+  return `${Date.now()}_${random[0] & 0x3fffffff}`;
+}
+
+/**
+ * 백그라운드 작업 — 같은 작업 번호로 보내기를 되풀이한다. 서버는 처음에 작업을 넣고, 그 뒤로는 상태만 답하다가
+ * 끝나면 결과(또는 원래의 실패 상태 · 문구)를 돌려준다. 확인 요청이 잠깐 끊기면(연결 · 504) 몇 번 더 묻는다.
+ */
+async function pollJob(path: string, body: Json): Promise<Json> {
+  const request = { ...body, asyncAttempt: attemptId() };
+  const started = Date.now();
+  let hiccups = 0;
+  for (;;) {
+    let data: Json;
+    try {
+      data = await post(path, request, 30_000);
+      hiccups = 0;
+    } catch (err) {
+      const transient = err instanceof ReviewApiError && (err.statusCode === 0 || err.statusCode === 502 || err.statusCode === 504);
+      if (!transient || ++hiccups > 3) throw err;
+      await new Promise((resolve) => setTimeout(resolve, WORKFLOW_POLL_MS));
+      continue;
+    }
+    if (data.async_job === undefined) return data;
+    if (Date.now() - started > WORKFLOW_LIMIT_MS) {
+      throw new ReviewApiError('자소서 쓰기가 오래 걸리고 있어요. 잠시 후 다시 시도해 주세요.', 504);
+    }
+    await new Promise((resolve) => setTimeout(resolve, WORKFLOW_POLL_MS));
+  }
+}
+
 async function post(path: string, body: Json | FormData, timeout = 180_000): Promise<Json> {
   try {
     const { data } = await http.post<Json>(path, body, { timeout });
@@ -123,8 +161,11 @@ export const reviewApi = {
   context: (resumeId: string, jobId?: string, tailoredResumeId?: string) =>
     post('/resume-review/context', { resumeId, selectedJobId: jobId, tailoredResumeId }),
 
-  /** 공고 하나의 요건 — 이력서 없이 공고만 본다. 마감 · 이미지 공고면 첨삭과 같은 문구로 막힌다 */
-  requirements: (jobId: string) => post('/resume-review/requirements', { jobId }),
+  /**
+   * 공고 하나의 요건 — 이력서 없이 공고만 본다. 마감 · 이미지 공고면 첨삭과 같은 문구로 막힌다.
+   * allowClosed: 이미 만든 자소서의 쓰기 창만 — 마감된 공고 요건도 보여 준다
+   */
+  requirements: (jobId: string, allowClosed = false) => post('/resume-review/requirements', { jobId, allowClosed }),
 
   /** 캡처(이미지 세 장까지) · 지원서 양식 PDF(한 개) → 문항 목록. 파일은 저장하지 않는다 */
   extractQuestions: (images: Blob[]) => {
@@ -153,14 +194,18 @@ export const reviewApi = {
 
   /**
    * 공고 맞춤 지원 사본의 회사 문항 전체에 답을 쓴다 — 문항을 함께 계획해 경험이 겹치지 않게(app/question_workflow).
-   * 화면의 최신 메모 · 질문 답을 같이 보낸다. 저장은 하지 않는다. 문항이 여러 개라 1~3분 걸려 5분까지 기다린다
+   * 화면의 최신 메모 · 질문 답을 같이 보낸다. 저장은 하지 않는다.
+   *
+   * 백그라운드로 쓴다: 작업 번호(asyncAttempt)를 붙여 보내면 서버가 Celery 에 넣고 바로 답한다. 같은 번호로
+   * 3초마다 다시 물어 결과를 받는다. 배포에서 요청이 CloudFront(30~60초)를 거쳐, 1~2분 걸리는 답 쓰기가
+   * 504 로 끊겼다(2026-10-14). 짧은 확인 요청만 오가므로 끊기지 않는다.
    */
   questionWorkflow: (resumeId: string, tailoredResumeId: string,
     questions: { id: string; memo: string; notes: { question: string; answer: string }[] }[],
     /** only: 그 문항만 다시 쓴다. plan: 앞서 받은 계획 — 있으면 계획을 다시 세우지 않아 30~60초로 끝난다 */
     /** stage: 문항 전체를 여러 요청에 나눈다 — plan(계획만) → 문항마다 only → finish(answers 로 한 벌 검토) */
     options: { only?: string; plan?: Json | null; stage?: 'all' | 'plan' | 'finish'; answers?: Record<string, Json> } = {}) =>
-    post('/resume-review/question-workflow', { resumeId, tailoredResumeId, questions, ...options }, 300_000),
+    pollJob('/resume-review/question-workflow', { resumeId, tailoredResumeId, questions, ...options }),
 
   /** 공고용 사본을 뜬다. apply(공고 맞춤 지원)는 이력서 관리의 맞춤 첨삭 사본(review)과 따로 뜬다 */
   createTailored: (resumeId: string, jobId: string, purpose: 'review' | 'apply' = 'review') =>
