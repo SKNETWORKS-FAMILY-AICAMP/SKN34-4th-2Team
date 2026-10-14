@@ -4,6 +4,7 @@ import { updateResume, useResume } from '../../data/repository';
 import type { ResumeCompanyQuestion, ResumeContent } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { Button, TextArea } from '../../ui/components';
+import { AutoTextarea } from '../resume/ResumeSections';
 import { reviewApi, type Json } from '../resume/review/reviewApi';
 
 /**
@@ -373,7 +374,8 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
                 onBlur={() => { if (memoOf(q) !== (q.memo ?? '')) void persist({ [q.id]: { memo: memoOf(q) } }).catch(() => undefined); }} />
             </div>
 
-            <TextArea rows={7} value={text} aria-label={`문항 ${i + 1} 답변`} placeholder="AI 초안을 받거나 직접 써 보세요."
+            {/* 이력서 칸처럼 글만큼 늘어난다 — 긴 답도 안쪽 스크롤 없이 한눈에(7줄은 기본 높이) */}
+            <AutoTextarea rows={7} value={text} aria-label={`문항 ${i + 1} 답변`} placeholder="AI 초안을 받거나 직접 써 보세요."
               onChange={(e) => {
                 setTexts((t) => ({ ...t, [q.id]: e.target.value }));
                 setSaved((s) => ({ ...s, [q.id]: 'idle' }));
