@@ -2,10 +2,9 @@ import type { RecordType, UserRole } from '@web/domain/types';
 import type { ReactNode } from 'react';
 
 import {
-  ApplyPage,
-  JobPage,
-  JobsPage,
+  AlertsPage,
   ResumeEditPage,
+  ResumeViewPage,
   ResumeListPage,
 } from './extra';
 import {
@@ -36,7 +35,6 @@ import {
 import {
   AttendancePage,
   ChatPage,
-  CoachPage,
   DesktopPage,
   FormFillPage,
   FormsPage,
@@ -59,6 +57,7 @@ const recordTypes = new Set(['certification', 'study', 'blog', 'studyCert', 'pre
 export function StudentRoute({ parts }: { parts: string[] }): ReactNode {
   const [a, b, c] = parts;
   if (a === 'notice' && b) return <NoticePage id={b} />;
+  if (a === 'alerts') return <AlertsPage />;
   if (a === 'post' && b) return <PostPage id={b} />;
   if (a === 'records' && b === 'new') return <RecordNewPage />;
   if (a === 'records' && b === 'form' && c && recordTypes.has(c)) return <RecordFormPage type={c as RecordType} />;
@@ -82,11 +81,9 @@ export function StudentRoute({ parts }: { parts: string[] }): ReactNode {
   if (a === 'resume' && b === 'new') return <ResumeEditPage id="" />;
   if (a === 'resume' && b) return <ResumeEditPage id={decodeURIComponent(b)} />;
   if (a === 'resume') return <ResumeListPage />;
-  if (a === 'jobs' && b) return <JobPage id={b} />;
-  if (a === 'jobs') return <JobsPage />;
-  if (a === 'apply') return <ApplyPage />;
+  // 공고 · 공고 맞춤 지원 · 취업 코치(AI)는 앱에서 뺐다 — 예전 주소는 이력서 목록으로 연다
+  if (a === 'jobs' || a === 'apply' || a === 'coach') return <ResumeListPage />;
   if (a === 'chat') return <ChatPage />;
-  if (a === 'coach') return <CoachPage />;
   if (a === 'mypage') return <MyPage />;
   if (a === 'settings') return <SettingsPage />;
   if (a === 'desktop') return <DesktopPage feature={b === 'playground' ? '연습장' : '이 기능'} />;
@@ -96,7 +93,9 @@ export function StudentRoute({ parts }: { parts: string[] }): ReactNode {
 export function InstructorRoute({ parts }: { parts: string[] }): ReactNode {
   const [a, b, c, d] = parts;
   if (a === 'menu') return <MenuPage role="instructor" />;
-  if (a === 'resumes') return <ResumeListPage />;
+  // 강사도 관리자처럼 학생 이력서 전체를 본다 — 예전엔 학생용 목록이라 강사 본인 이력서만 보였다
+  if (a === 'resumes') return <ResumeListPage canApprove />;
+  if (a === 'resume' && b) return <ResumeViewPage id={decodeURIComponent(b)} />;
   if (a === 'board' || a === 'notice') return <NoticeAdminPage allowScheduled={false} />;
   if (a === 'exams' && b === 'new') return <ExamEditPage />;
   if (a === 'exams' && c === 'edit') return <ExamEditPage id={b} />;
@@ -122,6 +121,7 @@ export function AdminRoute({ parts }: { parts: string[] }): ReactNode {
   if (a === 'people' && b) return <PersonPage uid={b} />;
   if (a === 'counsel') return <CounselPage studentId={b} />;
   if (a === 'quests') return <AdminQuestsPage />;
+  if (a === 'attendance' && b === 'spot') return <AttendanceAdminPage initialTab="spot" />;
   if (a === 'attendance') return <AttendanceAdminPage />;
   // 관리자 자리 확인은 없앴다 — 예전 주소는 불시 점검이 있는 출석 관리로 연다
   if (a === 'presence') return <AttendanceAdminPage />;
@@ -133,7 +133,7 @@ export function AdminRoute({ parts }: { parts: string[] }): ReactNode {
   if (a === 'records' && b) return <RecordDetailPage id={decodeURIComponent(b)} reviewer />;
   if (a === 'records') return <RecordsBoard reviewer />;
   if (a === 'resumes') return <ResumeListPage canApprove />;
-  if (a === 'resume' && b) return <ResumeEditPage id={decodeURIComponent(b)} />;
+  if (a === 'resume' && b) return <ResumeViewPage id={decodeURIComponent(b)} />;
   if (a === 'forms') return <FormsAdminPage />;
   if (a === 'study') return <StudyAdminPage />;
   if (a === 'board' || a === 'notice') return <NoticeAdminPage />;

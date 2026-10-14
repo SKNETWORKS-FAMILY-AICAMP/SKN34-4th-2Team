@@ -44,7 +44,8 @@ function httpModule(s, post) {
   const client = { interceptors: { request: { use() {} }, response: { use() {} } } };
   let calls = 0;
   const axios = { create: () => ++calls === 1 ? client : { post }, isAxiosError: () => false };
-  return load('http.ts', { axios: { default: axios }, './sessionStore': { useSessionStore: s } });
+  // __esModule 이 없으면 TS 6(esModuleInterop 기본 켜짐)이 { default } 로 한 번 더 감싼다
+  return load('http.ts', { axios: { __esModule: true, default: axios }, './sessionStore': { useSessionStore: s } });
 }
 test('concurrent refresh shares one request and updates tokens', async () => {
   const s = store(); s.getState().setTokens('a', 'r'); const pending = deferred(); let calls = 0;

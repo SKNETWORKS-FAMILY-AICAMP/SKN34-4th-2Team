@@ -8,6 +8,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { homeHref, SessionProvider, useSession } from '../src/auth/session';
 import { queryClient } from '../src/data/query';
+import { AlertHost } from '../src/screens/extra';
 import { usePushNotifications } from '../src/push/notifications';
 import { ThemeProvider, useTheme } from '../src/theme/Theme';
 import { light } from '../src/theme/tokens';
@@ -85,5 +86,12 @@ function Gate() {
   }, [user, loading, offline, segments, router]);
 
   if (offline && !user) return <OfflineScreen onRetry={retry} />;
-  return <Stack screenOptions={{ headerShown: false }} />;
+  // 알림 팝업은 학생이 어느 화면에 있든 뜨게 여기 둔다 (bootstrap 이 15초마다 새로 받아 새로고침 없이 뜬다)
+  const showAlerts = Boolean(user && user.role === 'student' && !user.mustChangePassword && !loading);
+  return (
+    <>
+      <Stack screenOptions={{ headerShown: false }} />
+      {showAlerts ? <AlertHost /> : null}
+    </>
+  );
 }

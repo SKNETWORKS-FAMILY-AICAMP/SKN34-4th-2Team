@@ -685,9 +685,7 @@ export function SourcesPage() {
           />
         </Card>
       ))}
-      <ListGroup>
-        <ListItem title="저장소 노트 만들기 · 범위 설정" subtitle="PC 웹에서 이용해 주세요" left={<MaterialIcons name="computer" size={20} color={palette.textHint} />} />
-      </ListGroup>
+      <Muted>저장소 노트 만들기 · 범위 설정은 PC 웹에서 할 수 있습니다.</Muted>
     </Screen>
   );
 }

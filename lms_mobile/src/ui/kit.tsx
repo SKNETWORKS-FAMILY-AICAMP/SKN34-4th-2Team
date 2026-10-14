@@ -22,6 +22,12 @@ import { elevation, hit, radius, typography, type TypeVariant } from '../theme/t
 import { useTheme } from '../theme/Theme';
 import type { Palette } from '../theme/tokens';
 
+/**
+ * 아이패드처럼 넓은 화면에서 본문 폭을 이만큼으로 묶고 가운데에 둔다 — 목록 · 입력칸이 끝없이 늘어나지 않게.
+ * 되돌리려면 null 로 바꾸면 된다(예전처럼 화면을 꽉 채운다). 좌석 배치도처럼 넓어야 하는 화면은 Screen 에 fullWidth.
+ */
+export const TABLET_MAX_WIDTH: number | null = null;
+
 export type IconName = ComponentProps<typeof MaterialIcons>['name'];
 export type Tone = 'primary' | 'success' | 'warning' | 'error' | 'info' | 'neutral';
 
@@ -107,8 +113,11 @@ export function Screen({
   right,
   stickToBottom,
   scrollRef: externalScrollRef,
+  fullWidth,
 }: {
   title: string;
+  /** 넓은 화면에서도 폭을 묶지 않는다 — 좌석 배치도 · 불시 점검처럼 화면 폭을 다 쓰는 곳 */
+  fullWidth?: boolean;
   /** 화면 안 특정 위치로 옮겨야 할 때 — 본문 ScrollView 를 넘겨받는다 */
   scrollRef?: RefObject<ScrollView | null>;
   /** 채팅처럼 내용이 늘면 맨 아래를 따라간다 */
@@ -130,6 +139,7 @@ export function Screen({
   const ownScrollRef = useRef<ScrollView>(null);
   const scrollRef = externalScrollRef ?? ownScrollRef;
   const [pulling, setPulling] = useState(false);
+  const narrow = TABLET_MAX_WIDTH !== null && !fullWidth ? { width: '100%' as const, maxWidth: TABLET_MAX_WIDTH, alignSelf: 'center' as const } : null;
   const pull = onRefresh
     ? () => {
         const pending = onRefresh();
@@ -151,7 +161,7 @@ export function Screen({
           <View style={styles.hit}>{right}</View>
         </View>
       ) : (
-        <View style={styles.largeBar}>
+        <View style={[styles.largeBar, narrow]}>
           {left}
           <T variant="hero" style={styles.fill} numberOfLines={1}>
             {title}
@@ -175,7 +185,7 @@ export function Screen({
           <ScrollView
             ref={scrollRef}
             onContentSizeChange={stickToBottom ? () => scrollRef.current?.scrollToEnd({ animated: true }) : undefined}
-            contentContainerStyle={styles.body}
+            contentContainerStyle={[styles.body, narrow]}
             keyboardShouldPersistTaps="handled"
             refreshControl={
               pull ? (
@@ -438,24 +448,28 @@ export function StatTile({
   value,
   tone = 'primary',
   onPress,
+  centered,
 }: {
   icon: IconName;
   label: string;
   value: string;
   tone?: Tone | string;
   onPress?: () => void;
+  /** 칸이 크게 늘어날 때(아이패드 대시보드) 내용을 칸 정가운데에 둔다 */
+  centered?: boolean;
 }) {
   const { palette } = useTheme();
   const color = toneColor(palette, tone);
+  const middle = centered ? ({ textAlign: 'center' } as const) : null;
   return (
     <View style={styles.fill}>
-      <Card onPress={onPress} style={{ gap: 10, flex: 1 }}>
+      <Card onPress={onPress} style={[{ gap: 10, flex: 1 }, centered ? { alignItems: 'center', justifyContent: 'center' } : null]}>
         <View style={[styles.iconBox, { backgroundColor: soft(color) }]}>
           <MaterialIcons name={icon} size={20} color={color} />
         </View>
-        <View style={{ gap: 2 }}>
-          <T variant="caption" tone="secondary" numberOfLines={2}>{label}</T>
-          <Text style={[typography.title, { color: palette.text }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+        <View style={[{ gap: 2 }, centered ? { alignItems: 'center' } : null]}>
+          <T variant="caption" tone="secondary" numberOfLines={2} style={middle}>{label}</T>
+          <Text style={[typography.title, { color: palette.text }, middle]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
             {value}
           </Text>
         </View>
@@ -660,7 +674,8 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   fillGap: { flex: 1, gap: 2 },
   bar: { minHeight: 56, flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth },
-  largeBar: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
+  // 탭 화면 제목 줄 — 오른쪽 버튼이 있든 없든 높이를 같게 둬 제목 위치가 탭마다 같다
+  largeBar: { minHeight: 60, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
   hit: { width: hit, height: hit, alignItems: 'center', justifyContent: 'center' },
   title: { flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '700' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
