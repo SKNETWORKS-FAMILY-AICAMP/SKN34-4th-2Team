@@ -58,7 +58,12 @@ class Release:
         command = result['Command']['CommandId']
         self.commands.append({'service':service, 'phase':phase, 'id':command})
         print(json.dumps(self.commands[-1]), flush=True)
-        wait_command(self.ssm, command, INSTANCES[service])
+        try:
+            wait_command(self.ssm, command, INSTANCES[service])
+        except RuntimeError:
+            raise
+        except Exception as error:
+            raise RemoteOutcomeUnknown('Cannot read SSM outcome: ' + command) from error
 
     def invalidate(self):
         result = self.cf.create_invalidation(DistributionId=DISTRIBUTION, InvalidationBatch={
