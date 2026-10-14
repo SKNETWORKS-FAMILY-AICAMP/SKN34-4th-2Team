@@ -129,3 +129,21 @@ def test_deletes_only_the_selected_tailored_resume():
     remaining = service.list('user-1', 'c', 'r')
     assert len(remaining) == 1
     assert remaining[0].job_id == 'job-2'
+
+
+def test_closed_posting_still_allows_cover_letters_but_not_resume_review():
+    # 2026-10-14: cover letters can be written ahead of time even after the posting closes.
+    import pytest
+    from app.review_workflow import ReviewConflict
+    def load(job_id):
+        return {'closed': True,
+                'source': {'job_id': job_id, 'company': 'A사', 'title': '백엔드 개발자', 'snapshot_hash': 'job-hash'}}
+    service = TailoredResumeService(Gateway(), load)
+    apply = TailoredResumeCreateRequest(cohort_id='cohort-1', resume_id='resume-1', selected_job_id='job-1', purpose='apply')
+    made = service.create('user-1', apply)
+    assert service.create('user-1', apply).tailored_resume_id == made.tailored_resume_id  # Reopens the same one.
+    swapped = TailoredResumeCreateRequest(cohort_id='cohort-1', resume_id='resume-2', selected_job_id='job-1', purpose='apply')
+    assert service.create('user-1', swapped).base_resume_id == 'resume-2'  # Base resume swap.
+    review = TailoredResumeCreateRequest(cohort_id='cohort-1', resume_id='resume-1', selected_job_id='job-1')
+    with pytest.raises(ReviewConflict):  # Resume review stays closed.
+        service.create('user-1', review)
