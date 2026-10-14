@@ -112,7 +112,7 @@ def choose_answer_effort(state: dict, *, basis: str | None = None) -> EffortDeci
     if basis in ('unit', 'completion'):
         if scopes - {'student_attendance'}:
             return medium('compound_request')
-        if not re.search(r'출석률|출석\s*(?:현황|상태|어때|확인)|(?:며칠|몇\s*일|얼마).*(?:더|필요|출석)|'
+        if not re.search(r'출석률|출(?:석|결)\s*(?:현황|상태|어때|확인|괜찮)|(?:며칠|몇\s*일|얼마).*(?:더|필요|출석)|'
                          r'(?:추가|정상|더).*출석|출석.*(?:필요|며칠|몇\s*일|어때)|'
                          r'(?:지각|결석|조퇴|외출).*(?:하면|한다면)|수료.*(?:가능|현황|어때)', question):
             return medium('other_request')
@@ -186,3 +186,40 @@ def choose_answer_effort(state: dict, *, basis: str | None = None) -> EffortDeci
                 return medium('data_unavailable')
         return EffortDecision('low', 'simple_schedule')
     return medium('other_request')
+
+
+def attendance_context_sufficient_without_search(state: dict) -> bool:
+    """Narrow server-data route, not a general policy/notice retrieval shortcut."""
+    if not state.get('student_uid') or not state.get('cohort') or state.get('attendance_other_question'):
+        return False
+    if set(state.get('namespaces') or []) - {'policy', 'notice'}:
+        return False
+    question = state.get('question', '').strip()
+    # Only whole, simple requests. A recognizable substring in a compound
+    # question is insufficient, even if the supervisor supplied a single task.
+    if not re.fullmatch(
+        r'(?:(?:내|나의|저의)\s*)?(?:(?:이번\s*(?:달|월|단위\s*기간)|전체\s*훈련\s*기간|수료\s*기준)\s*)?'
+        r'(?:출(?:석|결)(?:률)?(?:은|이|는)?\s*(?:괜찮(?:나|아|은가요)?|어때(?:요)?|현황|상태|알려줘|확인해줘)|'
+        r'(?:앞으로\s*)?(?:며칠|몇\s*일)\s*(?:더\s*)?(?:정상\s*)?출석(?:해야\s*(?:해|하나요)|이\s*필요해))'
+        r'\s*[?.!？]*', question):
+        return False
+    choice = choose_answer_effort(state)
+    if choice.effort != 'low' or choice.reason not in ('simple_unit', 'simple_completion'):
+        return False
+    context = _personal_context(state)
+    snapshot = context.get('policy_calculation') or {}
+    if snapshot.get('status') != 'unverified' or snapshot.get('issues'):
+        return False
+    key = snapshot.get('storage_key', '')
+    if not isinstance(key, str) or not key.startswith(f"cohorts/{state['cohort']}/policy/"):
+        return False
+    # Verify extracted numeric criteria still agree with the supplied calculator.
+    # This validates extraction identity, NOT policy approval.
+    if choice.reason == 'simple_unit':
+        from chatbot.active_policy_rules import allowance_rules
+        try:
+            return allowance_rules(snapshot).metadata() == context.get('calculation_rules')
+        except (KeyError, TypeError, ValueError):
+            return False
+    criterion = snapshot.get('criteria', {}).get('completion', {})
+    return criterion == context.get('completion_progress', {}).get('rule')
