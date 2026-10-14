@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from release import Release, wait_command, RemoteOutcomeUnknown
-from remote_release import validate, set_image, REGISTRY
+from remote_release import validate, set_image, REGISTRY, ecr_password
 
 class DeploymentTests(unittest.TestCase):
     def test_only_project_digest_images_are_accepted(self):
@@ -16,6 +16,26 @@ class DeploymentTests(unittest.TestCase):
         for value in [REGISTRY+'/lms-api:latest','attacker.test/lms-api@sha256:'+'b'*64,REGISTRY+'/lms-ai@sha256:'+'b'*64]:
             with self.assertRaises(ValueError):validate('api',value,release)
         with self.assertRaises(ValueError):validate('api',REGISTRY+'/lms-api@sha256:'+'b'*64,'../escape')
+
+    def test_ecr_datetime_metadata_does_not_block_token_transfer(self):
+        import base64
+        from contextlib import redirect_stdout
+        from datetime import datetime, timezone
+        token=base64.b64encode(b'AWS:synthetic-test-password').decode()
+        client=MagicMock()
+        client.get_authorization_token.return_value={'authorizationData':[
+            {'authorizationToken':token,'expiresAt':datetime.now(timezone.utc),
+             'proxyEndpoint':'https://'+REGISTRY}]}
+        sdk=SimpleNamespace(client=MagicMock(return_value=client))
+        def inside_container(service,code):
+            self.assertEqual(service,'ai')
+            stream=io.StringIO()
+            with patch.dict(sys.modules,{'boto3':sdk}),redirect_stdout(stream):
+                exec(code,{})
+            return stream.getvalue()
+        with patch('remote_release.docker_python',side_effect=inside_container):
+            self.assertEqual(ecr_password('ai'),'synthetic-test-password')
+        sdk.client.assert_called_once_with('ecr',region_name='us-east-1')
 
     def test_env_edit_preserves_secrets_and_other_image(self):
         source="SECRET='literal # value'\nECR_AI_IMAGE=old\nECR_IMAGE=api-old\n"
