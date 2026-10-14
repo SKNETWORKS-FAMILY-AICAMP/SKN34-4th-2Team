@@ -235,7 +235,7 @@ function RequirementBar({ jobId, given }: { jobId: string; given?: PostingRequir
   useEffect(() => {
     if (given !== undefined || jobId === '') return undefined;
     let alive = true;
-    reviewApi.requirements(jobId)
+    reviewApi.requirements(jobId, true) // 이미 만든 자소서 — 마감된 공고의 요건도 본다
       .then((data) => { if (alive) setRows(requirementRows(data)); })
       .catch(() => { if (alive) setFailed(true); });
     return () => { alive = false; };

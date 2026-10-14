@@ -72,6 +72,20 @@ def test_unusable_jobs_fail_closed(store, field, value, error):
     with pytest.raises(error): load_selected_job(store, 'saramin:1')
 
 
+@pytest.mark.parametrize('field,value', [('status', 'EXPIRED'), ('status', 'REMOVED'), ('deadline', '2020-01-01')])
+def test_saved_cover_letter_keeps_working_after_the_posting_closes(store, field, value):
+    # 2026-10-14: a saved cover letter could not be revised once its posting closed. Cover letters may
+    # (allow_closed); new copies and resume review still fail closed. Same snapshot as before closing.
+    before = load_selected_job(store, 'saramin:1')
+    assert before['closed'] is False
+    with open_store(store) as db: db.execute(f'UPDATE jobs SET {field} = %s', (value,))
+    with pytest.raises(ReviewConflict): load_selected_job(store, 'saramin:1')
+    after = load_selected_job(store, 'saramin:1', allow_closed=True)
+    assert after['closed'] is True and after['text'] == before['text']
+    if field == 'status':  # The cached requirements and the copy's job snapshot still match.
+        assert after['source']['snapshot_hash'] == before['source']['snapshot_hash']
+
+
 def test_legacy_image_flag_with_text_detail_is_reviewable(store):
     """본문이 충분히 저장된 구 레코드는 이미지 플래그를 보정한다."""
     with open_store(store) as db:
@@ -389,6 +403,9 @@ def test_job_requirements_proxy_returns_saved_requirements_and_blocks_closed_job
         closed = client.post('/api/v1/resumes/job-requirements/proxy', json={'job_id': 'saramin:1'})
         assert closed.status_code == 409
         assert closed.json()['detail'] == 'selected_job_closed'
+        # The writing window of an existing cover letter still shows the posting's requirements.
+        allowed = client.post('/api/v1/resumes/job-requirements/proxy', json={'job_id': 'saramin:1', 'allow_closed': True})
+        assert allowed.status_code == 200 and allowed.json()['requirements'][0]['id'] == 'req-1'
     finally: app.dependency_overrides.clear()
 
 
@@ -469,7 +486,14 @@ def test_question_workflow_proxy_plans_all_questions_with_latest_memo(store):
         assert data['requirements'] == [{'id': 'req-1', 'group': 'must', 'label': 'Python API 개발'}]
         assert 'cq1: 직무 역량을 쓰시오.' in seen['plan']['questions']
         assert 'REST API 직접 설계' in seen['memo']  # 화면의 최신 메모를 쓴다
+        assert data['job_closed'] is False
         assert client.post('/api/v1/resumes/question-workflow/proxy', json={**body, 'uid': 'other'}).status_code == 404
+        # A saved cover letter is still written after its posting closes; the screen shows a notice.
+        with open_store(store) as db:
+            db.execute("UPDATE jobs SET status = 'EXPIRED'")
+        closed = client.post('/api/v1/resumes/question-workflow/proxy', json=body)
+        assert closed.status_code == 200, closed.text
+        assert closed.json()['job_closed'] is True and closed.json()['questions'][0]['question_id'] == 'cq1'
     finally: app.dependency_overrides.clear()
 
 

@@ -123,8 +123,11 @@ export const reviewApi = {
   context: (resumeId: string, jobId?: string, tailoredResumeId?: string) =>
     post('/resume-review/context', { resumeId, selectedJobId: jobId, tailoredResumeId }),
 
-  /** 공고 하나의 요건 — 이력서 없이 공고만 본다. 마감 · 이미지 공고면 첨삭과 같은 문구로 막힌다 */
-  requirements: (jobId: string) => post('/resume-review/requirements', { jobId }),
+  /**
+   * 공고 하나의 요건 — 이력서 없이 공고만 본다. 마감 · 이미지 공고면 첨삭과 같은 문구로 막힌다.
+   * allowClosed: 이미 만든 자소서의 쓰기 창만 — 마감된 공고 요건도 보여 준다
+   */
+  requirements: (jobId: string, allowClosed = false) => post('/resume-review/requirements', { jobId, allowClosed }),
 
   /** 캡처(이미지 세 장까지) · 지원서 양식 PDF(한 개) → 문항 목록. 파일은 저장하지 않는다 */
   extractQuestions: (images: Blob[]) => {

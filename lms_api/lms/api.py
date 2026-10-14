@@ -1803,6 +1803,8 @@ def _verify_posting(job_id: str) -> bool | None:
 
 class JobRequirementsIn(Schema):
     jobId: str = Field(min_length=1, max_length=200)
+    # 이미 만든 자소서의 쓰기 창 — 마감된 공고의 요건도 보여 준다(새로 만들 때는 막는다)
+    allowClosed: bool = False
 
 
 @api.post("/resume-review/requirements")
@@ -1813,7 +1815,8 @@ def resume_review_requirements(request, body: JobRequirementsIn):
     저장한 것을 첫 첨삭과 같이 쓴다. 마감 · 이미지 공고면 첨삭과 같은 까닭(409 · 422)으로 막힌다.
     """
     _require_user(request)
-    return _review_call("/api/v1/resumes/job-requirements/proxy", {"job_id": body.jobId}, timeout=60)
+    return _review_call("/api/v1/resumes/job-requirements/proxy",
+                        {"job_id": body.jobId, "allow_closed": body.allowClosed}, timeout=60)
 
 
 @api.get("/bootstrap")

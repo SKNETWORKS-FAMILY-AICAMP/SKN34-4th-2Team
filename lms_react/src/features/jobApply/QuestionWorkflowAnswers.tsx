@@ -173,6 +173,8 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
   const [setStep, setSetStep] = useState<{ at: 'plan' | 'write' | 'finish'; done: number; total: number } | null>(null);
   /** 전체를 쓸 때 받은 계획 — 한 문항만 다시 쓸 때 보내면 계획을 다시 세우지 않는다 */
   const [plan, setPlan] = useState<Json | null>(null);
+  /** 공고가 마감됐는지 — 자소서는 마감 뒤에도 쓰고 고친다(서버가 알려 준다) */
+  const [jobClosed, setJobClosed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const count = resume?.content.companyQuestions?.length ?? 0;
   const busyNo = busy === null || busy === 'all' ? 0 : (resume?.content.companyQuestions ?? []).findIndex((q) => q.id === busy) + 1;
@@ -221,6 +223,7 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
     })) }));
     setResults((r) => ({ ...r, ...next }));
     if (data.plan !== undefined && data.plan !== null) setPlan(data.plan as Json);
+    if (data.job_closed === true) setJobClosed(true);
     return next;
   };
 
@@ -322,6 +325,7 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
           전체를 한 번에 쓰면 같은 이야기 겹침 · 공고 필수 요건까지 점검해요.
         </span>
       </div>
+      {jobClosed && <p className="hint">마감된 공고예요. 마감 당시 공고 요건을 기준으로 쓰고 고쳐요.</p>}
       {busy === 'all' && setStep !== null && <SetSteps step={setStep} />}
       {error !== null && <p className="apply-error">{error}</p>}
       {coverage !== null && coverage.total > 0 && (

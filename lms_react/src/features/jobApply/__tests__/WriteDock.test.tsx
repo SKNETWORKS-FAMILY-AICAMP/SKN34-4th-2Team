@@ -127,7 +127,7 @@ describe('쓰기 창의 공고 요건', () => {
   it('「내 자소서」에서 바로 열어 요건이 아직 없으면 창이 직접 읽는다', async () => {
     act(() => button('열기2').click());
     await act(async () => { await Promise.resolve(); });
-    expect(api.requirements).toHaveBeenCalledWith('SARAMIN-1');
+    expect(api.requirements).toHaveBeenCalledWith('SARAMIN-1', true); // 이미 만든 자소서 — 마감 공고 요건도 본다
     expect(button('공고 요건 보기').textContent).toContain('주요 업무 1');
   });
 });

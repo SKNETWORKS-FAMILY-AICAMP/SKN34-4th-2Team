@@ -137,6 +137,8 @@ def _warm_job_requirements(gateway, settings, job):
 
 class ProxyJobRequirementsRequest(StrictModel):
     job_id: str = Field(min_length=1, max_length=200)
+    # 이미 만든 자소서의 쓰기 창이 볼 때만 — 마감된 공고의 요건도 보여 준다
+    allow_closed: bool = False
 
 
 @app.post('/api/v1/resumes/job-requirements/proxy')
@@ -154,7 +156,7 @@ def job_requirements_as_user(
     from app.job_requirements import build_requirement_extractor, load_or_extract_requirements
     from app.matching_handoff import load_selected_job
     try:
-        job = load_selected_job(settings.matching_job_store_path, request.job_id)
+        job = load_selected_job(settings.matching_job_store_path, request.job_id, allow_closed=request.allow_closed)
         extractor = build_requirement_extractor(settings) if settings.openai_api_key else None
         requirements = load_or_extract_requirements(gateway, extractor, job['text'], job['source'])
     except ReviewConflict as exc:
@@ -248,7 +250,7 @@ def question_answer_as_user(
         tailored = gateway.get_owned_tailored_resume(
             request.cohort_id, request.resume_id, request.tailored_resume_id, request.uid,
         )
-        job = load_selected_job(settings.matching_job_store_path, tailored.get('jobId') or '')
+        job = load_selected_job(settings.matching_job_store_path, tailored.get('jobId') or '', allow_closed=True)  # 자소서
         requirements = load_or_extract_requirements(
             gateway, build_requirement_extractor(settings), job['text'], job['source'],
         )
@@ -345,14 +347,16 @@ def question_workflow_as_user(
                 written=item.written if item else str(saved.get('answer') or '')))
         if not questions:
             raise ReviewInputError('company_question_not_found')
-        job = load_selected_job(settings.matching_job_store_path, tailored.get('jobId') or '')
+        # 자소서는 공고가 마감돼도 마저 쓰고 고친다(이력서 첨삭 · 새 사본은 막는다)
+        job = load_selected_job(settings.matching_job_store_path, tailored.get('jobId') or '', allow_closed=True)
         requirements = load_or_extract_requirements(
             gateway, build_requirement_extractor(settings), job['text'], job['source'],
         )
         result = QuestionWorkflow(llm).run(content=content, questions=questions, job=job, requirements=requirements,
                                            only=request.only, saved_plan=request.plan,
                                            stage=request.stage, answers=request.answers)
-        return {**result, 'requirements': [{'id': r.id, 'group': r.group, 'label': r.label} for r in requirements]}
+        return {**result, 'requirements': [{'id': r.id, 'group': r.group, 'label': r.label} for r in requirements],
+                'job_closed': job['closed']}
     except ResumeAccessError as exc:
         raise HTTPException(status_code=403, detail='Resume access denied') from exc
     except ResumeNotFoundError as exc:
