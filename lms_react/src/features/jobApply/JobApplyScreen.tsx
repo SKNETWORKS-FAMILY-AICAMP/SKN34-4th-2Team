@@ -163,7 +163,7 @@ export function JobApplyScreen() {
   const loadRequirements = (jobId: string) => {
     setRequirements({ state: 'loading' });
     reviewApi
-      .requirements(jobId)
+      .requirements(jobId, true) // 자소서는 마감된 공고도 미리 써 본다
       .then((data) => setRequirements({ state: 'ready', rows: requirementRows(data) }))
       .catch((err: unknown) =>
         setRequirements({
@@ -206,7 +206,7 @@ export function JobApplyScreen() {
       setDraft(null);
       setQuestions(null);
       setCreateError(null);
-      if (data.status === 'OPEN') loadRequirements(data.job_id);
+      loadRequirements(data.job_id);
     } catch (err) {
       const status = (err as { response?: { status?: number } }).response?.status;
       setFindError(status === 404 ? '공고를 찾을 수 없어요. 수집 목록에서 빠진 공고일 수 있어요.' : errorDetail(err, '공고를 불러오지 못했어요.'));
@@ -237,7 +237,7 @@ export function JobApplyScreen() {
       setLink(data.source_url);
       setPickedSource(copy?.base ?? '');
       setCreateError(null);
-      if (data.status === 'OPEN') loadRequirements(data.job_id);
+      loadRequirements(data.job_id);
       const saved = resume.content.companyQuestions ?? [];
       setQuestions(saved.length > 0 ? saved : null);
       const restored: Draft | null = saved.length > 0
@@ -249,7 +249,7 @@ export function JobApplyScreen() {
         : null;
       setDraft(restored);
       // 「내 자소서」에서 연 자소서는 쓰기 창을 바로 띄운다. 바탕 이력서가 지워진 자소서는 읽기 전용이라 띄우지 않는다
-      if (restored !== null && !restored.orphan && data.status === 'OPEN') openWrite(writeTarget(restored, data));
+      if (restored !== null && !restored.orphan) openWrite(writeTarget(restored, data));
     } catch (err) {
       setFindError(errorDetail(err, '공고를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.'));
     } finally {
@@ -280,7 +280,7 @@ export function JobApplyScreen() {
       setQuestions(null);
       setCreateError(null);
       // 닫힌 공고는 첨삭 서버도 요건 정리를 막는다(409). 부르지 않고 까닭만 보여 준다
-      if (data.status === 'OPEN') loadRequirements(data.job_id);
+      loadRequirements(data.job_id);
     } catch (err) {
       setFindError(errorDetail(err, '공고를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.'));
     } finally {
@@ -418,7 +418,8 @@ export function JobApplyScreen() {
   // 같은 공고가 사람인 · 잡코리아에 함께 올라온 경우(수집기가 group_key 로 묶는다). 한쪽만 조기 마감되기도 한다
   const openCopy = posting?.links?.find((l) => l.job_id !== posting.job_id && l.status === 'OPEN' && l.source_url.startsWith('http'));
   const imageOnly = posting !== null && (posting.body_is_image || posting.description.trim() === '');
-  const blocked = closed || imageOnly || requirements.state === 'failed';
+  // 마감된 공고도 자소서는 미리 써 볼 수 있다(이력서 맞춤 첨삭만 열린 공고로 한다)
+  const blocked = imageOnly || requirements.state === 'failed';
   // 이 공고로 이 탭에서 이미 만든 자소서
   const madeForPosting = posting === null ? [] : resumes.filter((r) => r.linkedJobId === posting.job_id && isApplyCopy(r));
 
@@ -492,7 +493,7 @@ export function JobApplyScreen() {
           <StepHead no={2} title="공고가 요구하는 것" done={requirements.state === 'ready'} />
           {closed && (
             <div className="apply-warn">
-              <span>{closedReason(posting.status, posting.deadline, posting.deadline_time)} 맞춤 첨삭은 열려 있는 공고만 할 수 있어요.</span>
+              <span>{closedReason(posting.status, posting.deadline, posting.deadline_time)} 자소서는 미리 써 보실 수 있어요(마감 당시 공고 요건 기준).</span>
               {openCopy !== undefined && (
                 <Button size="sm" variant="outline" disabled={finding} onClick={() => void lookup(openCopy.source_url)}>
                   <Icon name="swap_horiz" size={16} />
@@ -501,10 +502,10 @@ export function JobApplyScreen() {
               )}
             </div>
           )}
-          {!closed && imageOnly && (
+          {imageOnly && (
             <p className="apply-warn">상세 내용이 이미지로만 올라온 공고라 요건을 읽을 수 없어요. 텍스트 공고를 골라 주세요.</p>
           )}
-          {!closed && <RequirementList requirements={requirements} onRetry={() => loadRequirements(posting.job_id)} />}
+          <RequirementList requirements={requirements} onRetry={() => loadRequirements(posting.job_id)} />
 
           {source === undefined ? (
             <p className="hint">

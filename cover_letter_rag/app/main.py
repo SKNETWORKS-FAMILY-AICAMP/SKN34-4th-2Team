@@ -409,7 +409,7 @@ def _create_tailored(resolve_uid, request, background, gateway, settings):
         jobs = {}
 
         def load_job(job_id):
-            # 마감된 공고도 읽는다 — 이미 만든 자소서만 열고(existing_only), 새 사본 · 이력서 첨삭 사본은 막는다
+            # 마감된 공고도 읽는다 — 자소서 사본은 연다(미리 써 보기). 이력서 첨삭 사본은 서비스가 막는다
             jobs[job_id] = load_selected_job(settings.matching_job_store_path, job_id, allow_closed=True)
             return jobs[job_id]
 

@@ -196,7 +196,7 @@ function WriteDockBar({ status, finished, elapsed, onOpen }: {
   const title = failed ? '자소서 초안을 쓰지 못했어요' : finished ? '자소서 초안 완료' : status.busy ? '자소서 초안 쓰는 중' : '자소서 쓰기';
   const detail = failed ? '창을 열어 다시 시도해 주세요'
     : finished ? '결과를 확인해 주세요'
-      : status.busy ? `${status.label} · 보통 1분 남짓 걸려요` : '창을 내려두었어요';
+      : status.busy ? `${status.label} · 보통 2분 남짓 걸려요` : '창을 내려두었어요';
   return (
     <div className="rv-dockbar-wrap aw-dockbar-wrap">
       <div className={`rv-dockbar is-${tone}${finished ? ' is-finished' : ''}`} role="status" aria-live="polite"
