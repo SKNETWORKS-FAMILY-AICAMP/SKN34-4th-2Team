@@ -167,4 +167,11 @@ def scoped_question(decision: BasisDecision) -> str:
         return decision.question
     label = {'unit': '이번 단위기간 장려금', 'completion': '전체 훈련기간 수료',
              'both': '단위기간 장려금과 전체 훈련기간 수료를 각각'}[decision.basis]
-    return f'{decision.question}\n[사용자가 확인한 개인 출석 계산 기준: {label}]'
+    # The calculation label is not a request about allowance eligibility/payment.
+    payment_requested = bool(re.search(r'지급|입금|수령', decision.question) or (
+        re.search(r'장려금|수당', decision.question)
+        and re.search(r'받|자격|대상|조건|나오|신청', decision.question)))
+    guidance = ('지급 관련 질문: 지급 확정과 출석 계산을 구분한다.' if payment_requested else
+                '일반 출석 질문: 지급 주의·장려금 자격 설명을 추가하지 않는다.')
+    return (f'{decision.question}\n[사용자가 확인한 개인 출석 계산 기준: {label}]'
+            f'\n[서버 답변 범위: {guidance}]')

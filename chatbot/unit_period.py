@@ -153,9 +153,9 @@ def calculate_unit_period_context(
         "calculation_notes": [
             (f"단위기간 산정 중단: {calendar_unavailable_reason}." if calendar_unavailable_reason else
              "활성 정책 원문에서 추출한 단위기간 규칙에 따른 잠정 일정이다. 시행 이력·확정 일정 판정은 아니다."
-             if require_policy else "서버의 검토 전 계산 설정에 따른 잠정 일정이다. 확정 일정 판정은 아니다."),
+             if require_policy else "서버에 등록된 계산 설정에 따른 잠정 일정이다. 확정 일정 판정은 아니다."),
             "출석률은 실제 수업일과 모든 출석 상태가 확인된 기간에만 계산한다.",
-            (f"검토 전 계산 가정: 지각·조퇴·외출 합계 {rules.exceptions_per_absence}회당 결석 1일로 환산한다." if rules else '정책 계산 기준 미확인. 공통값으로 대신 계산하지 않는다.'),
-            (f"requirement_met은 검토 전 {rules.attendance_threshold_percent:g}% 기준의 예상값이다. 확정 출결 검증·수료·지급 판정이 아니다." if rules else '출결 기록과 수업일수만 안내할 수 있다.'),
+            (f"등록된 계산 기준: 지각·조퇴·외출 합계 {rules.exceptions_per_absence}회당 결석 1일로 환산한다. 승인 여부가 확인된 기준은 아니다." if rules else '정책 계산 기준 미확인. 공통값으로 대신 계산하지 않는다.'),
+            (f"requirement_met은 등록된 {rules.attendance_threshold_percent:g}% 기준의 예상값이다. 확정 출결 검증·수료·지급 판정이 아니다." if rules else '출결 기록과 수업일수만 안내할 수 있다.'),
         ],
     }

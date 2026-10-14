@@ -49,6 +49,17 @@ class AttendanceGuidanceTests(TestCase):
         self.assertNotIn('기간이 아직 검토 중이라는 사실', ANSWER_PROMPT)
         self.assertNotIn('계산 기준도 검토 중이라는 사실', ANSWER_PROMPT)
 
+    def test_calculation_notes_do_not_claim_a_review_is_in_progress(self):
+        context = calculate_unit_period_context(date(2026,1,1),date(2026,1,31),
+            today=date(2026,1,2),scheduled_dates=[date(2026,1,1),date(2026,1,2)],
+            attendance_records={date(2026,1,1):'present',date(2026,1,2):'present'})
+        notes = ' '.join(context['calculation_notes'])
+        self.assertNotIn('검토 전', notes)
+        self.assertIn('승인 여부가 확인된 기준은 아니다', notes)
+        self.assertEqual(context['schedule_status'],'generated_unconfirmed')
+        self.assertEqual(context['calculation_rules']['review_status'],'unverified')
+        self.assertTrue(context['is_provisional'])
+
     def test_new_late_day_adds_record_and_absence_conversion(self):
         e = self.estimate(['late']*6+['present']*8+['officialLeave'],today_offset=14)
         self.assertEqual(e['absence_equivalent_days'],2)
