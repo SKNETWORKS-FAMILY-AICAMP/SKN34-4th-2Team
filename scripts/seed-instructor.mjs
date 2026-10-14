@@ -1,3 +1,5 @@
+import { requireLegacyEnv } from "./legacy-env.mjs";
+
 /**
  * 강사 테스트 계정 생성 — 관리자 로그인 후 Cloud Function 호출
  * 실행: node scripts/seed-instructor.mjs
@@ -8,7 +10,7 @@ import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
 import { getFunctions, httpsCallable } from "firebase/functions";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCd6amu1653Fc071OYeI_Fjfi6hMQvNih8",
+  apiKey: requireLegacyEnv('LEGACY_FIREBASE_WEB_API_KEY'),
   authDomain: "skn34-3rd-2team.firebaseapp.com",
   projectId: "skn34-3rd-2team",
   storageBucket: "skn34-3rd-2team.firebasestorage.app",
@@ -24,7 +26,7 @@ async function seed() {
   const cred = await signInWithEmailAndPassword(
     auth,
     "admin@playdata.co.kr",
-    "Playdata123!",
+    requireLegacyEnv('LEGACY_SEED_PASSWORD'),
   );
   await cred.user.getIdToken(true);
   console.log("signed in:", cred.user.email, cred.user.uid);
@@ -34,7 +36,7 @@ async function seed() {
     const result = await createInstructor({
       displayName: "PLAYDATA 강사",
       email: "instructor@playdata.co.kr",
-      password: "Playdata123!",
+      password: requireLegacyEnv('LEGACY_SEED_PASSWORD'),
       cohortId: "cohort_34",
       cohortName: "SK네트웍스 Family AI 캠프 34기",
       mustChangePassword: false,

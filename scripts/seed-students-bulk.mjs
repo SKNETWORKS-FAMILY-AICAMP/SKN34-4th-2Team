@@ -1,3 +1,5 @@
+import { requireLegacyEnv } from "./legacy-env.mjs";
+
 /**
  * cohort_34 학생 N명 일괄 생성 (랜덤 데이터)
  * 관리자 계정으로 createStudentAccount Cloud Function 호출
@@ -16,7 +18,7 @@ import { getFunctions, httpsCallable } from "firebase/functions";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCd6amu1653Fc071OYeI_Fjfi6hMQvNih8",
+  apiKey: requireLegacyEnv('LEGACY_FIREBASE_WEB_API_KEY'),
   authDomain: "skn34-3rd-2team.firebaseapp.com",
   projectId: "skn34-3rd-2team",
   storageBucket: "skn34-3rd-2team.firebasestorage.app",
@@ -27,7 +29,7 @@ const firebaseConfig = {
 const COHORT_ID = "cohort_34";
 const COHORT_NAME = "SK네트웍스 Family AI 캠프 34기";
 const ADMIN_EMAIL = "admin@playdata.co.kr";
-const ADMIN_PASSWORD = "Playdata123!";
+const ADMIN_PASSWORD = requireLegacyEnv('LEGACY_SEED_PASSWORD');
 
 const countArg = process.argv.find((a) => a.startsWith("--count="));
 const STUDENT_COUNT = countArg ? Number(countArg.split("=")[1]) : 25;

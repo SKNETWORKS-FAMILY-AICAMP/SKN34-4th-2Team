@@ -63,3 +63,18 @@ macos
 windows
 onboarding
 # scripts/firestore_to_postgres/jobs_schema.sql은 AI 런타임이 사용하므로 scripts 전체를 제외하지 않는다.
+
+# Local tooling and generated output; keep test source/fixtures for CI.
+**/.venv*
+**/venv
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/node_modules
+**/*.log
+**/*.tmp
+**/*.bak
+**/*.tsbuildinfo
+**/coverage
+**/htmlcov
+chatbot/student_chatbot_test_result.md

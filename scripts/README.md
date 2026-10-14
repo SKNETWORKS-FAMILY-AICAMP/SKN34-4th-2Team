@@ -66,3 +66,11 @@ node scripts/seed-resume-mocks.mjs
 | `fetch_holidays.py` | 공공데이터포털 특일 정보로 `lib/core/constants/korean_holidays.dart`를 다시 만든다. 앱은 실행 중에 이 API를 부르지 않고 만들어진 표만 읽는다 |
 | `google-form-webhook.gs` | 구글폼에 붙이는 Apps Script. 제출을 Functions `googleFormWebhook`으로 보낸다. 설정 방법은 [SETUP-3rd.md](../SETUP-3rd.md)의 구글폼 설문 연동 |
 | `fix-cursor-update-lock.bat` | Cursor 에디터 업데이트 잠금 해제 도우미(개발 도구용, 프로젝트 기능과 무관) |
+
+
+### 보관 도구의 명시적 환경설정
+
+실제 Firebase를 호출하는 구형 시드 도구의 고정 클라이언트 키와 공용 비밀번호 기본값은 제거했다.
+필요한 경우 실행 환경에 `LEGACY_FIREBASE_WEB_API_KEY`, `LEGACY_SEED_PASSWORD`를 직접 제공한다.
+기존 `SEED_PASSWORD`/`ADMIN_PASSWORD` 입력을 지원하는 스크립트는 해당 입력을 우선 사용한다.
+이 값은 Git에 기록하지 않는다. 에뮬레이터 전용 테스트 데이터는 유지한다.
