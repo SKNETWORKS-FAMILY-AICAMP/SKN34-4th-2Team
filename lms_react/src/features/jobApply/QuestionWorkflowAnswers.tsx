@@ -151,6 +151,8 @@ export interface WritingStatus {
   busy: boolean;
   failed: boolean;
   label: string;
+  dirty?: boolean;
+  saving?: boolean;
 }
 
 export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus, onJobClosed }: {
@@ -180,15 +182,30 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
   /** 전체를 쓸 때 받은 계획 — 한 문항만 다시 쓸 때 보내면 계획을 다시 세우지 않는다 */
   const [plan, setPlan] = useState<Json | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // repository는 낙관적으로 갱신되므로 서버 저장 성공값을 별도로 기억한다.
+  const [confirmed, setConfirmed] = useState<Record<string, ResumeCompanyQuestion>>({});
+  const baseline = useRef<Record<string, ResumeCompanyQuestion>>({});
+  for (const q of resume?.content.companyQuestions ?? []) {
+    if (!(q.id in baseline.current)) baseline.current[q.id] = { ...q };
+  }
+  const [pendingSaves, setPendingSaves] = useState(0);
+  const dirty = (resume?.content.companyQuestions ?? []).some((q) => {
+    const original = confirmed[q.id] ?? baseline.current[q.id];
+    return (texts[q.id] ?? q.answer ?? '') !== (original.answer ?? '')
+      || (memos[q.id] ?? q.memo ?? '') !== (original.memo ?? '')
+      || Object.values(gapAnswers[q.id] ?? {}).some((a) => a.trim() !== '');
+  });
   const count = resume?.content.companyQuestions?.length ?? 0;
   const busyNo = busy === null || busy === 'all' ? 0 : (resume?.content.companyQuestions ?? []).findIndex((q) => q.id === busy) + 1;
   useEffect(() => {
     onStatus?.({
       busy: busy !== null,
       failed: error !== null,
+      dirty,
+      saving: pendingSaves > 0,
       label: busy === 'all' ? `문항 ${count}개를 함께 쓰는 중` : busy !== null ? `${busyNo}번 문항 쓰는 중` : '',
     });
-  }, [busy, error, count, busyNo, onStatus]);
+  }, [busy, error, count, busyNo, onStatus, dirty, pendingSaves]);
 
   if (resume === undefined) return <p className="hint">자소서를 불러오고 있어요…</p>;
   latest.current = resume.content;
@@ -199,14 +216,26 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
   const textOf = (q: ResumeCompanyQuestion) => texts[q.id] ?? q.answer ?? '';
 
   /** 문항 여러 개를 한 번에 저장한다 */
-  const persist = (patches: Record<string, Partial<ResumeCompanyQuestion>>) => {
+  const persist = async (patches: Record<string, Partial<ResumeCompanyQuestion>>) => {
     const base = latest.current ?? resume.content;
     const next = {
       ...base,
       companyQuestions: (base.companyQuestions ?? []).map((q) => (patches[q.id] ? { ...q, ...patches[q.id] } : q)),
     };
     latest.current = next;
-    return updateResume(editId, { content: next });
+    setPendingSaves((n) => n + 1);
+    try {
+      await updateResume(editId, { content: next });
+      setConfirmed((previous) => {
+        const updated = { ...previous };
+        for (const q of next.companyQuestions) {
+          if (patches[q.id]) updated[q.id] = { ...(previous[q.id] ?? baseline.current[q.id]), ...patches[q.id] };
+        }
+        return updated;
+      });
+    } finally {
+      setPendingSaves((n) => n - 1);
+    }
   };
 
   const answered = (qid: string) =>

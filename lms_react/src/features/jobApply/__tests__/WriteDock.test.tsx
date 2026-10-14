@@ -71,6 +71,33 @@ const bar = () => document.querySelector('.aw-dockbar-wrap');
 const report = (s: Partial<WritingStatus>) => act(() => fake.report?.({ busy: false, failed: false, label: '', ...s }));
 
 describe('자소서 쓰기 창', () => {
+  it('미저장 내용이 있을 때만 묻고 취소하면 같은 창을 유지한다', () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    act(() => button('열기1').click());
+    report({ dirty: true });
+    act(() => (document.querySelector('[aria-label="닫기"]') as HTMLButtonElement).click());
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(layer()).not.toBeNull();
+    expect(fake.mounts).toBe(1);
+    report({ dirty: false });
+    act(() => (document.querySelector('[aria-label="닫기"]') as HTMLButtonElement).click());
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(layer()).toBeNull();
+    confirm.mockRestore();
+  });
+
+  it('미저장 내용이 있어도 확인하면 닫고 저장 중에는 닫지 않는다', () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    act(() => button('열기1').click());
+    report({ dirty: true, saving: true });
+    act(() => (document.querySelector('[aria-label="닫기"]') as HTMLButtonElement).click());
+    expect(confirm).not.toHaveBeenCalled();
+    expect(layer()).not.toBeNull();
+    report({ dirty: true, saving: false });
+    act(() => (document.querySelector('[aria-label="닫기"]') as HTMLButtonElement).click());
+    expect(layer()).toBeNull();
+    confirm.mockRestore();
+  });
   it('첨삭 창처럼 화면 위에 뜨고, 내려둬도 창을 치우지 않아 쓰는 중인 초안이 끝까지 돈다', () => {
     act(() => button('열기1').click());
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('apply_1 자소서');

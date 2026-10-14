@@ -75,6 +75,10 @@ export function WriteDockHost({ children }: { children: ReactNode }) {
       setNotice('쓰는 중인 자소서 창이 있어요. 다 쓴 뒤에 다른 자소서를 열 수 있어요.');
       return;
     }
+    if (current !== null && current.editId !== next.editId) {
+      if (statusRef.current.saving) return;
+      if (statusRef.current.dirty && !window.confirm('저장하지 않은 내용이 있어요. 다른 자소서를 열면 이 내용은 사라집니다. 저장하지 않고 이동할까요?')) return;
+    }
     if (current?.editId !== next.editId) {
       statusRef.current = IDLE;
       setStatus(IDLE);
@@ -84,7 +88,8 @@ export function WriteDockHost({ children }: { children: ReactNode }) {
   }, []);
 
   const close = useCallback(() => {
-    if (statusRef.current.busy) return;
+    if (statusRef.current.busy || statusRef.current.saving) return;
+    if (statusRef.current.dirty && !window.confirm('저장하지 않은 내용이 있어요. 취소를 누른 뒤 개별 저장 또는 전체 저장을 해 주세요. 저장하지 않고 닫을까요?')) return;
     setTarget(null);
     setMinimized(false);
     setFinished(false);
@@ -150,7 +155,7 @@ export function WriteDockHost({ children }: { children: ReactNode }) {
                   내려두기
                 </button>
                 <button type="button" className="icon-btn" aria-label="닫기" title={status.busy ? '쓰는 중에는 닫을 수 없어요. 내려두기를 쓰세요' : '닫기'}
-                  disabled={status.busy} onClick={close}>
+                  disabled={status.busy || status.saving} onClick={close}>
                   <Icon name="close" size={22} />
                 </button>
               </header>

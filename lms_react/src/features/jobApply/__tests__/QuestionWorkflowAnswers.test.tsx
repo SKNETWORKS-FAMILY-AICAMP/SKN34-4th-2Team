@@ -84,6 +84,30 @@ function staged(options: Options) {
 }
 
 describe('문항 전체 답변', () => {
+  it('개별 저장 성공 후에는 전체 저장을 누르지 않아도 미저장이 아니다', async () => {
+    const onStatus = vi.fn();
+    act(() => root.render(<QuestionWorkflowAnswers resumeId="r1" tailoredId="apply_1" editId="r1/tailored/apply_1" onStatus={onStatus} />));
+    type(answerBox(1), '개별 저장한 답');
+    const save = [...host.querySelectorAll('.qa-card button')].find((b) => b.textContent?.endsWith('저장')) as HTMLButtonElement;
+    await act(async () => save.click());
+    expect(onStatus.mock.lastCall?.[0].dirty).toBe(false);
+  });
+  it('저장 버튼 클릭 여부가 아니라 성공한 저장 내용과 비교해 미저장을 알린다', async () => {
+    const onStatus = vi.fn();
+    act(() => root.render(<QuestionWorkflowAnswers resumeId="r1" tailoredId="apply_1" editId="r1/tailored/apply_1" onStatus={onStatus} />));
+    expect(onStatus.mock.lastCall?.[0].dirty).toBe(false);
+    type(answerBox(1), '새 답변');
+    expect(onStatus.mock.lastCall?.[0].dirty).toBe(true);
+    repo.updateResume.mockRejectedValueOnce(new Error('network'));
+    await act(async () => button('전체 저장').click());
+    expect(onStatus.mock.lastCall?.[0].dirty).toBe(true);
+    await act(async () => button('전체 저장').click());
+    expect(onStatus.mock.lastCall?.[0].dirty).toBe(false);
+    type(answerBox(1), '바뀐 답');
+    expect(onStatus.mock.lastCall?.[0].dirty).toBe(true);
+    type(answerBox(1), '새 답변');
+    expect(onStatus.mock.lastCall?.[0].dirty).toBe(false);
+  });
   it('전체 저장은 현재 입력한 답변들을 한 요청에 저장한다', async () => {
     act(() => root.render(<QuestionWorkflowAnswers resumeId="r1" tailoredId="apply_1" editId="r1/tailored/apply_1" />));
     type(answerBox(1), '첫 번째 수정한 답');
