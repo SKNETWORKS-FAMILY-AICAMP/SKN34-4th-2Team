@@ -1,0 +1,99 @@
+import { describe, expect, it } from 'vitest';
+
+import type { Resume } from '../../../domain/types';
+import {
+  applyCopyTitle, groupResumes, isApplyCopy, resumeStatusFromServer, resumeStatusToServer, reviewWorkCopy, withoutPromotedWorkCopies,
+} from '../resumeGroups';
+
+const r = (id: string, extra: Partial<Resume> = {}): Resume => ({
+  id, userId: 'u', title: id, status: 'draft', sections: {}, content: {} as Resume['content'], isBaseResume: false,
+  feedbackCount: 0, lastSeenFeedbackCount: 0, readFeedbackIds: [], revisionCount: 0, ...extra,
+});
+
+describe('이력서 상태 — Flutter 값과 화면 값', () => {
+  it('writing · ready 는 작성 중, submitted 는 피드백 요청, completed 는 승인', () => {
+    expect(['writing', 'ready', 'draft', undefined].map(resumeStatusFromServer)).toEqual(['draft', 'draft', 'draft', 'draft']);
+    expect(resumeStatusFromServer('submitted')).toBe('feedbackRequested');
+    expect(resumeStatusFromServer('completed')).toBe('approved');
+  });
+  it('저장할 때는 DB 값으로 되돌린다', () => {
+    expect(resumeStatusToServer('draft')).toBe('writing');
+    expect(resumeStatusToServer('feedbackRequested')).toBe('submitted');
+    expect(resumeStatusToServer('approved')).toBe('approved');
+  });
+});
+
+describe('공고 맞춤 이력서 묶음', () => {
+  const base = r('base', { isBaseResume: true });
+  const list = [
+    base,
+    r('t1', { baseResumeId: 'base' }),
+    r('other'),
+    r('t2', { baseResumeId: 'other' }),
+    r('lost', { baseResumeId: 'gone' }),
+  ];
+
+  it('기본 이력서 것은 카드 밑, 다른 이력서 것은 그 줄 밑, 원본이 없으면 따로 한 줄', () => {
+    const g = groupResumes(list, base);
+    expect(g.baseTailored.map((x) => x.id)).toEqual(['t1']);
+    expect(g.rows.map((row) => [row.resume.id, row.children.map((c) => c.id)])).toEqual([
+      ['other', ['t2']],
+      ['lost', []],
+    ]);
+  });
+
+  it('맞춤 이력서로 만든 AI 첨삭 작업본은 맨 위 원본 밑으로', () => {
+    const chain = [base, r('m1', { baseResumeId: 'base' }), r('w1', { baseResumeId: 'm1' }), r('other'), r('m2', { baseResumeId: 'other' }), r('w2', { baseResumeId: 'm2' })];
+    const g = groupResumes(chain, base);
+    expect(g.baseTailored.map((x) => x.id)).toEqual(['m1', 'w1']);
+    expect(g.rows.map((row) => [row.resume.id, row.children.map((c) => c.id)])).toEqual([['other', ['m2', 'w2']]]);
+  });
+});
+
+describe('재첨삭이 이어 갈 첨삭 작업본', () => {
+  it('원본에 이어진 작업본은 원본 · 사본 id 로 이어 간다', () => {
+    expect(reviewWorkCopy(r('BASE/tailored/tailored_a', { baseResumeId: 'BASE' }))).toEqual({ base: 'BASE', tailored: 'tailored_a' });
+  });
+  it('원본이 지워져 연결이 끊긴 작업본은 일반 이력서처럼 새로 뜬다', () => {
+    expect(reviewWorkCopy(r('BASE/tailored/tailored_a'))).toBeUndefined();
+  });
+  it('작업본이 아닌 이력서(편집용 사본 포함)는 새로 뜬다', () => {
+    expect(reviewWorkCopy(r('matched_x', { baseResumeId: 'BASE' }))).toBeUndefined();
+    expect(reviewWorkCopy(r('42'))).toBeUndefined();
+  });
+});
+
+describe('공고 맞춤 지원 지원서 가르기', () => {
+  const copy = (id: string, companyQuestions?: { id: string; question: string; limit: number | null; answer: string }[]) =>
+    ({ id, content: { companyQuestions } }) as unknown as Resume;
+
+  it('apply_ 사본과, 나누기 전에 만든 회사 문항 사본만 지원서로 본다', () => {
+    expect(isApplyCopy(copy('r1/tailored/apply_abc'))).toBe(true);
+    expect(isApplyCopy(copy('r1/tailored/tailored_abc', [{ id: 'q', question: '지원 동기', limit: 500, answer: '' }]))).toBe(true);
+    expect(isApplyCopy(copy('r1/tailored/tailored_abc'))).toBe(false);
+    expect(isApplyCopy(copy('matched_abc', [{ id: 'q', question: '지원 동기', limit: 500, answer: '' }]))).toBe(false);
+    expect(isApplyCopy(copy('r1'))).toBe(false);
+  });
+});
+
+describe('자소서 이름', () => {
+  it('나누기 전 이름(맞춤 이력서 · 지원서)을 자소서로 부른다', () => {
+    expect(applyCopyTitle('(주)넥스트그라운드 맞춤 이력서')).toBe('(주)넥스트그라운드 자소서');
+    expect(applyCopyTitle('신세계 지원서')).toBe('신세계 자소서');
+    expect(applyCopyTitle('신세계 자소서')).toBe('신세계 자소서');
+  });
+});
+
+describe('편집용 사본으로 옮긴 첨삭 작업본', () => {
+  it('편집용 사본이 생기면 작업본은 목록에서 빠진다 — 같은 이름이 두 줄로 보였다', () => {
+    const work = r('BASE/tailored/tailored_a', { baseResumeId: 'BASE' });
+    const edit = r('matched_x', { baseResumeId: 'BASE', sourceTailoredResumeId: 'BASE/tailored/tailored_a' });
+    const other = r('BASE/tailored/tailored_b', { baseResumeId: 'BASE' });
+    expect(withoutPromotedWorkCopies([r('BASE'), work, edit, other]).map((x) => x.id)).toEqual(['BASE', 'matched_x', 'BASE/tailored/tailored_b']);
+  });
+  it('편집용 사본에서 다시 첨삭한 작업본도 빠진다 — 결과는 그 편집용 사본에 덮어쓴다', () => {
+    const edit = r('matched_x', { baseResumeId: 'BASE', sourceTailoredResumeId: 'BASE/tailored/tailored_a' });
+    const rework = r('matched_x/tailored/tailored_c', { baseResumeId: 'matched_x' });
+    expect(withoutPromotedWorkCopies([r('BASE'), edit, rework]).map((x) => x.id)).toEqual(['BASE', 'matched_x']);
+  });
+});

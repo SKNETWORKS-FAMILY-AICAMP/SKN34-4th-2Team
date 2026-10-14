@@ -1,0 +1,2109 @@
+[
+  {
+    "review_id": 131,
+    "experience": {
+      "kind": "other",
+      "title": "coreCompetencies",
+      "field_path": "coreCompetencies.text",
+      "content_hash": "59adf050126117ebf1830aeca1b1ebb9dc0d502a80d4efad912731dd7faa97ee",
+      "current_text": "• 응용통계학 전공을 바탕으로 Python, SQL, R을 활용한 데이터 분석 경험이 있습니다.\n• KKBOX 사용자 이탈 예측 프로젝트에서 약 99만 건의 불균형 데이터를 다루며 Precision, Recall, F1, ROC-AUC, PR-AUC를 비교하고 threshold 변화까지 검토했습니다.\n• Streamlit, FastAPI, Django, React, PostgreSQL, AWS를 활용해 분석 결과를 실제 서비스 형태로 구현한 경험이 있습니다.\n• AI 기반 LMS 및 채용 지원 프로젝트에서 Experience/Evidence 기반 첨삭 구조와 Planner, Validator 흐름을 설계·구현했습니다.\n• ADsP 자격을 보유하고 있으며 데이터 분석에서 AI 서비스 개발까지 역량을 확장하고 있습니다.",
+      "experience_id": "coreCompetencies"
+    },
+    "facts": [
+      {
+        "fact_type": "context",
+        "source_id": "coreCompetencies",
+        "evidence_id": "ev3-1",
+        "source_type": "resume_text",
+        "experience_id": "coreCompetencies",
+        "evidence_quote": "응용통계학 전공을 바탕으로 Python, SQL, R을 활용한 데이터 분석 경험이 있습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "응용통계학 전공을 바탕으로 Python, SQL, R을 활용한 데이터 분석 경험이 있다고 기재했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "action",
+        "source_id": "coreCompetencies",
+        "evidence_id": "ev3-2",
+        "source_type": "resume_text",
+        "experience_id": "coreCompetencies",
+        "evidence_quote": "KKBOX 사용자 이탈 예측 프로젝트에서 약 99만 건의 불균형 데이터를 다루며 Precision, Recall, F1, ROC-AUC, PR-AUC를 비교하고 threshold 변화까지 검토했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "KKBOX 사용자 이탈 예측 프로젝트에서 약 99만 건의 불균형 데이터를 다루며 여러 분류 평가 지표와 threshold 변화를 검토했다고 기재했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "action",
+        "source_id": "coreCompetencies",
+        "evidence_id": "ev3-3",
+        "source_type": "resume_text",
+        "experience_id": "coreCompetencies",
+        "evidence_quote": "Streamlit, FastAPI, Django, React, PostgreSQL, AWS를 활용해 분석 결과를 실제 서비스 형태로 구현한 경험이 있습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "Streamlit, FastAPI, Django, React, PostgreSQL, AWS를 활용해 분석 결과를 서비스 형태로 구현한 경험이 있다고 기재했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "implementation",
+        "source_id": "coreCompetencies",
+        "evidence_id": "ev3-4",
+        "source_type": "resume_text",
+        "experience_id": "coreCompetencies",
+        "evidence_quote": "AI 기반 LMS 및 채용 지원 프로젝트에서 Experience/Evidence 기반 첨삭 구조와 Planner, Validator 흐름을 설계·구현했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "AI 기반 LMS 및 채용 지원 프로젝트에서 Experience/Evidence 기반 첨삭 구조와 Planner, Validator 흐름을 설계·구현했다고 기재했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "context",
+        "source_id": "coreCompetencies",
+        "evidence_id": "ev3-5",
+        "source_type": "resume_text",
+        "experience_id": "coreCompetencies",
+        "evidence_quote": "ADsP 자격을 보유하고 있으며 데이터 분석에서 AI 서비스 개발까지 역량을 확장하고 있습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "ADsP 자격을 보유하고 있으며 데이터 분석에서 AI 서비스 개발까지 역량을 확장하고 있다고 기재했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      }
+    ],
+    "facets": [],
+    "intents": [],
+    "units": [],
+    "historical_sources": [],
+    "answer": "",
+    "writer_sentences": [],
+    "matches": [],
+    "requirement": {
+      "id": "req-7",
+      "kind": "skill",
+      "group": "preferred",
+      "label": "생성형 AI 적용",
+      "source": "resume",
+      "status": "met",
+      "kind_basis": "",
+      "source_hash": "59adf050126117ebf1830aeca1b1ebb9dc0d502a80d4efad912731dd7faa97ee",
+      "evidence_refs": [
+        {
+          "quote": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다.",
+          "source_id": "projects:prj1790844850071sxa",
+          "field_path": "projects[2].description",
+          "evidence_id": "ev2-1",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844850071sxa",
+          "assertion_scope": "used",
+          "experience_title": "AI 기반 LMS 및 채용 지원 서비스"
+        },
+        {
+          "quote": "Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다.",
+          "source_id": "projects:prj1790844850071sxa",
+          "field_path": "projects[2].description",
+          "evidence_id": "ev2-3",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844850071sxa",
+          "assertion_scope": "used",
+          "experience_title": "AI 기반 LMS 및 채용 지원 서비스"
+        },
+        {
+          "quote": "최근에는 LLM을 활용한 이력서·자기소개서 첨삭 기능을 개발하며 AI가 생성한 결과의 정확성과 근거까지 검증하는 방향으로 관심 영역을 확장하고 있습니다.",
+          "source_id": "selfIntroduction.growth",
+          "field_path": "selfIntroduction.growth.body",
+          "evidence_id": "ev5-4",
+          "source_type": "resume_text",
+          "experience_id": "selfIntroduction.growth",
+          "assertion_scope": "used",
+          "experience_title": "성장과정"
+        }
+      ],
+      "posting_quote": "RAG, 프롬프트 엔지니어링, AI 에이전트 등 생성형 AI를 서비스나 업무에 적용해 본 경험",
+      "snapshot_hash": "c66c3172aff177730b071d533364823bdb8f3cf895bd78a1fd5932c4c4f926f9",
+      "evidence_paths": [
+        "projects[2].description",
+        "selfIntroduction.growth.body"
+      ],
+      "evidence_quotes": [
+        "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다.",
+        "Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다.",
+        "최근에는 LLM을 활용한 이력서·자기소개서 첨삭 기능을 개발하며 AI가 생성한 결과의 정확성과 근거까지 검증하는 방향으로 관심 영역을 확장하고 있습니다."
+      ],
+      "assessment_state": "pending"
+    }
+  },
+  {
+    "review_id": 131,
+    "experience": {
+      "kind": "other",
+      "title": "자기소개",
+      "field_path": "selfIntroduction.intro.body",
+      "content_hash": "59adf050126117ebf1830aeca1b1ebb9dc0d502a80d4efad912731dd7faa97ee",
+      "current_text": "데이터에서 문제를 찾고 서비스로 연결하는 분석가\n응용통계학을 전공하며 데이터 분석의 기초를 쌓았고, 이후 Python과 SQL을 중심으로 실제 데이터를 처리하고 분석하는 경험을 확장했습니다. KKBOX 사용자 이탈 예측 프로젝트에서는 클래스 불균형 때문에 높은 Accuracy가 좋은 모델을 의미하지 않는다는 점을 확인하고 F1과 PR-AUC 등 여러 지표를 함께 비교했습니다. 최근에는 분석 결과를 서비스에 연결하는 데 관심을 넓혀 Django, FastAPI, React, PostgreSQL과 LLM을 활용한 AI 기반 LMS 및 채용 지원 서비스를 개발하고 있습니다.",
+      "experience_id": "selfIntroduction.intro"
+    },
+    "facts": [
+      {
+        "fact_type": "context",
+        "source_id": "selfIntroduction.intro",
+        "evidence_id": "ev4-1",
+        "source_type": "resume_text",
+        "experience_id": "selfIntroduction.intro",
+        "evidence_quote": "응용통계학을 전공하며 데이터 분석의 기초를 쌓았고",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "응용통계학을 전공하며 데이터 분석의 기초를 쌓았다고 밝혔다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "action",
+        "source_id": "selfIntroduction.intro",
+        "evidence_id": "ev4-2",
+        "source_type": "resume_text",
+        "experience_id": "selfIntroduction.intro",
+        "evidence_quote": "이후 Python과 SQL을 중심으로 실제 데이터를 처리하고 분석하는 경험을 확장했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "Python과 SQL을 중심으로 실제 데이터를 처리하고 분석하는 경험을 확장했다고 밝혔다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "technical_decision",
+        "source_id": "selfIntroduction.intro",
+        "evidence_id": "ev4-3",
+        "source_type": "resume_text",
+        "experience_id": "selfIntroduction.intro",
+        "evidence_quote": "KKBOX 사용자 이탈 예측 프로젝트에서는 클래스 불균형 때문에 높은 Accuracy가 좋은 모델을 의미하지 않는다는 점을 확인하고 F1과 PR-AUC 등 여러 지표를 함께 비교했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "KKBOX 이탈 예측에서 클래스 불균형 때문에 높은 Accuracy가 좋은 모델을 뜻하지 않을 수 있음을 확인하고 F1과 PR-AUC 등 여러 지표를 비교했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "action",
+        "source_id": "selfIntroduction.intro",
+        "evidence_id": "ev4-4",
+        "source_type": "resume_text",
+        "experience_id": "selfIntroduction.intro",
+        "evidence_quote": "최근에는 분석 결과를 서비스에 연결하는 데 관심을 넓혀 Django, FastAPI, React, PostgreSQL과 LLM을 활용한 AI 기반 LMS 및 채용 지원 서비스를 개발하고 있습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "분석 결과를 서비스에 연결하는 데 관심을 넓혀 Django, FastAPI, React, PostgreSQL과 LLM을 활용한 AI 기반 LMS 및 채용 지원 서비스를 개발하고 있다고 밝혔다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      }
+    ],
+    "facets": [],
+    "intents": [],
+    "units": [],
+    "historical_sources": [],
+    "answer": "",
+    "writer_sentences": [],
+    "matches": [],
+    "requirement": {
+      "id": "req-7",
+      "kind": "skill",
+      "group": "preferred",
+      "label": "생성형 AI 적용",
+      "source": "resume",
+      "status": "met",
+      "kind_basis": "",
+      "source_hash": "59adf050126117ebf1830aeca1b1ebb9dc0d502a80d4efad912731dd7faa97ee",
+      "evidence_refs": [
+        {
+          "quote": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다.",
+          "source_id": "projects:prj1790844850071sxa",
+          "field_path": "projects[2].description",
+          "evidence_id": "ev2-1",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844850071sxa",
+          "assertion_scope": "used",
+          "experience_title": "AI 기반 LMS 및 채용 지원 서비스"
+        },
+        {
+          "quote": "Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다.",
+          "source_id": "projects:prj1790844850071sxa",
+          "field_path": "projects[2].description",
+          "evidence_id": "ev2-3",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844850071sxa",
+          "assertion_scope": "used",
+          "experience_title": "AI 기반 LMS 및 채용 지원 서비스"
+        },
+        {
+          "quote": "최근에는 LLM을 활용한 이력서·자기소개서 첨삭 기능을 개발하며 AI가 생성한 결과의 정확성과 근거까지 검증하는 방향으로 관심 영역을 확장하고 있습니다.",
+          "source_id": "selfIntroduction.growth",
+          "field_path": "selfIntroduction.growth.body",
+          "evidence_id": "ev5-4",
+          "source_type": "resume_text",
+          "experience_id": "selfIntroduction.growth",
+          "assertion_scope": "used",
+          "experience_title": "성장과정"
+        }
+      ],
+      "posting_quote": "RAG, 프롬프트 엔지니어링, AI 에이전트 등 생성형 AI를 서비스나 업무에 적용해 본 경험",
+      "snapshot_hash": "c66c3172aff177730b071d533364823bdb8f3cf895bd78a1fd5932c4c4f926f9",
+      "evidence_paths": [
+        "projects[2].description",
+        "selfIntroduction.growth.body"
+      ],
+      "evidence_quotes": [
+        "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다.",
+        "Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다.",
+        "최근에는 LLM을 활용한 이력서·자기소개서 첨삭 기능을 개발하며 AI가 생성한 결과의 정확성과 근거까지 검증하는 방향으로 관심 영역을 확장하고 있습니다."
+      ],
+      "assessment_state": "pending"
+    }
+  },
+  {
+    "review_id": 131,
+    "experience": {
+      "kind": "other",
+      "title": "지원동기",
+      "field_path": "selfIntroduction.motivation.body",
+      "content_hash": "59adf050126117ebf1830aeca1b1ebb9dc0d502a80d4efad912731dd7faa97ee",
+      "current_text": "데이터 분석을 실제 의사결정과 서비스 개선으로 연결하고 싶습니다\n통계와 머신러닝을 공부하면서 단순히 모델의 성능을 높이는 것보다 데이터를 통해 문제를 정의하고 그 결과가 실제 서비스에 어떻게 활용되는지가 중요하다는 점을 배웠습니다. KKBOX 프로젝트에서는 클래스 불균형에 맞는 평가 지표를 다시 선정했고, 자동차 정비소 검색 프로젝트에서는 위치 데이터를 실제 사용자가 활용할 수 있는 서비스 형태로 구현했습니다. 이후 AI 기반 LMS 프로젝트를 진행하며 분석뿐 아니라 데이터 구조, API, 사용자 흐름까지 함께 고려하는 경험을 쌓고 있습니다. 이러한 경험을 바탕으로 실제 데이터를 분석해 문제를 발견하고, 분석 결과를 서비스와 의사결정에 연결하는 업무를 수행하고 싶습니다.",
+      "experience_id": "selfIntroduction.motivation"
+    },
+    "facts": [],
+    "facets": [],
+    "intents": [
+      {
+        "id": "in8-1",
+        "text": "데이터 분석을 실제 의사결정과 서비스 개선으로 연결하고 싶다.",
+        "state": "resume_stated",
+        "source_id": "selfIntroduction.motivation",
+        "intent_type": "motivation",
+        "source_type": "resume_text",
+        "evidence_quote": "데이터 분석을 실제 의사결정과 서비스 개선으로 연결하고 싶습니다",
+        "source_section_id": "selfIntroduction.motivation",
+        "supersedes_intent_ids": []
+      },
+      {
+        "id": "in8-2",
+        "text": "통계와 머신러닝을 공부하며 모델 성능 향상뿐 아니라 데이터로 문제를 정의하고 결과가 실제 서비스에서 어떻게 활용되는지가 중요하다는 점을 배웠다.",
+        "state": "resume_stated",
+        "source_id": "selfIntroduction.motivation",
+        "intent_type": "motivation",
+        "source_type": "resume_text",
+        "evidence_quote": "통계와 머신러닝을 공부하면서 단순히 모델의 성능을 높이는 것보다 데이터를 통해 문제를 정의하고 그 결과가 실제 서비스에 어떻게 활용되는지가 중요하다는 점을 배웠습니다.",
+        "source_section_id": "selfIntroduction.motivation",
+        "supersedes_intent_ids": []
+      },
+      {
+        "id": "in8-3",
+        "text": "실제 데이터를 분석해 문제를 발견하고, 분석 결과를 서비스와 의사결정에 연결하는 업무를 수행하고 싶다.",
+        "state": "resume_stated",
+        "source_id": "selfIntroduction.motivation",
+        "intent_type": "job_interest",
+        "source_type": "resume_text",
+        "evidence_quote": "이러한 경험을 바탕으로 실제 데이터를 분석해 문제를 발견하고, 분석 결과를 서비스와 의사결정에 연결하는 업무를 수행하고 싶습니다.",
+        "source_section_id": "selfIntroduction.motivation",
+        "supersedes_intent_ids": []
+      }
+    ],
+    "units": [
+      {
+        "id": "su8-1",
+        "meaning": "통계와 머신러닝을 공부하면서 모델 성능을 높이는 데 그치기보다 데이터로 문제를 정의하고 분석 결과가 실제 서비스에서 어떻게 활용되는지가 중요하다는 관점을 형성했다.",
+        "source_refs": [
+          {
+            "id": "in8-2",
+            "type": "applicant_intent"
+          }
+        ],
+        "semantic_role": "motivation_origin",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "su8-2",
+        "meaning": "KKBOX 프로젝트에서 클래스 불균형에 맞는 평가 지표를 선정했고, 자동차 정비소 검색 프로젝트에서는 위치 데이터를 사용자가 활용할 서비스로 구현했다.",
+        "source_refs": [
+          {
+            "id": "in8-2",
+            "type": "applicant_intent"
+          }
+        ],
+        "semantic_role": "supporting_experience",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "su8-3",
+        "meaning": "AI 기반 LMS 프로젝트에서 분석뿐 아니라 데이터 구조, API, 사용자 흐름까지 함께 고려하는 경험을 쌓았다.",
+        "source_refs": [
+          {
+            "id": "in8-2",
+            "type": "applicant_intent"
+          }
+        ],
+        "semantic_role": "supporting_experience",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "su8-4",
+        "meaning": "실제 데이터를 분석해 문제를 발견하고 그 결과를 서비스와 의사결정에 연결하는 업무를 수행하고자 한다.",
+        "source_refs": [
+          {
+            "id": "in8-1",
+            "type": "applicant_intent"
+          },
+          {
+            "id": "in8-3",
+            "type": "applicant_intent"
+          }
+        ],
+        "semantic_role": "job_connection",
+        "optional_details": [],
+        "context_source_refs": []
+      }
+    ],
+    "historical_sources": [],
+    "answer": "",
+    "writer_sentences": [
+      [
+        {
+          "text": "통계와 머신러닝을 공부하며 모델 성능을 높이는 데 그치지 않고, 데이터로 문제를 정의해 분석 결과가 실제 서비스에서 어떻게 활용되는지 살펴보는 일이 중요하다는 관점을 갖게 됐습니다.",
+          "intent_ids": [
+            "in8-2"
+          ],
+          "claim_types": [
+            "learning",
+            "motivation"
+          ],
+          "evidence_ids": [],
+          "semantic_unit_ids": [
+            "su8-1"
+          ],
+          "target_context_ids": []
+        },
+        {
+          "text": "이러한 관점을 바탕으로 실제 데이터를 분석해 문제를 발견하고, 그 결과를 서비스와 의사결정에 연결하는 업무를 수행하고 싶습니다.",
+          "intent_ids": [
+            "in8-1",
+            "in8-3"
+          ],
+          "claim_types": [
+            "motivation",
+            "future_plan"
+          ],
+          "evidence_ids": [],
+          "semantic_unit_ids": [
+            "su8-4"
+          ],
+          "target_context_ids": []
+        }
+      ],
+      [
+        {
+          "text": "통계와 머신러닝을 공부하며 모델 성능 향상에 그치기보다 데이터로 문제를 정의하고, 분석 결과가 실제 서비스에서 어떻게 활용되는지가 중요하다는 관점을 갖게 됐습니다.",
+          "intent_ids": [
+            "in8-2"
+          ],
+          "claim_types": [
+            "learning"
+          ],
+          "evidence_ids": [],
+          "semantic_unit_ids": [
+            "su8-1"
+          ],
+          "target_context_ids": []
+        },
+        {
+          "text": "이 관점은 KKBOX 프로젝트에서 클래스 불균형에 맞춰 평가 지표를 다시 선정하고, 자동차 정비소 검색 프로젝트에서 위치 데이터를 사용자가 활용할 서비스로 구현한 경험을 통해 구체화됐습니다.",
+          "intent_ids": [
+            "in8-2"
+          ],
+          "claim_types": [
+            "action_performed",
+            "learning"
+          ],
+          "evidence_ids": [],
+          "semantic_unit_ids": [
+            "su8-2"
+          ],
+          "target_context_ids": []
+        },
+        {
+          "text": "앞으로 실제 데이터를 분석해 문제를 발견하고, 그 결과를 서비스 개선과 의사결정에 연결하는 업무를 수행하고 싶습니다.",
+          "intent_ids": [
+            "in8-1",
+            "in8-3"
+          ],
+          "claim_types": [
+            "motivation",
+            "future_plan"
+          ],
+          "evidence_ids": [],
+          "semantic_unit_ids": [
+            "su8-4"
+          ],
+          "target_context_ids": []
+        }
+      ]
+    ],
+    "matches": [],
+    "requirement": {
+      "id": "req-7",
+      "kind": "skill",
+      "group": "preferred",
+      "label": "생성형 AI 적용",
+      "source": "resume",
+      "status": "met",
+      "kind_basis": "",
+      "source_hash": "59adf050126117ebf1830aeca1b1ebb9dc0d502a80d4efad912731dd7faa97ee",
+      "evidence_refs": [
+        {
+          "quote": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다.",
+          "source_id": "projects:prj1790844850071sxa",
+          "field_path": "projects[2].description",
+          "evidence_id": "ev2-1",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844850071sxa",
+          "assertion_scope": "used",
+          "experience_title": "AI 기반 LMS 및 채용 지원 서비스"
+        },
+        {
+          "quote": "Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다.",
+          "source_id": "projects:prj1790844850071sxa",
+          "field_path": "projects[2].description",
+          "evidence_id": "ev2-3",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844850071sxa",
+          "assertion_scope": "used",
+          "experience_title": "AI 기반 LMS 및 채용 지원 서비스"
+        },
+        {
+          "quote": "최근에는 LLM을 활용한 이력서·자기소개서 첨삭 기능을 개발하며 AI가 생성한 결과의 정확성과 근거까지 검증하는 방향으로 관심 영역을 확장하고 있습니다.",
+          "source_id": "selfIntroduction.growth",
+          "field_path": "selfIntroduction.growth.body",
+          "evidence_id": "ev5-4",
+          "source_type": "resume_text",
+          "experience_id": "selfIntroduction.growth",
+          "assertion_scope": "used",
+          "experience_title": "성장과정"
+        }
+      ],
+      "posting_quote": "RAG, 프롬프트 엔지니어링, AI 에이전트 등 생성형 AI를 서비스나 업무에 적용해 본 경험",
+      "snapshot_hash": "c66c3172aff177730b071d533364823bdb8f3cf895bd78a1fd5932c4c4f926f9",
+      "evidence_paths": [
+        "projects[2].description",
+        "selfIntroduction.growth.body"
+      ],
+      "evidence_quotes": [
+        "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다.",
+        "Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다.",
+        "최근에는 LLM을 활용한 이력서·자기소개서 첨삭 기능을 개발하며 AI가 생성한 결과의 정확성과 근거까지 검증하는 방향으로 관심 영역을 확장하고 있습니다."
+      ],
+      "assessment_state": "pending"
+    }
+  },
+  {
+    "review_id": 131,
+    "experience": {
+      "kind": "project",
+      "title": "AI 기반 LMS 및 채용 지원 서비스",
+      "field_path": "projects[2].description",
+      "content_hash": "59adf050126117ebf1830aeca1b1ebb9dc0d502a80d4efad912731dd7faa97ee",
+      "current_text": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다. 이력서 문장을 바로 생성하는 방식 대신 프로젝트·경력 단위 Experience와 사실 단위 Evidence를 분리하고, 지원자의 실제 경험과 채용공고의 요구사항을 구분하도록 구조를 설계했습니다. Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다. 또한 공고 요구사항 분석 결과를 재분석하지 않고 기존 JobRequirementProfile에서 재사용해 Planner와 Writer까지 전달하도록 연결했습니다. Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다.",
+      "experience_id": "projects:prj1790844850071sxa"
+    },
+    "facts": [
+      {
+        "fact_type": "context",
+        "source_id": "projects:prj1790844850071sxa",
+        "evidence_id": "ev2-1",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_quote": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "technical_decision",
+        "source_id": "projects:prj1790844850071sxa",
+        "evidence_id": "ev2-2",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_quote": "이력서 문장을 바로 생성하는 방식 대신 프로젝트·경력 단위 Experience와 사실 단위 Evidence를 분리하고, 지원자의 실제 경험과 채용공고의 요구사항을 구분하도록 구조를 설계했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "이력서 문장을 바로 생성하는 방식 대신 Experience와 Evidence를 분리하고 지원자의 실제 경험과 채용공고 요구사항을 구분하는 구조를 설계했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "implementation",
+        "source_id": "projects:prj1790844850071sxa",
+        "evidence_id": "ev2-3",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_quote": "Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "Application Workspace에서 지원 문항을 분석하고 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "implementation",
+        "source_id": "projects:prj1790844850071sxa",
+        "evidence_id": "ev2-4",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_quote": "또한 공고 요구사항 분석 결과를 재분석하지 않고 기존 JobRequirementProfile에서 재사용해 Planner와 Writer까지 전달하도록 연결했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "공고 요구사항 분석 결과를 기존 JobRequirementProfile에서 재사용해 Planner와 Writer까지 전달하도록 연결했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "implementation",
+        "source_id": "projects:prj1790844850071sxa",
+        "evidence_id": "ev2-5",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_quote": "Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했다. 실제 검증 수행이나 검증 결과는 명시되지 않았다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "role",
+        "source_id": "projects:prj1790844850071sxa:role",
+        "evidence_id": "ev2-6",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_quote": "이력서·자기소개서 AI 첨삭 및 Application Workspace 설계·구현",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "이력서·자기소개서 AI 첨삭 및 Application Workspace 설계·구현 역할을 기재했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "technology",
+        "source_id": "projects:prj1790844850071sxa:techStack",
+        "evidence_id": "ev2-7",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_quote": "Python, Django, FastAPI, PostgreSQL, React, OpenAI API, AWS, Git/GitHub",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "Python, Django, FastAPI, PostgreSQL, React, OpenAI API, AWS, Git/GitHub를 기술 스택으로 기재했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      }
+    ],
+    "facets": [
+      {
+        "slots": [
+          "overview",
+          "personal_role"
+        ],
+        "material": true,
+        "evidence_id": "ev2-1"
+      },
+      {
+        "slots": [
+          "technical_decisions",
+          "insight_or_learning"
+        ],
+        "material": true,
+        "evidence_id": "ev2-2"
+      },
+      {
+        "slots": [
+          "actions",
+          "purpose_or_problem"
+        ],
+        "material": true,
+        "evidence_id": "ev2-3"
+      },
+      {
+        "slots": [
+          "actions",
+          "technical_decisions"
+        ],
+        "material": true,
+        "evidence_id": "ev2-4"
+      },
+      {
+        "slots": [
+          "actions",
+          "technical_decisions"
+        ],
+        "material": true,
+        "evidence_id": "ev2-5"
+      },
+      {
+        "slots": [
+          "personal_role"
+        ],
+        "material": true,
+        "evidence_id": "ev2-6"
+      },
+      {
+        "slots": [
+          "technologies"
+        ],
+        "material": false,
+        "evidence_id": "ev2-7"
+      }
+    ],
+    "intents": [],
+    "units": [
+      {
+        "id": "su2-1",
+        "meaning": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했다.",
+        "source_refs": [
+          {
+            "id": "ev2-1",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "role",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "su2-2",
+        "meaning": "문장을 곧바로 생성하기보다 프로젝트·경력 단위 Experience와 사실 단위 Evidence를 분리하고, 지원자 경험과 채용공고 요구사항을 구별하는 구조를 설계했다.",
+        "source_refs": [
+          {
+            "id": "ev2-2",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "decision",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "su2-3",
+        "meaning": "Application Workspace에서 문항에 맞는 Experience와 Evidence를 선택하고 부족한 정보를 질문하는 Planner를 구현했으며, 기존 JobRequirementProfile의 공고 요구사항 분석 결과를 재사용해 Planner와 Writer로 전달했다.",
+        "source_refs": [
+          {
+            "id": "ev2-3",
+            "type": "applicant_evidence"
+          },
+          {
+            "id": "ev2-4",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "action",
+        "optional_details": [
+          "Application Workspace"
+        ],
+        "context_source_refs": []
+      },
+      {
+        "id": "su2-4",
+        "meaning": "Fact Validator와 Quality Validator를 구현해 Writer의 지원자 경험·공고 내용 확대를 제한하고 문장별 근거를 추적하는 구조를 마련했다. 실제 검증을 수행하거나 정확도 등의 결과를 확인했다는 내용은 없다.",
+        "source_refs": [
+          {
+            "id": "ev2-5",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "action",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "fact:ev2-6",
+        "meaning": "이력서·자기소개서 AI 첨삭 및 Application Workspace 설계·구현 역할을 기재했다.",
+        "source_refs": [
+          {
+            "id": "ev2-6",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "role",
+        "optional_details": [],
+        "context_source_refs": []
+      }
+    ],
+    "historical_sources": [
+      {
+        "text": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다. 이력서 문장을 바로 생성하는 방식 대신 프로젝트·경력 단위 Experience와 사실 단위 Evidence를 분리하고, 지원자의 실제 경험과 채용공고의 요구사항을 구분하도록 구조를 설계했습니다. Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다. 또한 공고 요구사항 분석 결과를 재분석하지 않고 기존 JobRequirementProfile에서 재사용해 Planner와 Writer까지 전달하도록 연결했습니다. Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다.",
+        "source_id": "projects:prj1790844850071sxa"
+      },
+      {
+        "text": "AI 기반 LMS 및 채용 지원 서비스",
+        "source_id": "projects:prj1790844850071sxa:name"
+      },
+      {
+        "text": "이력서·자기소개서 AI 첨삭 및 Application Workspace 설계·구현",
+        "source_id": "projects:prj1790844850071sxa:role"
+      },
+      {
+        "text": "Python, Django, FastAPI, PostgreSQL, React, OpenAI API, AWS, Git/GitHub",
+        "source_id": "projects:prj1790844850071sxa:techStack"
+      }
+    ],
+    "answer": "",
+    "writer_sentences": [],
+    "matches": [
+      {
+        "status": "met",
+        "evidence_ids": [
+          "ev2-1",
+          "ev2-3"
+        ],
+        "requirement_id": "req-7",
+        "assertion_scope": "used"
+      }
+    ],
+    "requirement": {
+      "id": "req-7",
+      "kind": "skill",
+      "group": "preferred",
+      "label": "생성형 AI 적용",
+      "source": "resume",
+      "status": "met",
+      "kind_basis": "",
+      "source_hash": "59adf050126117ebf1830aeca1b1ebb9dc0d502a80d4efad912731dd7faa97ee",
+      "evidence_refs": [
+        {
+          "quote": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다.",
+          "source_id": "projects:prj1790844850071sxa",
+          "field_path": "projects[2].description",
+          "evidence_id": "ev2-1",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844850071sxa",
+          "assertion_scope": "used",
+          "experience_title": "AI 기반 LMS 및 채용 지원 서비스"
+        },
+        {
+          "quote": "Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다.",
+          "source_id": "projects:prj1790844850071sxa",
+          "field_path": "projects[2].description",
+          "evidence_id": "ev2-3",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844850071sxa",
+          "assertion_scope": "used",
+          "experience_title": "AI 기반 LMS 및 채용 지원 서비스"
+        },
+        {
+          "quote": "최근에는 LLM을 활용한 이력서·자기소개서 첨삭 기능을 개발하며 AI가 생성한 결과의 정확성과 근거까지 검증하는 방향으로 관심 영역을 확장하고 있습니다.",
+          "source_id": "selfIntroduction.growth",
+          "field_path": "selfIntroduction.growth.body",
+          "evidence_id": "ev5-4",
+          "source_type": "resume_text",
+          "experience_id": "selfIntroduction.growth",
+          "assertion_scope": "used",
+          "experience_title": "성장과정"
+        }
+      ],
+      "posting_quote": "RAG, 프롬프트 엔지니어링, AI 에이전트 등 생성형 AI를 서비스나 업무에 적용해 본 경험",
+      "snapshot_hash": "c66c3172aff177730b071d533364823bdb8f3cf895bd78a1fd5932c4c4f926f9",
+      "evidence_paths": [
+        "projects[2].description",
+        "selfIntroduction.growth.body"
+      ],
+      "evidence_quotes": [
+        "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다.",
+        "Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다.",
+        "최근에는 LLM을 활용한 이력서·자기소개서 첨삭 기능을 개발하며 AI가 생성한 결과의 정확성과 근거까지 검증하는 방향으로 관심 영역을 확장하고 있습니다."
+      ],
+      "assessment_state": "pending"
+    }
+  },
+  {
+    "review_id": 133,
+    "experience": {
+      "kind": "project",
+      "title": "AI 기반 LMS 및 채용 지원 서비스",
+      "field_path": "projects[2].description",
+      "content_hash": "090ad79f4a8a56655eb7cba2ef4a398f59106fb0beb8f87a50e21d59329b54e8",
+      "current_text": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당하며, 문장을 바로 생성하는 대신 프로젝트·경력 단위 Experience와 사실 단위 Evidence를 분리하고 지원자 경험과 채용공고 요구사항을 구분하는 구조를 설계했습니다. Application Workspace에서 지원 문항을 분석해 적절한 Experience와 Evidence를 선택하고 부족한 정보를 질문하는 Planner를 구현했으며, 기존 JobRequirementProfile의 공고 요구사항 분석 결과를 재사용해 Planner와 Writer로 전달하도록 연결했습니다. Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고, 문장별 근거를 추적하는 구조를 구현했습니다.",
+      "experience_id": "projects:prj1790844850071sxa"
+    },
+    "facts": [
+      {
+        "fact_type": "context",
+        "source_id": "projects:prj1790844850071sxa",
+        "evidence_id": "ev2-1",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_quote": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "technical_decision",
+        "source_id": "projects:prj1790844850071sxa",
+        "evidence_id": "ev2-2",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_quote": "이력서 문장을 바로 생성하는 방식 대신 프로젝트·경력 단위 Experience와 사실 단위 Evidence를 분리하고, 지원자의 실제 경험과 채용공고의 요구사항을 구분하도록 구조를 설계했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "이력서 문장을 바로 생성하는 방식 대신 Experience와 Evidence를 분리하고 지원자의 실제 경험과 채용공고 요구사항을 구분하는 구조를 설계했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "implementation",
+        "source_id": "projects:prj1790844850071sxa",
+        "evidence_id": "ev2-3",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_quote": "Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "Application Workspace에서 지원 문항을 분석하고 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "implementation",
+        "source_id": "projects:prj1790844850071sxa",
+        "evidence_id": "ev2-4",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_quote": "또한 공고 요구사항 분석 결과를 재분석하지 않고 기존 JobRequirementProfile에서 재사용해 Planner와 Writer까지 전달하도록 연결했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "공고 요구사항 분석 결과를 기존 JobRequirementProfile에서 재사용해 Planner와 Writer까지 전달하도록 연결했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "implementation",
+        "source_id": "projects:prj1790844850071sxa",
+        "evidence_id": "ev2-5",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_quote": "Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했다. 실제 검증 수행이나 검증 결과는 명시되지 않았다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "role",
+        "source_id": "projects:prj1790844850071sxa:role",
+        "evidence_id": "ev2-6",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_quote": "이력서·자기소개서 AI 첨삭 및 Application Workspace 설계·구현",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "이력서·자기소개서 AI 첨삭 및 Application Workspace 설계·구현 역할을 기재했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "technology",
+        "source_id": "projects:prj1790844850071sxa:techStack",
+        "evidence_id": "ev2-7",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_quote": "Python, Django, FastAPI, PostgreSQL, React, OpenAI API, AWS, Git/GitHub",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "Python, Django, FastAPI, PostgreSQL, React, OpenAI API, AWS, Git/GitHub를 기술 스택으로 기재했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "verification",
+        "source_id": "1791349172685784_243334800:projects[2].description",
+        "evidence_id": "ev2-8",
+        "source_type": "user_answer",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_quote": "지원동기와 프로젝트 설명 수정 사례로 확인했습니다.",
+        "assertion_state": "user_asserted",
+        "normalized_fact": "지원동기와 프로젝트 설명 수정 사례를 통해 구현한 검증 구조를 확인했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "result",
+        "source_id": "1791349172685784_243334800:projects[2].description",
+        "evidence_id": "ev2-9",
+        "source_type": "user_answer",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_quote": "Fact Validator에서는 원문이나 사용자 답변에 없는 역할·성과가 추가되는 사례가 줄었고, Quality Validator에서는 핵심 의미 누락과 반복 표현을 확인했습니다.",
+        "assertion_state": "user_asserted",
+        "normalized_fact": "수정 사례에서 원문이나 사용자 답변에 없는 역할·성과가 추가되는 사례가 줄었으며, Quality Validator로 핵심 의미 누락과 반복 표현을 확인했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "result",
+        "source_id": "1791349172685784_243334800:projects[2].description",
+        "evidence_id": "ev2-10",
+        "source_type": "user_answer",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_quote": "다만 재작성 과정에서 의미가 일부 빠지거나 같은 내용이 반복되는 경우는 아직 남아 있었습니다.",
+        "assertion_state": "user_asserted",
+        "normalized_fact": "재작성 과정에서 의미 일부가 빠지거나 같은 내용이 반복되는 경우가 여전히 남았다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      }
+    ],
+    "facets": [
+      {
+        "slots": [
+          "overview",
+          "personal_role"
+        ],
+        "material": true,
+        "evidence_id": "ev2-1"
+      },
+      {
+        "slots": [
+          "technical_decisions"
+        ],
+        "material": true,
+        "evidence_id": "ev2-2"
+      },
+      {
+        "slots": [
+          "actions"
+        ],
+        "material": true,
+        "evidence_id": "ev2-3"
+      },
+      {
+        "slots": [
+          "actions"
+        ],
+        "material": true,
+        "evidence_id": "ev2-4"
+      },
+      {
+        "slots": [
+          "actions"
+        ],
+        "material": true,
+        "evidence_id": "ev2-5"
+      },
+      {
+        "slots": [
+          "personal_role"
+        ],
+        "material": true,
+        "evidence_id": "ev2-6"
+      },
+      {
+        "slots": [
+          "technologies"
+        ],
+        "material": false,
+        "evidence_id": "ev2-7"
+      },
+      {
+        "slots": [
+          "validation_method"
+        ],
+        "material": true,
+        "evidence_id": "ev2-8"
+      },
+      {
+        "slots": [
+          "validation_method",
+          "outcome"
+        ],
+        "material": true,
+        "evidence_id": "ev2-9"
+      },
+      {
+        "slots": [
+          "outcome"
+        ],
+        "material": true,
+        "evidence_id": "ev2-10"
+      }
+    ],
+    "intents": [],
+    "units": [
+      {
+        "id": "su2-1",
+        "meaning": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했다.",
+        "source_refs": [
+          {
+            "id": "ev2-1",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "role",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "su2-2",
+        "meaning": "문장을 곧바로 생성하기보다 프로젝트·경력 단위 Experience와 사실 단위 Evidence를 분리하고, 지원자 경험과 채용공고 요구사항을 구별하는 구조를 설계했다.",
+        "source_refs": [
+          {
+            "id": "ev2-2",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "decision",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "su2-3",
+        "meaning": "Application Workspace에서 문항에 맞는 Experience와 Evidence를 선택하고 부족한 정보를 질문하는 Planner를 구현했으며, 기존 JobRequirementProfile의 공고 요구사항 분석 결과를 재사용해 Planner와 Writer로 전달했다.",
+        "source_refs": [
+          {
+            "id": "ev2-3",
+            "type": "applicant_evidence"
+          },
+          {
+            "id": "ev2-4",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "action",
+        "optional_details": [
+          "Application Workspace"
+        ],
+        "context_source_refs": []
+      },
+      {
+        "id": "su2-4",
+        "meaning": "Fact Validator와 Quality Validator를 구현해 Writer의 지원자 경험·공고 내용 확대를 제한하고 문장별 근거를 추적하는 구조를 마련했다. 실제 검증을 수행하거나 정확도 등의 결과를 확인했다는 내용은 없다.",
+        "source_refs": [
+          {
+            "id": "ev2-5",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "action",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "fact:ev2-6",
+        "meaning": "이력서·자기소개서 AI 첨삭 및 Application Workspace 설계·구현 역할을 기재했다.",
+        "source_refs": [
+          {
+            "id": "ev2-6",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "role",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "turn:a6065e96ad9e0327:su2-1",
+        "meaning": "AI 기반 LMS 프로젝트에서 이력서·자기소개서 첨삭 기능을 담당했으며, 해당 기능과 Application Workspace의 설계·구현 역할을 기재했다.",
+        "source_refs": [
+          {
+            "id": "ev2-1",
+            "type": "applicant_evidence"
+          },
+          {
+            "id": "ev2-6",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "role",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "turn:a6065e96ad9e0327:su2-2",
+        "meaning": "이력서 문장을 곧바로 생성하는 방식 대신 프로젝트·경력 단위 Experience와 사실 단위 Evidence를 분리하고, 지원자 경험과 채용공고 요구사항을 구별하는 구조를 설계했다.",
+        "source_refs": [
+          {
+            "id": "ev2-2",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "decision",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "turn:a6065e96ad9e0327:su2-3",
+        "meaning": "Application Workspace에서 지원 문항에 맞는 Experience와 Evidence를 선택하고 부족한 정보를 질문하는 Planner를 구현했다. 공고 요구사항 분석 결과는 기존 JobRequirementProfile에서 재사용해 Planner와 Writer로 전달했다.",
+        "source_refs": [
+          {
+            "id": "ev2-3",
+            "type": "applicant_evidence"
+          },
+          {
+            "id": "ev2-4",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "action",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "turn:a6065e96ad9e0327:su2-4",
+        "meaning": "Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했다.",
+        "source_refs": [
+          {
+            "id": "ev2-5",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "action",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "su2-5",
+        "meaning": "지원동기와 프로젝트 설명 수정 사례를 확인했고, Quality Validator로 핵심 의미 누락과 반복 표현을 점검했다.",
+        "source_refs": [
+          {
+            "id": "ev2-8",
+            "type": "applicant_evidence"
+          },
+          {
+            "id": "ev2-9",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "validation",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "su2-6",
+        "meaning": "수정 사례에서 원문이나 사용자 답변에 없는 역할·성과가 추가되는 경우는 줄었지만, 재작성 중 의미 일부가 빠지거나 같은 내용이 반복되는 문제는 남았다.",
+        "source_refs": [
+          {
+            "id": "ev2-9",
+            "type": "applicant_evidence"
+          },
+          {
+            "id": "ev2-10",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "outcome",
+        "optional_details": [],
+        "context_source_refs": []
+      }
+    ],
+    "historical_sources": [
+      {
+        "text": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다. 이력서 문장을 바로 생성하는 방식 대신 프로젝트·경력 단위 Experience와 사실 단위 Evidence를 분리하고, 지원자의 실제 경험과 채용공고의 요구사항을 구분하도록 구조를 설계했습니다. Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다. 또한 공고 요구사항 분석 결과를 재분석하지 않고 기존 JobRequirementProfile에서 재사용해 Planner와 Writer까지 전달하도록 연결했습니다. Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다.",
+        "source_id": "projects:prj1790844850071sxa"
+      },
+      {
+        "text": "AI 기반 LMS 및 채용 지원 서비스",
+        "source_id": "projects:prj1790844850071sxa:name"
+      },
+      {
+        "text": "이력서·자기소개서 AI 첨삭 및 Application Workspace 설계·구현",
+        "source_id": "projects:prj1790844850071sxa:role"
+      },
+      {
+        "text": "Python, Django, FastAPI, PostgreSQL, React, OpenAI API, AWS, Git/GitHub",
+        "source_id": "projects:prj1790844850071sxa:techStack"
+      }
+    ],
+    "answer": "지원동기와 프로젝트 설명 수정 사례로 확인했습니다. Fact Validator에서는 원문이나 사용자 답변에 없는 역할·성과가 추가되는 사례가 줄었고, Quality Validator에서는 핵심 의미 누락과 반복 표현을 확인했습니다. 다만 재작성 과정에서 의미가 일부 빠지거나 같은 내용이 반복되는 경우는 아직 남아 있었습니다.",
+    "writer_sentences": [],
+    "matches": [
+      {
+        "status": "unconfirmed",
+        "evidence_ids": [],
+        "requirement_id": "req-7",
+        "assertion_scope": "context"
+      }
+    ],
+    "requirement": {
+      "id": "req-7",
+      "kind": "skill",
+      "group": "preferred",
+      "label": "생성형 AI 적용",
+      "source": "none",
+      "status": "unconfirmed",
+      "kind_basis": "",
+      "source_hash": "090ad79f4a8a56655eb7cba2ef4a398f59106fb0beb8f87a50e21d59329b54e8",
+      "evidence_refs": [],
+      "posting_quote": "RAG, 프롬프트 엔지니어링, AI 에이전트 등 생성형 AI를 서비스나 업무에 적용해 본 경험",
+      "snapshot_hash": "c66c3172aff177730b071d533364823bdb8f3cf895bd78a1fd5932c4c4f926f9",
+      "evidence_paths": [],
+      "evidence_quotes": [],
+      "assessment_state": "pending"
+    }
+  },
+  {
+    "review_id": 134,
+    "experience": {
+      "kind": "project",
+      "title": "위치 기반 자동차 정비소 검색 서비스",
+      "field_path": "projects[1].description",
+      "content_hash": "3b5b85a20c81a5749fc5926139f7868875d7dceb6dfc4dbdef1c67ea7775f8bc",
+      "current_text": "데이터 처리와 Streamlit 서비스 구현을 맡아 사용자의 위치를 기준으로 가까운 자동차 정비소를 찾는 서비스를 구현했습니다. 정비소 주소와 위·경도 데이터에 Haversine 거리 계산을 적용해 가까운 순으로 정렬하고, 브랜드 공식 서비스센터와 정비소 종류를 필터링할 수 있도록 구성했으며 운영시간 데이터가 있는 경우 영업 중 여부를 표시했습니다. 초기에는 CSV를 사용하고, 이후 MySQL 연계를 고려해 브랜드와 정비 유형 데이터를 구조화했습니다.",
+      "experience_id": "projects:prj1790844823849w4d"
+    },
+    "facts": [
+      {
+        "fact_type": "context",
+        "source_id": "projects:prj1790844823849w4d",
+        "evidence_id": "ev1-1",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844823849w4d",
+        "evidence_quote": "사용자의 위치를 기준으로 가까운 자동차 정비소를 찾을 수 있는 서비스를 구현했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "사용자의 위치를 기준으로 가까운 자동차 정비소를 찾는 서비스를 구현했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "implementation",
+        "source_id": "projects:prj1790844823849w4d",
+        "evidence_id": "ev1-2",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844823849w4d",
+        "evidence_quote": "정비소 주소와 위·경도 데이터를 활용해 Haversine 거리 계산을 적용하고 거리순으로 정렬했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "정비소 주소와 위·경도 데이터를 활용해 Haversine 거리 계산을 적용하고 거리순으로 정렬했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "implementation",
+        "source_id": "projects:prj1790844823849w4d",
+        "evidence_id": "ev1-3",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844823849w4d",
+        "evidence_quote": "브랜드 공식 서비스센터와 정비소 종류를 필터링할 수 있도록 구성했으며",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "브랜드 공식 서비스센터와 정비소 종류를 필터링할 수 있도록 구성했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "implementation",
+        "source_id": "projects:prj1790844823849w4d",
+        "evidence_id": "ev1-4",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844823849w4d",
+        "evidence_quote": "운영시간 데이터가 존재하는 경우 영업 중 여부를 표시했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "운영시간 데이터가 있는 경우 영업 중 여부를 표시했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "technical_decision",
+        "source_id": "projects:prj1790844823849w4d",
+        "evidence_id": "ev1-5",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844823849w4d",
+        "evidence_quote": "초기에는 CSV를 사용하고 이후 MySQL 연계를 고려해 브랜드와 정비 유형 데이터를 구조화했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "초기에는 CSV를 사용했으며, 이후 MySQL 연계를 고려해 브랜드와 정비 유형 데이터를 구조화했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "role",
+        "source_id": "projects:prj1790844823849w4d:role",
+        "evidence_id": "ev1-6",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844823849w4d",
+        "evidence_quote": "데이터 처리 및 Streamlit 서비스 구현",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "데이터 처리 및 Streamlit 서비스 구현 역할을 기재했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "technology",
+        "source_id": "projects:prj1790844823849w4d:techStack",
+        "evidence_id": "ev1-7",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj1790844823849w4d",
+        "evidence_quote": "Python, Pandas, Streamlit, MySQL",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "Python, Pandas, Streamlit, MySQL을 기술 스택으로 기재했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "verification",
+        "source_id": "1791349375858984_258556131:projects[1].description",
+        "evidence_id": "ev2-1",
+        "source_type": "user_answer",
+        "experience_id": "projects:prj1790844823849w4d",
+        "evidence_quote": "정비소 주소와 위·경도 데이터를 넣어 Haversine 거리 계산 후 가까운 순으로 정렬되는지 직접 확인했습니다.",
+        "assertion_state": "user_asserted",
+        "normalized_fact": "주소와 위·경도 데이터를 넣고 Haversine 거리 계산 후 가까운 순으로 정렬되는지 직접 확인했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "verification",
+        "source_id": "1791349375858984_258556131:projects[1].description",
+        "evidence_id": "ev2-2",
+        "source_type": "user_answer",
+        "experience_id": "projects:prj1790844823849w4d",
+        "evidence_quote": "실제 시험은 거리순 정렬과 필터 동작을 직접 확인하는 방식으로 진행했고, 사용자 대상 테스트는 하지 않았습니다.",
+        "assertion_state": "user_asserted",
+        "normalized_fact": "거리순 정렬과 필터 동작을 직접 확인하는 시험을 진행했으며, 사용자 대상 테스트는 하지 않았다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "verification",
+        "source_id": "1791349375858984_258556131:projects[1].description",
+        "evidence_id": "ev2-3",
+        "source_type": "user_answer",
+        "experience_id": "projects:prj1790844823849w4d",
+        "evidence_quote": "운영시간 데이터가 없는 경우에는 영업 여부를 표시하지 않도록 확인했습니다.",
+        "assertion_state": "user_asserted",
+        "normalized_fact": "운영시간 데이터가 없을 때 영업 여부를 표시하지 않는 동작을 확인했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      }
+    ],
+    "facets": [
+      {
+        "slots": [
+          "overview"
+        ],
+        "material": true,
+        "evidence_id": "ev1-1"
+      },
+      {
+        "slots": [
+          "actions"
+        ],
+        "material": true,
+        "evidence_id": "ev1-2"
+      },
+      {
+        "slots": [
+          "actions"
+        ],
+        "material": true,
+        "evidence_id": "ev1-3"
+      },
+      {
+        "slots": [
+          "actions"
+        ],
+        "material": true,
+        "evidence_id": "ev1-4"
+      },
+      {
+        "slots": [
+          "technical_decisions"
+        ],
+        "material": true,
+        "evidence_id": "ev1-5"
+      },
+      {
+        "slots": [
+          "personal_role"
+        ],
+        "material": true,
+        "evidence_id": "ev1-6"
+      },
+      {
+        "slots": [
+          "technologies"
+        ],
+        "material": true,
+        "evidence_id": "ev1-7"
+      },
+      {
+        "slots": [
+          "validation_method"
+        ],
+        "material": true,
+        "evidence_id": "ev2-1"
+      },
+      {
+        "slots": [
+          "validation_method"
+        ],
+        "material": true,
+        "evidence_id": "ev2-2"
+      },
+      {
+        "slots": [
+          "validation_method"
+        ],
+        "material": true,
+        "evidence_id": "ev2-3"
+      }
+    ],
+    "intents": [],
+    "units": [
+      {
+        "id": "su1-1",
+        "meaning": "사용자 위치를 기준으로 가까운 자동차 정비소를 찾을 수 있는 서비스를 구현했다.",
+        "source_refs": [
+          {
+            "id": "ev1-1",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "purpose",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "su1-2",
+        "meaning": "정비소 주소와 위·경도 데이터에 Haversine 거리 계산을 적용해 가까운 순으로 정렬하고, 브랜드 공식 서비스센터와 정비소 종류를 필터링하도록 구성했다.",
+        "source_refs": [
+          {
+            "id": "ev1-2",
+            "type": "applicant_evidence"
+          },
+          {
+            "id": "ev1-3",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "action",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "su1-3",
+        "meaning": "운영시간 데이터가 있을 때 영업 중 여부를 표시했다.",
+        "source_refs": [
+          {
+            "id": "ev1-4",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "action",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "su1-4",
+        "meaning": "초기에는 CSV를 사용하고, 향후 MySQL 연계를 고려해 브랜드와 정비 유형 데이터를 구조화했다. MySQL 연계가 실제 완료됐다는 내용은 없다.",
+        "source_refs": [
+          {
+            "id": "ev1-5",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "decision",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "fact:ev1-6",
+        "meaning": "데이터 처리 및 Streamlit 서비스 구현 역할을 기재했다.",
+        "source_refs": [
+          {
+            "id": "ev1-6",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "role",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "turn:3fd734289d19cd4d:su1-1",
+        "meaning": "사용자 위치를 기준으로 가까운 자동차 정비소를 찾는 서비스를 구현했다.",
+        "source_refs": [
+          {
+            "id": "ev1-1",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "purpose",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "turn:3fd734289d19cd4d:su1-3",
+        "meaning": "운영시간 데이터가 있으면 영업 중 여부를 표시하고, 데이터가 없으면 영업 여부를 표시하지 않도록 구현했다.",
+        "source_refs": [
+          {
+            "id": "ev1-4",
+            "type": "applicant_evidence"
+          },
+          {
+            "id": "ev2-3",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "action",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "fact:ev1-7",
+        "meaning": "기술 스택으로 Python, Pandas, Streamlit, MySQL을 기재했다.",
+        "source_refs": [
+          {
+            "id": "ev1-7",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "technology",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "su1-6",
+        "meaning": "거리순 정렬과 필터 동작을 직접 확인하는 시험을 진행했고, 운영시간 데이터가 없을 때 영업 여부를 표시하지 않는 동작도 확인했다. 사용자 대상 테스트는 하지 않았다. 정렬·필터 시험의 구체적 결과는 별도로 명시되지 않았다.",
+        "source_refs": [
+          {
+            "id": "ev2-1",
+            "type": "applicant_evidence"
+          },
+          {
+            "id": "ev2-2",
+            "type": "applicant_evidence"
+          },
+          {
+            "id": "ev2-3",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "validation",
+        "optional_details": [],
+        "context_source_refs": []
+      }
+    ],
+    "historical_sources": [
+      {
+        "text": "사용자의 위치를 기준으로 가까운 자동차 정비소를 찾을 수 있는 서비스를 구현했습니다. 정비소 주소와 위·경도 데이터를 활용해 Haversine 거리 계산을 적용하고 거리순으로 정렬했습니다. 브랜드 공식 서비스센터와 정비소 종류를 필터링할 수 있도록 구성했으며, 운영시간 데이터가 존재하는 경우 영업 중 여부를 표시했습니다. 초기에는 CSV를 사용하고 이후 MySQL 연계를 고려해 브랜드와 정비 유형 데이터를 구조화했습니다.",
+        "source_id": "projects:prj1790844823849w4d"
+      },
+      {
+        "text": "위치 기반 자동차 정비소 검색 서비스",
+        "source_id": "projects:prj1790844823849w4d:name"
+      },
+      {
+        "text": "데이터 처리 및 Streamlit 서비스 구현",
+        "source_id": "projects:prj1790844823849w4d:role"
+      },
+      {
+        "text": "Python, Pandas, Streamlit, MySQL",
+        "source_id": "projects:prj1790844823849w4d:techStack"
+      }
+    ],
+    "answer": "정비소 주소와 위·경도 데이터를 넣어 Haversine 거리 계산 후 가까운 순으로 정렬되는지 직접 확인했습니다. 브랜드·정비소 종류 필터와 운영시간 기반 영업 여부 표시 기능도 구현했습니다. 실제 시험은 거리순 정렬과 필터 동작을 직접 확인하는 방식으로 진행했고, 사용자 대상 테스트는 하지 않았습니다. 운영시간 데이터가 없는 경우에는 영업 여부를 표시하지 않도록 확인했습니다.",
+    "writer_sentences": [
+      [
+        {
+          "text": "데이터 처리 및 Streamlit 서비스 구현 역할로 참여해, 사용자 위치에서 가까운 자동차 정비소를 찾는 서비스를 구현했습니다. 정비소 주소와 위·경도 데이터에 Haversine 거리 계산을 적용해 가까운 순으로 정렬하고, 브랜드 공식 서비스센터와 정비소 종류를 필터링하도록 구성했습니다.",
+          "intent_ids": [],
+          "claim_types": [
+            "role_owned",
+            "action_performed",
+            "technology_used"
+          ],
+          "evidence_ids": [
+            "ev1-6",
+            "ev1-1",
+            "ev1-2",
+            "ev1-3"
+          ],
+          "semantic_unit_ids": [
+            "fact:ev1-6",
+            "turn:3fd734289d19cd4d:su1-1",
+            "su1-2"
+          ],
+          "target_context_ids": []
+        },
+        {
+          "text": "운영시간 데이터가 있을 때는 영업 중 여부를 표시하고, 데이터가 없을 때는 표시하지 않도록 구현했습니다.",
+          "intent_ids": [],
+          "claim_types": [
+            "action_performed",
+            "validation_performed"
+          ],
+          "evidence_ids": [
+            "ev1-4",
+            "ev2-3"
+          ],
+          "semantic_unit_ids": [
+            "turn:3fd734289d19cd4d:su1-3"
+          ],
+          "target_context_ids": []
+        },
+        {
+          "text": "초기에는 CSV를 사용했으며, 이후 MySQL 연계를 고려해 브랜드와 정비 유형 데이터를 구조화했습니다.",
+          "intent_ids": [],
+          "claim_types": [
+            "technology_used",
+            "decision_made",
+            "action_performed"
+          ],
+          "evidence_ids": [
+            "ev1-5"
+          ],
+          "semantic_unit_ids": [
+            "su1-4"
+          ],
+          "target_context_ids": []
+        },
+        {
+          "text": "거리순 정렬과 필터 동작을 직접 확인했으며, 사용자 대상 테스트는 진행하지 않았습니다.",
+          "intent_ids": [],
+          "claim_types": [
+            "validation_performed"
+          ],
+          "evidence_ids": [
+            "ev2-1",
+            "ev2-2"
+          ],
+          "semantic_unit_ids": [
+            "su1-6"
+          ],
+          "target_context_ids": []
+        }
+      ],
+      [
+        {
+          "text": "데이터 처리 및 Streamlit 서비스 구현 역할로 참여해, 사용자 위치에서 가까운 자동차 정비소를 찾는 서비스를 구현했습니다.",
+          "intent_ids": [],
+          "claim_types": [
+            "role_owned",
+            "action_performed",
+            "technology_used"
+          ],
+          "evidence_ids": [
+            "ev1-6",
+            "ev1-1"
+          ],
+          "semantic_unit_ids": [
+            "fact:ev1-6",
+            "turn:3fd734289d19cd4d:su1-1"
+          ],
+          "target_context_ids": []
+        },
+        {
+          "text": "정비소 주소와 위·경도 데이터에 Haversine 거리 계산을 적용해 가까운 순으로 정렬하고, 브랜드 공식 서비스센터와 정비소 종류를 필터링했으며, 운영시간 데이터가 있을 때는 영업 중 여부를 표시했습니다.",
+          "intent_ids": [],
+          "claim_types": [
+            "action_performed",
+            "technology_used"
+          ],
+          "evidence_ids": [
+            "ev1-2",
+            "ev1-3",
+            "ev1-4"
+          ],
+          "semantic_unit_ids": [
+            "su1-2",
+            "turn:3fd734289d19cd4d:su1-3"
+          ],
+          "target_context_ids": []
+        },
+        {
+          "text": "초기에는 CSV를 사용하고, 이후 MySQL 연계를 고려해 브랜드와 정비 유형 데이터를 구조화했습니다.",
+          "intent_ids": [],
+          "claim_types": [
+            "technology_used",
+            "decision_made",
+            "action_performed"
+          ],
+          "evidence_ids": [
+            "ev1-5"
+          ],
+          "semantic_unit_ids": [
+            "su1-4"
+          ],
+          "target_context_ids": []
+        },
+        {
+          "text": "주소와 위·경도 데이터를 넣어 Haversine 계산 후 가까운 순으로 정렬되는지와 필터 동작을 직접 확인하고, 운영시간 데이터가 없을 때 영업 여부가 표시되지 않는 동작도 확인했습니다. 사용자 대상 테스트는 진행하지 않았습니다.",
+          "intent_ids": [],
+          "claim_types": [
+            "validation_performed"
+          ],
+          "evidence_ids": [
+            "ev2-1",
+            "ev2-2",
+            "ev2-3"
+          ],
+          "semantic_unit_ids": [
+            "su1-6",
+            "turn:3fd734289d19cd4d:su1-3"
+          ],
+          "target_context_ids": []
+        }
+      ]
+    ],
+    "matches": [
+      {
+        "status": "unconfirmed",
+        "evidence_ids": [],
+        "requirement_id": "req-7",
+        "assertion_scope": "context"
+      }
+    ],
+    "requirement": {
+      "id": "req-7",
+      "kind": "skill",
+      "group": "preferred",
+      "label": "생성형 AI 적용",
+      "source": "none",
+      "status": "unconfirmed",
+      "kind_basis": "",
+      "source_hash": "3b5b85a20c81a5749fc5926139f7868875d7dceb6dfc4dbdef1c67ea7775f8bc",
+      "evidence_refs": [],
+      "posting_quote": "RAG, 프롬프트 엔지니어링, AI 에이전트 등 생성형 AI를 서비스나 업무에 적용해 본 경험",
+      "snapshot_hash": "c66c3172aff177730b071d533364823bdb8f3cf895bd78a1fd5932c4c4f926f9",
+      "evidence_paths": [],
+      "evidence_quotes": [],
+      "assessment_state": "pending"
+    }
+  },
+  {
+    "review_id": 132,
+    "experience": {
+      "kind": "project",
+      "title": "KKBOX 사용자 이탈 예측",
+      "field_path": "projects[0].description",
+      "content_hash": "9a888bb4dd46ab074f98b5407e4ed14b7245969becb7f21a8a8b3f7fdbb2a106",
+      "current_text": "데이터 분석 및 머신러닝 모델링을 수행하며 약 99만 건의 KKBOX 사용자 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형을 확인했습니다. 이런 불균형에서는 Accuracy만으로 평가하기 어렵다고 판단해 Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC, PR-AUC를 함께 확인했습니다. XGBoost는 threshold를 조정하며 F1 변화를 비교했고, days_to_expire가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+      "experience_id": "projects:prj17908447284945fx"
+    },
+    "facts": [
+      {
+        "fact_type": "context",
+        "source_id": "projects:prj17908447284945fx",
+        "evidence_id": "ev0-1",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj17908447284945fx",
+        "evidence_quote": "약 99만 건의 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형 문제를 확인하고",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "KKBOX 사용자 데이터 약 99만 건을 사용했으며 이탈 비율은 약 6.4%였다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "technical_decision",
+        "source_id": "projects:prj17908447284945fx",
+        "evidence_id": "ev0-2",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj17908447284945fx",
+        "evidence_quote": "Accuracy만으로 평가하기 어렵다고 판단했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "클래스 불균형을 근거로 Accuracy만으로 평가하기 어렵다고 판단했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "action",
+        "source_id": "projects:prj17908447284945fx",
+        "evidence_id": "ev0-3",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj17908447284945fx",
+        "evidence_quote": "Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC, PR-AUC를 확인했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "verification",
+        "source_id": "projects:prj17908447284945fx",
+        "evidence_id": "ev0-4",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj17908447284945fx",
+        "evidence_quote": "XGBoost의 threshold를 조정하며 F1 변화를 비교했고",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "XGBoost의 threshold를 조정하며 F1 변화를 비교했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "result",
+        "source_id": "projects:prj17908447284945fx",
+        "evidence_id": "ev0-5",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj17908447284945fx",
+        "evidence_quote": "days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "days_to_expire가 이탈 예측에서 중요한 방향성을 가진 변수라고 분석했다. 구체적인 방향은 명시되지 않았다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "role",
+        "source_id": "projects:prj17908447284945fx:role",
+        "evidence_id": "ev0-6",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj17908447284945fx",
+        "evidence_quote": "데이터 분석 및 머신러닝 모델링",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "데이터 분석 및 머신러닝 모델링 역할을 기재했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "technology",
+        "source_id": "projects:prj17908447284945fx:techStack",
+        "evidence_id": "ev0-7",
+        "source_type": "resume_text",
+        "experience_id": "projects:prj17908447284945fx",
+        "evidence_quote": "Python, Pandas, scikit-learn, XGBoost, LightGBM, CatBoost",
+        "assertion_state": "resume_stated",
+        "normalized_fact": "Python, Pandas, scikit-learn, XGBoost, LightGBM, CatBoost를 기술 스택으로 기재했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "result",
+        "source_id": "1791348989165500_748119726:projects[0].description",
+        "evidence_id": "ev0-8",
+        "source_type": "user_answer",
+        "experience_id": "projects:prj17908447284945fx",
+        "evidence_quote": "같은 KKBOX 이탈 예측 데이터에서 Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교했고, Precision·Recall·F1·ROC-AUC·PR-AUC를 함께 확인했습니다. 전체적으로는 LightGBM이 가장 좋은 성능을 보여 최종 모델로 선택했습니다.",
+        "assertion_state": "user_asserted",
+        "normalized_fact": "같은 KKBOX 이탈 예측 데이터에서 여러 모델과 지표를 비교한 결과 LightGBM이 전체적으로 가장 좋은 성능을 보여 최종 모델로 선택했다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      },
+      {
+        "fact_type": "verification",
+        "source_id": "1791348989165500_748119726:projects[0].description",
+        "evidence_id": "ev0-9",
+        "source_type": "user_answer",
+        "experience_id": "projects:prj17908447284945fx",
+        "evidence_quote": "XGBoost는 threshold 0.5, 0.3, 0.2, 0.1에서 F1이 각각 약 0.2257, 0.2538, 0.2612, 0.2592였고, 테스트한 범위에서는 0.2가 가장 높았습니다.",
+        "assertion_state": "user_asserted",
+        "normalized_fact": "XGBoost에서 threshold 0.5, 0.3, 0.2, 0.1의 F1을 비교했으며, 테스트한 범위에서는 0.2일 때 F1이 약 0.2612로 가장 높았다.",
+        "supersedes_evidence_ids": [],
+        "conflicts_with_evidence_ids": []
+      }
+    ],
+    "facets": [
+      {
+        "slots": [
+          "problem_observation",
+          "scale_or_constraints"
+        ],
+        "material": true,
+        "evidence_id": "ev0-1"
+      },
+      {
+        "slots": [
+          "technical_decisions"
+        ],
+        "material": true,
+        "evidence_id": "ev0-2"
+      },
+      {
+        "slots": [
+          "actions",
+          "validation_method"
+        ],
+        "material": true,
+        "evidence_id": "ev0-3"
+      },
+      {
+        "slots": [
+          "validation_method"
+        ],
+        "material": true,
+        "evidence_id": "ev0-4"
+      },
+      {
+        "slots": [
+          "outcome"
+        ],
+        "material": true,
+        "evidence_id": "ev0-5"
+      },
+      {
+        "slots": [
+          "personal_role"
+        ],
+        "material": true,
+        "evidence_id": "ev0-6"
+      },
+      {
+        "slots": [
+          "technologies"
+        ],
+        "material": false,
+        "evidence_id": "ev0-7"
+      },
+      {
+        "slots": [
+          "outcome"
+        ],
+        "material": true,
+        "evidence_id": "ev0-8"
+      },
+      {
+        "slots": [
+          "validation_method",
+          "outcome"
+        ],
+        "material": true,
+        "evidence_id": "ev0-9"
+      }
+    ],
+    "intents": [],
+    "units": [
+      {
+        "id": "su0-1",
+        "meaning": "약 99만 건의 KKBOX 사용자 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형을 확인했다.",
+        "source_refs": [
+          {
+            "id": "ev0-1",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "observation",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "su0-2",
+        "meaning": "클래스 불균형 상황에서는 Accuracy만으로 모델을 평가하기 어렵다고 판단하고, 여러 평가 지표를 사용해 모델들을 비교했다.",
+        "source_refs": [
+          {
+            "id": "ev0-2",
+            "type": "applicant_evidence"
+          },
+          {
+            "id": "ev0-3",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "decision",
+        "optional_details": [
+          "Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost",
+          "Precision, Recall, F1, ROC-AUC와 PR-AUC"
+        ],
+        "context_source_refs": []
+      },
+      {
+        "id": "su0-3",
+        "meaning": "XGBoost threshold를 조정하며 F1 변화를 비교했다.",
+        "source_refs": [
+          {
+            "id": "ev0-4",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "validation",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "su0-4",
+        "meaning": "days_to_expire가 이탈 예측에서 중요한 방향성을 가진 변수라고 분석했으며, 그 방향 자체는 명시하지 않았다.",
+        "source_refs": [
+          {
+            "id": "ev0-5",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "outcome",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "fact:ev0-6",
+        "meaning": "데이터 분석 및 머신러닝 모델링 역할을 기재했다.",
+        "source_refs": [
+          {
+            "id": "ev0-6",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "role",
+        "optional_details": [],
+        "context_source_refs": []
+      },
+      {
+        "id": "turn:48a4ab76eab926af:su0-3",
+        "meaning": "XGBoost에서 threshold 0.5, 0.3, 0.2, 0.1을 시험한 범위에서는 0.2일 때 F1이 약 0.2612로 가장 높았다.",
+        "source_refs": [
+          {
+            "id": "ev0-4",
+            "type": "applicant_evidence"
+          },
+          {
+            "id": "ev0-9",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "validation",
+        "optional_details": [
+          "F1이 각각 약 0.2257, 0.2538, 0.2612, 0.2592였고"
+        ],
+        "context_source_refs": [
+          {
+            "id": "ev0-4",
+            "type": "applicant_evidence"
+          }
+        ]
+      },
+      {
+        "id": "su0-5",
+        "meaning": "같은 KKBOX 이탈 예측 데이터에서 여러 모델과 지표를 비교한 결과 LightGBM이 전체적으로 가장 좋은 성능을 보여 최종 모델로 선택했다.",
+        "source_refs": [
+          {
+            "id": "ev0-8",
+            "type": "applicant_evidence"
+          }
+        ],
+        "semantic_role": "outcome",
+        "optional_details": [
+          "Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost",
+          "Precision·Recall·F1·ROC-AUC·PR-AUC"
+        ],
+        "context_source_refs": []
+      }
+    ],
+    "historical_sources": [
+      {
+        "text": "KKBOX 사용자 데이터를 활용해 사용자 이탈을 예측했습니다. 약 99만 건의 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형 문제를 확인하고 Accuracy만으로 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다. XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+        "source_id": "projects:prj17908447284945fx"
+      },
+      {
+        "text": "KKBOX 사용자 이탈 예측",
+        "source_id": "projects:prj17908447284945fx:name"
+      },
+      {
+        "text": "데이터 분석 및 머신러닝 모델링",
+        "source_id": "projects:prj17908447284945fx:role"
+      },
+      {
+        "text": " Python, Pandas, scikit-learn, XGBoost, LightGBM, CatBoost",
+        "source_id": "projects:prj17908447284945fx:techStack"
+      }
+    ],
+    "answer": "같은 KKBOX 이탈 예측 데이터에서 Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교했고, Precision·Recall·F1·ROC-AUC·PR-AUC를 함께 확인했습니다. 전체적으로는 LightGBM이 가장 좋은 성능을 보여 최종 모델로 선택했습니다. XGBoost는 threshold 0.5, 0.3, 0.2, 0.1에서 F1이 각각 약 0.2257, 0.2538, 0.2612, 0.2592였고, 테스트한 범위에서는 0.2가 가장 높았습니다.",
+    "writer_sentences": [],
+    "matches": [
+      {
+        "status": "unconfirmed",
+        "evidence_ids": [],
+        "requirement_id": "req-7",
+        "assertion_scope": "context"
+      }
+    ],
+    "requirement": {
+      "id": "req-7",
+      "kind": "skill",
+      "group": "preferred",
+      "label": "생성형 AI 적용",
+      "source": "none",
+      "status": "unconfirmed",
+      "kind_basis": "",
+      "source_hash": "9a888bb4dd46ab074f98b5407e4ed14b7245969becb7f21a8a8b3f7fdbb2a106",
+      "evidence_refs": [],
+      "posting_quote": "RAG, 프롬프트 엔지니어링, AI 에이전트 등 생성형 AI를 서비스나 업무에 적용해 본 경험",
+      "snapshot_hash": "c66c3172aff177730b071d533364823bdb8f3cf895bd78a1fd5932c4c4f926f9",
+      "evidence_paths": [],
+      "evidence_quotes": [],
+      "assessment_state": "pending"
+    }
+  }
+]

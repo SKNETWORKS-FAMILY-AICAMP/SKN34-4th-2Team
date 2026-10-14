@@ -1,0 +1,221 @@
+"""복습 문제 자동 출제 — 어느 날짜를 출제할지, 기록을 어떻게 이어 가는지.
+
+저장소 · LLM · 검증기는 가짜다. build_practice_set 만 바꿔 끼워 계획과 기록만 본다.
+"""
+
+from __future__ import annotations
+
+import json
+import unittest
+from unittest import mock
+
+from study_notes.git_tools import ChangedFile
+from study_notes.practice import auto
+from study_notes.practice.build import BuildResult
+from study_notes.practice.generate import Usage
+from study_notes.practice.models import PracticeProblem
+
+LONG = "x = 1\n" * 60
+
+
+def notebook(*codes: str) -> str:
+    return json.dumps({"cells": [{"cell_type": "code", "source": c} for c in codes]})
+
+
+class FakeRepo:
+    """날짜별로 바뀐 파일과 그 시점 내용"""
+
+    def __init__(self, days: dict[str, dict[str, str]]) -> None:
+        self.days = days
+        self.synced = 0
+
+    def sync(self) -> str:
+        self.synced += 1
+        return "head"
+
+    def recent_lesson_dates(self, prefixes: list[str]) -> list[str]:
+        return sorted(self.days, reverse=True)
+
+    def changed_files_on(self, date: str, prefixes: list[str]):
+        return [f"c-{date}"], [ChangedFile(path=p, commit=f"c-{date}") for p in sorted(self.days.get(date, {}))]
+
+    def read_file(self, commit: str, path: str) -> str:
+        return self.days[commit[2:]][path]
+
+
+def problem(topic: str) -> PracticeProblem:
+    return PracticeProblem(kind="concept", prompt=topic, topic=topic, choices=["a", "b", "c"], answer_index=0)
+
+
+def built(*topics: str) -> BuildResult:
+    return BuildResult(problems=[problem(t) for t in topics], stats={}, usage=Usage())
+
+
+class DatesToRunTests(unittest.TestCase):
+    def test_first_run_only_latest_recent_lesson(self) -> None:
+        # 처음엔 14일 안의 가장 최근 수업 하루만 — 지난 과목 전체를 한꺼번에 내지 않는다
+        lessons = ["2026-07-22", "2026-09-18", "2026-09-21"]
+        self.assertEqual(auto.dates_to_run(lessons, {}, "2026-09-24"), ["2026-09-21"])
+        # 끝난 과목(마지막 수업이 14일보다 전)은 처음 연결해도 내지 않는다
+        self.assertEqual(auto.dates_to_run(["2026-07-22", "2026-07-31"], {}, "2026-09-24"), [])
+
+    def test_next_runs_start_from_last_done_day_again(self) -> None:
+        lessons = ["2026-09-18", "2026-09-21", "2026-09-22", "2026-09-24"]
+        days = {"2026-09-18": 12, "2026-09-21": 8}
+        self.assertEqual(auto.dates_to_run(lessons, days, "2026-09-24"), ["2026-09-21", "2026-09-22", "2026-09-24"])
+
+    def test_never_future(self) -> None:
+        self.assertEqual(auto.dates_to_run(["2026-09-25"], {}, "2026-09-24"), [])
+
+    def test_auto_never_backfills_old_course_after_manual_pick(self) -> None:
+        # 강사가 6/18 을 골라 만든 뒤에도 18:30 자동 출제는 최근 14일만 본다(6/19 ~ 6/23 을 메우지 않는다)
+        lessons = ["2026-06-18", "2026-06-19", "2026-06-22", "2026-06-23", "2026-09-21"]
+        self.assertEqual(auto.dates_to_run(lessons, {"2026-06-18": 12}, "2026-09-24"), ["2026-09-21"])
+
+    def test_ended_course_explains_why(self) -> None:
+        self.assertIn("마지막 수업 2026-06-23", auto.nothing_to_do(["2026-06-18", "2026-06-23"], "2026-09-24"))
+        self.assertIn("올라온 날이 없어요", auto.nothing_to_do([], "2026-09-24"))
+
+
+class RunSourceTests(unittest.TestCase):
+    def run_source(self, repo: FakeRepo, coverage=None, today="2026-09-23", results=None):
+        effect = results or [built("합성곱", "풀링", "합성곱", "stride")]
+        with mock.patch.object(auto, "build_practice_set", side_effect=effect) as fake:
+            out = auto.run_source(repo, source_title="멀티모달", prefixes=[], coverage=coverage, today=today, runner=object())
+        return out, fake
+
+    def test_makes_a_set_per_lesson_day_with_label_and_title(self) -> None:
+        repo = FakeRepo({
+            "2026-09-11": {"01_cnn.ipynb": notebook(LONG)},
+            "2026-09-22": {"02_vit.ipynb": notebook(LONG + "y = 2\n" * 40)},
+        })
+        out, fake = self.run_source(repo)
+        self.assertEqual(repo.synced, 1)
+        self.assertEqual(fake.call_count, 1)  # 처음엔 가장 최근 수업(9/22) 하루만
+        [s] = out["sets"]
+        self.assertEqual(s["lessonDate"], "2026-09-22")
+        self.assertEqual(s["dayLabel"], "멀티모달 2일차")  # 커밋이 있던 날 중 두 번째
+        self.assertEqual(s["title"], "합성곱 · 풀링 · stride")
+        self.assertEqual(s["files"], ["02_vit.ipynb"])
+        self.assertEqual(len(s["problems"]), 4)
+        self.assertEqual(out["coverage"]["days"], {"2026-09-22": 4})
+        self.assertEqual(out["error"], "")
+
+    def test_second_run_with_same_content_makes_nothing(self) -> None:
+        repo = FakeRepo({"2026-09-22": {"02_vit.ipynb": notebook(LONG)}})
+        first, _ = self.run_source(repo)
+        again, fake = self.run_source(repo, coverage=first["coverage"], today="2026-09-24")
+        self.assertEqual(again["sets"], [])
+        fake.assert_not_called()  # 새 셀이 없으면 LLM 을 부르지 않는다
+        self.assertEqual(again["coverage"]["days"], {"2026-09-22": 4})
+
+    def test_web_lesson_asks_for_concepts_and_web_tasks(self) -> None:
+        repo = FakeRepo({"2026-09-23": {"01_html/01_web.html": "<h1>제목</h1>\n\n" * 60, "02_css/01.css": "p { color: red; }\n\n" * 60}})
+        out, fake = self.run_source(repo, today="2026-09-24")
+        kinds = fake.call_args.kwargs["kind_counts"]
+        self.assertIn("web_task", kinds)
+        self.assertNotIn("code_output", kinds, "웹 수업에는 파이썬 코드 문제를 내지 않는다")
+        materials = "".join(m["content"] for m in fake.call_args.kwargs["materials"])
+        self.assertIn("```html", materials)
+        self.assertEqual(len(out["sets"]), 1)
+
+    def test_empty_repo_is_a_note_not_a_failure(self) -> None:
+        from study_notes import api
+        from study_notes.git_tools import EMPTY_REPO_MESSAGE, GitToolError
+
+        request = api.ProxyPracticeRequest.model_validate({
+            "cohortId": "cohort_34", "today": "2026-09-29", "coverage": {"files": [], "days": {}},
+            "source": {"id": "14", "title": "web_server", "repoUrl": "https://github.com/skn34/web_server", "branch": "main"},
+        })
+        with mock.patch.object(auto, "run_source", side_effect=GitToolError(EMPTY_REPO_MESSAGE)),                 mock.patch("study_notes.practice.runner.VERIFIER_DIR") as verifier:
+            verifier.__truediv__.return_value.__truediv__.return_value.__truediv__.return_value.exists.return_value = True
+            out = api.proxy_practice(request)
+        self.assertEqual((out["sets"], out["error"]), ([], ""))
+        self.assertIn("아직 수업 파일이 올라오지 않은", out["note"])
+
+    def test_other_git_errors_still_fail(self) -> None:
+        from fastapi import HTTPException
+
+        from study_notes import api
+        from study_notes.git_tools import GitToolError
+
+        request = api.ProxyPracticeRequest.model_validate({
+            "cohortId": "cohort_34", "today": "2026-09-29",
+            "source": {"id": "14", "title": "web_server", "repoUrl": "https://github.com/skn34/web_server", "branch": "main"},
+        })
+        with mock.patch.object(auto, "run_source", side_effect=GitToolError("비공개 저장소입니다.")),                 mock.patch("study_notes.practice.runner.VERIFIER_DIR") as verifier, self.assertRaises(HTTPException):
+            verifier.__truediv__.return_value.__truediv__.return_value.__truediv__.return_value.exists.return_value = True
+            api.proxy_practice(request)
+
+    def test_mixed_day_gets_python_and_web_problems(self) -> None:
+        repo = FakeRepo({"2026-09-22": {"02_vit.ipynb": notebook(LONG), "index.html": "<h1>제목</h1>\n\n" * 60}})
+        out, fake = self.run_source(repo)
+        self.assertEqual(sorted(out["sets"][0]["files"]), ["02_vit.ipynb", "index.html"])
+        kinds = fake.call_args.kwargs["kind_counts"]
+        self.assertIn("web_task", kinds)
+        self.assertIn("code_output", kinds)
+
+    def test_late_commit_on_same_day_adds_only_new_cells(self) -> None:
+        repo = FakeRepo({"2026-09-22": {"02_vit.ipynb": notebook(LONG)}})
+        first, _ = self.run_source(repo)
+        # 저녁에 셀을 더 올렸다
+        repo.days["2026-09-22"]["02_vit.ipynb"] = notebook(LONG, "z = 3\n" * 60)
+        again, fake = self.run_source(repo, coverage=first["coverage"], today="2026-09-23", results=[built("위치 임베딩")])
+        self.assertEqual(fake.call_count, 1)
+        # 새로 붙은 셀만 새 부분으로 넘긴다 — 앞 셀은 이미 출제했다
+        content = fake.call_args.kwargs["materials"][0]["content"]
+        self.assertIn("[새로 진행한 부분]", content)
+        self.assertIn("z = 3", content)
+        self.assertNotIn("x = 1\nx = 1", content.split("[새로 진행한 부분]")[1])
+        self.assertEqual([s["lessonDate"] for s in again["sets"]], ["2026-09-22"])
+        self.assertEqual(again["coverage"]["days"]["2026-09-22"], 5)
+
+    def test_picked_old_date_is_made_and_ended_course_says_why(self) -> None:
+        repo = FakeRepo({
+            "2026-06-18": {"01_variables.ipynb": notebook(LONG)},
+            "2026-06-23": {"05_class.ipynb": notebook(LONG + "k = 1\n" * 30)},
+        })
+        auto_run, fake = self.run_source(repo, today="2026-09-24")
+        fake.assert_not_called()
+        self.assertEqual(auto_run["sets"], [])
+        self.assertIn("최근 14일 안에 수업이 없어", auto_run["note"])
+
+        with mock.patch.object(auto, "build_practice_set", return_value=built("변수")) as fake:
+            picked = auto.run_source(repo, source_title="python_basic", prefixes=[], coverage=None,
+                                     today="2026-09-24", runner=object(), dates=["2026-06-18", "2026-12-01"])
+        self.assertEqual(fake.call_count, 1)  # 없는 날(12/1)은 뺀다
+        self.assertEqual([(s["lessonDate"], s["dayLabel"]) for s in picked["sets"]], [("2026-06-18", "python_basic 1일차")])
+        self.assertEqual(picked["note"], "")
+
+        # 같은 날을 또 고르면 이미 낸 셀이라 다시 내지 않는다
+        with mock.patch.object(auto, "build_practice_set") as fake:
+            again = auto.run_source(repo, source_title="python_basic", prefixes=[], coverage=picked["coverage"],
+                                    today="2026-09-24", runner=object(), dates=["2026-06-18"])
+        fake.assert_not_called()
+        self.assertEqual(again["note"], "고른 날짜의 수업 내용은 이미 출제했어요.")
+
+    def test_day_with_no_problems_is_not_recorded_and_says_why(self) -> None:
+        repo = FakeRepo({"2026-09-22": {"02_vit.ipynb": notebook(LONG)}})
+        empty = BuildResult(problems=[], stats={}, usage=Usage(), malformed=["모델이 출제하지 않은 이유: 자료와 개수가 안 맞음"])
+        out, _ = self.run_source(repo, results=[empty])
+        self.assertEqual(out["sets"], [])
+        self.assertIn("2026-09-22 출제 결과가 없어요", out["error"])
+        self.assertIn("자료와 개수가 안 맞음", out["error"])
+        self.assertEqual(out["coverage"], {"files": [], "days": {}}, "다음 실행이 이 날을 다시 본다")
+
+    def test_failure_stops_and_keeps_earlier_days(self) -> None:
+        repo = FakeRepo({
+            "2026-09-21": {"a.ipynb": notebook(LONG)},
+            "2026-09-22": {"b.ipynb": notebook(LONG + "q = 1\n" * 30)},
+        })
+        # 9/20 까지 출제해 둔 저장소 — 이번엔 9/21 · 9/22 를 차례로
+        seen = {"files": [], "days": {"2026-09-20": 12}}
+        out, _ = self.run_source(repo, coverage=seen, results=[built("A"), RuntimeError("LLM 시간 초과")])
+        self.assertEqual([s["lessonDate"] for s in out["sets"]], ["2026-09-21"])
+        self.assertIn("2026-09-22 출제 실패", out["error"])
+        # 실패한 날은 기록하지 않는다 — 다음에 다시
+        self.assertEqual(out["coverage"]["days"], {"2026-09-20": 12, "2026-09-21": 1})
+
+
+if __name__ == "__main__":
+    unittest.main()

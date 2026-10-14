@@ -1,0 +1,276 @@
+{
+  "_comment": "지원 자격 요건(경력 연수·학력·전공·면허·근무 조건)이 질문으로 새지 않는지 보는 확인용 케이스. 인물·답변 재료·expected_star는 개발용 케이스를 그대로 쓰고 공고만 지어낸 자격 조건 공고로 바꿨다. expected_requirements의 kind=eligibility는 질문하면 안 되는 요건이다.",
+  "cases": [
+    {
+      "id": "probe_embedded__eligibility",
+      "persona": {
+        "source": "scripts/resume_mocks.json",
+        "key": "embedded_entry_regional"
+      },
+      "job": {
+        "job_id": "EVAL-PROBE-01",
+        "company": "(주)엣지센서웍스",
+        "title": "임베디드 소프트웨어 개발자(신입)",
+        "text": "[주요업무]\n- MCU 대상 임베디드 소프트웨어 개발\n- 신규 하드웨어 개발 지원(테스트 코드 작성 등)\n- 신규 소프트웨어 배포(OTA)\n\n[자격요건]\n- 신입 또는 관련 경력 2년 이하\n- C/C++ 언어로 임베디드 소프트웨어를 개발할 수 있는 역량\n- 데이터 시트를 토대로 드라이버를 개발할 수 있는 역량\n- 네트워크 프로그래밍을 해본 경험\n\n[우대사항]\n- 컴퓨터공학, 전자공학 등 관련 전공자\n- RTOS 또는 Linux 운영체제 개발 경험\n- 운전면허 소지 및 운전 가능자\n\n[근무조건]\n- 정규직, 서울 금천구"
+      },
+      "applicant": {
+        "facts": [
+          "경진대회 자율주행 로봇에서 바퀴 모터 속도를 PID로 제어하고 게인을 직접 튜닝했다",
+          "현장실습에서 UART 끊김 원인을 찾을 때 오실로스코프로 신호 파형을 확인했다",
+          "현장실습 시험 자동화 스크립트는 Python pyserial로 작성했다"
+        ],
+        "not_done": [
+          "CAN 통신",
+          "SPI 드라이버 양산 개발",
+          "협동로봇"
+        ]
+      },
+      "expected_requirements": [
+        {
+          "label": "신입 또는 경력 2년 이하",
+          "group": "must",
+          "resume": "missing",
+          "kind": "eligibility"
+        },
+        {
+          "label": "C/C++ 임베디드",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "데이터시트 기반 개발",
+          "group": "must",
+          "resume": "missing"
+        },
+        {
+          "label": "네트워크 프로그래밍",
+          "group": "must",
+          "resume": "partial"
+        },
+        {
+          "label": "관련 전공",
+          "group": "preferred",
+          "resume": "missing",
+          "kind": "eligibility"
+        },
+        {
+          "label": "RTOS·Linux",
+          "group": "preferred",
+          "resume": "ok"
+        },
+        {
+          "label": "운전면허",
+          "group": "preferred",
+          "resume": "missing",
+          "kind": "eligibility"
+        }
+      ],
+      "expected_star": {
+        "awards[0].description": "T",
+        "trainingExperience[1].description": "STAR",
+        "otherActivities[0].description": "T",
+        "projects[0].description": "AR",
+        "selfIntroduction.challenge.body": "STA",
+        "selfIntroduction.growth.body": "SA"
+      }
+    },
+    {
+      "id": "probe_ai_intern__conditions",
+      "persona": {
+        "content": {
+          "basicInfo": {
+            "name": "",
+            "phone": "010-0000-0102",
+            "email": "",
+            "birthDate": "1999-08-30",
+            "githubUrl": "https://github.com/example-llm",
+            "blogUrl": "https://example-llm.velog.io"
+          },
+          "coreCompetencies": {
+            "text": "LangChain과 OpenAI API를 활용한 RAG 챗봇 개발. 벡터DB(Chroma) 구축. FastAPI로 API 서버 구현."
+          },
+          "experience": [],
+          "education": [
+            {
+              "id": "edu-1",
+              "school": "예시대학교",
+              "major": "산업공학과",
+              "startDate": "2018-03",
+              "endDate": "2025-02",
+              "status": "졸업"
+            }
+          ],
+          "techStack": [
+            {
+              "id": "ts-1",
+              "name": "Python",
+              "level": "중급"
+            },
+            {
+              "id": "ts-2",
+              "name": "LangChain",
+              "level": "중급"
+            },
+            {
+              "id": "ts-3",
+              "name": "FastAPI",
+              "level": "초급"
+            },
+            {
+              "id": "ts-4",
+              "name": "Chroma",
+              "level": "초급"
+            },
+            {
+              "id": "ts-5",
+              "name": "Streamlit",
+              "level": "중급"
+            }
+          ],
+          "certifications": [
+            {
+              "id": "cert-1",
+              "name": "ADsP",
+              "issuer": "한국데이터산업진흥원",
+              "acquiredDate": "2024-11"
+            }
+          ],
+          "awards": [],
+          "trainingExperience": [
+            {
+              "id": "tr-1",
+              "course": "SK네트웍스 Family AI 캠프 34기",
+              "organization": "PLAYDATA",
+              "startDate": "2026-03",
+              "endDate": "2026-09",
+              "description": "LLM 서비스 개발 과정"
+            }
+          ],
+          "otherActivities": [
+            {
+              "id": "act-1",
+              "name": "LLM 논문 스터디",
+              "startDate": "2026-04",
+              "endDate": "",
+              "description": "매주 RAG 관련 논문을 읽고 발표합니다."
+            }
+          ],
+          "projects": [
+            {
+              "id": "prj-1",
+              "name": "사내 규정 질의응답 챗봇",
+              "startDate": "2026-06",
+              "endDate": "2026-08",
+              "role": "팀원(4인)",
+              "techStack": "Python, LangChain, Chroma, Streamlit",
+              "description": "사내 규정 PDF를 RAG로 검색해 답하는 챗봇 개발에 참여. 답변 정확도 향상.",
+              "url": ""
+            },
+            {
+              "id": "prj-2",
+              "name": "영화 리뷰 감성 분석",
+              "startDate": "2026-04",
+              "endDate": "2026-05",
+              "role": "개인",
+              "techStack": "Python, scikit-learn",
+              "description": "리뷰 데이터를 수집해 감성 분류 모델을 학습시켰습니다. 정확도 0.87.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "AI 서비스 개발자",
+              "body": "생성형 AI로 사람들의 불편을 해결하는 서비스를 만들고 싶은 개발자입니다."
+            },
+            "motivation": {
+              "subtitle": "지원동기",
+              "body": "평소 생성형 AI 기술에 관심이 많았고 귀사에서 성장하고 싶어 지원했습니다."
+            },
+            "challenge": {
+              "subtitle": "도전 경험",
+              "body": "챗봇이 엉뚱한 답을 하는 문제가 있었는데, 팀원들과 함께 여러 방법을 시도해서 개선했습니다."
+            },
+            "growth": {
+              "subtitle": "성장과정",
+              "body": "산업공학을 전공하며 데이터로 문제를 푸는 일에 흥미를 느꼈고, 부트캠프에서 개발을 본격적으로 배웠습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "장단점",
+              "body": "새로운 기술을 빠르게 익히는 것이 장점입니다. 단점은 완벽주의 성향입니다."
+            },
+            "aspiration": {
+              "subtitle": "포부",
+              "body": "AI 서비스 전문가로 성장하고 싶습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-PROBE-02",
+        "company": "(주)라이트브레인",
+        "title": "AI 서비스 개발 인턴 (6개월)",
+        "text": "[주요업무]\n- LLM 기반 사내 검색 서비스 개발\n- RAG 파이프라인 품질 개선\n- 서비스 운영 지표 모니터링\n\n[자격요건]\n- 6개월 풀타임 인턴 근무 가능자\n- Python 기반 LLM 애플리케이션 개발 경험\n- 벡터DB를 활용한 검색 구현 경험\n- 졸업 예정자 또는 기졸업자\n\n[우대사항]\n- LangGraph 등 Agent 프레임워크 사용 경험\n- 정보처리기사 자격증 보유자\n- 서울 판교 근무 가능자\n\n[근무조건]\n- 인턴(6개월, 정규직 전환 가능), 경기 성남시 분당구"
+      },
+      "applicant": {
+        "facts": [
+          "규정 챗봇에서 본인은 PDF 파싱과 청킹, 검색 부분을 맡았고 Streamlit 화면은 팀원이 만들었다",
+          "청크 크기를 1,000자에서 조항 단위로 바꾸고 질문 50개로 정답 포함 여부를 직접 채점해 정답률을 62%에서 81%로 올렸다",
+          "FastAPI는 부트캠프 미니 프로젝트에서 챗봇 응답 API 엔드포인트 2개를 만들어 봤다"
+        ],
+        "not_done": [
+          "Docker 배포",
+          "Pinecone",
+          "LlamaIndex",
+          "LLM 응답 평가 자동화 도구"
+        ]
+      },
+      "expected_requirements": [
+        {
+          "label": "6개월 풀타임 인턴 근무",
+          "group": "must",
+          "resume": "missing",
+          "kind": "eligibility"
+        },
+        {
+          "label": "Python LLM 애플리케이션",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "벡터DB 검색",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "졸업 예정자 또는 기졸업자",
+          "group": "must",
+          "resume": "missing",
+          "kind": "eligibility"
+        },
+        {
+          "label": "Agent 프레임워크",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "정보처리기사",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "판교 근무 가능",
+          "group": "preferred",
+          "resume": "missing",
+          "kind": "eligibility"
+        }
+      ],
+      "expected_star": {
+        "otherActivities[0].description": "A",
+        "projects[0].description": "TR",
+        "projects[1].description": "AR",
+        "selfIntroduction.challenge.body": "SR",
+        "selfIntroduction.growth.body": ""
+      }
+    }
+  ]
+}

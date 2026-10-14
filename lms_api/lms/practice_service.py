@@ -1,0 +1,357 @@
+"""TO-BE practice tables with the existing React practice payload contract."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import date, datetime
+
+from lms.permissions import can_access_cohort
+
+
+REASONS = {"unclear", "answer", "tests", "offtopic", "other"}
+KINDS = {"concept", "code_output", "code_blank", "code_fix", "code_write", "code_scratch", "sql_query", "web_task"}
+# SQL 조회 문제(sql_query)는 DB 의 kind CHECK 제약에 없다 — 스키마를 바꾸지 않고 code_write 로 적고
+# packages 를 ["sqlite3"] 로 표시한다. 준비 스크립트(setupSql)는 hidden_tests 칸에 둔다(파이썬 문제의 숨긴 테스트 자리).
+SQL_MARK = ["sqlite3"]
+# 웹 실습(web_task)도 같다 — code_write + ["web"]. hidden_tests 는 DOM · CSS 검사문(check(…))이고 화면에는 보내지 않는다.
+# 채점은 서버가 한다(practice_web.py) — 검사문을 브라우저가 보내면 서버에서 남의 JS 를 돌리게 된다
+WEB_MARK = ["web"]
+# 스크립트가 있는 웹 실습 — 학생 스크립트는 서버에서 돌리지 않고 브라우저 iframe 이 채점한다. 그래서 검사문을 화면에 보낸다
+WEB_JS_MARK = ["web-js"]
+
+
+def stored_kind(p: dict) -> str:
+    """DB 줄의 원래 종류 — code_write 로 적어 둔 sql_query · web_task 를 되돌린다"""
+    packages = _json(p["packages"]) if isinstance(p.get("packages"), str) else p.get("packages")
+    if p["kind"] == "code_write" and packages == SQL_MARK:
+        return "sql_query"
+    if p["kind"] == "code_write" and packages in (WEB_MARK, WEB_JS_MARK):
+        return "web_task"
+    return p["kind"]
+
+
+def _stored(problem: dict) -> dict:
+    """API 모양 → DB 칸. sql_query · web_task 만 바꾼다."""
+    if problem.get("kind") == "sql_query":
+        return {**problem, "kind": "code_write", "packages": SQL_MARK, "hiddenTests": problem.get("setupSql") or ""}
+    if problem.get("kind") == "web_task":
+        return {**problem, "kind": "code_write", "packages": WEB_JS_MARK if problem.get("packages") == WEB_JS_MARK else WEB_MARK}
+    return problem
+
+
+def _problem_json(p: dict) -> dict:
+    """DB 줄 → API 모양. code_write + ["sqlite3"] 는 sql_query, + ["web"] 는 web_task 로 되돌린다."""
+    packages = _json(p["packages"])
+    kind = stored_kind(p)
+    sql = kind == "sql_query"
+    return {
+        "kind": kind, "topic": p["topic"], "prompt": p["prompt"],
+        "sourceFiles": _json(p["source_files"]), "explanation": p["explanation"],
+        "choices": _json(p["choices"]), "answerIndex": p["answer_index"],
+        "starterCode": p["starter_code"], "expectedStdout": p["expected_stdout"],
+        "blankAnswers": _json(p["blank_answers"]),
+        "referenceSolution": p["reference_solution"],
+        # 서버가 채점하는 웹 실습(["web"])만 검사문을 숨긴다. web-js 는 브라우저가 채점해야 해서 보낸다
+        "hiddenTests": "" if kind == "sql_query" or (kind == "web_task" and packages == WEB_MARK) else p["hidden_tests"],
+        "setupSql": p["hidden_tests"] if sql else "",
+        "packages": packages,
+    }
+
+
+LIGHT_PROMPT_CHARS = 200
+# 목록 화면(복습 카드 · 수업일 · 신고 목록)이 쓰는 칸만. 본문 · 코드 · 정답 · 테스트는 세트를 열 때 받는다
+LIGHT_PROBLEM_COLUMNS = (
+    "id, problem_set_id, position, kind, topic, LEFT(prompt, %s) AS prompt, source_files, packages"
+    % LIGHT_PROMPT_CHARS
+)
+
+
+def _problem_light(p: dict) -> dict:
+    return {
+        "kind": stored_kind(p), "topic": p["topic"], "prompt": p["prompt"] or "",
+        "sourceFiles": _json(p["source_files"]), "explanation": "",
+        "choices": [], "answerIndex": None, "starterCode": "", "expectedStdout": "",
+        "blankAnswers": [], "referenceSolution": "", "hiddenTests": "", "setupSql": "",
+        "packages": _json(p["packages"]),
+    }
+
+
+def _set_json(s: dict, problems: list[dict], light: bool) -> dict:
+    to_json = _problem_light if light else _problem_json
+    out = {
+        "id": s["legacy_id"], "cohortId": s["cohort_code"],
+        "sourceTitle": s["source_title"], "lessonDate": _iso(s["lesson_date"]),
+        "dayLabel": s["day_label"], "title": s["title"],
+        "files": _json(s["source_files"]), "model": s["generation_model"],
+        "origin": s["origin"],
+        "problems": [to_json(p) for p in problems if p["problem_set_id"] == s["id"]],
+    }
+    if light:
+        out["partial"] = True
+    return out
+
+
+def _rows(cur, sql, args=()):
+    cur.execute(sql, args)
+    names = [column[0] for column in cur.description]
+    return [dict(zip(names, row)) for row in cur.fetchall()]
+
+
+def _pipelined(cur, queries: list[tuple[str, list]]) -> list[list[dict]]:
+    """서로 기다리지 않는 쿼리들을 원격 DB 왕복 한 번에 보낸다. cur 는 기본 연결의 커서다."""
+    from django.db import connection
+
+    connection.ensure_connection()
+    cursors = []
+    try:
+        with connection.connection.pipeline() as pipeline:
+            for sql, args in queries:
+                query_cur = connection.cursor()
+                cursors.append(query_cur)
+                query_cur.execute(sql, args)
+            pipeline.sync()
+            out = []
+            for query_cur in cursors:
+                names = [column[0] for column in query_cur.description]
+                out.append([dict(zip(names, row)) for row in query_cur.fetchall()])
+            return out
+    finally:
+        for query_cur in cursors:
+            query_cur.close()
+
+
+def _json(value):
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def _iso(value):
+    return value.isoformat() if isinstance(value, (date, datetime)) else value
+
+
+def _uid(row):
+    return row.get("firebase_uid") or str(row["user_id"])
+
+
+def _anon(uid):
+    return "anon-" + hashlib.sha1(uid.encode()).hexdigest()[:10]
+
+
+def practice_snapshot(cur, user: dict, cohort_codes: list[str], light: bool = False) -> dict:
+    """Read sets and learner activity; convert relational IDs at the API boundary.
+
+    light=True 면 문제 본문을 빼고(partial) 보낸다 — bootstrap 용. 본문은 practice_sets_full 로 받는다.
+    """
+    empty = {"practiceSets": [], "practiceAttempts": [], "practiceReports": [], "practiceReviews": []}
+    if not cohort_codes:
+        return empty
+    staff = user.get("role") in ("admin", "instructor")
+    user_id = user["id"]
+    columns = LIGHT_PROBLEM_COLUMNS if light else "*"
+    # 앞 결과를 기다리지 않게 id 목록 대신 같은 조건의 서브쿼리를 쓰고, 다섯 쿼리를 왕복 한 번에 보낸다
+    visible_sets = """SELECT s.id FROM practice_sets s JOIN cohorts c ON c.id = s.cohort_id
+                      WHERE c.code = ANY(%s) AND (s.owner_id IS NULL OR s.owner_id = %s)"""
+    visible_problems = f"SELECT pp.id FROM practice_problems pp WHERE pp.problem_set_id IN ({visible_sets})"
+    scope = [cohort_codes, user_id]
+    sets, problems, attempts, reports, reviews = _pipelined(cur, [
+        ("""SELECT s.*, c.code AS cohort_code FROM practice_sets s
+            JOIN cohorts c ON c.id = s.cohort_id
+            WHERE c.code = ANY(%s) AND (s.owner_id IS NULL OR s.owner_id = %s)
+            ORDER BY s.lesson_date, s.id""", scope),
+        (f"""SELECT {columns} FROM practice_problems WHERE problem_set_id IN ({visible_sets})
+             ORDER BY problem_set_id, position""", scope),
+        (f"""SELECT a.*, u.firebase_uid FROM practice_attempts a
+             JOIN users u ON u.id = a.user_id
+             WHERE a.user_id = %s AND a.problem_id IN ({visible_problems})""", [user_id, *scope]),
+        (f"""SELECT r.*, u.firebase_uid FROM practice_reports r
+             JOIN users u ON u.id = r.user_id WHERE r.problem_id IN ({visible_problems})""", scope),
+        (f"""SELECT r.*, u.firebase_uid AS decided_by_uid FROM practice_reviews r
+             JOIN users u ON u.id = r.decided_by_id WHERE r.problem_id IN ({visible_problems})""", scope),
+    ])
+    set_keys = {row["id"]: row["legacy_id"] for row in sets}
+    problems = [p for p in problems if p["problem_set_id"] in set_keys]
+    problem_keys = {row["id"]: (set_keys[row["problem_set_id"]], row["position"]) for row in problems}
+    # 다섯 쿼리는 각자 자동 커밋이라 사이에 세트가 바뀌면 어긋날 수 있다
+    attempts = [a for a in attempts if a["problem_id"] in problem_keys]
+    reports = [r for r in reports if r["problem_id"] in problem_keys]
+    reviews = [r for r in reviews if r["problem_id"] in problem_keys]
+    return {
+        "practiceSets": [_set_json(s, problems, light) for s in sets],
+        "practiceAttempts": [
+            {"id": f"{_uid(a)}#{a['problem_id']}", "uid": _uid(a),
+             "setId": problem_keys[a["problem_id"]][0], "index": problem_keys[a["problem_id"]][1],
+             "passed": a["passed"], "tries": a["tries"], "answeredAt": _iso(a["answered_at"])}
+            for a in attempts
+        ],
+        "practiceReports": [
+            {"id": str(r["id"]),
+             "uid": _uid(r) if staff or r["user_id"] == user_id else _anon(_uid(r)),
+             "setId": problem_keys[r["problem_id"]][0], "index": problem_keys[r["problem_id"]][1],
+             "reason": r["reason"], "note": r["note"] if staff or r["user_id"] == user_id else "",
+             "createdAt": _iso(r["created_at"])}
+            for r in reports
+        ],
+        "practiceReviews": [
+            {"setId": problem_keys[r["problem_id"]][0], "index": problem_keys[r["problem_id"]][1],
+             "decision": r["decision"], "decidedBy": r["decided_by_uid"] or str(r["decided_by_id"]),
+             "decidedAt": _iso(r["decided_at"])}
+            for r in reviews
+        ],
+    }
+
+
+MAX_FULL_SETS = 50
+
+
+def practice_sets_full(cur, user: dict, set_keys: list[str]) -> list[dict]:
+    """세트 본문 전체 — 연습장을 열 때 받는다. 볼 수 있는 기수의 수업 세트와 내가 만든 세트만."""
+    keys = [str(k) for k in dict.fromkeys(set_keys or []) if k][:MAX_FULL_SETS]
+    if not keys:
+        return []
+    sets = _rows(
+        cur,
+        """SELECT s.*, c.code AS cohort_code FROM practice_sets s
+           JOIN cohorts c ON c.id = s.cohort_id
+           WHERE s.legacy_id = ANY(%s) AND (s.owner_id IS NULL OR s.owner_id = %s)""",
+        [keys, user["id"]],
+    )
+    sets = [s for s in sets if can_access_cohort(user, s["cohort_id"])]
+    if not sets:
+        return []
+    problems = _rows(
+        cur,
+        "SELECT * FROM practice_problems WHERE problem_set_id = ANY(%s) ORDER BY problem_set_id, position",
+        [[s["id"] for s in sets]],
+    )
+    return [_set_json(s, problems, light=False) for s in sets]
+
+
+def _problem_id(cur, user, set_key, index):
+    try:
+        position = int(index)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("index") from exc
+    rows = _rows(
+        cur,
+        """SELECT p.id, s.cohort_id, s.owner_id FROM practice_problems p
+           JOIN practice_sets s ON s.id = p.problem_set_id
+           WHERE s.legacy_id = %s AND p.position = %s""",
+        [str(set_key), position],
+    )
+    if not rows:
+        raise KeyError("problem")
+    row = rows[0]
+    if user.get("role") != "admin" and row["cohort_id"] != user.get("cohort_id"):
+        raise PermissionError("cohort")
+    if row["owner_id"] is not None and row["owner_id"] != user["id"]:
+        raise PermissionError("personal set")
+    return row["id"]
+
+
+def record_attempt(cur, user, payload):
+    problem_id = _problem_id(cur, user, payload.get("setId"), payload.get("index"))
+    cur.execute(
+        """INSERT INTO practice_attempts (user_id, problem_id, passed, tries, answered_at)
+           VALUES (%s, %s, %s, 1, now())
+           ON CONFLICT (user_id, problem_id) DO UPDATE SET
+             passed = practice_attempts.passed OR EXCLUDED.passed,
+             tries = practice_attempts.tries + 1, answered_at = now()""",
+        [user["id"], problem_id, bool(payload.get("passed"))],
+    )
+
+
+def report_problem(cur, user, payload):
+    reason = str(payload.get("reason") or "")
+    if reason not in REASONS:
+        raise ValueError("reason")
+    problem_id = _problem_id(cur, user, payload.get("setId"), payload.get("index"))
+    cur.execute(
+        """INSERT INTO practice_reports (user_id, problem_id, reason, note, created_at, updated_at)
+           VALUES (%s, %s, %s, %s, now(), now())
+           ON CONFLICT (user_id, problem_id) DO UPDATE SET
+             reason = EXCLUDED.reason, note = EXCLUDED.note, updated_at = now()""",
+        [user["id"], problem_id, reason, str(payload.get("note") or "")[:500]],
+    )
+
+
+def review_problem(cur, user, payload):
+    if user.get("role") not in ("admin", "instructor"):
+        raise PermissionError("staff only")
+    decision = str(payload.get("decision") or "")
+    if decision not in ("hidden", "kept"):
+        raise ValueError("decision")
+    problem_id = _problem_id(cur, user, payload.get("setId"), payload.get("index"))
+    cur.execute(
+        """INSERT INTO practice_reviews (problem_id, decision, decided_by_id, decided_at)
+           VALUES (%s, %s, %s, now())
+           ON CONFLICT (problem_id) DO UPDATE SET
+             decision = EXCLUDED.decision, decided_by_id = EXCLUDED.decided_by_id, decided_at = now()""",
+        [problem_id, decision, user["id"]],
+    )
+
+
+def get_coverage(cur, cohort_id: int, source_title: str):
+    rows = _rows(cur, "SELECT data FROM practice_coverage WHERE cohort_id = %s AND source_title = %s",
+                 [cohort_id, source_title])
+    return _json(rows[0]["data"]) if rows else None
+
+
+def save_coverage(cur, cohort_id: int, source_title: str, data: dict):
+    cur.execute(
+        """INSERT INTO practice_coverage (cohort_id, source_title, data, updated_at)
+           VALUES (%s, %s, %s::jsonb, now())
+           ON CONFLICT (cohort_id, source_title) DO UPDATE SET
+             data = EXCLUDED.data, updated_at = now()""",
+        [cohort_id, source_title, json.dumps(data, ensure_ascii=False)],
+    )
+
+
+def insert_problems(cur, set_id: int, problems: list[dict]):
+    cur.execute("SELECT COALESCE(max(position) + 1, 0) FROM practice_problems WHERE problem_set_id = %s", [set_id])
+    start = cur.fetchone()[0]
+    for offset, problem in enumerate(problems):
+        if problem.get("kind") not in KINDS:
+            raise ValueError("kind")
+        problem = _stored(problem)
+        kind = problem["kind"]
+        cur.execute(
+            """INSERT INTO practice_problems
+               (problem_set_id, position, kind, topic, prompt, source_files, explanation, choices,
+                answer_index, starter_code, expected_stdout, blank_answers, reference_solution, hidden_tests, packages)
+               VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb, %s, %s, %s, %s::jsonb, %s, %s, %s::jsonb)""",
+            [set_id, start + offset, kind, problem.get("topic") or "", problem.get("prompt") or "",
+             json.dumps(problem.get("sourceFiles") or [], ensure_ascii=False), problem.get("explanation") or "",
+             json.dumps(problem.get("choices") or [], ensure_ascii=False), problem.get("answerIndex"),
+             problem.get("starterCode") or "", problem.get("expectedStdout") or "",
+             json.dumps(problem.get("blankAnswers") or [], ensure_ascii=False),
+             problem.get("referenceSolution") or "", problem.get("hiddenTests") or "",
+             json.dumps(problem.get("packages") or [], ensure_ascii=False)],
+        )
+    return len(problems)
+
+
+def create_personal_set(cur, user, *, origin: str, legacy_id: str, source_title: str,
+                        lesson_date: date, day_label: str, title: str, files: list,
+                        generation_model: str, problems: list[dict]):
+    if origin not in ("note", "file"):
+        raise ValueError("origin")
+    if not user.get("cohort_id"):
+        raise ValueError("cohort")
+    cur.execute(
+        """INSERT INTO practice_sets
+           (legacy_id, cohort_id, owner_id, origin, source_title, lesson_date, day_label,
+            title, source_files, generation_model, created_at)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, now()) RETURNING id""",
+        [legacy_id, user["cohort_id"], user["id"], origin, source_title, lesson_date,
+         day_label, title, json.dumps(files, ensure_ascii=False), generation_model],
+    )
+    set_id = cur.fetchone()[0]
+    insert_problems(cur, set_id, problems)
+    return set_id
+
+
+PRACTICE_OPS = {
+    "recordPracticeAttempt": record_attempt,
+    "reportPracticeProblem": report_problem,
+    "reviewPracticeProblem": review_problem,
+}

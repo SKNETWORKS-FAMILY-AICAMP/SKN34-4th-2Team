@@ -1,0 +1,649 @@
+{
+  "provenance": "R13 saved source facts and applied text; new model extraction is scripted, not recovered raw Analyze",
+  "projects": [
+    {
+      "id": "prj17908447284945fx",
+      "url": "",
+      "name": "KKBOX 사용자 이탈 예측",
+      "role": "데이터 분석 및 머신러닝 모델링",
+      "endDate": "2026-12",
+      "startDate": "2026-06",
+      "techStack": " Python, Pandas, scikit-learn, XGBoost, LightGBM, CatBoost",
+      "description": "KKBOX 사용자 데이터를 활용해 사용자 이탈을 예측했습니다. 약 99만 건의 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형 문제를 확인하고 Accuracy만으로 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다. XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다."
+    },
+    {
+      "id": "prj1790844823849w4d",
+      "url": "",
+      "name": "위치 기반 자동차 정비소 검색 서비스",
+      "role": "데이터 처리 및 Streamlit 서비스 구현",
+      "endDate": "2026-07",
+      "startDate": "2026-06",
+      "techStack": "Python, Pandas, Streamlit, MySQL",
+      "description": "사용자의 위치를 기준으로 가까운 자동차 정비소를 찾을 수 있는 서비스를 구현했습니다. 정비소 주소와 위·경도 데이터를 활용해 Haversine 거리 계산을 적용하고 거리순으로 정렬했습니다. 브랜드 공식 서비스센터와 정비소 종류를 필터링할 수 있도록 구성했으며, 운영시간 데이터가 존재하는 경우 영업 중 여부를 표시했습니다. 초기에는 CSV를 사용하고 이후 MySQL 연계를 고려해 브랜드와 정비 유형 데이터를 구조화했습니다."
+    },
+    {
+      "id": "prj1790844850071sxa",
+      "url": "",
+      "name": "AI 기반 LMS 및 채용 지원 서비스",
+      "role": "이력서·자기소개서 AI 첨삭 및 Application Workspace 설계·구현",
+      "endDate": "2026-10",
+      "startDate": "2026-09",
+      "techStack": "Python, Django, FastAPI, PostgreSQL, React, OpenAI API, AWS, Git/GitHub",
+      "description": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다. 이력서 문장을 바로 생성하는 방식 대신 프로젝트·경력 단위 Experience와 사실 단위 Evidence를 분리하고, 지원자의 실제 경험과 채용공고의 요구사항을 구분하도록 구조를 설계했습니다. Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다. 또한 공고 요구사항 분석 결과를 재분석하지 않고 기존 JobRequirementProfile에서 재사용해 Planner와 Writer까지 전달하도록 연결했습니다. Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다."
+    }
+  ],
+  "initial": [
+    {
+      "experience": {
+        "kind": "project",
+        "role": [],
+        "scope": [],
+        "title": "KKBOX 사용자 이탈 예측",
+        "actions": [],
+        "results": [],
+        "field_path": "projects[0].description",
+        "content_hash": "59adf050126117ebf1830aeca1b1ebb9dc0d502a80d4efad912731dd7faa97ee",
+        "current_text": "KKBOX 사용자 데이터를 활용해 사용자 이탈을 예측했습니다. 약 99만 건의 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형 문제를 확인하고 Accuracy만으로 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다. XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+        "technologies": [],
+        "verification": [],
+        "experience_id": "projects:prj17908447284945fx",
+        "context_problem": [],
+        "implementations": [],
+        "existing_evidence": [],
+        "technical_decisions": []
+      },
+      "facts": [
+        {
+          "fact_type": "context",
+          "source_id": "projects:prj17908447284945fx",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e0-purpose",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj17908447284945fx",
+          "evidence_quote": "KKBOX 사용자 데이터를 활용해 사용자 이탈을 예측했습니다.",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "KKBOX 사용자 데이터를 활용해 사용자 이탈을 예측함.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        },
+        {
+          "fact_type": "result",
+          "source_id": "projects:prj17908447284945fx",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e0-imbalance",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj17908447284945fx",
+          "evidence_quote": "약 99만 건의 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형 문제를 확인하고",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "약 99만 건의 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형을 확인함.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        },
+        {
+          "fact_type": "technical_decision",
+          "source_id": "projects:prj17908447284945fx",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e0-evaluation",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj17908447284945fx",
+          "evidence_quote": "Accuracy만으로 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다.",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "클래스 불균형 때문에 Accuracy만으로 평가하기 어렵다고 판단하고 여러 분류 지표를 함께 확인함.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        },
+        {
+          "fact_type": "verification",
+          "source_id": "projects:prj17908447284945fx",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e0-threshold",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj17908447284945fx",
+          "evidence_quote": "XGBoost의 threshold를 조정하며 F1 변화를 비교했고",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "XGBoost의 threshold를 조정하며 F1 변화를 비교함.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        },
+        {
+          "fact_type": "result",
+          "source_id": "projects:prj17908447284945fx",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e0-feature",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj17908447284945fx",
+          "evidence_quote": "days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석함.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        },
+        {
+          "fact_type": "role",
+          "source_id": "projects:prj17908447284945fx:role",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e0-role",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj17908447284945fx",
+          "evidence_quote": "데이터 분석 및 머신러닝 모델링",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "데이터 분석 및 머신러닝 모델링 역할로 기재됨.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        },
+        {
+          "fact_type": "technology",
+          "source_id": "projects:prj17908447284945fx:techStack",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e0-tech",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj17908447284945fx",
+          "evidence_quote": "Python, Pandas, scikit-learn, XGBoost, LightGBM, CatBoost",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "기술 스택에 Python, Pandas, scikit-learn, XGBoost, LightGBM, CatBoost가 기재됨.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        }
+      ],
+      "facets": [
+        {
+          "slots": [
+            "purpose_or_problem"
+          ],
+          "material": true,
+          "evidence_id": "e0-purpose"
+        },
+        {
+          "slots": [
+            "problem_observation",
+            "scale_or_constraints"
+          ],
+          "material": true,
+          "evidence_id": "e0-imbalance"
+        },
+        {
+          "slots": [
+            "technical_decisions",
+            "validation_method"
+          ],
+          "material": true,
+          "evidence_id": "e0-evaluation"
+        },
+        {
+          "slots": [
+            "validation_method"
+          ],
+          "material": true,
+          "evidence_id": "e0-threshold"
+        },
+        {
+          "slots": [
+            "outcome"
+          ],
+          "material": true,
+          "evidence_id": "e0-feature"
+        },
+        {
+          "slots": [
+            "personal_role"
+          ],
+          "material": true,
+          "evidence_id": "e0-role"
+        },
+        {
+          "slots": [
+            "technologies"
+          ],
+          "material": false,
+          "evidence_id": "e0-tech"
+        }
+      ],
+      "question": {
+        "focus": "comparison_basis",
+        "targets": [
+          {
+            "anchor": "비교하고",
+            "evidence_id": "e0-evaluation"
+          }
+        ],
+        "contract": "evidence-need-v2",
+        "gap_type": "clarification",
+        "priority": "MEDIUM",
+        "dedupe_key": "model_comparison_finding",
+        "why_needed": "불균형을 고려해 여러 모델과 지표를 비교하고 XGBoost threshold별 F1을 확인한 사실은 알려져 있지만, 그 비교에서 어떤 모델·설정이 상대적으로 나았는지는 드러나지 않습니다. 이를 알면 평가 기준을 정한 데서 그치지 않고 실제 비교 결과와 선택 근거까지 설명하는 문장으로 보완할 수 있습니다.",
+        "owner_scope": "experience",
+        "target_slot": "outcome",
+        "experience_id": "projects:prj17908447284945fx",
+        "evidence_basis": [
+          "e0-evaluation",
+          "e0-threshold"
+        ],
+        "request_aspect": "comparison_result",
+        "requirement_id": null
+      },
+      "writer_text": "데이터 분석과 머신러닝 모델링을 수행해 KKBOX 사용자 데이터로 이탈을 예측했습니다. 약 99만 건의 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형을 확인하고, Accuracy만으로 모델을 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하며 Precision, Recall, F1, ROC-AUC, PR-AUC를 확인했고, XGBoost는 threshold를 조정해 F1 변화를 비교했습니다. 또한 days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진다는 점을 분석했습니다."
+    },
+    {
+      "experience": {
+        "kind": "project",
+        "role": [],
+        "scope": [],
+        "title": "위치 기반 자동차 정비소 검색 서비스",
+        "actions": [],
+        "results": [],
+        "field_path": "projects[1].description",
+        "content_hash": "59adf050126117ebf1830aeca1b1ebb9dc0d502a80d4efad912731dd7faa97ee",
+        "current_text": "사용자의 위치를 기준으로 가까운 자동차 정비소를 찾을 수 있는 서비스를 구현했습니다. 정비소 주소와 위·경도 데이터를 활용해 Haversine 거리 계산을 적용하고 거리순으로 정렬했습니다. 브랜드 공식 서비스센터와 정비소 종류를 필터링할 수 있도록 구성했으며, 운영시간 데이터가 존재하는 경우 영업 중 여부를 표시했습니다. 초기에는 CSV를 사용하고 이후 MySQL 연계를 고려해 브랜드와 정비 유형 데이터를 구조화했습니다.",
+        "technologies": [],
+        "verification": [],
+        "experience_id": "projects:prj1790844823849w4d",
+        "context_problem": [],
+        "implementations": [],
+        "existing_evidence": [],
+        "technical_decisions": []
+      },
+      "facts": [
+        {
+          "fact_type": "implementation",
+          "source_id": "projects:prj1790844823849w4d",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e1-purpose",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844823849w4d",
+          "evidence_quote": "사용자의 위치를 기준으로 가까운 자동차 정비소를 찾을 수 있는 서비스를 구현했습니다.",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "사용자 위치를 기준으로 가까운 자동차 정비소를 찾는 서비스를 구현함.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        },
+        {
+          "fact_type": "technical_decision",
+          "source_id": "projects:prj1790844823849w4d",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e1-distance",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844823849w4d",
+          "evidence_quote": "정비소 주소와 위·경도 데이터를 활용해 Haversine 거리 계산을 적용하고 거리순으로 정렬했습니다.",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "정비소 주소와 위·경도 데이터를 활용해 Haversine 거리 계산을 적용하고 거리순으로 정렬함.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        },
+        {
+          "fact_type": "implementation",
+          "source_id": "projects:prj1790844823849w4d",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e1-filters",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844823849w4d",
+          "evidence_quote": "브랜드 공식 서비스센터와 정비소 종류를 필터링할 수 있도록 구성했으며, 운영시간 데이터가 존재하는 경우 영업 중 여부를 표시했습니다.",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "브랜드 공식 서비스센터와 정비소 종류를 필터링하고 운영시간 데이터가 있는 경우 영업 중 여부를 표시하도록 구성함.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        },
+        {
+          "fact_type": "technical_decision",
+          "source_id": "projects:prj1790844823849w4d",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e1-data",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844823849w4d",
+          "evidence_quote": "초기에는 CSV를 사용하고 이후 MySQL 연계를 고려해 브랜드와 정비 유형 데이터를 구조화했습니다.",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "초기에는 CSV를 사용하고 이후 MySQL 연계를 고려해 브랜드와 정비 유형 데이터를 구조화함.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        },
+        {
+          "fact_type": "role",
+          "source_id": "projects:prj1790844823849w4d:role",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e1-role",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844823849w4d",
+          "evidence_quote": "데이터 처리 및 Streamlit 서비스 구현",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "데이터 처리 및 Streamlit 서비스 구현 역할로 기재됨.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        },
+        {
+          "fact_type": "technology",
+          "source_id": "projects:prj1790844823849w4d:techStack",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e1-tech",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844823849w4d",
+          "evidence_quote": "Python, Pandas, Streamlit, MySQL",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "기술 스택에 Python, Pandas, Streamlit, MySQL이 기재됨.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        }
+      ],
+      "facets": [
+        {
+          "slots": [
+            "purpose_or_problem"
+          ],
+          "material": true,
+          "evidence_id": "e1-purpose"
+        },
+        {
+          "slots": [
+            "technical_decisions",
+            "actions"
+          ],
+          "material": true,
+          "evidence_id": "e1-distance"
+        },
+        {
+          "slots": [
+            "actions",
+            "outcome"
+          ],
+          "material": true,
+          "evidence_id": "e1-filters"
+        },
+        {
+          "slots": [
+            "technical_decisions",
+            "scale_or_constraints"
+          ],
+          "material": true,
+          "evidence_id": "e1-data"
+        },
+        {
+          "slots": [
+            "personal_role"
+          ],
+          "material": true,
+          "evidence_id": "e1-role"
+        },
+        {
+          "slots": [
+            "technologies"
+          ],
+          "material": false,
+          "evidence_id": "e1-tech"
+        }
+      ],
+      "question": null,
+      "writer_text": "데이터 처리와 Streamlit 서비스 구현을 맡아 사용자 위치를 기준으로 가까운 자동차 정비소를 찾는 서비스를 구현했습니다. 정비소 주소와 위·경도 데이터를 활용해 Haversine 거리로 거리를 계산하고, 가까운 순으로 정렬했습니다. 브랜드 공식 서비스센터와 정비소 종류를 필터링할 수 있도록 구성하고, 운영시간 데이터가 있는 경우에는 영업 중 여부를 표시했습니다. 초기 데이터는 CSV로 관리했으며, 이후 MySQL 연계를 고려해 브랜드와 정비 유형 데이터를 구조화했습니다."
+    },
+    {
+      "experience": {
+        "kind": "project",
+        "role": [],
+        "scope": [],
+        "title": "AI 기반 LMS 및 채용 지원 서비스",
+        "actions": [],
+        "results": [],
+        "field_path": "projects[2].description",
+        "content_hash": "59adf050126117ebf1830aeca1b1ebb9dc0d502a80d4efad912731dd7faa97ee",
+        "current_text": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다. 이력서 문장을 바로 생성하는 방식 대신 프로젝트·경력 단위 Experience와 사실 단위 Evidence를 분리하고, 지원자의 실제 경험과 채용공고의 요구사항을 구분하도록 구조를 설계했습니다. Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다. 또한 공고 요구사항 분석 결과를 재분석하지 않고 기존 JobRequirementProfile에서 재사용해 Planner와 Writer까지 전달하도록 연결했습니다. Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다.",
+        "technologies": [],
+        "verification": [],
+        "experience_id": "projects:prj1790844850071sxa",
+        "context_problem": [],
+        "implementations": [],
+        "existing_evidence": [],
+        "technical_decisions": []
+      },
+      "facts": [
+        {
+          "fact_type": "role",
+          "source_id": "projects:prj1790844850071sxa",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e2-role",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844850071sxa",
+          "evidence_quote": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다.",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "AI 기반 LMS 프로젝트에서 이력서·자기소개서 첨삭 기능을 담당함.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        },
+        {
+          "fact_type": "technical_decision",
+          "source_id": "projects:prj1790844850071sxa",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e2-model",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844850071sxa",
+          "evidence_quote": "이력서 문장을 바로 생성하는 방식 대신 프로젝트·경력 단위 Experience와 사실 단위 Evidence를 분리하고, 지원자의 실제 경험과 채용공고의 요구사항을 구분하도록 구조를 설계했습니다.",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "문장 직접 생성 대신 Experience와 Evidence를 분리하고 지원자 경험과 공고 요구사항을 구분하는 구조를 설계함.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        },
+        {
+          "fact_type": "implementation",
+          "source_id": "projects:prj1790844850071sxa",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e2-planner",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844850071sxa",
+          "evidence_quote": "Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다.",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "Application Workspace에서 지원 문항을 분석하고 Experience와 Evidence를 선택한 뒤 부족한 정보를 묻는 Planner를 구현함.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        },
+        {
+          "fact_type": "implementation",
+          "source_id": "projects:prj1790844850071sxa",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e2-profile",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844850071sxa",
+          "evidence_quote": "또한 공고 요구사항 분석 결과를 재분석하지 않고 기존 JobRequirementProfile에서 재사용해 Planner와 Writer까지 전달하도록 연결했습니다.",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "공고 요구사항 분석 결과를 기존 JobRequirementProfile에서 재사용해 Planner와 Writer까지 전달하도록 연결함.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        },
+        {
+          "fact_type": "implementation",
+          "source_id": "projects:prj1790844850071sxa",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e2-validator",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844850071sxa",
+          "evidence_quote": "Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다.",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "Writer의 지원자 경험·공고 내용 임의 확대를 방지하기 위해 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현함.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        },
+        {
+          "fact_type": "role",
+          "source_id": "projects:prj1790844850071sxa:role",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e2-role-source",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844850071sxa",
+          "evidence_quote": "이력서·자기소개서 AI 첨삭 및 Application Workspace 설계·구현",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "이력서·자기소개서 AI 첨삭 및 Application Workspace 설계·구현 역할로 기재됨.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        },
+        {
+          "fact_type": "technology",
+          "source_id": "projects:prj1790844850071sxa:techStack",
+          "created_at": null,
+          "updated_at": null,
+          "evidence_id": "e2-tech",
+          "source_type": "resume_text",
+          "experience_id": "projects:prj1790844850071sxa",
+          "evidence_quote": "Python, Django, FastAPI, PostgreSQL, React, OpenAI API, AWS, Git/GitHub",
+          "assertion_state": "resume_stated",
+          "normalized_fact": "기술 스택에 Python, Django, FastAPI, PostgreSQL, React, OpenAI API, AWS, Git/GitHub가 기재됨.",
+          "supersedes_evidence_ids": [],
+          "conflicts_with_evidence_ids": []
+        }
+      ],
+      "facets": [
+        {
+          "slots": [
+            "personal_role"
+          ],
+          "material": true,
+          "evidence_id": "e2-role"
+        },
+        {
+          "slots": [
+            "technical_decisions"
+          ],
+          "material": true,
+          "evidence_id": "e2-model"
+        },
+        {
+          "slots": [
+            "actions",
+            "purpose_or_problem"
+          ],
+          "material": true,
+          "evidence_id": "e2-planner"
+        },
+        {
+          "slots": [
+            "actions",
+            "technical_decisions"
+          ],
+          "material": true,
+          "evidence_id": "e2-profile"
+        },
+        {
+          "slots": [
+            "actions",
+            "technical_decisions"
+          ],
+          "material": true,
+          "evidence_id": "e2-validator"
+        },
+        {
+          "slots": [
+            "personal_role"
+          ],
+          "material": false,
+          "evidence_id": "e2-role-source"
+        },
+        {
+          "slots": [
+            "technologies"
+          ],
+          "material": false,
+          "evidence_id": "e2-tech"
+        }
+      ],
+      "question": {
+        "focus": "analysis_validation",
+        "targets": [
+          {
+            "anchor": "Fact Validator와 Quality Validator",
+            "evidence_id": "e2-validator"
+          }
+        ],
+        "contract": "evidence-need-v2",
+        "gap_type": "clarification",
+        "priority": "MEDIUM",
+        "dedupe_key": "validator_actual_check_and_limits",
+        "why_needed": "문장별 근거를 추적하고 확대를 막는 Validator 구조를 구현한 사실은 확인되지만, 실제 출력물에서 어떤 방식으로 확인했는지와 확인 결과·한계는 제시되지 않았습니다. 실제 점검 경험이 있다면 구현 설명을 넘어 근거 추적 기능이 어떻게 확인됐는지를 구체화할 수 있습니다.",
+        "owner_scope": "experience",
+        "target_slot": "validation_method",
+        "experience_id": "projects:prj1790844850071sxa",
+        "evidence_basis": [
+          "e2-validator"
+        ],
+        "request_aspect": "verification_result_and_limits",
+        "requirement_id": null
+      },
+      "writer_text": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당하고, 문장을 바로 생성하는 대신 프로젝트·경력 단위의 Experience와 사실 단위의 Evidence를 분리해 지원자의 실제 경험과 채용공고 요구사항을 구분하는 구조를 설계했습니다. Application Workspace에서는 지원 문항을 분석해 적절한 Experience와 Evidence를 선택하고, 부족한 정보를 질문하는 Planner를 구현했습니다. 공고 요구사항 분석 결과는 재분석하지 않고 기존 JobRequirementProfile에서 재사용해 Planner와 Writer까지 전달하도록 연결했습니다. Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고, 문장별 근거를 추적하는 구조를 구현했습니다."
+    }
+  ],
+  "answers": [
+    {
+      "answer": "같은 KKBOX 이탈 예측 데이터에서 Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교했고, Precision·Recall·F1·ROC-AUC·PR-AUC를 함께 봤습니다. 전체적으로는 LightGBM이 가장 좋은 성능을 보여 최종 모델로 선택했습니다. XGBoost는 threshold 0.5, 0.3, 0.2, 0.1에서 F1이 각각 약 0.2257, 0.2538, 0.2612, 0.2592였고, 테스트한 범위에서는 0.2가 가장 높았습니다.",
+      "question": "이 대상에 대해 실제로 비교한 결과가 있다면 어떤 차이를 확인했나요? 측정 대상·조건·범위와 함께 알려주세요.",
+      "field_path": "projects[0].description",
+      "question_id": "1791343977152530_383226198:v2gap:809861490f82e676",
+      "experience_id": "projects:prj17908447284945fx",
+      "question_target_contexts": [
+        {
+          "type": "applicant_source",
+          "quote": "약 99만 건의 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형 문제를 확인하고 Accuracy만으로 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다.",
+          "anchor": "비교하고",
+          "anchors": [
+            "비교하고"
+          ],
+          "source_id": "projects:prj17908447284945fx",
+          "source_type": "resume_text",
+          "evidence_ids": [
+            "e0-evaluation",
+            "e0-imbalance"
+          ],
+          "context_quote": "KKBOX 사용자 데이터를 활용해 사용자 이탈을 예측했습니다. 약 99만 건의 데이터에서 이탈 비율이 약 6.4%인 클래스 불균형 문제를 확인하고 Accuracy만으로 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다. XGBoost의 threshold를 조정하며 F1 변화를 비교했고, days_to_expire 변수가 이탈 예측에서 중요한 방향성을 가진 변수임을 분석했습니다.",
+          "target_evidence_id": "e0-evaluation",
+          "target_evidence_ids": [
+            "e0-evaluation"
+          ],
+          "selected_source_quotes": [
+            "Accuracy만으로 평가하기 어렵다고 판단했습니다. Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost를 비교하고 Precision, Recall, F1, ROC-AUC와 PR-AUC를 함께 확인했습니다."
+          ]
+        }
+      ]
+    },
+    {
+      "answer": "지원동기와 프로젝트 설명 수정 사례로 확인했습니다. Fact Validator에서는 원문이나 사용자 답변에 없는 역할·성과가 추가되는 사례가 줄었고, Quality Validator에서는 핵심 의미 누락과 반복 표현을 확인했습니다. 다만 재작성 과정에서 의미가 일부 빠지거나 같은 내용이 반복되는 경우는 아직 남아 있었습니다.",
+      "question": "이 대상을 실제로 점검한 결과가 있다면 확인한 변화와 아직 남은 문제·한계를 구분해 알려주세요. 시험 수행만으로 성공을 단정하지 않아도 됩니다.",
+      "field_path": "projects[2].description",
+      "question_id": "1791344375261719_616302719:v2gap:31ea8f65fb8bf17b",
+      "experience_id": "projects:prj1790844850071sxa",
+      "question_target_contexts": [
+        {
+          "type": "applicant_source",
+          "quote": "Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다.",
+          "anchor": "Fact Validator와 Quality Validator",
+          "anchors": [
+            "Fact Validator와 Quality Validator"
+          ],
+          "source_id": "projects:prj1790844850071sxa",
+          "source_type": "resume_text",
+          "evidence_ids": [
+            "e2-validator"
+          ],
+          "context_quote": "AI 기반 LMS 프로젝트에서 이력서와 자기소개서 첨삭 기능을 담당했습니다. 이력서 문장을 바로 생성하는 방식 대신 프로젝트·경력 단위 Experience와 사실 단위 Evidence를 분리하고, 지원자의 실제 경험과 채용공고의 요구사항을 구분하도록 구조를 설계했습니다. Application Workspace에서 지원 문항을 분석하고 적절한 Experience와 Evidence를 선택한 뒤 부족한 정보를 질문하는 Planner를 구현했습니다. 또한 공고 요구사항 분석 결과를 재분석하지 않고 기존 JobRequirementProfile에서 재사용해 Planner와 Writer까지 전달하도록 연결했습니다. Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다.",
+          "target_evidence_id": "e2-validator",
+          "target_evidence_ids": [
+            "e2-validator"
+          ],
+          "selected_source_quotes": [
+            "Writer가 지원자 경험이나 공고 내용을 임의로 확대하지 않도록 Fact Validator와 Quality Validator를 두고 문장별 근거를 추적하는 구조를 구현했습니다."
+          ]
+        }
+      ]
+    }
+  ]
+}

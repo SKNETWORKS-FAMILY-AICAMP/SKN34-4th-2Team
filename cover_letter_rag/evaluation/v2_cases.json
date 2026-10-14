@@ -1,0 +1,83 @@
+[
+  {
+    "case_id": "01_procedure_dump",
+    "failure_type": "long conversational sequence",
+    "experience": {"experience_id": "project-rag-1", "kind": "project", "title": "수강생 LMS 챗봇", "current_text": "공지·규정 문서를 검색하는 LMS 챗봇을 개발했습니다.", "field_path": "projects[0].description", "content_hash": "offline-01"},
+    "question": "검색할 문서를 준비할 때 직접 수행한 작업은 무엇인가요?",
+    "answer": "PDF에서 텍스트를 추출하고 필요 없는 부분을 제거했어요. RecursiveCharacterTextSplitter로 문서를 나눴고, 문서 종류와 제목을 메타데이터로 넣었어요. 이후 Pinecone에 적재하고 수정된 문서는 다시 색인했습니다.",
+    "answer_source_id": "answer-01"
+  },
+  {
+    "case_id": "02_keep_technical_signal",
+    "failure_type": "preserve implementation and decision",
+    "experience": {"experience_id": "project-cache-1", "kind": "project", "title": "배송 조회 서비스", "current_text": "배송 조회 API를 개발하고 응답 속도를 개선했습니다.", "field_path": "projects[0].description", "content_hash": "offline-02"},
+    "question": "응답 속도를 개선할 때 어떤 방법을 선택했고 이유는 무엇인가요?",
+    "answer": "택배사 API 응답이 느려서 최근 조회 결과를 Redis에 5분 동안 캐시했고, 여러 택배사 호출은 병렬로 바꿨습니다. 평균 응답 시간이 2.8초에서 0.6초가 됐어요.",
+    "answer_source_id": "answer-02"
+  },
+  {
+    "case_id": "03_mostly_duplicate",
+    "failure_type": "answer overlaps current resume",
+    "experience": {"experience_id": "project-api-1", "kind": "project", "title": "출결 관리 API", "current_text": "Django로 출결 조회·수정 API를 직접 구현하고 PostgreSQL에 변경 내역을 저장했습니다.", "field_path": "projects[0].description", "content_hash": "offline-03"},
+    "question": "출결 데이터 처리에서 직접 맡은 부분은 무엇인가요?",
+    "answer": "제가 Django로 출결 조회랑 수정 API를 만들었고 변경 내역은 PostgreSQL에 저장했어요.",
+    "answer_source_id": "answer-03"
+  },
+  {
+    "case_id": "04_action_without_result",
+    "failure_type": "no invented result",
+    "experience": {"experience_id": "project-auth-1", "kind": "project", "title": "LMS 인증", "current_text": "로그인 기능을 개발했습니다.", "field_path": "projects[0].description", "content_hash": "offline-04"},
+    "question": "로그인 기능에서 직접 구현한 부분은 무엇인가요?",
+    "answer": "JWT 발급과 갱신 API를 구현했고, 강사와 학생 권한에 따라 접근 가능한 엔드포인트를 분리했어요. 성능이나 오류 감소 수치는 측정하지 않았습니다.",
+    "answer_source_id": "answer-04"
+  },
+  {
+    "case_id": "05_confirmed_result",
+    "failure_type": "keep supported outcome",
+    "experience": {"experience_id": "project-db-1", "kind": "project", "title": "재고 관리 서비스", "current_text": "재고 목록 조회 API를 구현했습니다.", "field_path": "projects[0].description", "content_hash": "offline-05"},
+    "question": "조회 성능을 개선한 방법과 확인된 결과는 무엇인가요?",
+    "answer": "N+1 문제를 확인하고 fetch join과 페이지네이션을 적용했습니다. 페이지당 SQL 쿼리가 200회 넘게 나가던 것을 3회로 줄였어요.",
+    "answer_source_id": "answer-05"
+  },
+  {
+    "case_id": "06_team_vs_self",
+    "failure_type": "separate team outcome from own role",
+    "experience": {"experience_id": "project-ai-1", "kind": "project", "title": "채용 추천 서비스", "current_text": "팀 프로젝트로 채용 추천 서비스를 만들었습니다.", "field_path": "projects[0].description", "content_hash": "offline-06"},
+    "question": "추천 기능에서 직접 담당한 구현은 무엇인가요?",
+    "answer": "공고 크롤링이랑 모델 학습은 팀원이 했고 저는 React 추천 결과 화면과 Django API 연결을 담당했어요. 추천 정확도는 제가 평가하지 않았습니다.",
+    "answer_source_id": "answer-06"
+  },
+  {
+    "case_id": "07_no_or_unknown",
+    "failure_type": "declined answer",
+    "experience": {"experience_id": "project-study-1", "kind": "project", "title": "공부방 서비스", "current_text": "학습 자료를 조회하는 화면을 개발했습니다.", "field_path": "projects[0].description", "content_hash": "offline-07"},
+    "question": "사용자 수나 학습 효과를 확인한 결과가 있나요?",
+    "answer": "없어요. 사용자 수나 학습 효과는 측정하지 않았습니다.",
+    "answer_source_id": "answer-07"
+  },
+  {
+    "case_id": "08_uncertain_claim",
+    "failure_type": "clear correction supersedes an old claim, uncertain outcome remains uncertain",
+    "experience": {"experience_id": "project-search-1", "kind": "project", "title": "문서 검색 서비스", "current_text": "검색 API를 구현하고 모델 학습을 직접 수행해 검색 정확도를 높였습니다.", "field_path": "projects[0].description", "content_hash": "offline-08-correction"},
+    "question": "검색 정확도가 개선됐다는 결과를 확인했나요?",
+    "answer": "정확도는 수치로 비교하지 않아 좋아졌는지 모릅니다. 모델 학습은 팀원이 했고 저는 검색 API 연결만 담당했습니다.",
+    "answer_source_id": "answer-08"
+  },
+  {
+    "case_id": "09_job_only_technology",
+    "failure_type": "posting is not applicant evidence",
+    "experience": {"experience_id": "project-server-1", "kind": "project", "title": "백엔드 서비스", "current_text": "Python으로 REST API를 개발했습니다.", "field_path": "projects[0].description", "content_hash": "offline-09"},
+    "question": "Kubernetes를 직접 사용한 경험이 있나요?",
+    "answer": "아니요. Docker로 로컬 실행 환경을 만든 경험은 있지만 Kubernetes는 사용하지 않았습니다.",
+    "answer_source_id": "answer-09",
+    "job_requirements": [{"requirement_id": "req-k8s", "text": "Kubernetes 기반 배포 경험", "posting_quote": "Kubernetes 기반 배포 경험"}]
+  },
+  {
+    "case_id": "10_already_good",
+    "failure_type": "do not force a rewrite",
+    "experience": {"experience_id": "project-concurrency-1", "kind": "project", "title": "재고 관리 시스템", "current_text": "동시 출고 시 재고가 음수가 되는 문제를 비관적 락으로 해결하고, 동시 요청 100건의 테스트로 재고 정합성을 확인했습니다.", "field_path": "projects[0].description", "content_hash": "offline-10"},
+    "question": "이 작업에 관해 더 확인할 내용이 있나요?",
+    "answer": "이력서에 적힌 내용이 제가 한 일의 전부입니다.",
+    "answer_source_id": "answer-10"
+  }
+]

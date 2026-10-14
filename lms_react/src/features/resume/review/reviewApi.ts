@@ -1,0 +1,260 @@
+import { http } from '../../../data/http';
+
+/**
+ * 첨삭 서버 호출 — ai_coach/data/resume_review_api_client.dart 를 Django 창구(/api/resume-review/*)로.
+ *
+ * 원본은 Firebase 토큰으로 첨삭 서버를 바로 불렀다. 우리 앱은 자체 JWT 라 Django 가 학생을 확인하고
+ * uid 로 넘긴다. 요청 · 응답 모양(snake_case)은 원본 그대로 둔다 — 세션 저장본도 원본과 호환된다.
+ */
+export type Json = Record<string, unknown>;
+
+export class ReviewApiError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: number,
+    readonly code?: string,
+  ) {
+    super(message);
+  }
+}
+
+/** 원본 _failureMessage 그대로. 서버 detail 을 사람이 읽을 문장으로 바꾼다 */
+function failureMessage(status: number, detail: string | undefined): string {
+  const key = `${status}:${detail ?? ''}`;
+  switch (key) {
+    case '422:answer_repeats_question':
+      return '질문을 그대로 제출했습니다. 실제 답변을 입력해 주세요.';
+    case '409:answer_state_changed':
+      return '답변 상태가 변경됐습니다. 최신 첨삭을 다시 열어 확인해 주세요.';
+    case '409:question_contract_changed':
+      return '질문 계약이 갱신됐습니다. 최신 첨삭으로 질문을 다시 확인해 주세요.';
+    case '422:issued_answer_question_unavailable':
+      return '저장된 원 질문을 찾을 수 없어 답변을 안전하게 변경할 수 없습니다.';
+    case '409:selected_job_closed':
+    case '409:selected_job_expired':
+    case '422:selected_job_closed': // 사본 만들기 창구는 막힘을 422 로 돌려준다
+    case '422:selected_job_expired':
+      return '선택한 공고가 마감되어 맞춤 첨삭을 할 수 없습니다. 다른 공고를 선택해 주세요.';
+    case '422:selected_job_full_text_unavailable':
+      return '이 공고는 상세 내용이 이미지뿐이라 원문 근거 첨삭을 할 수 없습니다. 텍스트 공고를 선택해 주세요.';
+    case '422:selected_job_deadline_unverified':
+      return '선택한 공고의 마감일 형식을 확인할 수 없습니다. 공고 원문을 확인하거나 다른 공고를 선택해 주세요.';
+    case '422:selected_job_not_found':
+      return '선택한 공고 원문을 찾을 수 없습니다. 추천 목록을 새로고침한 뒤 다시 선택해 주세요.';
+    case '422:invalid_selection':
+    case '422:selection_not_applicable':
+      return '선택한 수정안이 현재 이력서 원문에 적용될 수 없습니다. 첨삭을 다시 실행해 주세요.';
+    case '422:unknown, duplicate or mismatched question':
+      return '이전 단계의 질문 상태를 확인하지 못했습니다. 창을 닫고 최신 이력서로 첨삭을 다시 시작해 주세요.';
+    case '409:resume_version_changed':
+    case '409:resume_version_changed: reload the resume and review':
+      return '수정안 적용으로 이력서가 갱신되었습니다. 기존 결과는 적용 전 내용 기준이므로 최신 이력서로 첨삭을 다시 시작해 주세요.';
+    case '409:resume_changed_after_application':
+      return '이력서가 적용 후 변경되어 되돌릴 수 없습니다. 최신 내용을 확인해 주세요.';
+    // 앞서 적용한 수정안이 이 수정안의 원문을 바꿨다. 오류가 아니라 이미 다른 수정안으로 고친 문장이다
+    case '409:ambiguous_or_masked_quote':
+    case '409:overlapping_edits':
+      return '이 문장은 앞서 적용한 수정안으로 이미 바뀌어 이 수정안은 적용할 수 없어요. 건너뛰고 다음으로 넘어가 주세요.';
+    case '409:resume_item_changed':
+      return '이력서 항목 구성이 바뀌어 새 프로젝트를 추가할 수 없어요. 최신 이력서로 첨삭을 다시 시작해 주세요.';
+    // 원본 표에 없던 것. 빈 이력서를 첨삭하면 아래 일반 422 문구(공고 원문 · 수정안)가 떠서 까닭을 알 수 없었다
+    case '422:company_question_not_found':
+      return '이 문항을 이력서에서 찾지 못했어요. 화면을 새로고침한 뒤 다시 시도해 주세요.';
+    case '422:unsupported_image':
+      return 'PNG · JPG · WEBP 이미지나 PDF · Word · PowerPoint · 한글(.hwpx) 파일만 읽을 수 있어요.';
+    case '422:document_unreadable':
+      return '파일을 열 수 없거나 형식이 맞지 않아요(암호 · 손상 · 확장자만 바꾼 파일). PDF 로 저장하거나 문항이 보이는 화면을 캡처해 올려 주세요.';
+    case '422:document_too_large':
+      return '압축을 풀면 너무 커지는 파일이에요. 문항이 있는 쪽만 PDF 로 저장하거나 캡처해 올려 주세요.';
+    case '422:document_no_text':
+      return '파일에서 글을 찾지 못했어요. 문항이 그림으로만 들어 있을 수 있으니 문항이 보이는 화면을 캡처해 올려 주세요.';
+    case '422:document_with_other_files':
+      return 'PDF · 문서 파일은 한 개만, 캡처와 따로 올려 주세요.';
+    case '422:pdf_unreadable':
+      return '암호가 걸렸거나 열 수 없는 PDF 예요. 문항이 보이는 화면을 캡처해 올려 주세요.';
+    case '422:pdf_no_text':
+      return 'PDF 에서 글이나 이미지를 찾지 못했어요. 문항이 보이는 화면을 캡처해 올려 주세요.';
+    case '422:pdf_with_other_files':
+      return 'PDF 는 한 개만, 캡처와 따로 올려 주세요.';
+    case '422:resume is empty':
+      return '이력서 내용이 비어 있어 첨삭할 수 없어요. 이력서를 먼저 채운 뒤 다시 시도해 주세요.';
+  }
+  switch (status) {
+    // Django 가 요청을 확인하고 돌려준 안내(파일 종류 · 장수 · 크기)는 이미 사람이 읽을 문장이다
+    case 400:
+      return detail ?? '요청을 확인할 수 없습니다.';
+    case 401:
+      return '로그인이 만료됐습니다. 다시 로그인해 주세요.';
+    case 403:
+      return '본인 소유 이력서만 첨삭할 수 있습니다.';
+    case 404:
+      return '이력서를 찾을 수 없습니다.';
+    case 409:
+      return '이력서 또는 공고가 변경됐거나 요청이 처리 중입니다. 결과를 확인하고 다시 시도해 주세요.';
+    case 422:
+      return '첨삭에 필요한 공고 원문 또는 선택한 수정안을 확인할 수 없습니다.';
+    case 503:
+      return detail?.includes('연결') ? detail : '첨삭 서버 설정 또는 공고 원문 DB를 사용할 수 없습니다. 서버 로그의 오류 유형을 확인해 주세요.';
+    default:
+      return `첨삭 요청에 실패했습니다 (HTTP ${status}).`;
+  }
+}
+
+const WORKFLOW_POLL_MS = 3_000;
+const WORKFLOW_LIMIT_MS = 15 * 60_000;
+
+function attemptId(): string {
+  const random = new Uint32Array(1);
+  crypto.getRandomValues(random);
+  return `${Date.now()}_${random[0] & 0x3fffffff}`;
+}
+
+/**
+ * 백그라운드 작업 — 같은 작업 번호로 보내기를 되풀이한다. 서버는 처음에 작업을 넣고, 그 뒤로는 상태만 답하다가
+ * 끝나면 결과(또는 원래의 실패 상태 · 문구)를 돌려준다. 확인 요청이 잠깐 끊기면(연결 · 504) 몇 번 더 묻는다.
+ */
+async function pollJob(path: string, body: Json): Promise<Json> {
+  const request = { ...body, asyncAttempt: attemptId() };
+  const started = Date.now();
+  let hiccups = 0;
+  for (;;) {
+    let data: Json;
+    try {
+      data = await post(path, request, 30_000);
+      hiccups = 0;
+    } catch (err) {
+      const transient = err instanceof ReviewApiError && (err.statusCode === 0 || err.statusCode === 502 || err.statusCode === 504);
+      if (!transient || ++hiccups > 3) throw err;
+      await new Promise((resolve) => setTimeout(resolve, WORKFLOW_POLL_MS));
+      continue;
+    }
+    if (data.async_job === undefined) return data;
+    if (Date.now() - started > WORKFLOW_LIMIT_MS) {
+      throw new ReviewApiError('자소서 쓰기가 오래 걸리고 있어요. 잠시 후 다시 시도해 주세요.', 504);
+    }
+    await new Promise((resolve) => setTimeout(resolve, WORKFLOW_POLL_MS));
+  }
+}
+
+async function post(path: string, body: Json | FormData, timeout = 180_000): Promise<Json> {
+  try {
+    const { data } = await http.post<Json>(path, body, { timeout });
+    return data;
+  } catch (err) {
+    const response = (err as { response?: { status?: number; data?: { detail?: unknown } } }).response;
+    if (response?.status !== undefined) {
+      if (path === '/resume-review/answer-change' && response.status === 404) {
+        throw new ReviewApiError('답변 변경 경로가 서버에 아직 반영되지 않았습니다. Django 서버 반영 후 다시 시도해 주세요.',404);
+      }
+      const detail = typeof response.data?.detail === 'string' ? response.data.detail : undefined;
+      throw new ReviewApiError(failureMessage(response.status, detail), response.status, detail);
+    }
+    if (['ECONNABORTED', 'ETIMEDOUT'].includes((err as { code?: string }).code ?? '')) {
+      throw new ReviewApiError('응답 시간이 초과됐습니다. 재시도는 같은 요청 ID로 처리됩니다.', 0, 'transport_timeout');
+    }
+    throw new ReviewApiError('첨삭 서버에 연결하지 못했습니다. 서버 주소와 실행 상태를 확인해 주세요.', 0);
+  }
+}
+
+/** 원본 요청(snake_case)의 이력서 · 공고 식별자는 Django 가 채운다. 나머지는 그대로 넘긴다 */
+export const reviewApi = {
+  context: (resumeId: string, jobId?: string, tailoredResumeId?: string) =>
+    post('/resume-review/context', { resumeId, selectedJobId: jobId, tailoredResumeId }),
+
+  /**
+   * 공고 하나의 요건 — 이력서 없이 공고만 본다. 마감 · 이미지 공고면 첨삭과 같은 문구로 막힌다.
+   * allowClosed: 이미 만든 자소서의 쓰기 창만 — 마감된 공고 요건도 보여 준다
+   */
+  requirements: (jobId: string, allowClosed = false) => post('/resume-review/requirements', { jobId, allowClosed }),
+
+  /** 캡처(이미지 세 장까지) · 지원서 양식 PDF(한 개) → 문항 목록. 파일은 저장하지 않는다 */
+  extractQuestions: (images: Blob[]) => {
+    const form = new FormData();
+    // Django 는 문서를 확장자로도 가린다 — 종류에 맞는 확장자를 붙인다
+    const ext = (type: string) =>
+      ({
+        'image/png': 'png',
+        'image/webp': 'webp',
+        'application/pdf': 'pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+        'application/hwp+zip': 'hwpx',
+      })[type] ?? 'jpg';
+    images.forEach((image, i) => form.append('files', image, `capture-${i + 1}.${ext(image.type)}`));
+    return post('/resume-review/question-extract', form);
+  },
+
+  /** 공고에 첨부된 지원서 양식 링크(사람인 · 잡코리아) → 문항 목록 */
+  extractQuestionsFromLink: (url: string) => post('/resume-review/question-extract-link', { url }),
+
+  /** 공고 맞춤 이력서의 회사 문항 하나에 답을 쓴다 — 공고 요건 · 이력서 근거로. 저장은 하지 않는다 */
+  questionAnswer: (resumeId: string, tailoredResumeId: string, questionId: string,
+    answers: { question: string; answer: string; source_type?: 'memo' | 'answer' | 'selection'; selected_experience_id?: string }[]) =>
+    post('/resume-review/question-answer', { resumeId, tailoredResumeId, questionId, answers }),
+
+  /**
+   * 공고 맞춤 지원 사본의 회사 문항 전체에 답을 쓴다 — 문항을 함께 계획해 경험이 겹치지 않게(app/question_workflow).
+   * 화면의 최신 메모 · 질문 답을 같이 보낸다. 저장은 하지 않는다.
+   *
+   * 백그라운드로 쓴다: 작업 번호(asyncAttempt)를 붙여 보내면 서버가 Celery 에 넣고 바로 답한다. 같은 번호로
+   * 3초마다 다시 물어 결과를 받는다. 배포에서 요청이 CloudFront(30~60초)를 거쳐, 1~2분 걸리는 답 쓰기가
+   * 504 로 끊겼다(2026-10-14). 짧은 확인 요청만 오가므로 끊기지 않는다.
+   */
+  questionWorkflow: (resumeId: string, tailoredResumeId: string,
+    questions: { id: string; memo: string; notes: { question: string; answer: string }[] }[],
+    /** only: 그 문항만 다시 쓴다. plan: 앞서 받은 계획 — 있으면 계획을 다시 세우지 않아 30~60초로 끝난다 */
+    /** stage: 문항 전체를 여러 요청에 나눈다 — plan(계획만) → 문항마다 only → finish(answers 로 한 벌 검토) */
+    options: { only?: string; plan?: Json | null; stage?: 'all' | 'plan' | 'finish'; answers?: Record<string, Json> } = {}) =>
+    pollJob('/resume-review/question-workflow', { resumeId, tailoredResumeId, questions, ...options }),
+
+  /** 공고용 사본을 뜬다. apply(공고 맞춤 지원)는 이력서 관리의 맞춤 첨삭 사본(review)과 따로 뜬다 */
+  createTailored: (resumeId: string, jobId: string, purpose: 'review' | 'apply' = 'review') =>
+    post('/resume-review/tailored', { resumeId, selectedJobId: jobId, purpose }),
+
+  tailored: (resumeId: string, tailoredResumeId: string) =>
+    post('/resume-review/tailored/get', { resumeId, tailoredResumeId }),
+
+  saveSession: (resumeId: string, tailoredResumeId: string, state: Json) =>
+    post('/resume-review/session', { resumeId, tailoredResumeId, state }),
+
+  promote: async (resumeId: string, tailoredResumeId: string): Promise<string> => {
+    const data = await post('/resume-review/promote', { resumeId, tailoredResumeId });
+    return String(data.workspace_resume_id ?? '');
+  },
+
+  review: (resumeId: string, request: Json) =>
+    post(Array.isArray(request.answer_changes) && request.answer_changes.length ? '/resume-review/answer-change' : '/resume-review', {
+      resumeId,
+      reviewMode: request.review_mode,
+      reviewPhase: request.review_phase,
+      asyncAttempt: request.async_attempt,
+      requestId: request.request_id,
+      expectedInputHash: request.expected_input_hash,
+      expectedJobHash: request.expected_job_hash,
+      previousReviewId: request.previous_review_id,
+      selectedJobId: request.selected_job_id,
+      tailoredResumeId: request.tailored_resume_id,
+      answers: request.answers,
+      answerChanges: request.answer_changes,
+    }),
+
+  apply: (resumeId: string, request: Json) =>
+    post('/resume-review/apply', {
+      resumeId,
+      requestId: request.request_id,
+      reviewId: request.review_id,
+      expectedInputHash: request.expected_input_hash,
+      selectedIndices: request.selected_indices,
+      tailoredResumeId: request.tailored_resume_id,
+    }),
+
+  undo: (resumeId: string, request: Json) =>
+    post('/resume-review/undo', {
+      resumeId,
+      reviewId: '',
+      requestId: request.request_id,
+      applicationId: request.application_id,
+      expectedInputHash: request.expected_input_hash,
+      tailoredResumeId: request.tailored_resume_id,
+    }),
+};

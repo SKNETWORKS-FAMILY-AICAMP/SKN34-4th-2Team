@@ -1,0 +1,183 @@
+"""예약 공지를 notices 로 발행. Cloud Functions 없음."""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+
+from django.db import connection, transaction
+from django.utils import timezone
+
+from lms.push import notify_new_notice
+from lms.services import SCHEDULED_ATTENDANCE_TITLE, schedule_notice_vector
+
+
+def attendance_notice(cur, row, author_name, when):
+    """반복 출결 안내는 기수별 한 행을 재사용한다. 서로 다른 예약도 직렬화한다."""
+    cur.execute("SELECT pg_advisory_xact_lock(71423, %s)", [row["cohort_id"]])
+    cur.execute(
+        """SELECT id, vector_chunk_count FROM notices
+           WHERE cohort_id = %s AND source = 'scheduled' AND btrim(title) = %s
+           ORDER BY created_at DESC NULLS LAST, id DESC LIMIT 1 FOR UPDATE""",
+        [row["cohort_id"], SCHEDULED_ATTENDANCE_TITLE],
+    )
+    existing = cur.fetchone()
+    if existing:
+        cur.execute(
+            """UPDATE notices SET title = %s, content = %s, author_id = %s,
+               author_name = %s, is_favorite = %s, scheduled_notice_id = %s,
+               created_at = %s, updated_at = %s WHERE id = %s""",
+            [row["title"], row.get("content") or "", row.get("author_id"), author_name,
+             bool(row.get("is_favorite")), row["id"], when, when, existing[0]],
+        )
+    return existing
+
+
+def _time_parts(value) -> tuple[int, int]:
+    if value is None:
+        return 9, 0
+    if hasattr(value, "hour"):
+        return int(value.hour), int(value.minute)
+    parts = str(value).split(":")
+    hour = int(parts[0]) if parts and parts[0].isdigit() else 9
+    minute = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+    return hour, minute
+
+
+def compute_next_publish_at(
+    repeat_type: str | None,
+    publish_time,
+    publish_at,
+    weekday: int | None,
+    now: datetime | None = None,
+) -> datetime:
+    """Flutter computeNextPublishAt 와 같은 규칙. weekday 1=월 … 7=일."""
+    base = timezone.localtime(now or timezone.now())
+    hour, minute = _time_parts(publish_time)
+    kind = (repeat_type or "once").lower()
+    if kind == "once":
+        if publish_at:
+            if timezone.is_naive(publish_at):
+                return timezone.make_aware(publish_at, timezone.get_current_timezone())
+            return publish_at
+        return base.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if kind == "daily":
+        candidate = base.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if candidate <= base:
+            candidate += timedelta(days=1)
+        return candidate
+    want = int(weekday or 1)
+    if want < 1 or want > 7:
+        want = 1
+    candidate = base.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    while candidate.isoweekday() != want or candidate <= base:
+        candidate += timedelta(days=1)
+    return candidate
+
+
+def _dicts(cur):
+    cols = [c[0] for c in cur.description] if cur.description else []
+    return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def publish_scheduled_notices(*, ids: list | None = None, now: datetime | None = None,
+                              cohort_id: int | None = None) -> int:
+    """기한이 된 예약(또는 지정 id)을 notices 에 넣고 다음 시각을 갱신한다."""
+    when = now or timezone.now()
+    published = 0
+    with transaction.atomic():
+        with connection.cursor() as cur:
+            if ids:
+                rows = []
+                seen = set()
+                for raw in ids:
+                    if str(raw) in seen:
+                        continue
+                    seen.add(str(raw))
+                    try:
+                        pk = int(raw)
+                    except (TypeError, ValueError):
+                        cur.execute("SELECT * FROM scheduled_notices WHERE legacy_id = %s AND is_active = true FOR UPDATE", [str(raw)])
+                    else:
+                        cur.execute("SELECT * FROM scheduled_notices WHERE (id = %s OR legacy_id = %s) AND is_active = true FOR UPDATE", [pk, str(raw)])
+                    found = _dicts(cur)
+                    if found and (cohort_id is None or found[0]["cohort_id"] == cohort_id):
+                        rows.append(found[0])
+            else:
+                if cohort_id is None:
+                    cur.execute(
+                        """SELECT * FROM scheduled_notices
+                           WHERE is_active = true AND next_publish_at IS NOT NULL AND next_publish_at <= %s
+                           FOR UPDATE SKIP LOCKED""",
+                        [when],
+                    )
+                else:
+                    cur.execute(
+                        """SELECT * FROM scheduled_notices
+                           WHERE cohort_id = %s AND is_active = true
+                             AND next_publish_at IS NOT NULL AND next_publish_at <= %s
+                           FOR UPDATE SKIP LOCKED""",
+                        [cohort_id, when],
+                    )
+                rows = _dicts(cur)
+
+            for row in rows:
+                cur.execute("SELECT code FROM cohorts WHERE id = %s", [row["cohort_id"]])
+                code_row = cur.fetchone()
+                code = code_row[0] if code_row else None
+                author_name = ""
+                if row.get("author_id"):
+                    cur.execute("SELECT display_name FROM users WHERE id = %s", [row["author_id"]])
+                    name_row = cur.fetchone()
+                    author_name = name_row[0] if name_row else ""
+
+                existing = attendance_notice(cur, row, author_name, when) if str(row.get("title") or "").strip() == SCHEDULED_ATTENDANCE_TITLE else None
+                if not existing:
+                    cur.execute(
+                        """INSERT INTO notices
+                           (cohort_id, title, content, author_id, author_name, is_favorite,
+                            priority, vector_chunk_count, source, scheduled_notice_id, created_at, updated_at)
+                           VALUES (%s,%s,%s,%s,%s,%s,0,0,'scheduled',%s, now(), now()) RETURNING id""",
+                        [
+                            row["cohort_id"],
+                            row.get("title") or "",
+                            row.get("content") or "",
+                            row.get("author_id"),
+                            author_name,
+                            bool(row.get("is_favorite")),
+                            row["id"],
+                        ],
+                    )
+                notice_id = existing[0] if existing else cur.fetchone()[0]
+                notify_new_notice(cur, row["cohort_id"], notice_id, row.get("title") or "", row.get("content") or "", None)
+                kind = (row.get("repeat_type") or "once").lower()
+                if kind in ("daily", "weekly"):
+                    nxt = compute_next_publish_at(
+                        kind, row.get("publish_time"), row.get("publish_at"), row.get("weekday"), when,
+                    )
+                    cur.execute(
+                        """UPDATE scheduled_notices
+                           SET last_published_at = now(), next_publish_at = %s, updated_at = now()
+                           WHERE id = %s""",
+                        [nxt, row["id"]],
+                    )
+                else:
+                    cur.execute(
+                        """UPDATE scheduled_notices
+                           SET is_active = false, last_published_at = now(), updated_at = now()
+                           WHERE id = %s""",
+                        [row["id"]],
+                    )
+                if code:
+                    schedule_notice_vector(
+                        cohort_code=code,
+                        notice_id=notice_id,
+                        data={
+                            "title": row.get("title"),
+                            "content": row.get("content"),
+                            "author_id": row.get("author_id"),
+                            "author_name": author_name,
+                        },
+                        previous_chunk_count=(existing[1] or 0) if existing else 0,
+                    )
+                published += 1
+    return published

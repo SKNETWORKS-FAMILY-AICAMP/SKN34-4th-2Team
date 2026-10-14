@@ -1,0 +1,27 @@
+flowchart LR
+  subgraph NIGHT["밤 23:00 · 자동 수집 (내 노트북)"]
+    C1["목록 훑기"] --> C2["새 공고 상세 받기"]
+    C2 --> C3["정제 · 요건 구간 추출"]
+    C3 --> DB[("job_store.sqlite<br>공고 원문 전체<br>전 카테고리 11,493건")]
+    DB -->|"지문 바뀐 것만"| PC[("Pinecone<br>IT 인접 벡터 7,804")]
+    DB -->|"슬림 10MB"| ST[("Firebase Storage<br>팀원 공유")]
+  end
+  subgraph SERVER["서버 한 대 · 127.0.0.1:8000"]
+    R["추천 API<br>/api/v1/jobs/recommend"]
+    F["챗봇 API<br>/api/v1/jobs/chat"]
+    V["첨삭 API<br>/resume-review/..."]
+  end
+  subgraph APP["앱 (Flutter)"]
+    A1["이력서 편집"] --> A2["① 맞춤 공고 추천"]
+    A0["② 공고 찾기 챗봇"]
+    A2 --> A4["③ 공고 맞춤 첨삭"]
+  end
+  FS[("Firestore<br>이력서 · 희망조건")]
+  PC -.->|벡터 검색| R
+  DB -.->|조건 검색| F
+  DB -.->|공고 원문| V
+  FS -.->|이력서 읽기·쓰기| V
+  A2 --> R
+  A0 --> F
+  A4 --> V
+  A1 -.-> FS

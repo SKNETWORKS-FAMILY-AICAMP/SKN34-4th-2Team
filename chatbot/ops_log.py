@@ -1,0 +1,233 @@
+"""학생 챗봇 관측 로그. 질문·답변 원문 없이 메타만 남긴다."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from typing import Any
+
+from chatbot.context_builder import safe_context_metrics
+from chatbot.answer_effort import EFFORT_REASONS
+
+FORBIDDEN_KEYS = {
+    "question",
+    "answer",
+    "content",
+    "messages",
+    "page_content",
+    "excerpt",
+    "query",
+}
+
+DEFAULT_PROMPT_VERSION = "student_chatbot_v2"
+DEFAULT_SUPERVISOR_MODEL = "gpt-6-luna"
+
+
+def chatbot_prompt_version() -> str:
+    return (
+        os.getenv("LMS_CHATBOT_PROMPT_VERSION", DEFAULT_PROMPT_VERSION).strip()
+        or DEFAULT_PROMPT_VERSION
+    )
+
+
+def supervisor_model_name() -> str:
+    return (
+        os.getenv("LMS_SUPERVISOR_MODEL")
+        or os.getenv("LMS_NODE_MODEL")
+        or DEFAULT_SUPERVISOR_MODEL
+    ).strip() or DEFAULT_SUPERVISOR_MODEL
+
+
+def request_id_hash(thread_id: str) -> str:
+    return hashlib.sha256(thread_id.encode("utf-8")).hexdigest()[:16]
+
+
+def join_csv(values: Any) -> str:
+    if values is None:
+        return ""
+    if isinstance(values, str):
+        return values[:200]
+    if isinstance(values, (list, tuple, set)):
+        return ",".join(str(item) for item in values if item)[:200]
+    return str(values)[:200]
+
+
+def assert_no_plaintext(data: Any, path: str = "payload") -> None:
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if str(key).lower() in FORBIDDEN_KEYS:
+                raise ValueError(f"원문 키 금지: {path}.{key}")
+            assert_no_plaintext(value, f"{path}.{key}")
+        return
+    if isinstance(data, list):
+        for index, value in enumerate(data):
+            assert_no_plaintext(value, f"{path}[{index}]")
+
+
+def strip_forbidden(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in payload.items()
+        if str(key).lower() not in FORBIDDEN_KEYS and value is not None
+    }
+
+
+def build_generation_log_payload(
+    *,
+    cohort_id: str,
+    created_by: str,
+    latency_ms: int,
+    status: str,
+    snapshot: dict[str, Any] | None = None,
+    error_message: str | None = None,
+    thread_id: str = "",
+) -> dict[str, Any]:
+    snap = snapshot or {}
+    route = str(snap.get("route") or "")[:200]
+    version = (
+        str(snap.get("promptVersion") or snap.get("prompt_version") or "").strip()
+        or chatbot_prompt_version()
+    )[:80]
+    model = str(snap.get("model") or "").strip()[:80] or "unknown"
+    payload: dict[str, Any] = {
+        "type": "student_chatbot",
+        "promptVersion": version,
+        "model": model,
+        "cohortId": str(cohort_id)[:80],
+        "latencyMs": max(0, int(latency_ms)),
+        "status": "error" if status == "error" else "success",
+        "generatedCount": 0 if status == "error" else 1,
+        "createdBy": str(created_by)[:128],
+        "route": route,
+        "namespaces": join_csv(snap.get("namespaces")),
+        "studentScopes": join_csv(
+            snap.get("studentScopes") or snap.get("student_scopes"),
+        ),
+        "blocked": bool(snap.get("blocked")) or route == "blocked",
+        "requestIdHash": str(
+            snap.get("requestIdHash") or snap.get("request_id_hash") or request_id_hash(thread_id)
+        )[:200],
+    }
+    retrieval_ms = snap.get("retrievalMs", snap.get("retrieval_ms"))
+    llm_ms = snap.get("llmMs", snap.get("llm_ms"))
+    if retrieval_ms is not None:
+        payload["retrievalMs"] = max(0, int(retrieval_ms))
+    if llm_ms is not None:
+        payload["llmMs"] = max(0, int(llm_ms))
+    for source, target in (
+        ("supervisor_ms", "supervisorMs"),
+        ("schedule_fast_path", "scheduleFastPath"),
+        ("shared_context_ms", "sharedContextMs"),
+        ("supervisor_prepare_wall_ms", "supervisorPrepareWallMs"),
+        ("shared_context_overlap_ms", "sharedContextOverlapMs"),
+        ("parallel_prep_enabled", "parallelPrepEnabled"),
+        ("answer_model_ms", "answerModelMs"),
+        ("answer_ttft_ms", "answerTtftMs"),
+        ("answer_first_callback_ms", "answerFirstCallbackMs"),
+        ("answer_first_nonempty_callback_ms", "answerFirstNonemptyCallbackMs"),
+        ("answer_first_model_event_ms", "answerFirstModelEventMs"),
+        ("answer_visible_ttft_ms", "answerVisibleTtftMs"),
+        ("answer_stream_events", "answerStreamEvents"),
+        ("answer_visible_deltas", "answerVisibleDeltas"),
+        ("answer_nontext_events", "answerNontextEvents"),
+        ("answer_reasoning_events", "answerReasoningEvents"),
+        ("answer_reasoning_tokens", "answerReasoningTokens"),
+        ("answer_cached_input_tokens", "answerCachedInputTokens"),
+        ("student_context_ms", "studentContextMs"),
+        ("embedding_ms", "embeddingMs"),
+        ("vector_query_ms_sum", "vectorQueryMsSum"),
+        ("embedding_calls", "embeddingCalls"),
+        ("vector_calls", "vectorCalls"),
+        ("prompt_build_ms", "promptBuildMs"),
+        ("prompt_chars", "promptChars"),
+        ("context_measure_ms", "contextMeasureMs"),
+        ("retrieved_chunks", "retrievedChunks"),
+        ("retrieved_chunk_chars", "retrievedChunkChars"),
+        ("first_token_ms", "firstTokenMs"),
+        ("generation_tail_ms", "generationTailMs"),
+        ("handler_session_ms", "handlerSessionMs"),
+        ("handler_chat_inputs_ms", "handlerChatInputsMs"),
+        ("handler_bot_prepare_ms", "handlerBotPrepareMs"),
+        ("handler_prepare_ms", "handlerPrepareMs"),
+        ("handler_first_token_ms", "handlerFirstTokenMs"),
+        ("handler_generation_end_ms", "handlerGenerationEndMs"),
+    ):
+        if snap.get(source) is not None:
+            payload[target] = max(0, int(snap[source]))
+    context_metrics = safe_context_metrics(snap.get('context_metrics'))
+    effort = snap.get('answer_reasoning_effort')
+    if isinstance(effort, str) and effort in {'default', 'none', 'low', 'medium', 'high', 'xhigh', 'max'}:
+        payload['answerReasoningEffort'] = effort
+    reason = snap.get('answer_effort_reason')
+    if isinstance(reason, str) and reason in EFFORT_REASONS:
+        payload['answerEffortReason'] = reason
+    if context_metrics:
+        payload['contextMetrics'] = context_metrics
+    token_in = snap.get("tokenIn", snap.get("token_in"))
+    token_out = snap.get("tokenOut", snap.get("token_out"))
+    if token_in is not None:
+        payload["tokenIn"] = max(0, int(token_in))
+    if token_out is not None:
+        payload["tokenOut"] = max(0, int(token_out))
+    if status == "error" and error_message:
+        payload["errorMessage"] = str(error_message)[:500]
+    clean = strip_forbidden(payload)
+    assert_no_plaintext(clean)
+    return clean
+
+
+def build_done_event(log_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    event = {
+        "type": "done",
+        "ops": {
+            "logId": log_id,
+            "promptVersion": str(payload.get("promptVersion") or ""),
+            "route": str(payload.get("route") or ""),
+            "status": str(payload.get("status") or ""),
+        },
+    }
+    assert_no_plaintext(event)
+    return event
+
+
+def write_generation_log(db: Any, payload: dict[str, Any]) -> str:
+    """Postgres `ai_generation_logs`에 메타만 남긴다."""
+    from chatbot.database import connect
+
+    del db
+    clean = strip_forbidden(payload)
+    assert_no_plaintext(clean)
+    cohort_code = str(clean.get("cohortId") or "")
+    created_by = str(clean.get("createdBy") or "")
+    with connect() as conn:
+        cohort_id = conn.execute(
+            "SELECT id FROM cohorts WHERE code = %s OR CAST(id AS text) = %s",
+            (cohort_code, cohort_code),
+        ).fetchone()
+        user_id = conn.execute(
+            "SELECT id FROM users WHERE firebase_uid = %s", (created_by,)
+        ).fetchone()
+        row = conn.execute(
+            """INSERT INTO ai_generation_logs
+               (type, cohort_id, created_by, prompt_version, model, status, error_message, latency_ms, token_in, token_out, details)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+               RETURNING id""",
+            (
+                clean.get("type") or "student_chatbot",
+                cohort_id[0] if cohort_id else None,
+                user_id[0] if user_id else None,
+                clean.get("promptVersion"),
+                clean.get("model"),
+                clean.get("status"),
+                clean.get("errorMessage"),
+                clean.get("latencyMs"),
+                clean.get("tokenIn"),
+                clean.get("tokenOut"),
+                json.dumps({k: v for k, v in clean.items() if k not in {
+                    "type", "promptVersion", "model", "status", "errorMessage", "latencyMs", "tokenIn", "tokenOut",
+                }}, ensure_ascii=False),
+            ),
+        ).fetchone()
+        conn.commit()
+        return str(row[0])

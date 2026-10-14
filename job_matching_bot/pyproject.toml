@@ -1,0 +1,22 @@
+# 설치해서 쓰는 패키지가 아니라 레포 루트에서 `python -m job_matching_bot.<모듈>`로
+# 실행한다. 이 파일은 실행에 필요한 Python 버전과 의존성 상태를 명시하는 용도다.
+
+[project]
+name = "job-matching-bot"
+version = "0.2.0"
+description = "채용공고 추천봇 — 수집, Pinecone 적재, 이력서 기반 추천 API"
+# `int | None`(PEP 604), `list[str]` 등을 런타임에 사용하므로 3.10 이상이 필요하다.
+requires-python = ">=3.10"
+# 수집·정제(CLI)는 표준 라이브러리와 requests, beautifulsoup4로 돈다(루트 requirements.txt).
+# 적재와 추천 API는 아래를 쓴다. fastapi·langchain 버전 범위는 cover_letter_rag와
+# 같게 맞춘다 — 나중에 두 서버를 한 프로세스로 합칠 때 충돌하지 않게 하기 위해서다.
+# 벡터 DB는 Pinecone이다. cover_letter_rag의 chroma와 다르므로 여기서는 넣지 않는다.
+dependencies = [
+  "fastapi>=0.116,<2",
+  "uvicorn[standard]>=0.34,<1",
+  "langchain>=1.1,<2",
+  "langchain-core>=1.1,<2",
+  "langchain-openai>=1.4.1,<2",
+  "pinecone>=9,<11",
+  "openai>=1.60",
+]

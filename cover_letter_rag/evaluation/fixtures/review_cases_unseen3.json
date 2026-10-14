@@ -1,0 +1,523 @@
+{
+  "_comment": "2026-09-15 저녁, resume-v16s 커밋 전 세 번째 확인용 케이스. dev·heldout·detailed·probe·fresh·unseen·unseen2와 직무·도메인이 겹치지 않게 썼고, 오늘 고친 규칙을 겨냥한 함정 없이 평범한 이력서처럼 썼다. 명사형으로 끊긴 문장이 자연스럽게 섞인 이력서가 두 개 있다. 서버 코드를 고치는 세션에는 내용을 보내지 않았다. 한 번만 돌리고, 결과로 고치게 되면 다음 확인용은 또 새로 만든다. applicant.facts에는 이력서에 적힌 사실을 모두 넣고 이력서에 없는 사실은 '(이력서에 없음)'으로 표시했다. expected_requirements·expected_star는 Claude가 원문만 읽고 매긴 값이라 사람 라벨이 아니다.",
+  "cases": [
+    {
+      "id": "unseen3_nextjs_entry__news",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0501", "email": "", "birthDate": "1999-03-21", "githubUrl": "https://github.com/example-next", "blogUrl": "https://example-next.dev"},
+          "coreCompetencies": {
+            "text": "Next.js와 TypeScript로 콘텐츠 중심 웹을 만들었습니다. 검색 노출과 페이지 로딩 속도를 함께 챙기는 화면 개발에 관심이 많습니다."
+          },
+          "experience": [],
+          "education": [{"id": "edu-1", "school": "예시대학교", "major": "미디어커뮤니케이션학과", "startDate": "2018-03", "endDate": "2024-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "Next.js", "level": "중급"},
+            {"id": "ts-2", "name": "TypeScript", "level": "중급"},
+            {"id": "ts-3", "name": "React", "level": "중급"},
+            {"id": "ts-4", "name": "Tailwind CSS", "level": "중급"}
+          ],
+          "certifications": [],
+          "awards": [],
+          "trainingExperience": [
+            {"id": "tr-1", "course": "웹 프론트엔드 부트캠프", "organization": "예시개발캠프", "startDate": "2024-04", "endDate": "2024-10", "description": "React와 Next.js를 배우고 팀 프로젝트 2개를 진행했습니다."}
+          ],
+          "otherActivities": [
+            {"id": "act-1", "name": "학보사 기자", "startDate": "2019-03", "endDate": "2021-12", "description": "학내 기사를 취재해 매달 기사를 썼고, 2021년에는 온라인판 편집을 맡았습니다."}
+          ],
+          "projects": [
+            {
+              "id": "prj-1", "name": "지역 소식 큐레이션 웹", "startDate": "2024-08", "endDate": "2024-10",
+              "role": "프론트엔드(4인 팀)", "techStack": "Next.js, TypeScript, Tailwind CSS",
+              "description": "지역 언론사 기사를 주제별로 모아 보여 주는 웹입니다. 저는 기사 목록과 상세 페이지를 맡았고, 상세 페이지를 서버에서 미리 그려 검색엔진이 기사 제목을 읽을 수 있게 했습니다.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "개인 기술 블로그", "startDate": "2024-11", "endDate": "2025-02",
+              "role": "개인", "techStack": "Next.js, MDX",
+              "description": "마크다운 글을 정적 페이지로 만드는 블로그를 직접 구축했습니다.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "읽히는 화면을 만드는 개발자",
+              "body": "학보사에서 기사를 쓰며 좋은 글도 독자에게 닿지 않으면 소용없다는 것을 배웠습니다. 그래서 글이 빨리 뜨고 잘 검색되는 화면을 만드는 프론트엔드 개발에 끌렸습니다."
+            },
+            "motivation": {
+              "subtitle": "뉴스를 더 편하게 읽는 경험",
+              "body": "모바일에서 기사를 열 때 광고와 느린 로딩 때문에 창을 닫는 경우가 많았습니다. 예시미디어의 뉴스 서비스에서 독자가 기사에 빨리 닿는 화면을 만드는 데 기여하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "검색에 안 걸리던 기사",
+              "body": "지역 소식 큐레이션 웹을 처음 배포했을 때 기사 상세 페이지가 검색 결과에 거의 나오지 않았습니다. 원인을 찾아 보니 화면을 브라우저에서만 그리고 있었고, 상세 페이지를 서버에서 미리 그리도록 바꿨습니다."
+            },
+            "growth": {
+              "subtitle": "기자에서 개발자로",
+              "body": "온라인판 편집을 맡으며 기사 페이지를 직접 고쳐야 할 일이 생겼고, 그때 HTML을 처음 만져 본 경험이 개발 공부로 이어졌습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "전달력 / 깊이",
+              "body": "강점은 복잡한 내용을 쉽게 설명하는 전달력입니다. 약점은 아직 브라우저 성능을 깊이 분석해 본 경험이 적다는 점입니다."
+            },
+            "aspiration": {
+              "subtitle": "독자가 머무는 뉴스 화면",
+              "body": "입사 후에는 기사 페이지 구조와 배포 방식을 먼저 익히고, 기사 페이지 로딩 속도를 측정해 개선할 부분을 찾는 일부터 맡고 싶습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN3-01",
+        "company": "(주)예시미디어",
+        "title": "뉴스 서비스 프론트엔드 개발자 (신입)",
+        "text": "[주요업무]\n- 뉴스 웹 서비스 화면 개발\n- 기사 페이지 성능과 검색 노출 개선\n\n[자격요건]\n- React 또는 Next.js 기반 개발 경험\n- TypeScript 사용 경험\n- 서버 사이드 렌더링 이해\n\n[우대사항]\n- Core Web Vitals 등 웹 성능 지표 개선 경험\n- 광고 스크립트 연동 경험\n- 언론·콘텐츠 분야 이해\n\n[근무조건]\n- 정규직, 서울 중구"
+      },
+      "applicant": {
+        "facts": [
+          "지역 소식 큐레이션 웹(4인 팀)에서 기사 목록과 상세 페이지를 맡고, 상세 페이지를 서버에서 미리 그리도록 바꿨다",
+          "지역 소식 큐레이션 웹 첫 배포 때 상세 페이지가 검색에 거의 안 나와 원인을 찾아 서버 렌더링으로 바꿨다",
+          "개인 기술 블로그를 Next.js와 MDX로 정적 페이지로 구축했다",
+          "웹 프론트엔드 부트캠프에서 React와 Next.js를 배우고 팀 프로젝트 2개를 했다",
+          "학보사 기자로 매달 기사를 썼고 2021년에는 온라인판 편집을 맡았다",
+          "(이력서에 없음) 지역 소식 큐레이션 웹을 서버 렌더링으로 바꾼 뒤 한 달 동안 검색 유입이 하루 약 30회에서 약 180회로 늘었다",
+          "(이력서에 없음) 개인 기술 블로그에서 Lighthouse 성능 점수를 확인하며 이미지를 next/image로 바꿔 LCP를 개선했다. 정확한 수치는 기록해 두지 않았다"
+        ],
+        "not_done": ["광고 스크립트 연동", "실무 개발 경력", "Vue"]
+      },
+      "expected_requirements": [
+        {"label": "React/Next.js 개발", "group": "must", "resume": "ok"},
+        {"label": "TypeScript", "group": "must", "resume": "ok"},
+        {"label": "서버 사이드 렌더링 이해", "group": "must", "resume": "ok"},
+        {"label": "웹 성능 지표 개선", "group": "preferred", "resume": "missing"},
+        {"label": "광고 스크립트 연동", "group": "preferred", "resume": "missing"},
+        {"label": "언론·콘텐츠 이해", "group": "preferred", "resume": "ok"}
+      ],
+      "expected_star": {
+        "trainingExperience[0].description": "TA",
+        "otherActivities[0].description": "TA",
+        "projects[0].description": "TA",
+        "projects[1].description": "TA",
+        "selfIntroduction.intro.body": "S",
+        "selfIntroduction.challenge.body": "SA",
+        "selfIntroduction.growth.body": "S",
+        "selfIntroduction.strengthsWeaknesses.body": ""
+      }
+    },
+    {
+      "id": "unseen3_django_entry__legaltech",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0502", "email": "", "birthDate": "2000-07-08", "githubUrl": "https://github.com/example-django", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "Django REST Framework API 개발. PostgreSQL 모델 설계. 법학 복수전공으로 법률 문서 구조 이해."
+          },
+          "experience": [],
+          "education": [{"id": "edu-1", "school": "예시국립대학교", "major": "컴퓨터과학과(법학 복수전공)", "startDate": "2019-03", "endDate": "2025-08", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "Python", "level": "중급"},
+            {"id": "ts-2", "name": "Django", "level": "중급"},
+            {"id": "ts-3", "name": "PostgreSQL", "level": "초급"},
+            {"id": "ts-4", "name": "Celery", "level": "초급"}
+          ],
+          "certifications": [],
+          "awards": [
+            {"id": "awd-1", "name": "교내 창업 아이디어 경진대회 장려상", "organization": "예시국립대학교", "date": "2024-06", "description": "임대차 계약서 체크리스트 서비스 아이디어로 수상."}
+          ],
+          "trainingExperience": [],
+          "otherActivities": [
+            {"id": "act-1", "name": "법률 상담 동아리", "startDate": "2021-03", "endDate": "2023-02", "description": "무료 법률 상담 행사 운영 보조. 상담 사례 정리."}
+          ],
+          "projects": [
+            {
+              "id": "prj-1", "name": "판례 검색 API", "startDate": "2025-02", "endDate": "2025-06",
+              "role": "백엔드(3인 팀)", "techStack": "Django REST Framework, PostgreSQL, Celery",
+              "description": "공개 판례 데이터 수집·저장. 사건번호·키워드 검색 API. 수집 작업 Celery로 분리.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "계약서 조항 체크리스트", "startDate": "2024-07", "endDate": "2024-09",
+              "role": "개인", "techStack": "Django",
+              "description": "임대차 계약서 주요 조항 체크리스트 웹. 항목별 설명 페이지.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "법과 코드를 잇는 개발자",
+              "body": "컴퓨터과학과 법학을 함께 공부하면서 어려운 법률 정보를 누구나 찾기 쉽게 만드는 일에 관심을 갖게 됐습니다."
+            },
+            "motivation": {
+              "subtitle": "법률 정보의 문턱을 낮추기",
+              "body": "법률 상담 동아리에서 사람들이 자기 상황에 맞는 판례를 찾지 못해 막막해하는 모습을 여러 번 봤습니다. 예시로의 법률 검색 서비스를 만드는 일에 함께하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "멈추던 판례 수집",
+              "body": "판례 검색 API 프로젝트에서 판례 수집 작업이 요청 처리와 같이 돌아가서 수집 중에는 검색이 느려졌습니다. 수집을 따로 떼어 내 이 문제를 해결했습니다."
+            },
+            "growth": {
+              "subtitle": "두 전공 사이에서",
+              "body": "처음에는 두 전공을 병행하는 것이 버거웠지만, 법률 문서를 데이터로 보는 시각이 생기면서 두 공부가 서로 도움이 된다는 것을 알게 됐습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "꼼꼼한 문서 읽기 / 속도",
+              "body": "강점은 긴 문서를 꼼꼼히 읽고 구조를 정리하는 능력입니다. 약점은 결정을 내리기 전에 자료를 너무 오래 찾아보는 점입니다."
+            },
+            "aspiration": {
+              "subtitle": "믿을 수 있는 법률 검색",
+              "body": "입사 후에는 판례 데이터 구조와 검색 흐름을 먼저 익히고, 검색 정확도를 높이는 데이터 정제 작업에 참여하고 싶습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN3-02",
+        "company": "(주)예시로",
+        "title": "리걸테크 Python 백엔드 개발자 (신입)",
+        "text": "[주요업무]\n- 판례·법령 검색 서비스 백엔드 개발\n- 법률 문서 데이터 수집·정제 파이프라인 개발\n\n[자격요건]\n- Python 기반 웹 프레임워크(Django, FastAPI) 개발 경험\n- RDBMS 사용 경험\n- REST API 설계 경험\n\n[우대사항]\n- Elasticsearch 등 검색 엔진 사용 경험\n- 비동기 작업 큐(Celery 등) 사용 경험\n- 법률 도메인 이해\n\n[근무조건]\n- 정규직, 서울 서초구"
+      },
+      "applicant": {
+        "facts": [
+          "판례 검색 API(3인 팀)에서 백엔드를 맡아 공개 판례 데이터를 수집·저장하고 사건번호·키워드 검색 API를 만들었다",
+          "판례 검색 API에서 수집 작업을 Celery로 분리해 수집 중 검색이 느려지던 문제를 해결했다",
+          "계약서 조항 체크리스트를 혼자 Django로 만들어 임대차 계약서 주요 조항 체크리스트와 항목별 설명 페이지를 만들었다",
+          "임대차 계약서 체크리스트 서비스 아이디어로 교내 창업 아이디어 경진대회 장려상을 받았다",
+          "법률 상담 동아리에서 무료 법률 상담 행사 운영을 돕고 상담 사례를 정리했다",
+          "컴퓨터과학과 법학을 복수전공했다",
+          "(이력서에 없음) 판례 검색 API에서 판례 약 12만 건을 PostgreSQL에 저장하고 사건번호에 인덱스를 걸어 사건번호 검색을 0.1초 안에 돌려주게 했다",
+          "(이력서에 없음) 판례 검색 API의 키워드 검색은 PostgreSQL 전문 검색(tsvector)으로 만들었고, Elasticsearch는 도입을 검토만 하고 써 보지는 않았다"
+        ],
+        "not_done": ["Elasticsearch 사용", "법령 데이터 파이프라인 실무", "FastAPI"]
+      },
+      "expected_requirements": [
+        {"label": "Python 웹 프레임워크", "group": "must", "resume": "ok"},
+        {"label": "RDBMS 사용", "group": "must", "resume": "ok"},
+        {"label": "REST API 설계", "group": "must", "resume": "ok"},
+        {"label": "검색 엔진 사용", "group": "preferred", "resume": "missing"},
+        {"label": "비동기 작업 큐", "group": "preferred", "resume": "ok"},
+        {"label": "법률 도메인 이해", "group": "preferred", "resume": "ok"}
+      ],
+      "expected_star": {
+        "awards[0].description": "TR",
+        "otherActivities[0].description": "TA",
+        "projects[0].description": "TA",
+        "projects[1].description": "T",
+        "selfIntroduction.intro.body": "S",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "S",
+        "selfIntroduction.strengthsWeaknesses.body": ""
+      }
+    },
+    {
+      "id": "unseen3_kotlin_3y__hrsaas",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0503", "email": "", "birthDate": "1994-11-30", "githubUrl": "https://github.com/example-kotlin", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "Kotlin과 Spring Boot로 근태·급여 SaaS 백엔드를 3년간 개발했습니다. 월말 급여 계산처럼 틀리면 안 되는 기능을 테스트로 지키는 일을 중요하게 생각합니다."
+          },
+          "experience": [
+            {
+              "id": "exp-1", "company": "(주)예시워크", "role": "백엔드 개발자", "startDate": "2022-04", "endDate": "2025-07", "isCurrent": false,
+              "description": "고객사 약 300곳이 쓰는 근태·급여 SaaS의 백엔드를 개발했습니다. 급여 계산 모듈을 맡아 초과근무·야간수당 계산 규칙을 코드로 옮겼고, 계산 결과를 검증하는 테스트 케이스를 400개 넘게 만들었습니다. 고객사별 설정이 달라 생기던 급여 오계산 문의를 월 평균 15건에서 3건으로 줄였습니다."
+            }
+          ],
+          "education": [{"id": "edu-1", "school": "예시공과대학교", "major": "소프트웨어학과", "startDate": "2013-03", "endDate": "2020-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "Kotlin", "level": "고급"},
+            {"id": "ts-2", "name": "Spring Boot", "level": "고급"},
+            {"id": "ts-3", "name": "JPA", "level": "중급"},
+            {"id": "ts-4", "name": "MySQL", "level": "중급"},
+            {"id": "ts-5", "name": "Kotest", "level": "중급"}
+          ],
+          "certifications": [],
+          "awards": [],
+          "trainingExperience": [],
+          "otherActivities": [
+            {"id": "act-1", "name": "사내 코드 리뷰 가이드 작성", "startDate": "2024-03", "endDate": "2024-05", "description": "팀원 6명과 함께 코드 리뷰 체크리스트를 만들고, 리뷰 대기 시간을 줄이기 위한 규칙을 정리했습니다."}
+          ],
+          "projects": [
+            {
+              "id": "prj-1", "name": "급여 계산 엔진 재작성", "startDate": "2023-09", "endDate": "2024-02",
+              "role": "백엔드(2인 중 설계 담당)", "techStack": "Kotlin, Spring Boot, Kotest",
+              "description": "고객사마다 if 문으로 흩어져 있던 수당 계산 규칙을 규칙 객체로 나눠 다시 만들었습니다. 새 고객사 설정을 추가하는 데 걸리던 시간이 평균 3일에서 반나절로 줄었고, 기존 계산 결과와 새 엔진 결과를 6개월 치 데이터로 대조해 차이가 없음을 확인한 뒤 전환했습니다.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "연차 자동 계산 기능", "startDate": "2022-10", "endDate": "2023-01",
+              "role": "백엔드", "techStack": "Kotlin, Spring Batch",
+              "description": "입사일 기준 연차 발생을 매일 배치로 계산하는 기능을 개발했습니다.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "틀리면 안 되는 계산을 지키는 개발자",
+              "body": "급여는 한 번 틀리면 직원의 신뢰가 무너지는 데이터입니다. 3년 동안 근태·급여 SaaS의 급여 계산을 맡으며 계산 규칙을 테스트로 지키는 방식을 익혔고, 급여 오계산 문의를 월 15건에서 3건으로 줄였습니다."
+            },
+            "motivation": {
+              "subtitle": "인사 업무의 자동화",
+              "body": "고객사 인사 담당자들이 월말마다 엑셀로 급여를 다시 확인하는 모습을 보며 믿을 수 있는 자동화의 가치를 느꼈습니다. 예시HR의 인사관리 SaaS에서 급여·근태 도메인 경험을 살려 기여하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "흩어진 수당 규칙",
+              "body": "고객사가 늘수록 수당 계산 코드에 예외 처리가 쌓여 새 고객사를 붙일 때마다 다른 고객사 계산이 틀어질까 걱정해야 했습니다. 규칙을 객체로 나눠 다시 만들고 6개월 치 데이터로 기존 결과와 대조한 뒤 전환해, 새 설정 추가 시간을 3일에서 반나절로 줄였습니다."
+            },
+            "growth": {
+              "subtitle": "코드 리뷰로 배운 협업",
+              "body": "입사 초에는 리뷰 코멘트를 지적으로 받아들였지만, 리뷰 덕분에 급여 계산 버그를 배포 전에 잡은 뒤로 리뷰를 함께 품질을 지키는 과정으로 보게 됐습니다. 이후 팀 코드 리뷰 가이드 작성에 참여했습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "검증 습관 / 위임",
+              "body": "강점은 바꾸기 전에 반드시 기존 결과와 대조하는 검증 습관입니다. 약점은 중요한 기능을 혼자 끝까지 붙잡는 편이라, 최근에는 테스트 작성을 팀원과 나눠 맡고 있습니다."
+            },
+            "aspiration": {
+              "subtitle": "인사 데이터를 믿게 만드는 개발자",
+              "body": "입사 후에는 급여·근태 도메인 모델을 먼저 파악하고, 계산 검증 테스트 체계를 넓혀 고객사가 결과를 다시 확인하지 않아도 되는 서비스를 만드는 데 참여하겠습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN3-03",
+        "company": "(주)예시HR",
+        "title": "인사관리 SaaS 백엔드 개발자 (경력 3년 이상)",
+        "text": "[주요업무]\n- 근태·급여 SaaS 백엔드 개발\n- 대용량 급여 정산 배치 운영\n\n[자격요건]\n- 백엔드 개발 경력 3년 이상\n- Kotlin 또는 Java, Spring 기반 개발 경험\n- 테스트 코드 작성 경험\n\n[우대사항]\n- 급여·근태 도메인 경험\n- Spring Batch 운영 경험\n- 멀티테넌트 SaaS 설계 경험\n\n[근무조건]\n- 정규직, 경기 판교"
+      },
+      "applicant": {
+        "facts": [
+          "(주)예시워크에서 2022년 4월부터 2025년 7월까지 백엔드 개발자로 고객사 약 300곳이 쓰는 근태·급여 SaaS를 개발했다",
+          "급여 계산 모듈을 맡아 초과근무·야간수당 규칙을 코드로 옮기고 검증 테스트 케이스를 400개 넘게 만들어 급여 오계산 문의를 월 평균 15건에서 3건으로 줄였다",
+          "급여 계산 엔진 재작성(2인 중 설계 담당)에서 수당 규칙을 규칙 객체로 나눠 새 고객사 설정 추가 시간을 3일에서 반나절로 줄였고 6개월 치 데이터로 기존 결과와 대조한 뒤 전환했다",
+          "연차 자동 계산 기능에서 입사일 기준 연차를 Spring Batch로 매일 계산하는 기능을 개발했다",
+          "팀원 6명과 코드 리뷰 체크리스트와 리뷰 대기 시간 규칙을 만들었다",
+          "리뷰 덕분에 급여 계산 버그를 배포 전에 잡은 적이 있다",
+          "(이력서에 없음) 연차 자동 계산 배치는 고객사 약 300곳, 직원 약 4만 명을 매일 새벽에 처리했고, 청크 단위로 나눠 처리 시간을 약 50분에서 12분으로 줄였다",
+          "(이력서에 없음) 고객사별 데이터는 테넌트 ID 컬럼으로 나누는 구조였고, 테넌트 구조 자체를 설계한 것은 아니고 그 위에서 기능을 개발했다"
+        ],
+        "not_done": ["멀티테넌트 구조 설계", "Java 기반 신규 서비스 개발", "프론트엔드 개발"]
+      },
+      "expected_requirements": [
+        {"label": "백엔드 경력 3년", "group": "must", "resume": "ok", "kind": "eligibility"},
+        {"label": "Kotlin/Java Spring 개발", "group": "must", "resume": "ok"},
+        {"label": "테스트 코드 작성", "group": "must", "resume": "ok"},
+        {"label": "급여·근태 도메인", "group": "preferred", "resume": "ok"},
+        {"label": "Spring Batch 운영", "group": "preferred", "resume": "partial"},
+        {"label": "멀티테넌트 SaaS 설계", "group": "preferred", "resume": "missing"}
+      ],
+      "expected_star": {
+        "experience[0].description": "STAR",
+        "otherActivities[0].description": "TA",
+        "projects[0].description": "SAR",
+        "projects[1].description": "TA",
+        "selfIntroduction.intro.body": "TAR",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "SAR",
+        "selfIntroduction.strengthsWeaknesses.body": "A"
+      }
+    },
+    {
+      "id": "unseen3_wpf_entry__semiconductor",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0504", "email": "", "birthDate": "2001-01-17", "githubUrl": "", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "C# WPF 로 장비 제어 화면 개발 경험. 시리얼 통신, TCP 통신 구현 가능. 전자공학 전공."
+          },
+          "experience": [
+            {
+              "id": "exp-1", "company": "(주)예시오토메이션", "role": "장비 소프트웨어 인턴", "startDate": "2025-01", "endDate": "2025-06", "isCurrent": false,
+              "description": "검사 장비 UI 수정. 알람 이력 화면 추가. 현장 설치 지원"
+            }
+          ],
+          "education": [{"id": "edu-1", "school": "예시공업대학교", "major": "전자공학과", "startDate": "2020-03", "endDate": "2026-02", "status": "졸업예정"}],
+          "techStack": [
+            {"id": "ts-1", "name": "C#", "level": "중급"},
+            {"id": "ts-2", "name": "WPF", "level": "중급"},
+            {"id": "ts-3", "name": "MSSQL", "level": "초급"}
+          ],
+          "certifications": [{"id": "cert-1", "name": "전자기사", "issuer": "한국산업인력공단", "acquiredDate": "2025-09"}],
+          "awards": [],
+          "trainingExperience": [],
+          "otherActivities": [],
+          "projects": [
+            {
+              "id": "prj-1", "name": "컨베이어 모형 제어 프로그램", "startDate": "2024-09", "endDate": "2024-12",
+              "role": "SW(3인 팀)", "techStack": "C#, WPF, PLC",
+              "description": "졸업작품. PLC 랑 시리얼 통신해서 컨베이어 속도 제어. 센서 감지하면 화면에 표시함.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "장비를 움직이는 소프트웨어",
+              "body": "전자공학을 전공하면서 하드웨어를 직접 움직이는 프로그램을 만드는게 가장 재밌었습니다. 인턴으로 검사 장비 화면을 고치면서 장비 소프트웨어 개발자가 되고 싶다는 생각이 확실해졌습니다."
+            },
+            "motivation": {
+              "subtitle": "반도체 장비",
+              "body": "반도체 장비는 작은 오류도 생산에 큰 영향을 준다고 들었습니다. 예시세미텍의 장비 소프트웨어를 안정적으로 만드는 일에 참여하고 싶어 지원했습니다."
+            },
+            "challenge": {
+              "subtitle": "현장에서 안되던 통신",
+              "body": "인턴 때 현장 설치를 갔는데 사무실에서는 되던 장비 통신이 현장에서는 자꾸 끊겼습니다. 선배님과 함께 원인을 찾아서 해결했습니다."
+            },
+            "growth": {
+              "subtitle": "납땜부터 코드까지",
+              "body": "고등학교 전자과에서 회로를 만들기 시작했고 대학에서 프로그래밍을 배우면서 둘을 같이 다룰수 있게 됐습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "성실함 / 경험 부족",
+              "body": "장점은 맡은 일을 끝까지 하는 성실함입니다. 단점은 아직 실무 경험이 부족한 것입니다."
+            },
+            "aspiration": {
+              "subtitle": "현장이 믿는 개발자",
+              "body": "입사하면 장비 구조와 통신 방식부터 익혀서 현장에서 문제가 생겨도 빨리 원인을 찾는 개발자가 되겠습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN3-04",
+        "company": "(주)예시세미텍",
+        "title": "반도체 장비 제어 소프트웨어 개발자 (신입)",
+        "text": "[주요업무]\n- 반도체 장비 제어 프로그램(C#) 개발\n- 장비 UI와 알람·이력 기능 개발\n- 고객사 현장 셋업 지원\n\n[자격요건]\n- C# 기반 개발 경험\n- 시리얼·TCP/IP 등 장비 통신 이해\n- 전기·전자·컴퓨터 관련 전공\n\n[우대사항]\n- WPF 기반 UI 개발 경험\n- PLC 연동 경험\n- SECS/GEM 통신 규격 이해\n\n[근무조건]\n- 정규직, 경기 화성시"
+      },
+      "applicant": {
+        "facts": [
+          "(주)예시오토메이션에서 2025년 1월부터 6월까지 장비 소프트웨어 인턴으로 검사 장비 UI를 고치고 알람 이력 화면을 추가하고 현장 설치를 지원했다",
+          "졸업작품 컨베이어 모형 제어 프로그램(3인 팀)에서 SW를 맡아 PLC와 시리얼 통신으로 컨베이어 속도를 제어하고 센서 감지를 화면에 표시했다",
+          "인턴 현장 설치에서 사무실에서는 되던 장비 통신이 현장에서 끊겨 선배와 원인을 찾아 해결했다",
+          "전자기사 자격증이 있다",
+          "고등학교 전자과에서 회로를 만들기 시작했다",
+          "(이력서에 없음) 인턴 현장 통신 끊김은 현장 공장 노이즈 때문이었고, 선배와 차폐 케이블로 바꾸고 통신 재시도 로직을 추가해 해결했다. 재시도 로직은 내가 작성했다",
+          "(이력서에 없음) 인턴 때 알람 이력 화면은 MSSQL에 쌓인 알람을 날짜·장비별로 조회하는 WPF 화면으로 만들었다. SECS/GEM은 사내 교육 자료로 개념만 봤고 직접 구현한 적은 없다"
+        ],
+        "not_done": ["SECS/GEM 구현", "반도체 장비 실무", "C++"]
+      },
+      "expected_requirements": [
+        {"label": "C# 개발", "group": "must", "resume": "ok"},
+        {"label": "장비 통신 이해", "group": "must", "resume": "ok"},
+        {"label": "관련 전공", "group": "must", "resume": "ok", "kind": "eligibility"},
+        {"label": "WPF UI 개발", "group": "preferred", "resume": "ok"},
+        {"label": "PLC 연동", "group": "preferred", "resume": "ok"},
+        {"label": "SECS/GEM 이해", "group": "preferred", "resume": "missing"}
+      ],
+      "expected_star": {
+        "experience[0].description": "T",
+        "projects[0].description": "TA",
+        "selfIntroduction.intro.body": "S",
+        "selfIntroduction.challenge.body": "SR",
+        "selfIntroduction.growth.body": "S",
+        "selfIntroduction.strengthsWeaknesses.body": ""
+      }
+    },
+    {
+      "id": "unseen3_bim_to_web3d_entry__construction",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0505", "email": "", "birthDate": "1995-06-25", "githubUrl": "https://github.com/example-three", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "건축설계사무소에서 3년간 BIM 모델을 만들었고, 지금은 Three.js로 웹에서 3D 모델을 보여 주는 화면을 개발합니다. 설계자가 실제로 쓰는 기능이 무엇인지 잘 압니다."
+          },
+          "experience": [
+            {
+              "id": "exp-1", "company": "예시건축사사무소", "role": "BIM 설계 담당", "startDate": "2019-02", "endDate": "2022-03", "isCurrent": false,
+              "description": "공동주택 설계 프로젝트에서 Revit으로 BIM 모델을 작성하고, 도면 간 충돌 검토 결과를 정리해 설계팀에 전달했습니다."
+            }
+          ],
+          "education": [{"id": "edu-1", "school": "예시대학교", "major": "건축학과", "startDate": "2013-03", "endDate": "2019-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "JavaScript", "level": "중급"},
+            {"id": "ts-2", "name": "Three.js", "level": "중급"},
+            {"id": "ts-3", "name": "React", "level": "초급"},
+            {"id": "ts-4", "name": "Revit", "level": "고급"}
+          ],
+          "certifications": [{"id": "cert-1", "name": "건축기사", "issuer": "한국산업인력공단", "acquiredDate": "2018-11"}],
+          "awards": [],
+          "trainingExperience": [
+            {"id": "tr-1", "course": "프론트엔드 개발자 과정", "organization": "예시코딩아카데미", "startDate": "2023-03", "endDate": "2023-09", "description": "JavaScript와 React를 배우고 팀 프로젝트를 진행했습니다."}
+          ],
+          "otherActivities": [],
+          "projects": [
+            {
+              "id": "prj-1", "name": "웹 BIM 뷰어", "startDate": "2024-01", "endDate": "2024-06",
+              "role": "개인", "techStack": "Three.js, JavaScript",
+              "description": "IFC 파일을 불러와 웹에서 건물 모델을 돌려 보고 층별로 나눠 볼 수 있는 뷰어를 만들었습니다.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "현장 사진 기록 앱", "startDate": "2023-07", "endDate": "2023-09",
+              "role": "프론트엔드(4인 팀)", "techStack": "React",
+              "description": "공사 현장 사진을 날짜와 위치별로 올리고 모아 보는 웹을 만들었습니다. 저는 사진 목록 화면을 맡았습니다.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "설계를 아는 3D 웹 개발자",
+              "body": "건축설계사무소에서 BIM 모델을 만들며 무거운 설계 프로그램 없이도 모델을 확인할 수 있으면 좋겠다고 자주 생각했습니다. 그 생각이 웹에서 3D 모델을 보여 주는 개발 공부로 이어졌습니다."
+            },
+            "motivation": {
+              "subtitle": "건설 현장의 디지털 전환",
+              "body": "설계 변경이 현장에 늦게 전달돼 재시공하는 일을 옆에서 봤습니다. 예시콘테크의 건설 협업 플랫폼에서 설계 모델을 현장까지 쉽게 전달하는 화면을 만드는 데 기여하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "브라우저가 멈추던 큰 모델",
+              "body": "웹 BIM 뷰어로 아파트 한 동 모델을 불러오자 브라우저가 몇 초씩 멈췄습니다. 같은 모양의 부재를 한 번만 그리도록 바꾸고, 보이지 않는 층은 그리지 않게 해 모델을 부드럽게 돌려 볼 수 있게 했습니다."
+            },
+            "growth": {
+              "subtitle": "도면에서 코드로",
+              "body": "설계 일을 하며 반복 작업을 줄이려고 Revit 스크립트를 만들어 본 것이 프로그래밍을 시작한 계기가 됐습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "사용자 이해 / 개발 경력",
+              "body": "강점은 설계자와 현장 담당자가 무엇을 불편해하는지 직접 겪어 봐서 안다는 점입니다. 약점은 개발 실무 경력이 짧다는 점이라, 개인 프로젝트를 꾸준히 이어 가며 보완하고 있습니다."
+            },
+            "aspiration": {
+              "subtitle": "현장까지 닿는 설계 모델",
+              "body": "입사 후에는 플랫폼의 3D 뷰어 구조를 먼저 익히고, 설계 경험을 살려 현장 담당자가 자주 쓰는 기능을 찾아 개선하는 일을 맡고 싶습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN3-05",
+        "company": "(주)예시콘테크",
+        "title": "건설 협업 플랫폼 3D 웹 프론트엔드 개발자 (신입)",
+        "text": "[주요업무]\n- 웹 기반 BIM·3D 모델 뷰어 개발\n- 협업 플랫폼 화면 개발\n\n[자격요건]\n- JavaScript 또는 TypeScript 개발 경험\n- Three.js·WebGL 등 웹 3D 개발 경험\n- React 등 프론트엔드 프레임워크 사용 경험\n\n[우대사항]\n- BIM·IFC 데이터 이해\n- 대용량 3D 모델 렌더링 최적화 경험\n- 건설·건축 도메인 경험\n\n[근무조건]\n- 정규직, 서울 강서구"
+      },
+      "applicant": {
+        "facts": [
+          "예시건축사사무소에서 2019년 2월부터 2022년 3월까지 BIM 설계 담당으로 공동주택 Revit BIM 모델을 작성하고 도면 충돌 검토 결과를 설계팀에 전달했다",
+          "프론트엔드 개발자 과정에서 JavaScript와 React를 배우고 팀 프로젝트를 했다",
+          "웹 BIM 뷰어를 혼자 Three.js로 만들어 IFC 파일을 불러와 모델을 돌려 보고 층별로 나눠 보게 했다",
+          "웹 BIM 뷰어에서 큰 모델이 브라우저를 멈추게 해 같은 모양 부재를 한 번만 그리고 보이지 않는 층을 그리지 않게 바꿨다",
+          "현장 사진 기록 앱(4인 팀)에서 사진 목록 화면을 맡았다",
+          "Revit 스크립트로 반복 작업을 줄여 본 것이 프로그래밍을 시작한 계기다",
+          "건축기사 자격증이 있다",
+          "(이력서에 없음) 웹 BIM 뷰어에서 인스턴싱을 적용한 뒤 아파트 한 동 모델의 드로우 콜이 약 9천 개에서 약 600개로 줄고 회전할 때 초당 프레임이 10 안팎에서 55 정도로 올랐다",
+          "(이력서에 없음) 설계사무소 때 Dynamo로 창호 일람표를 자동으로 뽑는 스크립트를 만들어 팀에서 1년 넘게 썼다. 이건 개발 프로젝트로 이력서에 적지 않았다"
+        ],
+        "not_done": ["TypeScript 실무", "WebGL 셰이더 직접 작성", "건설 협업 플랫폼 실무"]
+      },
+      "expected_requirements": [
+        {"label": "JavaScript/TypeScript 개발", "group": "must", "resume": "ok"},
+        {"label": "Three.js·WebGL 개발", "group": "must", "resume": "ok"},
+        {"label": "React 등 프레임워크", "group": "must", "resume": "ok"},
+        {"label": "BIM·IFC 이해", "group": "preferred", "resume": "ok"},
+        {"label": "대용량 3D 렌더링 최적화", "group": "preferred", "resume": "partial"},
+        {"label": "건설·건축 도메인", "group": "preferred", "resume": "ok"}
+      ],
+      "expected_star": {
+        "experience[0].description": "TA",
+        "trainingExperience[0].description": "TA",
+        "projects[0].description": "TA",
+        "projects[1].description": "TA",
+        "selfIntroduction.intro.body": "S",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "SA",
+        "selfIntroduction.strengthsWeaknesses.body": "A"
+      }
+    }
+  ]
+}

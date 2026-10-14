@@ -1,0 +1,1247 @@
+"""Named mutations. firestore.rules 권한 + 서버만 write 는 관리자."""
+
+from __future__ import annotations
+
+import json
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+from django.contrib.auth.hashers import make_password
+from django.db import ProgrammingError, connection, transaction
+
+from lms.permissions import can_access_cohort
+from lms.practice_service import PRACTICE_OPS
+from lms.push import notify_alert_popup, notify_new_notice
+from lms.services import schedule_notice_vector
+
+KST = ZoneInfo("Asia/Seoul")
+
+
+def _one(cur):
+    row = cur.fetchone()
+    if not row:
+        return None
+    cols = [c[0] for c in cur.description]
+    return dict(zip(cols, row))
+
+
+def resolve_cohort(cur, cohort_key, user) -> int | None:
+    if cohort_key is None or cohort_key == "":
+        if user.get("cohort_id"):
+            return user.get("cohort_id")
+    else:
+        cur.execute("SELECT id FROM cohorts WHERE code = %s", [str(cohort_key)])
+        row = cur.fetchone()
+        if row:
+            return row[0]
+        try:
+            cur.execute("SELECT id FROM cohorts WHERE id = %s", [int(cohort_key)])
+            row = cur.fetchone()
+            if row:
+                return row[0]
+        except (TypeError, ValueError):
+            pass
+    if user.get("role") == "admin":
+        cur.execute("SELECT id FROM cohorts ORDER BY id LIMIT 1")
+        row = cur.fetchone()
+        return row[0] if row else None
+    return user.get("cohort_id")
+
+
+def resolve_user(cur, firebase_uid: str) -> int | None:
+    cur.execute("SELECT id FROM users WHERE firebase_uid = %s", [firebase_uid])
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def resolve_row(cur, table: str, public_id, extra_where: str = "", extra_args=()):
+    args = [str(public_id), *extra_args]
+    cur.execute(f"SELECT * FROM {table} WHERE legacy_id = %s {extra_where}", args)
+    row = _one(cur)
+    if row:
+        return row
+    try:
+        cur.execute(f"SELECT * FROM {table} WHERE id = %s {extra_where}", [int(public_id), *extra_args])
+        return _one(cur)
+    except (TypeError, ValueError):
+        return None
+
+
+def _require_admin(user):
+    if user.get("role") != "admin":
+        raise PermissionError("admin only")
+
+
+def _require_staff(user):
+    if user.get("role") not in ("admin", "instructor"):
+        raise PermissionError("staff only")
+
+
+def _assert_cohort_writable(cur, cohort_id):
+    if cohort_id is None:
+        return
+    cur.execute('SELECT id FROM cohorts WHERE id=%s FOR UPDATE', [cohort_id])
+    if not cur.fetchone():
+        raise KeyError('cohort')
+    try:
+        cur.execute("SELECT 1 FROM cohort_deletion_jobs WHERE cohort_id=%s AND state <> 'complete'", [cohort_id])
+    except ProgrammingError as exc:
+        if getattr(exc.__cause__, 'sqlstate', None) == '42P01':
+            raise ValueError('기수 삭제 보호 migration 0017 적용 후 다시 시도해 주세요.') from exc
+        raise
+    if cur.fetchone():
+        raise ValueError('삭제 중인 기수에는 새 운영 기록을 등록할 수 없습니다.')
+
+
+def dispatch(user: dict, op: str, payload: dict) -> dict:
+    handler = OPS.get(op)
+    if handler is None:
+        raise ValueError(f"unknown op {op}")
+    with transaction.atomic():
+        with connection.cursor() as cur:
+            return handler(cur, user, payload) or {"ok": True}
+
+
+def _save_user_skills(cur, user_id: int, items) -> None:
+    """프로필 기술 스택을 통째로 바꾼다. 이름은 소문자로 맞춰 skills 에 두고(찾기용),
+    화면에 보일 원래 표기(「Python」)는 evidence.label, 숙련도(고급 · 중급 · 초급 · 입문)는 proficiency 에 둔다."""
+    cur.execute("DELETE FROM user_skills WHERE user_id = %s", [user_id])
+    for item in items or []:
+        if isinstance(item, dict):
+            label, level = " ".join(str(item.get("name") or "").split()), str(item.get("level") or "").strip()
+        else:
+            label, level = " ".join(str(item).split()), ""
+        name = label.casefold()
+        if not name:
+            continue
+        cur.execute(
+            """INSERT INTO skills (canonical_name,created_at) VALUES (%s,now())
+               ON CONFLICT (canonical_name) DO UPDATE SET canonical_name=EXCLUDED.canonical_name
+               RETURNING id""",
+            [name],
+        )
+        skill_id = cur.fetchone()[0]
+        cur.execute(
+            """INSERT INTO user_skills (user_id,skill_id,proficiency,source,evidence,updated_at)
+               VALUES (%s,%s,%s,'profile',%s,now()) ON CONFLICT DO NOTHING""",
+            [user_id, skill_id, level or None, json.dumps({"label": label}, ensure_ascii=False)],
+        )
+
+
+def op_update_profile(cur, user, p):
+    if {"password", "mustChangePassword", "lastLoginAt"} & p.keys():
+        raise ValueError("인증 정보는 전용 변경 기능을 사용해 주세요.")
+    uid = p.get("uid") or user["firebase_uid"]
+    if user["role"] != "admin" and uid != user["firebase_uid"]:
+        raise PermissionError("owner only")
+    fields = []
+    args = []
+    mapping = {
+        "motto": "motto",
+        "socialLinks": "social_links",
+        "birthDate": "birth_date",
+        "personalEmail": "personal_email",
+        "photoStoragePath": "photo_storage_key",
+    }
+    if p.get("birthDate") == "":
+        # 마이페이지에서 생년월일을 지우면 '' 가 온다 — date 칸에는 NULL 로 넣는다
+        p = {**p, "birthDate": None}
+    if user["role"] == "admin":
+        # 관리자만 — 학생 · 강사 정보 수정, 퇴소 · 복학(비활성)
+        mapping.update({"displayName": "display_name", "seatNumber": "seat_number", "isActive": "is_active"})
+        if "email" in p:
+            email = str(p.get("email") or "").strip().lower()
+            if not email:
+                raise ValueError("로그인 이메일을 비울 수 없습니다.")
+            cur.execute("SELECT 1 FROM users WHERE lower(email) = %s AND firebase_uid <> %s", [email, uid])
+            if cur.fetchone():
+                raise ValueError("이미 사용 중인 로그인 이메일입니다.")
+            fields.append("email = %s")
+            args.append(email)
+    for src, col in mapping.items():
+        if src in p:
+            fields.append(f"{col} = %s")
+            args.append(p[src])
+    target_user_id = resolve_user(cur, uid)
+    if target_user_id is None:
+        raise KeyError("user")
+    if "techStack" in p or "skills" in p:
+        # 마이페이지 「기술 스택」 — techStack 은 [{name, level}], 예전 skills 는 이름 목록. 둘 다 오면 techStack
+        _save_user_skills(cur, target_user_id, p["techStack"] if "techStack" in p else p.get("skills"))
+    if "jobPreferences" in p:
+        import json
+        cur.execute(
+            """INSERT INTO user_job_preferences (user_id,preferences,updated_at)
+               VALUES (%s,%s,now()) ON CONFLICT (user_id) DO UPDATE
+               SET preferences=EXCLUDED.preferences,updated_at=now()""",
+            [target_user_id, json.dumps(p.get("jobPreferences") or {})],
+        )
+    if not fields:
+        return {"ok": True}
+    fields.append("updated_at = now()")
+    args.append(uid)
+    cur.execute(f"UPDATE users SET {', '.join(fields)} WHERE firebase_uid = %s", args)
+    return {"ok": True}
+
+
+def op_add_todo(cur, user, p):
+    requested_uid = p.get("uid") or user["firebase_uid"]
+    if user["role"] != "admin" and requested_uid != user["firebase_uid"]:
+        raise PermissionError("todo owner only")
+    uid = resolve_user(cur, requested_uid)
+    if uid is None:
+        raise KeyError("user")
+    cur.execute(
+        "INSERT INTO todos (legacy_id, user_id, title, is_completed, created_at) VALUES (%s,%s,%s,false, now()) RETURNING id",
+        [None, uid, p.get("title") or ""],
+    )
+    pk = cur.fetchone()[0]
+    cur.execute("UPDATE todos SET legacy_id = %s WHERE id = %s", [str(pk), pk])
+    return {"id": str(pk)}
+
+
+def op_toggle_todo(cur, user, p):
+    row = resolve_row(cur, "todos", p["todoId"])
+    if not row:
+        raise KeyError("todo")
+    if user["role"] != "admin" and row["user_id"] != user["id"]:
+        raise PermissionError("todo owner only")
+    cur.execute("UPDATE todos SET is_completed = NOT is_completed WHERE id = %s", [row["id"]])
+
+
+def op_delete_todo(cur, user, p):
+    row = resolve_row(cur, "todos", p["todoId"])
+    if row:
+        if user["role"] != "admin" and row["user_id"] != user["id"]:
+            raise PermissionError("todo owner only")
+        cur.execute("DELETE FROM todos WHERE id = %s", [row["id"]])
+
+
+def op_set_seat_presence(cur, user, p):
+    _require_staff(user)
+    student_uid = str(p.get("userId") or "")
+    state = p.get("state")
+    if state not in ("confirmed", "held"):
+        raise ValueError("invalid seat presence state")
+    try:
+        presence_date = date.fromisoformat(str(p["dateKey"]))
+        period = int(p["period"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("invalid seat presence date or period") from exc
+    if period not in (9, 10, 11, 12, 14, 15, 16, 17):
+        raise ValueError("invalid seat presence period")
+    cur.execute(
+        "SELECT id, cohort_id FROM users WHERE firebase_uid = %s AND role = 'student' AND is_active = true",
+        [student_uid],
+    )
+    student = cur.fetchone()
+    if not student:
+        raise KeyError("student")
+    student_id, cohort_id = student
+    if not can_access_cohort(user, cohort_id):
+        raise PermissionError("cohort only")
+    _assert_cohort_writable(cur, cohort_id)
+    cur.execute(
+        """INSERT INTO seat_presences
+               (cohort_id, user_id, presence_date, period, state, updated_by, updated_at)
+               VALUES (%s, %s, %s, %s, %s, %s, now())
+               ON CONFLICT (cohort_id, user_id, presence_date, period)
+               DO UPDATE SET state = EXCLUDED.state, updated_by = EXCLUDED.updated_by,
+                             updated_at = now()
+               RETURNING id""",
+        [cohort_id, student_id, presence_date, str(period), state, user["id"]],
+    )
+    return {"id": str(cur.fetchone()[0])}
+
+
+def op_create_notice(cur, user, p):
+    _require_staff(user)
+    cohort_id = resolve_cohort(cur, p.get("cohortId"), user)
+    if not can_access_cohort(user, cohort_id) and user["role"] != "admin":
+        raise PermissionError("cohort")
+    _assert_cohort_writable(cur, cohort_id)
+    cur.execute("SELECT code FROM cohorts WHERE id = %s", [cohort_id])
+    code = cur.fetchone()[0]
+    cur.execute(
+        """INSERT INTO notices (cohort_id, title, content, author_id, author_name, is_favorite, priority, vector_chunk_count, created_at, updated_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,0, now(), now()) RETURNING id""",
+        [cohort_id, p.get("title") or "", p.get("content") or "", user["id"],
+         p.get("authorName") or user["display_name"], bool(p.get("isFavorite")), int(p.get("priority") or 0)],
+    )
+    pk = cur.fetchone()[0]
+    cur.execute("UPDATE notices SET legacy_id = %s WHERE id = %s", [str(pk), pk])
+    notify_new_notice(cur, cohort_id, pk, p.get("title") or "", p.get("content") or "", user["id"])
+    schedule_notice_vector(
+        cohort_code=code, notice_id=pk,
+        data={"title": p.get("title"), "content": p.get("content"), "author_id": user["id"],
+              "author_name": p.get("authorName") or user["display_name"],
+              "is_favorite": bool(p.get("isFavorite")), "priority": int(p.get("priority") or 0)},
+        previous_chunk_count=0,
+    )
+    return {"id": str(pk)}
+
+
+def op_update_notice(cur, user, p):
+    row = resolve_row(cur, "notices", p["noticeId"])
+    if not row:
+        raise KeyError("notice")
+    if user["role"] != "admin" and not (user["role"] == "instructor" and row.get("author_id") == user["id"]):
+        raise PermissionError("notice")
+    _assert_cohort_writable(cur, row["cohort_id"])
+    title = p.get("title", row["title"])
+    content = p.get("content", row["content"])
+    fav = p.get("isFavorite", row["is_favorite"])
+    cur.execute(
+        "UPDATE notices SET title=%s, content=%s, is_favorite=%s, updated_at=now() WHERE id=%s",
+        [title, content, bool(fav), row["id"]],
+    )
+    cur.execute("SELECT code FROM cohorts WHERE id = %s", [row["cohort_id"]])
+    code = cur.fetchone()[0]
+    schedule_notice_vector(
+        cohort_code=code, notice_id=row["id"],
+        data={"title": title, "content": content, "image_storage_key": row.get("image_storage_key"),
+              "author_id": row.get("author_id")},
+        previous_chunk_count=row.get("vector_chunk_count") or 0,
+    )
+
+
+def op_delete_notice(cur, user, p):
+    _require_admin(user)
+    row = resolve_row(cur, "notices", p["noticeId"])
+    if not row:
+        return
+    cur.execute("SELECT code FROM cohorts WHERE id = %s", [row["cohort_id"]])
+    code = cur.fetchone()[0]
+    cur.execute("DELETE FROM notices WHERE id = %s", [row["id"]])
+    schedule_notice_vector(cohort_code=code, notice_id=row["id"], data=None,
+                           previous_chunk_count=row.get("vector_chunk_count") or 0)
+
+
+def _camel_to_snake(name: str) -> str:
+    out = []
+    for ch in name:
+        if ch.isupper():
+            out.append("_")
+            out.append(ch.lower())
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def _table_columns(cur, table: str) -> set[str]:
+    cur.execute(
+        """SELECT column_name FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = %s""",
+        [table],
+    )
+    return {r[0] for r in cur.fetchall()}
+
+
+def _array_columns(cur, table: str) -> set[str]:
+    """text[] 같은 배열 칸 — 목록을 JSON 글자로 바꾸면 안 되고 그대로 넣어야 한다."""
+    cur.execute(
+        """SELECT column_name FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = %s AND data_type = 'ARRAY'""",
+        [table],
+    )
+    return {r[0] for r in cur.fetchall()}
+
+
+# 화면 id(legacy_id)로 오는 관계 칸 → 그 표의 번호. parent_id 는 같은 표를 가리킨다.
+_REF_TABLES = {
+    "resume_id": "resumes",
+    "assessment_id": "assessments",
+    "submission_id": "assessment_submissions",
+    "question_id": "assessment_questions",
+    "request_id": "purchase_requests",
+    "product_id": "mileage_products",
+    "task_id": "form_tasks",
+    "source_id": "study_sources",
+    "sheet_id": "curriculum_sheets",
+    "room_id": "seating_rooms",
+    "parent_id": "",
+}
+
+
+def _prepare_row(cur, user, table: str, payload: dict, columns: set[str]) -> dict:
+    import json
+
+    arrays = _array_columns(cur, table)
+    data = {}
+    skip = {"id", "pk", "legacy_id"}
+    for key, value in payload.items():
+        if key in ("table", "action", "op"):
+            continue
+        col = _camel_to_snake(key)
+        if table == "attendances":
+            col = {"date_key": "attendance_date", "status_source": "data_source"}.get(col, col)
+        if col in ("uid", "firebase_uid") and "user_id" in columns and "user_id" not in data:
+            resolved = resolve_user(cur, str(value)) if value else None
+            if resolved:
+                data["user_id"] = resolved
+            continue
+        if col in ("user_id", "author_id", "created_by", "updated_by", "reviewed_by",
+                    "adjusted_by", "published_by", "uploaded_by") and value not in (None, ""):
+            if isinstance(value, str) and not str(value).isdigit():
+                resolved = resolve_user(cur, value)
+                if resolved:
+                    data[col] = resolved
+                    continue
+        if col in _REF_TABLES and value not in (None, "") and not str(value).isdigit():
+            ref = resolve_row(cur, _REF_TABLES[col] if col != "parent_id" else table, value)
+            if ref:
+                data[col] = ref["id"]
+            continue
+        if col == "cohort_id" and value not in (None, ""):
+            resolved = resolve_cohort(cur, value, user)
+            if resolved:
+                data[col] = resolved
+                continue
+        if col not in columns or col in skip:
+            continue
+        if isinstance(value, list) and col in arrays:
+            data[col] = value
+        elif isinstance(value, (dict, list)):
+            data[col] = json.dumps(value)
+        else:
+            data[col] = value
+    if table == "resumes" and "sections" in payload:
+        current_content = payload.get("content")
+        if not isinstance(current_content, dict) and payload.get("id"):
+            existing = resolve_row(cur, "resumes", payload["id"])
+            current_content = (existing or {}).get("content")
+        merged_content = dict(current_content) if isinstance(current_content, dict) else {}
+        merged_content["section_status"] = payload.get("sections") or {}
+        data["content"] = json.dumps(merged_content)
+    if "cohort_id" in columns and "cohort_id" not in data:
+        resolved = resolve_cohort(cur, payload.get("cohortId"), user)
+        if resolved:
+            data["cohort_id"] = resolved
+    if "user_id" in columns and "user_id" not in data and user.get("id"):
+        if payload.get("action") == "insert" and user.get("role") == "student":
+            data["user_id"] = user["id"]
+    if "author_id" in columns and "author_id" not in data:
+        data["author_id"] = user["id"]
+    return data
+
+
+def _delete_resume(cur, resume_id: int) -> None:
+    """이력서 하나를 지운다. resumes 를 가리키는 FK 는 DB 에 ON DELETE 가 없어(DEC-055) 딸린 행을 먼저 처리한다.
+
+    - 지운다: 피드백 읽음 · 피드백 · 수정 기록 · 첨삭 · 반영 기록 · 공고 맞춤 정보(resume_tailorings)
+    - 연결만 끊는다(모델의 SET_NULL): 이 이력서에서 만든 맞춤 이력서의 base_resume_id, 이 사본을 옮긴
+      편집용 이력서의 source_tailored_resume_id. 원본이 지워져도 맞춤 이력서는 남긴다(DEC-050)
+    """
+    cur.execute("UPDATE resumes SET base_resume_id = NULL WHERE base_resume_id = %s", [resume_id])
+    cur.execute("UPDATE resumes SET source_tailored_resume_id = NULL WHERE source_tailored_resume_id = %s", [resume_id])
+    cur.execute(
+        """DELETE FROM resume_feedback_reads WHERE resume_id = %s
+           OR feedback_id IN (SELECT id FROM resume_feedback WHERE resume_id = %s)""",
+        [resume_id, resume_id],
+    )
+    for table in ("resume_feedback", "resume_revisions", "resume_ai_applications", "resume_ai_reviews", "resume_tailorings"):
+        cur.execute(f"DELETE FROM {table} WHERE resume_id = %s", [resume_id])
+    # Optional until v2 migration 0011 is deployed; shared Experience/Evidence survive.
+    cur.execute("SELECT to_regclass('public.resume_experience_bindings')")
+    if cur.fetchone()[0] is not None:
+        cur.execute("DELETE FROM resume_experience_bindings WHERE resume_id = %s", [resume_id])
+    cur.execute("DELETE FROM resumes WHERE id = %s", [resume_id])
+
+
+def _validate_resume_write(cur, user, data: dict, row: dict | None) -> None:
+    owner_id = row["user_id"] if row else data.get("user_id") or user["id"]
+    if user["role"] != "admin" and owner_id != user["id"]:
+        raise PermissionError("resume owner only")
+    if row and "user_id" in data and data["user_id"] != owner_id:
+        raise ValueError("resume owner cannot be changed")
+    if row and "cohort_id" in data and data["cohort_id"] != row["cohort_id"]:
+        raise ValueError("resume cohort cannot be changed")
+    if not row and user["role"] != "admin":
+        data["user_id"] = user["id"]
+        data["cohort_id"] = user["cohort_id"]
+
+    base_id = data.get("base_resume_id", row.get("base_resume_id") if row else None)
+    is_base = data.get("is_base_resume", row.get("is_base_resume") if row else False)
+    if is_base and base_id:
+        raise ValueError("base resume cannot have a parent")
+    if base_id:
+        parent = resolve_row(cur, "resumes", base_id)
+        if not parent or parent["user_id"] != owner_id:
+            raise ValueError("바탕 이력서를 찾을 수 없거나 내 이력서가 아니에요.")
+        # 바탕은 원본(맞춤 이력서 · 첨삭 작업본이 아닌 것)이면 된다. 대표 기본 이력서(is_base_resume)일 필요는 없다 —
+        # 기본 이력서를 여럿 두는데, 대표만 받으면 대표를 바꾼 뒤 옛 대표에서 만든 맞춤 이력서가 저장되지 않았다(2026-09-30).
+        if parent.get("base_resume_id") or parent.get("source_tailored_resume_id"):
+            raise ValueError("맞춤 이력서를 바탕으로 또 맞춤 이력서를 만들 수 없어요.")
+        if row and parent["id"] == row["id"]:
+            raise ValueError("이력서가 자기 자신을 바탕으로 할 수 없어요.")
+        data["base_resume_id"] = parent["id"]
+
+    job_id = data.get("linked_job_id")
+    if job_id:
+        cur.execute("SELECT 1 FROM jobs.jobs WHERE job_id = %s", [str(job_id)])
+        if not cur.fetchone():
+            raise ValueError("linked job does not exist")
+
+
+def _validate_record_submission_write(user, data: dict, row: dict | None) -> None:
+    cohort_id = row["cohort_id"] if row else data.get("cohort_id") or user.get("cohort_id")
+    if cohort_id is None:
+        raise ValueError("submission cohort required")
+    if user["role"] != "admin" and not can_access_cohort(user, cohort_id):
+        raise PermissionError("cohort only")
+    if row and "user_id" in data and data["user_id"] != row["user_id"]:
+        raise ValueError("submission owner cannot be changed")
+    if row and "cohort_id" in data and data["cohort_id"] != row["cohort_id"]:
+        raise ValueError("submission cohort cannot be changed")
+    if user["role"] == "student":
+        owner_id = row["user_id"] if row else data.get("user_id") or user["id"]
+        if owner_id != user["id"]:
+            raise PermissionError("submission owner only")
+        if any(key in data for key in ("reviewed_by", "reviewed_at", "review_comment")):
+            raise PermissionError("review fields are staff only")
+        # 학생이 낼 때는 대기(pending). 옛 값(draft · submitted)도 받는다. 승인 · 반려는 강사 · 관리자만
+        if "status" in data and data["status"] not in ("pending", "draft", "submitted"):
+            raise PermissionError("review status is staff only")
+        if not row:
+            data["user_id"] = user["id"]
+            data["cohort_id"] = user["cohort_id"]
+
+
+def op_upsert_sql(cur, user, p):
+    """Allowlisted 테이블 INSERT/UPDATE/DELETE."""
+    table = p["table"]
+    allowed = {
+        "scheduled_notices", "alert_popups", "alert_popup_dismissals",
+        "record_submissions", "resumes", "resume_feedback", "attendances",
+        "seat_presences", "inflearn_packages", "study_sources", "study_notes",
+        "youtube_recommendations", "assessments", "assessment_questions",
+        "assessment_submissions", "curriculum_sheets", "submission_tasks", "submission_responses",
+        "mileage_settings", "mileage_products", "mileage_cart_items",
+        "purchase_requests", "mileage_transactions", "cohort_seating",
+        "project_teams", "curriculum_pdfs", "student_intakes", "cohorts",
+        "materials", "schedules",
+        "mission_progress", "recommendation_events",
+    }
+    if table not in allowed:
+        raise ValueError("table not allowed")
+    if table == 'cohorts':
+        _require_admin(user)
+        raise ValueError('기수 생성·수정은 전용 관리자 기능을 이용해 주세요.')
+    # The generic writer accepts every matching DB column. Until per-domain
+    # validation exists, students must not submit scores, prices, approval
+    # states or another user's IDs through it.
+    if user["role"] == "student" and table not in {
+        "record_submissions", "resumes", "alert_popup_dismissals",
+    }:
+        raise PermissionError("student write requires a dedicated command")
+    if table == "cohorts":
+        _require_admin(user)
+    elif table in {
+        "scheduled_notices", "alert_popups", "inflearn_packages",
+        "youtube_recommendations", "assessments", "assessment_questions",
+        "curriculum_sheets", "submission_tasks", "mileage_settings",
+        "mileage_products", "mileage_transactions", "cohort_seating",
+        "project_teams", "curriculum_pdfs", "materials", "schedules",
+        "seat_presences", "student_intakes", "attendances",
+        "resume_feedback", "study_sources",
+    }:
+        _require_staff(user)
+    if table in ("mileage_transactions", "assessment_submissions", "study_notes", "attendances") and user["role"] not in ("admin", "instructor"):
+        if p.get("action") not in ("insert",) or table not in ("assessment_submissions", "attendances"):
+            if user["role"] != "admin":
+                raise PermissionError("server-only write")
+    action = p.get("action")
+    if action == "delete":
+        if table == 'cohorts':
+            raise ValueError('기수 영구 삭제는 관리자 기수 삭제 기능에서만 가능합니다.')
+        row = resolve_row(cur, table, p["id"])
+        if table == "resumes":
+            if row and user["role"] != "admin" and row["user_id"] != user["id"]:
+                raise PermissionError("resume owner only")
+        elif table == "record_submissions":
+            _require_staff(user)
+            if row and user["role"] != "admin" and not can_access_cohort(user, row["cohort_id"]):
+                raise PermissionError("cohort only")
+        else:
+            _require_staff(user)
+        if row and table == "resumes":
+            _delete_resume(cur, row["id"])
+        elif row and table == "alert_popups":
+            cur.execute("DELETE FROM alert_popup_targets WHERE popup_id = %s", [row["id"]])
+            cur.execute("DELETE FROM alert_popup_dismissals WHERE popup_id = %s", [row["id"]])
+            cur.execute("DELETE FROM alert_popup_reads WHERE popup_id = %s", [row["id"]])
+            cur.execute("DELETE FROM alert_popups WHERE id = %s", [row["id"]])
+        elif row:
+            cur.execute(f"DELETE FROM {table} WHERE id = %s", [row["id"]])
+        return {"ok": True}
+    if table == "scheduled_notices":
+        return op_upsert_scheduled(cur, user, p)
+    if table == "alert_popups":
+        return op_upsert_alert(cur, user, p)
+    if table == "alert_popup_dismissals":
+        return op_dismiss_alert(cur, user, p)
+
+    columns = _table_columns(cur, table)
+    data = _prepare_row(cur, user, table, p, columns)
+    row_id = p.get("id")
+    updating = bool(row_id) and action != "insert"
+    row = resolve_row(cur, table, row_id) if updating else None
+    if updating and not row:
+        updating = False
+    if table != 'cohorts' and 'cohort_id' in columns:
+        # An admin may move a row between cohorts. Guard both its current owner
+        # and the destination, not just the truthy source cohort.
+        for cohort_id in sorted({value for value in ((row or {}).get('cohort_id'), data.get('cohort_id'))
+                                 if value is not None}, key=str):
+            _assert_cohort_writable(cur, cohort_id)
+    if table == "record_submissions":
+        _put_record_details(data, p, row)
+    if updating:
+        if not row:
+            raise KeyError(table)
+        if table == "resumes":
+            _validate_resume_write(cur, user, data, row)
+        elif table == "record_submissions":
+            _validate_record_submission_write(user, data, row)
+        if not data:
+            return {"id": str(row.get("legacy_id") or row["id"])}
+        if "updated_at" in columns:
+            data["updated_at"] = None
+        assignments = []
+        args = []
+        for col, value in data.items():
+            if col == "updated_at":
+                assignments.append("updated_at = now()")
+            else:
+                assignments.append(f"{col} = %s")
+                args.append(value)
+        args.append(row["id"])
+        cur.execute(f"UPDATE {table} SET {', '.join(assignments)} WHERE id = %s", args)
+        # 화면이 쥔 id 를 그대로 돌려준다(번호를 돌려주면 화면이 다른 행으로 본다)
+        return {"id": str(row.get("legacy_id") or row["id"])}
+
+    if table == "resumes":
+        _validate_resume_write(cur, user, data, None)
+    elif table == "record_submissions":
+        _validate_record_submission_write(user, data, None)
+    if "created_at" in columns:
+        data.pop("created_at", None)
+    if "updated_at" in columns:
+        data.pop("updated_at", None)
+    # 화면이 새 행에 붙여 둔 id(예: r-ab12cd)를 legacy_id 로 보관한다. bootstrap 이 legacy_id 를 공개 id 로
+    # 보내므로, 저장 뒤 다시 받아도 화면이 쥔 id 가 그대로 이어진다(새 이력서를 만들자마자 「찾을 수 없음」이던 문제).
+    if row_id and "legacy_id" in columns and "legacy_id" not in data:
+        data["legacy_id"] = str(row_id)
+    cols = list(data.keys())
+    extras = []
+    extra_vals = []
+    if "created_at" in columns:
+        extras.append("created_at")
+        extra_vals.append("now()")
+    if "updated_at" in columns:
+        extras.append("updated_at")
+        extra_vals.append("now()")
+    all_cols = cols + extras
+    placeholders = ["%s"] * len(cols) + extra_vals
+    conflict_clause = ""
+    if table == "attendances" and action == "insert":
+        # The attendance screen sends an insert for each status change. Keep
+        # the same daily row instead of violating uq_attendance_user_date.
+        mutable = [col for col in cols if col not in ("user_id", "attendance_date")]
+        updates = [f"{col} = EXCLUDED.{col}" for col in mutable]
+        updates.append("updated_at = now()")
+        conflict_clause = (
+            " ON CONFLICT (user_id, attendance_date) DO UPDATE SET "
+            + ", ".join(updates)
+        )
+    cur.execute(
+        f"INSERT INTO {table} ({', '.join(all_cols)}) VALUES ({', '.join(placeholders)})"
+        f"{conflict_clause} RETURNING id",
+        [data[c] for c in cols],
+    )
+    fetched = cur.fetchone()
+    if not fetched:
+        return {"ok": True}
+    pk = fetched[0]
+    if "legacy_id" in columns and not data.get("legacy_id"):
+        # 화면이 id 를 주지 않았을 때만 번호를 legacy_id 로 — 준 id 는 위에서 넣었다
+        cur.execute(f"UPDATE {table} SET legacy_id = %s WHERE id = %s", [str(pk), pk])
+    if table == "record_submissions" and p.get("files"):
+        _attach_record_files(cur, pk, data.get("user_id") or user["id"], p["files"])
+    return {"id": data.get("legacy_id") or str(pk)}
+
+
+RECORD_FILE_LIMIT = 5
+
+# 기록 종류별 칸 — record_submissions.details 에 모은다(ETL 과 같은 키). 화면은 평평하게(camelCase) 보낸다
+RECORD_DETAIL_FIELDS = (
+    ("certType", "cert_type"), ("startAt", "start_at"), ("endAt", "end_at"),
+    ("weekNumber", "week_number"), ("weekLabel", "week_label"), ("link", "link"),
+    ("quizScore", "quiz_score"), ("learningDate", "learning_date"),
+    ("learningContent", "learning_content"), ("isTeamStudy", "is_team_study"),
+)
+
+
+def _put_record_details(data: dict, payload: dict, row: dict | None) -> None:
+    """화면이 보낸 종류별 값을 details 로. 고칠 때는 있던 details 에 덮어쓴다. 새 기록은 제출 시각을 찍는다."""
+    import json
+
+    incoming = {col: payload[key] for key, col in RECORD_DETAIL_FIELDS if payload.get(key) is not None}
+    if row is not None:
+        current = row.get("details") or {}
+        if isinstance(current, str):
+            current = json.loads(current or "{}")
+        if not incoming:
+            return
+        data["details"] = json.dumps({**current, **incoming}, ensure_ascii=False)
+        return
+    data["details"] = json.dumps(incoming, ensure_ascii=False)
+    data.setdefault("submitted_at", timezone_now())
+
+
+def timezone_now():
+    from django.utils import timezone
+
+    return timezone.now()
+
+
+def _attach_record_files(cur, submission_pk: int, owner_id: int, files) -> None:
+    """기록 증빙 — /uploads/record-evidence 로 올린 키를 붙인다. 제출한 학생이 올린 파일만(키에 그 학생 uid)."""
+    cur.execute("SELECT firebase_uid FROM users WHERE id = %s", [owner_id])
+    row = cur.fetchone()
+    owner_uid = row[0] if row else None
+    if not isinstance(files, list) or len(files) > RECORD_FILE_LIMIT:
+        raise ValueError(f"증빙 파일은 {RECORD_FILE_LIMIT}개까지 붙일 수 있습니다.")
+    for f in files:
+        key = str((f or {}).get("key") or "")
+        parts = key.split("/")
+        if len(parts) != 4 or parts[0] != "records" or parts[2] != owner_uid or ".." in parts:
+            raise PermissionError("본인이 올린 증빙만 붙일 수 있습니다.")
+        cur.execute(
+            """INSERT INTO record_submission_files
+                   (submission_id, storage_key, original_filename, content_type, file_size, uploaded_at)
+               VALUES (%s, %s, %s, %s, %s, now()) ON CONFLICT DO NOTHING""",
+            [submission_pk, key, str(f.get("name") or parts[-1])[:255], f.get("contentType"), f.get("size")],
+        )
+
+
+ACCOUNT_EMAIL_DOMAIN = "playdata.co.kr"
+# 헷갈리는 글자(I · l · O · 0 · 1)는 뺀다 — functions/src/index.ts generateRandomPassword 와 같은 규칙
+_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$"
+_EMAIL_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+
+def generate_password() -> str:
+    """8~12자 임시 비밀번호. 비밀번호 바꾸기의 최소 길이(8)를 넘는다."""
+    import secrets
+
+    return "".join(secrets.choice(_PASSWORD_CHARS) for _ in range(8 + secrets.randbelow(5)))
+
+
+def _generate_email(cur) -> str:
+    """로그인 이메일을 비워 두면 만든다 — 원본과 같은 12자@playdata.co.kr"""
+    import secrets
+
+    for _ in range(8):
+        email = "".join(secrets.choice(_EMAIL_CHARS) for _ in range(12)) + "@" + ACCOUNT_EMAIL_DOMAIN
+        cur.execute("SELECT 1 FROM users WHERE lower(email) = %s", [email])
+        if cur.fetchone() is None:
+            return email
+    raise ValueError("로그인 이메일을 만들지 못했습니다. 다시 시도해 주세요.")
+
+
+def op_create_user(cur, user, p):
+    """학생 · 강사 계정 만들기 — 임시 비밀번호를 서버가 만들어 한 번만 돌려준다(저장은 해시만).
+
+    관리자는 돌려받은 아이디 · 비밀번호를 학생에게 전한다. 잃어버리면 resetPassword 로 다시 만든다.
+    """
+    _require_admin(user)
+    import uuid
+
+    role = p.get("role") or "student"
+    if role not in ("student", "instructor"):
+        raise ValueError("학생 · 강사 계정만 만들 수 있습니다.")
+    if not str(p.get("displayName") or "").strip():
+        raise ValueError("이름을 입력해 주세요.")
+    email = str(p.get("email") or "").strip().lower()
+    if email:
+        cur.execute("SELECT 1 FROM users WHERE lower(email) = %s", [email])
+        if cur.fetchone():
+            raise ValueError("이미 사용 중인 로그인 이메일입니다.")
+    else:
+        email = _generate_email(cur)
+    personal_email = str(p.get("personalEmail") or "").strip().lower() or None
+    password = generate_password()
+
+    firebase_uid = p.get("uid") or p.get("firebaseUid") or f"local-{uuid.uuid4().hex[:20]}"
+    cohort_id = resolve_cohort(cur, p.get("cohortId"), user)
+    _assert_cohort_writable(cur, cohort_id)
+    import json
+    cur.execute(
+        """INSERT INTO users (firebase_uid, email, password, personal_email, display_name, role, cohort_id,
+               seat_number, is_active, must_change_password, motto, social_links, birth_date,
+               mileage_balance, created_at, updated_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s,%s,%s,0, now(), now())
+           RETURNING id""",
+        [
+            firebase_uid,
+            email,
+            make_password(password),
+            personal_email,
+            str(p.get("displayName")).strip(),
+            role,
+            cohort_id,
+            p.get("seatNumber"),
+            bool(p.get("isActive", True)),
+            p.get("motto"),
+            json.dumps(p.get("socialLinks") or {}),
+            p.get("birthDate") or None,
+        ],
+    )
+    created_user_id = cur.fetchone()[0]
+    for raw_skill in p.get("skills") or []:
+        name = " ".join(str(raw_skill).split()).casefold()
+        if not name:
+            continue
+        cur.execute(
+            """INSERT INTO skills (canonical_name,created_at) VALUES (%s,now())
+               ON CONFLICT (canonical_name) DO UPDATE SET canonical_name=EXCLUDED.canonical_name RETURNING id""",
+            [name],
+        )
+        cur.execute(
+            """INSERT INTO user_skills (user_id,skill_id,source,updated_at)
+               VALUES (%s,%s,'profile',now()) ON CONFLICT DO NOTHING""",
+            [created_user_id, cur.fetchone()[0]],
+        )
+    import json
+    cur.execute(
+        """INSERT INTO user_job_preferences (user_id,preferences,updated_at) VALUES (%s,%s,now())""",
+        [created_user_id, json.dumps(p.get("jobPreferences") or {})],
+    )
+    return {"id": firebase_uid, "uid": firebase_uid, "email": email, "password": password}
+
+
+def op_reset_password(cur, user, p):
+    """비밀번호 재발급 — 학생 · 강사만. 새 임시 비밀번호를 돌려주고 다음 로그인에서 바꾸게 한다."""
+    _require_admin(user)
+    cur.execute("SELECT id, role, email FROM users WHERE firebase_uid = %s", [str(p.get("uid") or "")])
+    target = _one(cur)
+    if not target:
+        raise KeyError("user")
+    if target["role"] not in ("student", "instructor"):
+        raise PermissionError("학생 · 강사 비밀번호만 재발급할 수 있습니다.")
+    password = generate_password()
+    cur.execute(
+        "UPDATE users SET password = %s, must_change_password = true, updated_at = now() WHERE id = %s",
+        [make_password(password), target["id"]],
+    )
+    return {"uid": p.get("uid"), "email": target["email"], "password": password}
+
+
+def op_create_cohort(cur, user, p):
+    _require_admin(user)
+    code = p.get("cohortId") or p.get("code")
+    if not code:
+        raise ValueError("cohort code required")
+    name = " ".join(str(p.get("name") or code).split())
+    term = p.get("termNumber")
+    # Serialise cohort creation so a stale form cannot create a duplicate
+    # between its duplicate check and INSERT. Existing archived rows count too.
+    cur.execute("SELECT pg_advisory_xact_lock(%s)", [7481201])
+    cur.execute("""SELECT code, name, term_number, status FROM cohorts
+        WHERE code = %s OR (%s IS NOT NULL AND term_number = %s)
+           OR lower(regexp_replace(btrim(name), '[[:space:]]+', ' ', 'g')) = lower(%s)
+        ORDER BY id""", [code, term, term, name])
+    duplicates = cur.fetchall()
+    if duplicates:
+        raise ValueError("이미 등록된 기수 번호 또는 이름입니다. 기존 기수 수정 화면에서 문서를 교체해 주세요.")
+    try:
+        cur.execute('SELECT 1 FROM cohort_deletion_jobs WHERE cohort_code=%s', [code])
+    except ProgrammingError as exc:
+        if getattr(exc.__cause__, 'sqlstate', None) == '42P01':
+            raise ValueError('기수 삭제 보호 migration 0017 적용 후 다시 시도해 주세요.') from exc
+        raise
+    if cur.fetchone():
+        raise ValueError('삭제 이력이 있는 기수 코드는 다시 사용할 수 없습니다.')
+    start, end = _cohort_period(p)
+    cur.execute(
+        """INSERT INTO cohorts (code, name, description, status, is_active, term_number,
+               classroom_name, start_date, end_date, created_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s, now()) RETURNING id""",
+        [
+            code,
+            name,
+            p.get("description"),
+            p.get("status") or "active",
+            bool(p.get("isActive", True)),
+            p.get("termNumber"),
+            p.get("classroomName"),
+            start,
+            end,
+        ],
+    )
+    pk = cur.fetchone()[0]
+    return {"id": str(pk), "cohortId": code}
+
+
+def op_update_cohort(cur, user, p):
+    _require_admin(user)
+    code = p.get("cohortId") or p.get("code")
+    cur.execute("SELECT id, start_date FROM cohorts WHERE code = %s", [code])
+    row = cur.fetchone()
+    if not row:
+        raise KeyError("cohort")
+    _assert_cohort_writable(cur, row[0])
+    if 'status' in p and p['status'] not in ('planned', 'active', 'closed'):
+        raise ValueError('기수 상태가 올바르지 않습니다.')
+    fields = []
+    args = []
+    mapping = {
+        "name": "name",
+        "description": "description",
+        "status": "status",
+        "isActive": "is_active",
+        "termNumber": "term_number",
+        "classroomName": "classroom_name",
+    }
+    for src, col in mapping.items():
+        if src in p:
+            fields.append(f"{col} = %s")
+            args.append(p[src])
+    # 기간은 관리자 화면 「기수 관리」에서 고친다. 학생 대시보드 D-day · 챗봇의 과정 기간이 이 값을 읽는다.
+    # 예전에는 화면이 보낸 날짜를 버려서 새로고침하면 옛 날짜로 돌아갔다
+    start, end = _cohort_period(p)
+    # 개강한 기수는 시작일을 못 바꾼다. 출석 단위기간이 시작일부터 한 달씩 나뉘어, 바꾸면 지난 기간 출석률이 다시 계산된다.
+    # 종료일은 마지막 기간만 바뀌어 연다. 화면은 저장할 때 같은 시작일을 그대로 보내므로 같은 값이면 통과
+    current_start = row[1]
+    if "startDate" in p and current_start and current_start <= datetime.now(KST).date() and start != current_start:
+        raise ValueError("개강한 기수는 시작일을 바꿀 수 없습니다.")
+    for src, col, value in (("startDate", "start_date", start), ("endDate", "end_date", end)):
+        if src in p:
+            fields.append(f"{col} = %s")
+            args.append(value)
+    if not fields:
+        return {"ok": True}
+    args.append(row[0])
+    cur.execute(f"UPDATE cohorts SET {', '.join(fields)} WHERE id = %s", args)
+    return {"ok": True}
+
+
+def op_set_cohort_status(cur, user, p):
+    """Archive/restore without changing is_active or user/document access policy."""
+    _require_admin(user)
+    code, target = p.get('cohortId'), p.get('status')
+    if target not in ('planned', 'active', 'closed'):
+        raise ValueError('기수 상태가 올바르지 않습니다.')
+    cur.execute('SELECT id, status FROM cohorts WHERE code=%s', [code])
+    row = cur.fetchone()
+    if not row:
+        raise KeyError('cohort')
+    _assert_cohort_writable(cur, row[0])
+    if row[1] != target and not ((row[1] == 'closed' and target in ('planned', 'active'))
+                                 or (row[1] in ('planned', 'active') and target == 'closed')):
+        raise ValueError('종료 또는 명시적 복원 상태만 선택할 수 있습니다.')
+    cur.execute('UPDATE cohorts SET status=%s WHERE id=%s', [target, row[0]])
+    return {'cohortId': code, 'status': target}
+
+
+def _cohort_period(p) -> tuple[date | None, date | None]:
+    """화면이 보낸 시작일 · 종료일(「2026-12-14」 또는 「2026-12-14T00:00:00.000Z」)을 날짜로. 종료가 시작보다 앞이면 거절."""
+
+    def day(value) -> date | None:
+        if value in (None, ""):
+            return None
+        try:
+            return date.fromisoformat(str(value)[:10])
+        except ValueError as error:
+            raise ValueError(f"날짜 형식이 아닙니다: {value}") from error
+
+    start, end = day(p.get("startDate")), day(p.get("endDate"))
+    if start and end and end < start:
+        raise ValueError("종료일이 시작일보다 앞입니다.")
+    return start, end
+
+
+def _hhmm(value) -> str | None:
+    if value in (None, ""):
+        return None
+    text = str(value)
+    return text[:5] if len(text) >= 5 else text
+
+
+def _alert_end_date(value) -> date | None:
+    if value in (None, ""):
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError as exc:
+        raise ValueError("노출 마지막 날은 YYYY-MM-DD 형식이어야 합니다.") from exc
+
+
+def op_upsert_scheduled(cur, user, p):
+    _require_staff(user)
+    from lms.publish import compute_next_publish_at
+
+    cohort_id = resolve_cohort(cur, p.get("cohortId"), user)
+    if user["role"] != "admin" and not can_access_cohort(user, cohort_id):
+        raise PermissionError("cohort")
+    title = p.get("title") or ""
+    content = p.get("content") or ""
+    repeat_type = (p.get("repeatType") or "once").lower()
+    publish_time = _hhmm(p.get("publishTime")) or "09:00"
+    weekday = int(p.get("weekday") or 1)
+    is_active = bool(p.get("isActive", True))
+    is_favorite = bool(p.get("isFavorite", False))
+    publish_at_raw = p.get("publishAt")
+    publish_at = None
+    if publish_at_raw:
+        from django.utils import timezone as dj_tz
+        from django.utils.dateparse import parse_datetime
+
+        if hasattr(publish_at_raw, "year"):
+            publish_at = publish_at_raw
+        else:
+            publish_at = parse_datetime(str(publish_at_raw).replace("Z", "+00:00"))
+        if publish_at is not None and dj_tz.is_naive(publish_at):
+            publish_at = dj_tz.make_aware(publish_at, dj_tz.get_current_timezone())
+    next_at = (
+        compute_next_publish_at(repeat_type, publish_time, publish_at, weekday) if is_active else None
+    )
+    row_id = p.get("id")
+    if row_id and p.get("action") != "insert":
+        row = resolve_row(cur, "scheduled_notices", row_id)
+        if not row:
+            raise KeyError("scheduled_notice")
+        _assert_cohort_writable(cur, row["cohort_id"])
+        cur.execute(
+            """UPDATE scheduled_notices
+               SET title=%s, content=%s, is_favorite=%s, repeat_type=%s, publish_time=%s,
+                   publish_at=%s, weekday=%s, is_active=%s, next_publish_at=%s, updated_at=now()
+               WHERE id=%s""",
+            [title, content, is_favorite, repeat_type, publish_time, publish_at, weekday,
+             is_active, next_at, row["id"]],
+        )
+        return {"id": str(row["id"])}
+    _assert_cohort_writable(cur, cohort_id)
+    cur.execute(
+        """INSERT INTO scheduled_notices
+           (cohort_id, title, content, author_id, is_favorite, repeat_type, publish_time,
+            publish_at, weekday, is_active, next_publish_at, created_at, updated_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, now(), now()) RETURNING id""",
+        [cohort_id, title, content, user["id"], is_favorite, repeat_type, publish_time,
+         publish_at, weekday, is_active, next_at],
+    )
+    pk = cur.fetchone()[0]
+    cur.execute("UPDATE scheduled_notices SET legacy_id = %s WHERE id = %s", [str(pk), pk])
+    return {"id": str(pk)}
+
+
+def op_upsert_alert(cur, user, p):
+    _require_staff(user)
+    cohort_id = resolve_cohort(cur, p.get("cohortId"), user)
+    if user["role"] != "admin" and not can_access_cohort(user, cohort_id):
+        raise PermissionError("cohort")
+    title = p.get("title") or ""
+    content = p.get("content") or ""
+    is_active = bool(p.get("isActive", True))
+    sort_order = int(p.get("sortOrder") or 0)
+    link_url = p.get("linkUrl") or None
+    start_time = _hhmm(p.get("startTime"))
+    end_time = _hhmm(p.get("endTime"))
+    end_date = _alert_end_date(p.get("endDate"))
+    # 없으면 대상을 건드리지 않는다(노출 토글처럼 일부만 고칠 때). 빈 목록이면 기수 전체로 되돌린다.
+    targets = p.get("targetUserIds")
+    row_id = p.get("id")
+    if row_id and p.get("action") != "insert":
+        row = resolve_row(cur, "alert_popups", row_id)
+        if not row:
+            raise KeyError("alert_popup")
+        if user["role"] != "admin" and not can_access_cohort(user, row["cohort_id"]):
+            raise PermissionError("cohort")
+        _assert_cohort_writable(cur, row["cohort_id"])
+        # endDate 를 안 보낸 부분 수정(예전 화면 · 다른 명령)은 마지막 날을 그대로 둔다
+        keep_end_date = "endDate" not in p
+        cur.execute(
+            """UPDATE alert_popups
+               SET title=%s, content=%s, is_active=%s, sort_order=%s, link_url=%s,
+                   start_time=%s, end_time=%s, end_date = CASE WHEN %s THEN end_date ELSE %s END,
+                   updated_at=now()
+               WHERE id=%s""",
+            [title, content, is_active, sort_order, link_url, start_time, end_time,
+             keep_end_date, end_date, row["id"]],
+        )
+        if targets is not None:
+            set_alert_targets(cur, row["id"], row["cohort_id"], targets)
+        return {"id": str(row["id"])}
+    _assert_cohort_writable(cur, cohort_id)
+    cur.execute(
+        """INSERT INTO alert_popups
+           (cohort_id, title, content, author_id, is_active, sort_order, link_url,
+            start_time, end_time, end_date, created_at, updated_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, now(), now()) RETURNING id""",
+        [cohort_id, title, content, user["id"], is_active, sort_order, link_url, start_time, end_time, end_date],
+    )
+    pk = cur.fetchone()[0]
+    cur.execute("UPDATE alert_popups SET legacy_id = %s WHERE id = %s", [str(pk), pk])
+    if targets:
+        set_alert_targets(cur, pk, cohort_id, targets)
+    if is_active:
+        notify_alert_popup(cur, pk, cohort_id, title, content)
+    return {"id": str(pk)}
+
+
+def op_dismiss_alert(cur, user, p):
+    popup = resolve_row(cur, "alert_popups", p.get("popupId") or p.get("id"))
+    if not popup:
+        raise KeyError("alert_popup")
+    date_key = p.get("dateKey")
+    cur.execute(
+        """INSERT INTO alert_popup_dismissals (user_id, popup_id, date_key)
+           VALUES (%s,%s,%s)
+           ON CONFLICT (user_id, popup_id) DO UPDATE SET date_key = EXCLUDED.date_key""",
+        [user["id"], popup["id"], date_key],
+    )
+    return {"ok": True}
+
+
+def op_mark_alert_read(cur, user, p):
+    """학생이 알림을 확인했다 — 처음 한 번만 남긴다"""
+    if user.get("role") != "student":
+        return {"ok": True}
+    popup = resolve_row(cur, "alert_popups", p.get("popupId") or p.get("id"))
+    if not popup:
+        raise KeyError("alert_popup")
+    if popup["cohort_id"] != user.get("cohort_id"):
+        raise PermissionError("cohort")
+    cur.execute(
+        """INSERT INTO alert_popup_reads (popup_id, user_id, read_at) VALUES (%s, %s, now())
+           ON CONFLICT (popup_id, user_id) DO NOTHING""",
+        [popup["id"], user["id"]],
+    )
+    return {"ok": True}
+
+
+def op_publish_scheduled(cur, user, p):
+    _require_staff(user)
+    from lms.publish import publish_scheduled_notices
+
+    ids = p.get("ids") or p.get("scheduledIds")
+    count = publish_scheduled_notices(
+        ids=ids, cohort_id=None if user["role"] == "admin" else user.get("cohort_id") or -1,
+    )
+    return {"ok": True, "published": count}
+
+
+def op_touch_last_login(cur, user, p):
+    cur.execute("UPDATE users SET last_login = now() WHERE firebase_uid = %s", [user["firebase_uid"]])
+
+
+def op_mileage_adjust(cur, user, p):
+    _require_admin(user)
+    cur.execute("SELECT id, cohort_id FROM users WHERE firebase_uid = %s FOR UPDATE", [p["uid"]])
+    row = cur.fetchone()
+    if not row:
+        raise KeyError("user")
+    _assert_cohort_writable(cur, row[1])
+    amount = int(p.get("amount") or 0)
+    cur.execute(
+        """INSERT INTO mileage_transactions (cohort_id, user_id, amount, type, reason, adjusted_by, created_at)
+           VALUES (%s,%s,%s,'admin_adjust',%s,%s, now())""",
+        [row[1], row[0], amount, p.get("reason") or "", user["id"]],
+    )
+    cur.execute("UPDATE users SET mileage_balance = mileage_balance + %s WHERE id = %s", [amount, row[0]])
+
+
+def op_save_curriculum_pdf(cur, user, p):
+    _require_staff(user)
+    cohort_id = resolve_cohort(cur, p.get("cohortId"), user)
+    _assert_cohort_writable(cur, cohort_id)
+    cur.execute(
+        """INSERT INTO curriculum_pdfs (cohort_id, storage_key, original_filename, published, updated_by, updated_at)
+           VALUES (%s,%s,%s,%s,%s, now())
+           ON CONFLICT (cohort_id) DO UPDATE SET storage_key = EXCLUDED.storage_key,
+              original_filename = EXCLUDED.original_filename, published = EXCLUDED.published,
+              updated_by = EXCLUDED.updated_by, updated_at = now()""",
+        [cohort_id, p.get("storageKey"), p.get("fileName"), True, user["id"]],
+    )
+
+
+def op_clear_curriculum_pdf(cur, user, p):
+    _require_staff(user)
+    cohort_id = resolve_cohort(cur, p.get("cohortId"), user)
+    _assert_cohort_writable(cur, cohort_id)
+    cur.execute(
+        "UPDATE curriculum_pdfs SET storage_key=NULL, original_filename=NULL, published=false, updated_at=now() WHERE cohort_id=%s",
+        [cohort_id],
+    )
+
+
+def op_publish_seating(cur, user, p):
+    _require_staff(user)
+    cohort_id = resolve_cohort(cur, p.get("cohortId"), user)
+    _assert_cohort_writable(cur, cohort_id)
+    cur.execute(
+        "UPDATE cohort_seating SET published=true, updated_by=%s, updated_at=now() WHERE cohort_id=%s",
+        [user["id"], cohort_id],
+    )
+    if cur.rowcount == 0:
+        raise KeyError("seating")
+
+
+OPS = {
+    **PRACTICE_OPS,
+    "updateProfile": op_update_profile,
+    "createUser": op_create_user,
+    "resetPassword": op_reset_password,
+    "createCohort": op_create_cohort,
+    "updateCohort": op_update_cohort,
+    "setCohortStatus": op_set_cohort_status,
+    "addTodo": op_add_todo,
+    "toggleTodo": op_toggle_todo,
+    "deleteTodo": op_delete_todo,
+    "setSeatPresence": op_set_seat_presence,
+    "createNotice": op_create_notice,
+    "updateNotice": op_update_notice,
+    "deleteNotice": op_delete_notice,
+    "touchLastLogin": op_touch_last_login,
+    "mileageAdjust": op_mileage_adjust,
+    "saveCurriculumPdf": op_save_curriculum_pdf,
+    "clearCurriculumPdf": op_clear_curriculum_pdf,
+    "publishSeating": op_publish_seating,
+    "upsert": op_upsert_sql,
+    "publishScheduledNotices": op_publish_scheduled,
+    "upsertScheduledNotice": op_upsert_scheduled,
+    "upsertAlertPopup": op_upsert_alert,
+    "dismissAlertPopup": op_dismiss_alert,
+    "markAlertRead": op_mark_alert_read,
+}
+
+# 좌석 배치 쓰기(강의실 틀 · 배치 · 프로젝트 팀)는 따로 둔다 — 위 도우미를 쓰므로 맨 끝에서 불러온다.
+from lms.seating_commands import SEATING_OPS  # noqa: E402
+
+OPS.update(SEATING_OPS)
+
+# 복습 문제 쓰기(풀이 기록 · 신고 · 강사 결정) — practice 스키마
+from lms.practice_service import PRACTICE_OPS  # noqa: E402
+
+OPS.update(PRACTICE_OPS)
+
+# 기록실 · 평가 · 설문 · 마일리지 · 학습실 · 자리 확인 쓰기 — 여러 표를 함께 고치는 것들
+from lms.content_commands import CONTENT_OPS  # noqa: E402
+
+OPS.update(CONTENT_OPS)
+
+# 불시 자리 점검 · 학생 조건 조회 · 지정 알림 대상
+from lms.manager_commands import MANAGER_OPS, set_alert_targets  # noqa: E402
+
+OPS.update(MANAGER_OPS)
+
+# 출결 신청(예외 출결) — 학생 신청 · 매니저 승인
+from lms.attendance_requests import ATTENDANCE_REQUEST_OPS  # noqa: E402
+
+OPS.update(ATTENDANCE_REQUEST_OPS)
+
+# 설문 · 제출 — LMS 안에서 만드는 설문과 외부 폼 링크
+from lms.form_surveys import FORM_SURVEY_OPS  # noqa: E402
+
+OPS.update(FORM_SURVEY_OPS)

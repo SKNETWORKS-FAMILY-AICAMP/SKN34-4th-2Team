@@ -1,0 +1,260 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
+
+import { useSelectedCohortFor } from '../../data/cohortSelection';
+import { useCohorts } from '../../data/repository';
+import { DemoAccounts } from '../../data/seed';
+import { fetchBootstrap, mapUser } from '../../data/bootstrap';
+import { http, readApiError, refreshAccess } from '../../data/http';
+import { queryClient, queryKeys } from '../../data/queryClient';
+import { subscribeBootstrap } from '../../data/bootstrapStore';
+import { useSessionStore } from '../../data/sessionStore';
+import { getDb, subscribe, type Database } from '../../data/store';
+import type { User, UserRole } from '../../domain/types';
+
+const STORAGE_KEY = 'lms_react_session_uid';
+
+/** 로그인 요청(auth) → 첫 화면 데이터 받기(data) */
+export type SignInStage = 'auth' | 'data';
+
+export interface Session {
+  user: User | null;
+  loading: boolean;
+  signIn(
+    email: string,
+    password: string,
+    onStage?: (stage: SignInStage) => void,
+  ): Promise<{ ok: true; role: UserRole; mustChangePassword: boolean } | { ok: false; message: string }>;
+  signOut(): Promise<void>;
+  changePassword(
+    next: string,
+    current?: string,
+  ): Promise<{ ok: true } | { ok: false; message: string }>;
+  skipPasswordChange(): Promise<{ ok: true } | { ok: false; message: string }>;
+  switchRole(role: UserRole): void;
+}
+
+const SessionContext = createContext<Session | null>(null);
+
+function isTestMode(): boolean {
+  return import.meta.env.MODE === 'test';
+}
+
+function readStoredUid(): string | null {
+  try {
+    return window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function resolveLiveUser(
+  uid: string,
+  users: User[],
+  me?: Record<string, unknown>,
+): User | null {
+  const found = users.find((user) => user.uid === uid);
+  if (found !== undefined) return found;
+  if (me === undefined) return null;
+  return mapUser({
+    ...me,
+    uid: me.uid ?? uid,
+    firebase_uid: me.uid ?? uid,
+  });
+}
+
+function demoSignIn(email: string, password: string): { ok: true; uid: string } | { ok: false; message: string } {
+  const found = getDb().users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
+  if (found === undefined) {
+    return { ok: false, message: '등록되지 않은 이메일입니다.' };
+  }
+  if (password !== DemoAccounts.password) {
+    return { ok: false, message: '비밀번호가 올바르지 않습니다.' };
+  }
+  if (!found.isActive) {
+    return { ok: false, message: '비활성 계정입니다. 관리자에게 문의하세요.' };
+  }
+  return { ok: true, uid: found.uid };
+}
+
+export function SessionProvider({ children }: { children: ReactNode }) {
+  const [uid, setUid] = useState<string | null>(() => (isTestMode() ? readStoredUid() : null));
+  const [loading, setLoading] = useState(!isTestMode());
+  const [mustChange, setMustChange] = useState(false);
+  const [liveUser, setLiveUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    if (isTestMode()) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const refresh = useSessionStore.getState().refresh;
+      if (!refresh) {
+        setLoading(false);
+        return;
+      }
+      try {
+        if (!useSessionStore.getState().access) await refreshAccess();
+        const me = await http.get('/me');
+        const db = await queryClient.fetchQuery({ queryKey: queryKeys.bootstrap, queryFn: fetchBootstrap });
+        if (cancelled) return;
+        const nextUid = String(me.data.uid ?? '');
+        setUid(nextUid);
+        setMustChange(Boolean(me.data.mustChangePassword ?? me.data.must_change_password));
+        setLiveUser(resolveLiveUser(nextUid, db.users, me.data as Record<string, unknown>));
+      } catch {
+        useSessionStore.getState().clear();
+        queryClient.clear();
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isTestMode()) return;
+    try {
+      if (uid === null) window.localStorage.removeItem(STORAGE_KEY);
+      else window.localStorage.setItem(STORAGE_KEY, uid);
+    } catch {
+      /* 테스트만 */
+    }
+  }, [uid]);
+
+  const signIn = useCallback(async (email: string, password: string, onStage?: (stage: SignInStage) => void) => {
+    onStage?.('auth');
+    if (isTestMode()) {
+      const result = demoSignIn(email, password);
+      if (!result.ok) return result;
+      const found = getDb().users.find((u) => u.uid === result.uid);
+      setUid(result.uid);
+      setMustChange(found?.mustChangePassword ?? false);
+      return { ok: true as const, role: found?.role ?? 'student', mustChangePassword: found?.mustChangePassword ?? false };
+    }
+    try {
+      const { data } = await http.post<{
+        access: string;
+        refresh: string;
+        uid: string;
+        role: UserRole;
+        mustChangePassword: boolean;
+        user?: Record<string, unknown>;
+      }>('/login', { email: email.trim(), password });
+      useSessionStore.getState().setTokens(data.access, data.refresh);
+      onStage?.('data');
+      const db = await queryClient.fetchQuery({ queryKey: queryKeys.bootstrap, queryFn: fetchBootstrap });
+      setUid(data.uid);
+      setMustChange(Boolean(data.mustChangePassword));
+      setLiveUser(resolveLiveUser(data.uid, db.users, data.user));
+      setLoading(false);
+      return { ok: true as const, role: data.role, mustChangePassword: Boolean(data.mustChangePassword) };
+    } catch (error) {
+      return { ok: false as const, message: await readApiError(error) };
+    }
+  }, []);
+
+  const signOut = useCallback(async () => {
+    const refresh = useSessionStore.getState().refresh;
+    // 사용자부터 비운다 — 남아 있으면 로그인 화면이 홈으로 되돌려 보내 화면이 튄다
+    setUid(null);
+    setMustChange(false);
+    setLiveUser(null);
+    if (isTestMode()) return;
+    useSessionStore.getState().clear();
+    // 캐시는 로그인 화면으로 넘어간 뒤에 비운다 — 먼저 비우면 빈 대시보드가 잠깐 보인다
+    setTimeout(() => queryClient.clear(), 0);
+    if (refresh) void http.post('/logout', { refresh }).catch(() => undefined);
+  }, []);
+
+  const changePassword = useCallback(async (next: string, current?: string) => {
+    if (next.length < 8) {
+      return { ok: false as const, message: '비밀번호는 8자 이상이어야 합니다.' };
+    }
+    if (isTestMode()) {
+      setMustChange(false);
+      return { ok: true as const };
+    }
+    try {
+      const { data } = await http.post<{ access: string; refresh: string }>('/password', {
+        password: next, currentPassword: current ?? '',
+      });
+      if (!data.access || !data.refresh) throw new Error('새 로그인 정보를 받지 못했습니다. 다시 로그인해 주세요.');
+      useSessionStore.getState().setTokens(data.access, data.refresh);
+      setMustChange(false);
+      return { ok: true as const };
+    } catch (error) {
+      return { ok: false as const, message: await readApiError(error) };
+    }
+  }, []);
+
+  const skipPasswordChange = useCallback(async () => {
+    if (isTestMode()) {
+      setMustChange(false);
+      return { ok: true as const };
+    }
+    try {
+      await http.post('/password', { skip: true });
+      setMustChange(false);
+      return { ok: true as const };
+    } catch (error) {
+      return { ok: false as const, message: await readApiError(error) };
+    }
+  }, []);
+
+  const switchRole = useCallback((role: UserRole) => {
+    const target = getDb().users.find((u) => u.role === role);
+    if (target !== undefined) setUid(target.uid);
+  }, []);
+
+  const selectedCohortId = useSelectedCohortFor(uid ?? undefined);
+  const cohorts = useCohorts();
+
+  // 마이페이지에서 고친 값(updateUser)은 화면 데이터에 바로 들어간다 — 로그인 때 받은 liveUser 에 머물지 않게 이쪽을 먼저 본다
+  const storedUser = useSyncExternalStore(isTestMode() ? subscribe : subscribeBootstrap, () => {
+    if (uid === null) return undefined;
+    const db = isTestMode() ? getDb() : queryClient.getQueryData<Database>(queryKeys.bootstrap);
+    return db?.users.find((u) => u.uid === uid);
+  });
+
+  const user = useMemo(() => {
+    if (uid === null) return null;
+    const found = storedUser ?? (isTestMode() ? null : liveUser);
+    if (found === null) return null;
+    const signedIn = { ...found, mustChangePassword: mustChange };
+    // 관리자는 상단에서 고른 기수로 본다(Flutter effectiveCohortIdProvider)
+    const selected = signedIn.role === 'admin' ? cohorts.find((c) => c.cohortId === selectedCohortId) : undefined;
+    return selected === undefined ? signedIn : { ...signedIn, cohortId: selected.cohortId, cohortName: selected.name };
+  }, [uid, mustChange, storedUser, liveUser, cohorts, selectedCohortId]);
+
+  const value = useMemo<Session>(
+    () => ({ user, loading, signIn, signOut, changePassword, skipPasswordChange, switchRole }),
+    [user, loading, signIn, signOut, changePassword, skipPasswordChange, switchRole],
+  );
+
+  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+}
+
+export function useSession(): Session {
+  const session = useContext(SessionContext);
+  if (session === null) throw new Error('SessionProvider 밖에서 useSession을 불렀다');
+  return session;
+}
+
+export function useCurrentUser(): User {
+  const { user } = useSession();
+  if (user === null) throw new Error('로그인 없이 보호된 화면에 들어왔다');
+  return user;
+}

@@ -1,0 +1,168 @@
+/* 복습은 한 문제에 집중하고 자유 연습장은 기존 노트북 레이아웃을 사용한다. */
+.pf-study {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  color: var(--text-primary);
+}
+
+.pf-head,
+.pf-head__title,
+.pf-head__actions,
+.pf-navigation,
+.pf-navigation__buttons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pf-head {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pf-head__title { flex-wrap: wrap; }
+.pf-head__title h1 { margin: 0; font-size: 20px; letter-spacing: -0.5px; }
+.pf-head__actions { flex-wrap: wrap; gap: 6px; }
+.pf-head__actions .btn { white-space: nowrap; }
+.pf-progress {
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.pf-progress strong { color: var(--primary); }
+
+/* hidden 문제도 마운트는 유지한다. 기존 flex/grid 규칙이 hidden을 덮지 않게 명시한다. */
+.pf-study [hidden] { display: none !important; }
+.pf-tools { padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.pf-tools > p { margin: 0 0 10px; font-size: 12px; }
+.pf-list {
+  display: grid;
+  gap: 5px;
+  max-height: 310px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.pf-list > button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.pf-list > button:hover,
+.pf-list > button[aria-current='step'] {
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+}
+.pf-list__number {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--surface-variant);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+.pf-list__topic { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; }
+.pf-list__topic strong { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.pf-list__topic small { color: var(--text-secondary); font-size: 11px; }
+.pf-list__state { flex: none; color: var(--text-hint); font-size: 11px; }
+.pf-list__state--done { color: var(--success); }
+
+.pf-navigation { justify-content: space-between; scroll-margin-top: 80px; }
+.pf-navigation > div:first-child { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+.pf-navigation strong { font-size: 14px; }
+.pf-navigation span { color: var(--text-secondary); font-size: 12px; }
+.pf-navigation__buttons { gap: 6px; flex: none; }
+.pf-problems .py-nb-cell { margin: 0; border-radius: 12px; background: var(--surface); }
+.pf-problems .py-nb-cell--active { border-color: color-mix(in srgb, var(--primary) 30%, var(--border)); box-shadow: none; }
+.pf-problems .pb__head { padding: 10px 20px; background: var(--surface); }
+.pf-problems .pb__num,
+.pf-problems .pb__kind { display: none; }
+.pf-problems .pb__topic { color: var(--text-primary); font-size: 17px; font-weight: 650; }
+.pf-problems .pb__head > .pb__note { flex-basis: 100%; order: 1; }
+.pf-problems .pb__prompt { padding: 20px 20px 14px; }
+.pf-problems .pb__prompt .nb-md { font-size: 15px; line-height: 1.7; }
+.pf-problems .pb__note { overflow-wrap: anywhere; }
+.pf-problems .pb__hint { line-height: 1.6; }
+
+.pf-completion {
+  position: sticky;
+  top: 70px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--primary) 11%, var(--surface));
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+.pf-completion__copy { flex: 1 1 260px; min-width: 0; }
+.pf-completion h2 { margin: 0; font-size: 16px; }
+.pf-completion p { margin: 4px 0 0; color: var(--text-secondary); font-size: 13px; }
+.pf-completion p span { color: var(--text-hint); }
+.pf-completion__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; }
+.pf-completion__actions .btn { white-space: nowrap; }
+.pf-completion__retry { background: color-mix(in srgb, var(--primary) 5%, var(--surface)); }
+
+.pf-details { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.pf-details > summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  list-style: none;
+}
+.pf-details > summary::-webkit-details-marker { display: none; }
+.pf-details > summary::after { content: '+'; margin-left: auto; color: var(--text-hint); font-size: 18px; }
+.pf-details[open] > summary::after { content: '−'; }
+.pf-details > summary span { color: var(--text-hint); font-size: 11px; font-weight: 400; }
+.pf-scratch { padding: 0 12px 12px; }
+.pf-scratch .py-nb-cell { margin-bottom: 10px; }
+.pf-guide { padding: 0 16px 14px; color: var(--text-secondary); font-size: 12px; line-height: 1.65; }
+.pf-guide > p { margin: 0 0 10px; }
+.pf-guide > p:last-child { margin-bottom: 0; }
+.pf-details--guide { border-color: transparent; background: transparent; }
+.pf-details--guide > summary { color: var(--text-secondary); font-size: 12px; }
+
+.pd-pane .pf-navigation { scroll-margin-top: 12px; }
+.pd-pane .pf-completion { top: 0; }
+
+@media (max-width: 760px) {
+  .pf-head { gap: 12px; padding-bottom: 12px; }
+  .pf-head__title h1 { font-size: 18px; }
+  .pf-head__actions { width: 100%; }
+  .pf-head__actions .btn { flex: 1; font-size: 12px; padding-inline: 8px; }
+  .pf-navigation { align-items: flex-start; gap: 8px; }
+  .pf-navigation > div:first-child { flex-direction: column; align-items: flex-start; gap: 3px; }
+  .pf-problems .pb__head { padding-inline: 12px; }
+  .pf-problems .pb__prompt { padding: 14px 12px; }
+  .pf-completion__actions { width: 100%; justify-content: flex-start; margin-left: 0; }
+  .pf-details > summary span { display: none; }
+}

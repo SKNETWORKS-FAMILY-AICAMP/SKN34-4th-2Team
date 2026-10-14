@@ -1,0 +1,317 @@
+import { useState } from 'react';
+
+import {
+  createPostComment,
+  createPost,
+  deletePostComment,
+  deletePost,
+  likePost,
+  useNotices,
+  usePostComments,
+  usePosts,
+} from '../../data/repository';
+import type { Notice, Post } from '../../domain/types';
+import { visibleNotices } from '../../domain/visibleNotices';
+import { StudentTargets } from '../../tour/targets';
+import { useTourTarget } from '../../tour/useTourTarget';
+import {
+  Avatar,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Row,
+  Spacer,
+  TabPage,
+  Tabs,
+  TextArea,
+} from '../../ui/components';
+import { Icon } from '../../ui/Icon';
+import { formatDateTime, formatRelative } from '../../utils/format';
+import { useCurrentUser } from '../auth/session';
+import { NoticeDetailDialog } from './NoticeDetailDialog';
+
+/**
+ * 게시판 — features/hub/presentation/board_screen.dart (공지사항 / 소통 피드)
+ *
+ * 다른 탭 화면과 같은 틀(TabPage)이다. 공지사항 탭에만 검색 줄이 붙는다.
+ */
+export function BoardScreen() {
+  const [tab, setTab] = useState<'notices' | 'feed'>('notices');
+
+  return (
+    <TabPage
+      title="게시판"
+      description="기수 공지와 동료들의 이야기를 확인하세요."
+      tabs={
+        <Tabs
+          active={tab}
+          onChange={(id) => setTab(id as typeof tab)}
+          items={[
+            { id: 'notices', label: '공지사항' },
+            { id: 'feed', label: '소통 피드' },
+          ]}
+        />
+      }
+    >
+      {tab === 'notices' ? <NoticesTab /> : <FeedTab />}
+    </TabPage>
+  );
+}
+
+function NoticesTab() {
+  const notices = visibleNotices(useNotices());
+  const ref = useTourTarget(StudentTargets.boardNotices);
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState<Notice | null>(null);
+
+  const q = query.trim().toLowerCase();
+  const matched = q === ''
+    ? notices
+    : notices.filter(
+        (n) =>
+          n.title.toLowerCase().includes(q) ||
+          n.content.toLowerCase().includes(q) ||
+          n.authorName.toLowerCase().includes(q),
+      );
+
+  const important = matched.filter((n) => n.isFavorite);
+  const rest = matched.filter((n) => !n.isFavorite);
+
+  return (
+    <div className="board-body" ref={ref}>
+      <div className="board-search-strip">
+        <label className="board-search">
+          <Icon name="search" size={20} />
+          <input
+            className="board-search__input"
+            value={query}
+            placeholder="공지 제목·내용·작성자 검색"
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {query !== '' && (
+            <button type="button" className="icon-btn" aria-label="지우기" onClick={() => setQuery('')}>
+              <Icon name="close" size={18} />
+            </button>
+          )}
+        </label>
+      </div>
+
+      {matched.length === 0 ? (
+        <div className="board-empty">
+          <Icon name={q === '' ? 'campaign' : 'search_off'} size={36} />
+          <p>{q === '' ? '등록된 공지가 없습니다.' : '검색 결과가 없습니다.'}</p>
+        </div>
+      ) : (
+        <div className="board-column">
+          {important.length > 0 && (
+            <section className="section">
+              <h2 className="board-section__title">
+                <Icon name="star" size={16} className="board-section__star" />
+                중요 공지
+              </h2>
+              <NoticeList notices={important} onOpen={setOpen} />
+            </section>
+          )}
+          {rest.length > 0 && (
+            <section className="section">
+              <h2 className="board-section__title">
+                <Icon name="campaign" size={16} />
+                전체 공지
+              </h2>
+              <NoticeList notices={rest} onOpen={setOpen} />
+            </section>
+          )}
+        </div>
+      )}
+
+      {open !== null && <NoticeDetailDialog notice={open} onClose={() => setOpen(null)} />}
+    </div>
+  );
+}
+
+export function NoticeList({
+  notices,
+  onOpen,
+}: {
+  notices: Notice[];
+  onOpen(notice: Notice): void;
+}) {
+  return (
+    <Card padded={false}>
+      <ul className="notice-rows">
+        {notices.map((notice) => (
+          <li key={notice.id}>
+            <button type="button" className="notice-row" onClick={() => onOpen(notice)}>
+              {notice.isFavorite && <Badge tone="error">중요</Badge>}
+              <span className="notice-row__title">{notice.title}</span>
+              <span className="notice-row__author">{notice.authorName}</span>
+              <span className="notice-row__date">{formatDateTime(notice.createdAt)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function FeedTab() {
+  const user = useCurrentUser();
+  const posts = usePosts();
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    const content = draft.trim();
+    if (content === '' || sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      await createPost(user.uid, user.displayName, content);
+      setDraft('');
+    } catch {
+      setError('글을 올리지 못했어요. 잠시 후 다시 시도해 주세요.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="stack">
+      <Card>
+        <TextArea
+          value={draft}
+          rows={3}
+          placeholder="기수 동료들과 나누고 싶은 이야기를 적어 보세요."
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <Row>
+          {error !== null && <span className="hint" role="alert">{error}</span>}
+          <Spacer />
+          <Button onClick={() => void submit()} disabled={draft.trim() === '' || sending}>
+            올리기
+          </Button>
+        </Row>
+      </Card>
+
+      {posts.length === 0 ? (
+        <Card>
+          <EmptyState message="아직 올라온 글이 없습니다" />
+        </Card>
+      ) : (
+        posts.map((post) => <FeedPost key={post.id} post={post} />)
+      )}
+    </div>
+  );
+}
+
+function FeedPost({ post }: { post: Post }) {
+  const user = useCurrentUser();
+  const [expanded, setExpanded] = useState(false);
+  const comments = usePostComments(post.id, expanded);
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  // 서버 글은 지울 수 있는지(쓴 사람 · 관리자 · 강사)를 알려 준다. 테스트 데이터는 쓴 사람만
+  const canDelete = (item: { canDelete?: boolean; authorId: string }) => item.canDelete ?? item.authorId === user.uid;
+  const attempt = (action: Promise<void>, message: string) => {
+    setError(null);
+    action.catch(() => setError(message));
+  };
+
+  const submitComment = async () => {
+    const content = draft.trim();
+    if (content === '') return;
+    setError(null);
+    try {
+      await createPostComment(post.id, user.uid, user.displayName, content);
+      setDraft('');
+      setExpanded(true);
+    } catch {
+      setError('댓글을 등록하지 못했어요. 잠시 후 다시 시도해 주세요.');
+    }
+  };
+
+  return (
+    <Card>
+      <Row gap={10}>
+        <Avatar name={post.authorName} />
+        <div>
+          <strong>{post.authorName}</strong>
+          <p className="hint">{formatRelative(post.createdAt)}</p>
+        </div>
+        <Spacer />
+        {canDelete(post) && (
+          <Button variant="text" size="sm" onClick={() => attempt(deletePost(post.id), '글을 지우지 못했어요.')}>
+            삭제
+          </Button>
+        )}
+      </Row>
+      <p className="muted feed-post__content">{post.content}</p>
+      <Row gap={8}>
+        <Button
+          variant="outline"
+          size="sm"
+          aria-pressed={post.likedByMe ?? false}
+          onClick={() => attempt(likePost(post.id), '좋아요를 반영하지 못했어요.')}
+        >
+          {post.likedByMe ? '♥' : '♡'} {post.likeCount}
+        </Button>
+        <Button
+          variant="text"
+          size="sm"
+          aria-label={`댓글 ${post.commentCount}`}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          댓글 {post.commentCount}
+          <Icon name={expanded ? 'expand_less' : 'expand_more'} size={17} />
+        </Button>
+      </Row>
+
+      {expanded && (
+        <div className="feed-comments">
+          {comments.length === 0 ? (
+            <p className="hint">첫 댓글을 남겨 보세요.</p>
+          ) : (
+            <ul className="feed-comments__list">
+              {comments.map((comment) => (
+                <li key={comment.id} className="feed-comment">
+                  <Avatar name={comment.authorName} size={28} />
+                  <div className="feed-comment__body">
+                    <Row gap={6}>
+                      <strong>{comment.authorName}</strong>
+                      <span className="hint">{formatRelative(comment.createdAt)}</span>
+                      <Spacer />
+                      {canDelete(comment) && (
+                        <button
+                          type="button"
+                          className="feed-comment__delete"
+                          onClick={() => attempt(deletePostComment(post.id, comment.id), '댓글을 지우지 못했어요.')}
+                        >
+                          삭제
+                        </button>
+                      )}
+                    </Row>
+                    <p>{comment.content}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="feed-comments__form">
+            <TextArea
+              value={draft}
+              rows={2}
+              aria-label={`${post.authorName} 게시글에 댓글 작성`}
+              placeholder="댓글을 입력하세요."
+              onChange={(event) => setDraft(event.target.value)}
+            />
+            <Button size="sm" disabled={draft.trim() === ''} onClick={() => void submitComment()}>댓글 등록</Button>
+          </div>
+        </div>
+      )}
+      {error !== null && <p className="hint" role="alert">{error}</p>}
+    </Card>
+  );
+}

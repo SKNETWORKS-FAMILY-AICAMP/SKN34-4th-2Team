@@ -1,0 +1,877 @@
+import { useLayoutEffect, useRef, type TextareaHTMLAttributes } from 'react';
+import { Link } from 'react-router-dom';
+
+import { RoutePaths } from '../../app/routePaths';
+import { SelfIntroKeys, SelfIntroLabels } from '../../domain/constants';
+import type { Resume, ResumeContent } from '../../domain/types';
+import { Icon } from '../../ui/Icon';
+import { useCurrentUser } from '../auth/session';
+import { TechStackEditor } from './skills/TechStackEditor';
+import { sameSkill } from './skills/skillCatalog';
+
+/**
+ * 이력서 섹션 — features/resume/presentation/resume_edit_screen.dart의 양식.
+ *
+ * 항목 카드는 「항목 n」 머리와 칸 이름(회사명·전공·시작일…)을 그대로 쓴다.
+ * Doc 보기는 같은 구조를 입력창 없이 읽기로만 보여 준다.
+ */
+export const nextId = (prefix: string) => `${prefix}${Date.now()}${Math.random().toString(36).slice(2, 5)}`;
+
+export function period(start: string, end: string, isCurrent = false): string {
+  const s = start.trim();
+  const e = isCurrent ? '현재' : end.trim();
+  if (s === '' && e === '') return '';
+  if (s === '') return e;
+  if (e === '') return s;
+  return `${s} ~ ${e}`;
+}
+
+/**
+ * 글이 길어지면 칸이 따라 늘어나는 여러 줄 입력. 안쪽 스크롤 없이 문서처럼 읽힌다.
+ * 칸 너비가 바뀌면(패널을 끌거나 창을 줄이면) 줄바꿈이 달라지므로 그때도 다시 잰다.
+ */
+export function AutoTextarea({ value, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement> & { value: string }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const fit = () => {
+      el.style.height = 'auto';
+      // border-box 라 테두리 두께만큼 더한다(안 그러면 마지막 줄에 스크롤이 남는다)
+      el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+    };
+    fit();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    let width = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fit();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [value]);
+
+  return <textarea ref={ref} rows={3} {...rest} value={value} className="input input--area input--grow" />;
+}
+
+/** 편집용 한 칸 */
+export function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  multiline = false,
+}: {
+  label: string;
+  value: string;
+  onChange(next: string): void;
+  placeholder?: string;
+  multiline?: boolean;
+}) {
+  return (
+    <label className="item-field">
+      <span className="item-field__label">{label}</span>
+      {multiline ? (
+        <AutoTextarea
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      ) : (
+        <input
+          className="input"
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </label>
+  );
+}
+
+/** 읽기용 한 칸 */
+export function ReadField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="item-field item-field--read">
+      <span className="item-field__label">{label}</span>
+      <p className={value.trim() === '' ? 'doc-read__empty' : undefined}>
+        {value.trim() === '' ? '미작성' : value}
+      </p>
+    </div>
+  );
+}
+
+export function ItemCard({
+  index,
+  onRemove,
+  children,
+}: {
+  index: number;
+  onRemove?(): void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="item-card">
+      <div className="item-card__head">
+        <strong>항목 {index + 1}</strong>
+        {onRemove !== undefined && (
+          <button type="button" className="icon-btn" onClick={onRemove} aria-label="항목 삭제">
+            <Icon name="delete" size={17} />
+          </button>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+export function AddItem({ onAdd, label = '항목 추가' }: { onAdd(): void; label?: string }) {
+  return (
+    <button type="button" className="add-row" onClick={onAdd}>
+      <Icon name="add" size={18} />
+      {label}
+    </button>
+  );
+}
+
+type Patch = (patch: Partial<ResumeContent>) => void;
+
+/** 섹션 하나를 편집 또는 읽기로 그린다. */
+/**
+ * 「마이페이지에서 불러오기」 — 마이페이지 기술 스택 중 이 이력서에 없는 것만 숙련도째 넣는다.
+ * 이력서에서 빼거나 고친 건 그대로 둔다(공고 맞춤 이력서는 일부러 뺀 기술이 있다). 이력서 주인에게만 보인다.
+ */
+function ProfileTechImport({ resume, patch }: { resume: Resume; patch: Patch }) {
+  const user = useCurrentUser();
+  if (resume.userId !== user.uid) return null;
+  const profile = user.techStack ?? [];
+  const current = resume.content.techStack;
+  const fresh = profile.filter((t) => !current.some((x) => sameSkill(x.name, t.name)));
+
+  if (profile.length === 0) {
+    return (
+      <p className="tech-import tech-import--hint">
+        <Icon name="info" size={16} />
+        <span>
+          <Link to={RoutePaths.myPage}>마이페이지</Link>에 기술 스택을 적어 두면 이력서마다 한 번에 불러올 수 있어요.
+        </span>
+      </p>
+    );
+  }
+  if (fresh.length === 0) return null;
+  return (
+    <div className="tech-import">
+      <span>
+        마이페이지 기술 스택 중 이 이력서에 없는 기술 <strong>{fresh.length}개</strong>
+      </span>
+      <button
+        type="button"
+        className="btn btn--outline btn--sm"
+        onClick={() =>
+          patch({ techStack: [...current, ...fresh.map((t) => ({ id: nextId('t'), name: t.name, level: t.level }))] })
+        }
+      >
+        <Icon name="download" size={16} />
+        마이페이지에서 불러오기
+      </button>
+    </div>
+  );
+}
+
+export function SectionBody({
+  sectionKey,
+  resume,
+  patch,
+  readOnly,
+}: {
+  sectionKey: string;
+  resume: Resume;
+  patch: Patch;
+  readOnly: boolean;
+}) {
+  const c = resume.content;
+
+  switch (sectionKey) {
+    case 'coreCompetencies':
+      return readOnly ? (
+        <p className={c.coreCompetencies.text.trim() === '' ? 'doc-read__empty' : 'doc-read__body'}>
+          {c.coreCompetencies.text.trim() === '' ? '미작성' : c.coreCompetencies.text}
+        </p>
+      ) : (
+        <AutoTextarea
+          value={c.coreCompetencies.text}
+          onChange={(e) => patch({ coreCompetencies: { text: e.target.value } })}
+        />
+      );
+
+    case 'experience':
+      return (
+        <>
+          {c.experience.map((item, i) => (
+            <ItemCard
+              key={item.id}
+              index={i}
+              onRemove={
+                readOnly
+                  ? undefined
+                  : () => patch({ experience: c.experience.filter((x) => x.id !== item.id) })
+              }
+            >
+              {readOnly ? (
+                <>
+                  <ReadField label="회사명" value={item.company} />
+                  <ReadField label="직무" value={item.role} />
+                  <ReadField label="기간" value={period(item.startDate, item.endDate, item.isCurrent)} />
+                  <ReadField label="설명" value={item.description} />
+                </>
+              ) : (
+                <>
+                  <Field
+                    label="회사명"
+                    value={item.company}
+                    onChange={(v) =>
+                      patch({ experience: c.experience.map((x) => (x.id === item.id ? { ...x, company: v } : x)) })
+                    }
+                  />
+                  <Field
+                    label="직무"
+                    value={item.role}
+                    onChange={(v) =>
+                      patch({ experience: c.experience.map((x) => (x.id === item.id ? { ...x, role: v } : x)) })
+                    }
+                  />
+                  <div className="item-row">
+                    <Field
+                      label="시작일"
+                      value={item.startDate}
+                      placeholder="2025-01"
+                      onChange={(v) =>
+                        patch({ experience: c.experience.map((x) => (x.id === item.id ? { ...x, startDate: v } : x)) })
+                      }
+                    />
+                    <Field
+                      label="종료일"
+                      value={item.endDate}
+                      placeholder="2025-06"
+                      onChange={(v) =>
+                        patch({ experience: c.experience.map((x) => (x.id === item.id ? { ...x, endDate: v } : x)) })
+                      }
+                    />
+                  </div>
+                  <label className="checkbox">
+                    <input
+                      type="checkbox"
+                      checked={item.isCurrent}
+                      onChange={(e) =>
+                        patch({
+                          experience: c.experience.map((x) =>
+                            x.id === item.id ? { ...x, isCurrent: e.target.checked } : x,
+                          ),
+                        })
+                      }
+                    />
+                    <span>재직 중</span>
+                  </label>
+                  <Field
+                    label="설명"
+                    multiline
+                    value={item.description}
+                    onChange={(v) =>
+                      patch({
+                        experience: c.experience.map((x) => (x.id === item.id ? { ...x, description: v } : x)),
+                      })
+                    }
+                  />
+                </>
+              )}
+            </ItemCard>
+          ))}
+          {!readOnly && (
+            <AddItem
+              onAdd={() =>
+                patch({
+                  experience: [
+                    ...c.experience,
+                    {
+                      id: nextId('exp'),
+                      company: '',
+                      role: '',
+                      startDate: '',
+                      endDate: '',
+                      isCurrent: false,
+                      description: '',
+                    },
+                  ],
+                })
+              }
+            />
+          )}
+        </>
+      );
+
+    case 'education':
+      return (
+        <>
+          {c.education.map((item, i) => (
+            <ItemCard
+              key={item.id}
+              index={i}
+              onRemove={
+                readOnly ? undefined : () => patch({ education: c.education.filter((x) => x.id !== item.id) })
+              }
+            >
+              {readOnly ? (
+                <>
+                  <ReadField label="학교명" value={item.school} />
+                  <ReadField label="전공" value={item.major} />
+                  <ReadField label="시작일" value={item.startDate} />
+                  <ReadField label="종료일" value={item.endDate} />
+                  <ReadField label="상태 (졸업/재학/수료)" value={item.status} />
+                </>
+              ) : (
+                <>
+                  <Field
+                    label="학교명"
+                    value={item.school}
+                    onChange={(v) =>
+                      patch({ education: c.education.map((x) => (x.id === item.id ? { ...x, school: v } : x)) })
+                    }
+                  />
+                  <Field
+                    label="전공"
+                    value={item.major}
+                    onChange={(v) =>
+                      patch({ education: c.education.map((x) => (x.id === item.id ? { ...x, major: v } : x)) })
+                    }
+                  />
+                  <div className="item-row">
+                    <Field
+                      label="시작일"
+                      value={item.startDate}
+                      placeholder="2020-03"
+                      onChange={(v) =>
+                        patch({ education: c.education.map((x) => (x.id === item.id ? { ...x, startDate: v } : x)) })
+                      }
+                    />
+                    <Field
+                      label="종료일"
+                      value={item.endDate}
+                      placeholder="2023-02"
+                      onChange={(v) =>
+                        patch({ education: c.education.map((x) => (x.id === item.id ? { ...x, endDate: v } : x)) })
+                      }
+                    />
+                  </div>
+                  <label className="item-field">
+                    <span className="item-field__label">상태 (졸업/재학/수료)</span>
+                    <select
+                      className="input input--select"
+                      value={item.status}
+                      onChange={(e) =>
+                        patch({
+                          education: c.education.map((x) => (x.id === item.id ? { ...x, status: e.target.value } : x)),
+                        })
+                      }
+                    >
+                      {['졸업', '재학', '수료'].map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              )}
+            </ItemCard>
+          ))}
+          {!readOnly && (
+            <AddItem
+              onAdd={() =>
+                patch({
+                  education: [
+                    ...c.education,
+                    { id: nextId('edu'), school: '', major: '', startDate: '', endDate: '', status: '졸업' },
+                  ],
+                })
+              }
+            />
+          )}
+        </>
+      );
+
+    case 'techStack':
+      return (
+        <>
+          {!readOnly && <ProfileTechImport resume={resume} patch={patch} />}
+          <TechStackEditor
+            items={c.techStack}
+            readOnly={readOnly}
+            onChange={(techStack) => patch({ techStack })}
+            newId={() => nextId('t')}
+          />
+        </>
+      );
+
+    case 'certifications':
+      return (
+        <>
+          {c.certifications.map((item, i) => (
+            <ItemCard
+              key={item.id}
+              index={i}
+              onRemove={
+                readOnly
+                  ? undefined
+                  : () => patch({ certifications: c.certifications.filter((x) => x.id !== item.id) })
+              }
+            >
+              {readOnly ? (
+                <>
+                  <ReadField label="자격증명" value={item.name} />
+                  <ReadField label="발급기관" value={item.issuer} />
+                  <ReadField label="취득일" value={item.acquiredDate} />
+                </>
+              ) : (
+                <>
+                  <Field
+                    label="자격증명"
+                    value={item.name}
+                    onChange={(v) =>
+                      patch({
+                        certifications: c.certifications.map((x) => (x.id === item.id ? { ...x, name: v } : x)),
+                      })
+                    }
+                  />
+                  <Field
+                    label="발급기관"
+                    value={item.issuer}
+                    onChange={(v) =>
+                      patch({
+                        certifications: c.certifications.map((x) => (x.id === item.id ? { ...x, issuer: v } : x)),
+                      })
+                    }
+                  />
+                  <Field
+                    label="취득일"
+                    value={item.acquiredDate}
+                    placeholder="2026-06"
+                    onChange={(v) =>
+                      patch({
+                        certifications: c.certifications.map((x) =>
+                          x.id === item.id ? { ...x, acquiredDate: v } : x,
+                        ),
+                      })
+                    }
+                  />
+                </>
+              )}
+            </ItemCard>
+          ))}
+          {!readOnly && (
+            <AddItem
+              onAdd={() =>
+                patch({
+                  certifications: [
+                    ...c.certifications,
+                    { id: nextId('cert'), name: '', issuer: '', acquiredDate: '' },
+                  ],
+                })
+              }
+            />
+          )}
+        </>
+      );
+
+    case 'awards':
+      return (
+        <>
+          {c.awards.map((item, i) => (
+            <ItemCard
+              key={item.id}
+              index={i}
+              onRemove={readOnly ? undefined : () => patch({ awards: c.awards.filter((x) => x.id !== item.id) })}
+            >
+              {readOnly ? (
+                <>
+                  <ReadField label="수상명" value={item.name} />
+                  <ReadField label="수여기관" value={item.organization} />
+                  <ReadField label="수상일" value={item.date} />
+                  <ReadField label="설명" value={item.description} />
+                </>
+              ) : (
+                <>
+                  <Field
+                    label="수상명"
+                    value={item.name}
+                    onChange={(v) => patch({ awards: c.awards.map((x) => (x.id === item.id ? { ...x, name: v } : x)) })}
+                  />
+                  <Field
+                    label="수여기관"
+                    value={item.organization}
+                    onChange={(v) =>
+                      patch({ awards: c.awards.map((x) => (x.id === item.id ? { ...x, organization: v } : x)) })
+                    }
+                  />
+                  <Field
+                    label="수상일"
+                    value={item.date}
+                    placeholder="2025-10"
+                    onChange={(v) => patch({ awards: c.awards.map((x) => (x.id === item.id ? { ...x, date: v } : x)) })}
+                  />
+                  <Field
+                    label="설명"
+                    multiline
+                    value={item.description}
+                    onChange={(v) =>
+                      patch({ awards: c.awards.map((x) => (x.id === item.id ? { ...x, description: v } : x)) })
+                    }
+                  />
+                </>
+              )}
+            </ItemCard>
+          ))}
+          {!readOnly && (
+            <AddItem
+              onAdd={() =>
+                patch({
+                  awards: [
+                    ...c.awards,
+                    { id: nextId('aw'), name: '', organization: '', date: '', description: '' },
+                  ],
+                })
+              }
+            />
+          )}
+        </>
+      );
+
+    case 'trainingExperience':
+      return (
+        <>
+          {c.trainingExperience.map((item, i) => (
+            <ItemCard
+              key={item.id}
+              index={i}
+              onRemove={
+                readOnly
+                  ? undefined
+                  : () => patch({ trainingExperience: c.trainingExperience.filter((x) => x.id !== item.id) })
+              }
+            >
+              {readOnly ? (
+                <>
+                  <ReadField label="교육명" value={item.course} />
+                  <ReadField label="기관" value={item.organization} />
+                  <ReadField label="기간" value={period(item.startDate, item.endDate)} />
+                  <ReadField label="설명" value={item.description} />
+                </>
+              ) : (
+                <>
+                  <Field
+                    label="교육명"
+                    value={item.course}
+                    onChange={(v) =>
+                      patch({
+                        trainingExperience: c.trainingExperience.map((x) =>
+                          x.id === item.id ? { ...x, course: v } : x,
+                        ),
+                      })
+                    }
+                  />
+                  <Field
+                    label="기관"
+                    value={item.organization}
+                    onChange={(v) =>
+                      patch({
+                        trainingExperience: c.trainingExperience.map((x) =>
+                          x.id === item.id ? { ...x, organization: v } : x,
+                        ),
+                      })
+                    }
+                  />
+                  <div className="item-row">
+                    <Field
+                      label="시작일"
+                      value={item.startDate}
+                      onChange={(v) =>
+                        patch({
+                          trainingExperience: c.trainingExperience.map((x) =>
+                            x.id === item.id ? { ...x, startDate: v } : x,
+                          ),
+                        })
+                      }
+                    />
+                    <Field
+                      label="종료일"
+                      value={item.endDate}
+                      onChange={(v) =>
+                        patch({
+                          trainingExperience: c.trainingExperience.map((x) =>
+                            x.id === item.id ? { ...x, endDate: v } : x,
+                          ),
+                        })
+                      }
+                    />
+                  </div>
+                  <Field
+                    label="설명"
+                    multiline
+                    value={item.description}
+                    onChange={(v) =>
+                      patch({
+                        trainingExperience: c.trainingExperience.map((x) =>
+                          x.id === item.id ? { ...x, description: v } : x,
+                        ),
+                      })
+                    }
+                  />
+                </>
+              )}
+            </ItemCard>
+          ))}
+          {!readOnly && (
+            <AddItem
+              onAdd={() =>
+                patch({
+                  trainingExperience: [
+                    ...c.trainingExperience,
+                    {
+                      id: nextId('tr'),
+                      course: '',
+                      organization: '',
+                      startDate: '',
+                      endDate: '',
+                      description: '',
+                    },
+                  ],
+                })
+              }
+            />
+          )}
+        </>
+      );
+
+    case 'otherActivities':
+      return (
+        <>
+          {c.otherActivities.map((item, i) => (
+            <ItemCard
+              key={item.id}
+              index={i}
+              onRemove={
+                readOnly
+                  ? undefined
+                  : () => patch({ otherActivities: c.otherActivities.filter((x) => x.id !== item.id) })
+              }
+            >
+              {readOnly ? (
+                <>
+                  <ReadField label="활동명" value={item.name} />
+                  <ReadField label="기간" value={period(item.startDate, item.endDate)} />
+                  <ReadField label="설명" value={item.description} />
+                </>
+              ) : (
+                <>
+                  <Field
+                    label="활동명"
+                    value={item.name}
+                    onChange={(v) =>
+                      patch({
+                        otherActivities: c.otherActivities.map((x) => (x.id === item.id ? { ...x, name: v } : x)),
+                      })
+                    }
+                  />
+                  <div className="item-row">
+                    <Field
+                      label="시작일"
+                      value={item.startDate}
+                      onChange={(v) =>
+                        patch({
+                          otherActivities: c.otherActivities.map((x) =>
+                            x.id === item.id ? { ...x, startDate: v } : x,
+                          ),
+                        })
+                      }
+                    />
+                    <Field
+                      label="종료일"
+                      value={item.endDate}
+                      onChange={(v) =>
+                        patch({
+                          otherActivities: c.otherActivities.map((x) =>
+                            x.id === item.id ? { ...x, endDate: v } : x,
+                          ),
+                        })
+                      }
+                    />
+                  </div>
+                  <Field
+                    label="설명"
+                    multiline
+                    value={item.description}
+                    onChange={(v) =>
+                      patch({
+                        otherActivities: c.otherActivities.map((x) =>
+                          x.id === item.id ? { ...x, description: v } : x,
+                        ),
+                      })
+                    }
+                  />
+                </>
+              )}
+            </ItemCard>
+          ))}
+          {!readOnly && (
+            <AddItem
+              onAdd={() =>
+                patch({
+                  otherActivities: [
+                    ...c.otherActivities,
+                    { id: nextId('ot'), name: '', startDate: '', endDate: '', description: '' },
+                  ],
+                })
+              }
+            />
+          )}
+        </>
+      );
+
+    case 'projects':
+      return (
+        <>
+          {c.projects.map((item, i) => (
+            <ItemCard
+              key={item.id}
+              index={i}
+              onRemove={readOnly ? undefined : () => patch({ projects: c.projects.filter((x) => x.id !== item.id) })}
+            >
+              {readOnly ? (
+                <>
+                  <ReadField label="프로젝트명" value={item.name} />
+                  <ReadField label="기간" value={period(item.startDate, item.endDate)} />
+                  <ReadField label="역할" value={item.role} />
+                  <ReadField label="사용 기술" value={item.techStack} />
+                  <ReadField label="설명" value={item.description} />
+                  <ReadField label="URL" value={item.url} />
+                </>
+              ) : (
+                <>
+                  <Field
+                    label="프로젝트명"
+                    value={item.name}
+                    onChange={(v) =>
+                      patch({ projects: c.projects.map((x) => (x.id === item.id ? { ...x, name: v } : x)) })
+                    }
+                  />
+                  <div className="item-row">
+                    <Field
+                      label="시작일"
+                      value={item.startDate}
+                      onChange={(v) =>
+                        patch({ projects: c.projects.map((x) => (x.id === item.id ? { ...x, startDate: v } : x)) })
+                      }
+                    />
+                    <Field
+                      label="종료일"
+                      value={item.endDate}
+                      onChange={(v) =>
+                        patch({ projects: c.projects.map((x) => (x.id === item.id ? { ...x, endDate: v } : x)) })
+                      }
+                    />
+                  </div>
+                  <Field
+                    label="역할"
+                    value={item.role}
+                    onChange={(v) =>
+                      patch({ projects: c.projects.map((x) => (x.id === item.id ? { ...x, role: v } : x)) })
+                    }
+                  />
+                  <Field
+                    label="사용 기술"
+                    value={item.techStack}
+                    placeholder="Python · Pandas"
+                    onChange={(v) =>
+                      patch({ projects: c.projects.map((x) => (x.id === item.id ? { ...x, techStack: v } : x)) })
+                    }
+                  />
+                  <Field
+                    label="설명"
+                    multiline
+                    value={item.description}
+                    onChange={(v) =>
+                      patch({ projects: c.projects.map((x) => (x.id === item.id ? { ...x, description: v } : x)) })
+                    }
+                  />
+                  <Field
+                    label="URL"
+                    value={item.url}
+                    placeholder="https://github.com/..."
+                    onChange={(v) =>
+                      patch({ projects: c.projects.map((x) => (x.id === item.id ? { ...x, url: v } : x)) })
+                    }
+                  />
+                </>
+              )}
+            </ItemCard>
+          ))}
+          {!readOnly && (
+            <AddItem
+              onAdd={() =>
+                patch({
+                  projects: [
+                    ...c.projects,
+                    {
+                      id: nextId('prj'),
+                      name: '',
+                      startDate: '',
+                      endDate: '',
+                      role: '',
+                      techStack: '',
+                      description: '',
+                      url: '',
+                    },
+                  ],
+                })
+              }
+            />
+          )}
+        </>
+      );
+
+    case 'selfIntroduction':
+      return (
+        <div className="intro-list">
+          {SelfIntroKeys.map((key) => {
+            const part = c.selfIntroduction[key];
+            return (
+              <div key={key} className="intro-item">
+                <strong className="intro-item__q">{SelfIntroLabels[key]}</strong>
+                {readOnly ? (
+                  <p className={part.body.trim() === '' ? 'doc-read__empty' : undefined}>
+                    {part.body.trim() === '' ? '미작성' : part.body}
+                  </p>
+                ) : (
+                  <AutoTextarea
+                    value={part.body}
+                    onChange={(e) =>
+                      patch({
+                        selfIntroduction: {
+                          ...c.selfIntroduction,
+                          [key]: { ...part, body: e.target.value },
+                        },
+                      })
+                    }
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      );
+
+    default:
+      return null;
+  }
+}

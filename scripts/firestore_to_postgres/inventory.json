@@ -1,0 +1,519 @@
+{
+  "paths": {
+    "users": {
+      "count": 34,
+      "sample": [
+        {
+          "id": "0HPgkgfSOOWjgjMbSPupxtYcC6O2",
+          "keys": [
+            "cohortId",
+            "cohortName",
+            "createdAt",
+            "createdBy",
+            "displayName",
+            "email",
+            "isActive",
+            "mileageBalance",
+            "motto",
+            "mustChangePassword",
+            "personalEmail",
+            "role"
+          ]
+        },
+        {
+          "id": "3GJWL9XIPjVL4maeMgBzUIz8hR73",
+          "keys": [
+            "cohortId",
+            "cohortName",
+            "createdAt",
+            "createdBy",
+            "displayName",
+            "email",
+            "isActive",
+            "mileageBalance",
+            "motto",
+            "mustChangePassword",
+            "personalEmail",
+            "role"
+          ]
+        },
+        {
+          "id": "43AE6HUtVNSH2HuOk2h4Pwfyv6Y2",
+          "keys": [
+            "cohortId",
+            "cohortName",
+            "createdAt",
+            "createdBy",
+            "displayName",
+            "email",
+            "isActive",
+            "mileageBalance",
+            "motto",
+            "mustChangePassword",
+            "personalEmail",
+            "role"
+          ]
+        }
+      ]
+    },
+    "users/{uid}/todos": {
+      "count": 1,
+      "sample": []
+    },
+    "users/{uid}/alertPopupDismissals": {
+      "count": 3,
+      "sample": []
+    },
+    "users/{uid}/studyNotes": {
+      "count": 3,
+      "sample": []
+    },
+    "studentIntakes": {
+      "count": 32,
+      "sample": [
+        {
+          "id": "0HPgkgfSOOWjgjMbSPupxtYcC6O2",
+          "keys": [
+            "cohortId",
+            "cohortName",
+            "createdAt",
+            "createdBy",
+            "displayName",
+            "email",
+            "initialPassword",
+            "intake",
+            "isActive",
+            "passwordChanged",
+            "personalEmail",
+            "updatedAt"
+          ]
+        },
+        {
+          "id": "3GJWL9XIPjVL4maeMgBzUIz8hR73",
+          "keys": [
+            "cohortId",
+            "cohortName",
+            "createdAt",
+            "createdBy",
+            "displayName",
+            "email",
+            "initialPassword",
+            "intake",
+            "isActive",
+            "passwordChanged",
+            "personalEmail",
+            "updatedAt"
+          ]
+        },
+        {
+          "id": "43AE6HUtVNSH2HuOk2h4Pwfyv6Y2",
+          "keys": [
+            "cohortId",
+            "cohortName",
+            "createdAt",
+            "createdBy",
+            "displayName",
+            "email",
+            "initialPassword",
+            "intake",
+            "isActive",
+            "passwordChanged",
+            "personalEmail",
+            "updatedAt"
+          ]
+        }
+      ]
+    },
+    "cohorts": {
+      "count": 3,
+      "sample": [
+        {
+          "id": "cohort_34",
+          "keys": [
+            "classroomName",
+            "createdAt",
+            "endDate",
+            "isActive",
+            "name",
+            "startDate",
+            "status",
+            "studentCount",
+            "termNumber",
+            "updatedAt"
+          ]
+        },
+        {
+          "id": "cohort_35",
+          "keys": [
+            "createdAt",
+            "endDate",
+            "isActive",
+            "name",
+            "startDate",
+            "status",
+            "studentCount",
+            "termNumber",
+            "updatedAt"
+          ]
+        },
+        {
+          "id": "cohort_36",
+          "keys": [
+            "createdAt",
+            "endDate",
+            "isActive",
+            "name",
+            "startDate",
+            "status",
+            "studentCount",
+            "termNumber",
+            "updatedAt"
+          ]
+        }
+      ]
+    },
+    "cohorts/{c}/schedules": {
+      "count": 0,
+      "sample": []
+    },
+    "…/curriculum/meta": {
+      "count": 1,
+      "sample": []
+    },
+    "…/curriculumSheets": {
+      "count": 1,
+      "sample": []
+    },
+    "…/materials": {
+      "count": 0,
+      "sample": []
+    },
+    "…/attendances": {
+      "count": 1690,
+      "sample": []
+    },
+    "…/rollCalls": {
+      "count": 15,
+      "sample": []
+    },
+    "…/seatingRooms": {
+      "count": 1,
+      "sample": []
+    },
+    "…/seatingAssignments": {
+      "count": 1,
+      "sample": []
+    },
+    "…/seatingMeta/default": {
+      "count": 1,
+      "sample": []
+    },
+    "…/seating/{layout,assignment}": {
+      "count": 2,
+      "sample": []
+    },
+    "…/projectTeams": {
+      "count": 5,
+      "sample": []
+    },
+    "…/notices": {
+      "count": 13,
+      "sample": []
+    },
+    "…/vectorMetadata/notices": {
+      "count": 1,
+      "sample": []
+    },
+    "…/scheduledNotices": {
+      "count": 1,
+      "sample": []
+    },
+    "…/alertPopups": {
+      "count": 3,
+      "sample": []
+    },
+    "…/posts": {
+      "count": 0,
+      "sample": []
+    },
+    "…/qna": {
+      "count": 0,
+      "sample": []
+    },
+    "…/assignments": {
+      "count": 0,
+      "sample": []
+    },
+    "…/submissions": {
+      "count": 6,
+      "sample": []
+    },
+    "…/weeklyTasks": {
+      "count": 0,
+      "sample": []
+    },
+    "…/userProgress": {
+      "count": 0,
+      "sample": []
+    },
+    "…/formTasks": {
+      "count": 2,
+      "sample": []
+    },
+    "…/assessments": {
+      "count": 1,
+      "sample": []
+    },
+    "…/assessmentSubmissions": {
+      "count": 4,
+      "sample": []
+    },
+    "…/mileageTransactions": {
+      "count": 5,
+      "sample": []
+    },
+    "…/mileageSettings/config": {
+      "count": 0,
+      "sample": []
+    },
+    "…/mileageProducts": {
+      "count": 6,
+      "sample": []
+    },
+    "…/purchaseRequests": {
+      "count": 1,
+      "sample": []
+    },
+    "…/mileageCart": {
+      "count": 1,
+      "sample": []
+    },
+    "…/missionProgress": {
+      "count": 2,
+      "sample": []
+    },
+    "…/resumes": {
+      "count": 31,
+      "sample": []
+    },
+    "…/inflearnPackages": {
+      "count": 0,
+      "sample": []
+    },
+    "…/youtubeRecommendations": {
+      "count": 0,
+      "sample": []
+    },
+    "…/recommendationEvents": {
+      "count": 1,
+      "sample": []
+    },
+    "…/youtubeCurriculumCache": {
+      "count": 4,
+      "sample": []
+    },
+    "…/studySources": {
+      "count": 5,
+      "sample": []
+    },
+    "…/studyNotes": {
+      "count": 1,
+      "sample": []
+    },
+    "…/posts/{id}/comments": {
+      "count": 0,
+      "sample": []
+    },
+    "…/qna/{id}/messages": {
+      "count": 0,
+      "sample": []
+    },
+    "…/assignments/{id}/submissions": {
+      "count": 0,
+      "sample": []
+    },
+    "…/formTasks/{id}/responses": {
+      "count": 0,
+      "sample": []
+    },
+    "…/assessments/{id}/questions": {
+      "count": 20,
+      "sample": []
+    },
+    "…/resumes/{id}/feedback": {
+      "count": 29,
+      "sample": []
+    },
+    "…/resumes/{id}/revisions": {
+      "count": 25,
+      "sample": []
+    },
+    "systemCache": {
+      "count": 1,
+      "sample": [
+        {
+          "id": "qualExamSchedules_2026",
+          "keys": [
+            "items",
+            "syncedAt",
+            "totalCount",
+            "year"
+          ]
+        }
+      ]
+    },
+    "aiGenerationLogs": {
+      "count": 190,
+      "sample": [
+        {
+          "id": "0CFdQdSwyabJUfzpniOJ",
+          "keys": [
+            "cohortId",
+            "createdAt",
+            "createdBy",
+            "createdByName",
+            "generatedCount",
+            "jobCount",
+            "latencyMs",
+            "model",
+            "promptVersion",
+            "requestIdHash",
+            "reviewMode",
+            "status"
+          ]
+        },
+        {
+          "id": "0N1juJqKjXGRRisDdG6s",
+          "keys": [
+            "cohortId",
+            "createdAt",
+            "createdBy",
+            "createdByName",
+            "generatedCount",
+            "jobCount",
+            "latencyMs",
+            "model",
+            "promptVersion",
+            "reranked",
+            "resumeLength",
+            "status"
+          ]
+        },
+        {
+          "id": "0sNWzYYBDE3vLyhTJ9x5",
+          "keys": [
+            "cohortId",
+            "createdAt",
+            "createdBy",
+            "createdByName",
+            "generatedCount",
+            "jobCount",
+            "latencyMs",
+            "model",
+            "promptVersion",
+            "reranked",
+            "resumeLength",
+            "status"
+          ]
+        }
+      ]
+    },
+    "aiQuestionFeedback": {
+      "count": 261,
+      "sample": [
+        {
+          "id": "0CFdQdSwyabJUfzpniOJ_apply",
+          "keys": [
+            "actorUid",
+            "cohortId",
+            "createdAt",
+            "draftId",
+            "logId",
+            "outcome",
+            "promptVersion",
+            "type",
+            "updatedAt"
+          ]
+        },
+        {
+          "id": "0N1juJqKjXGRRisDdG6s_SARAMIN-54962457",
+          "keys": [
+            "actorUid",
+            "cohortId",
+            "createdAt",
+            "draftId",
+            "logId",
+            "outcome",
+            "promptVersion",
+            "type",
+            "updatedAt"
+          ]
+        },
+        {
+          "id": "0sNWzYYBDE3vLyhTJ9x5_SARAMIN-54784607",
+          "keys": [
+            "actorUid",
+            "cohortId",
+            "createdAt",
+            "draftId",
+            "logId",
+            "outcome",
+            "promptVersion",
+            "type",
+            "updatedAt"
+          ]
+        }
+      ]
+    },
+    "aiEvalRuns": {
+      "count": 1,
+      "sample": [
+        {
+          "id": "O2A0Kd3IEDcRZtItvHO3",
+          "keys": [
+            "accuracy",
+            "avgLatencyMs",
+            "createdAt",
+            "failedIds",
+            "model",
+            "passed",
+            "promptVersion",
+            "source",
+            "totalCases"
+          ]
+        }
+      ]
+    }
+  },
+  "unexpected": [
+    "/jobRequirementProfiles",
+    "cohorts/cohort_34/assessmentSubmissions",
+    "cohorts/cohort_34/resumes/8SQETkWEkbyGgExV3Aju/aiApplications",
+    "cohorts/cohort_34/resumes/8SQETkWEkbyGgExV3Aju/aiReviews",
+    "cohorts/cohort_34/resumes/8SQETkWEkbyGgExV3Aju/tailoredResumes",
+    "cohorts/cohort_34/resumes/AD0WUKtxLNFWPDMuYJHD/tailoredResumes",
+    "cohorts/cohort_34/resumes/GIdv7oJ6CiI8y5HHQAQN/aiReviews",
+    "cohorts/cohort_34/resumes/GIdv7oJ6CiI8y5HHQAQN/tailoredResumes",
+    "cohorts/cohort_34/resumes/GW6FtVm3m3ei82PtZsAm/aiApplications",
+    "cohorts/cohort_34/resumes/GW6FtVm3m3ei82PtZsAm/aiReviews",
+    "cohorts/cohort_34/resumes/GW6FtVm3m3ei82PtZsAm/tailoredResumes",
+    "cohorts/cohort_34/resumes/GxvNcCgG051FPWWWGJuF/aiApplications",
+    "cohorts/cohort_34/resumes/GxvNcCgG051FPWWWGJuF/aiReviews",
+    "cohorts/cohort_34/resumes/GxvNcCgG051FPWWWGJuF/tailoredResumes",
+    "cohorts/cohort_34/resumes/OIQrPYLNp5MKZyc9W5vj/tailoredResumes",
+    "cohorts/cohort_34/resumes/cCMdivZBs7zVh899oEJ7/aiReviews",
+    "cohorts/cohort_34/resumes/matched_08d678459fb0937545ad9373/tailoredResumes",
+    "cohorts/cohort_34/resumes/matched_3c607155619219f39ce55e02/tailoredResumes",
+    "cohorts/cohort_34/resumes/mock-demo_review_ai/aiReviews",
+    "cohorts/cohort_34/resumes/mock-demo_review_ai/tailoredResumes",
+    "cohorts/cohort_34/resumes/rrQ1cM00bN4Q6y7lrJ5V/tailoredResumes",
+    "cohorts/cohort_34/resumes/tulqVfSg7KpHXjLUciq4/aiApplications",
+    "cohorts/cohort_34/resumes/tulqVfSg7KpHXjLUciq4/aiReviews"
+  ],
+  "cohorts": [
+    "cohort_34",
+    "cohort_35",
+    "cohort_36"
+  ],
+  "missing_from_scan": []
+}

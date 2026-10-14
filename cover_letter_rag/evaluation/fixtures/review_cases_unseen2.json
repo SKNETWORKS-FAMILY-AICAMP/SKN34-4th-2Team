@@ -1,0 +1,533 @@
+{
+  "_comment": "2026-09-15 저녁, resume-v16p 커밋 전 두 번째 확인용 케이스. dev·heldout·detailed·probe·fresh·unseen과 직무·도메인이 겹치지 않게 썼고, 오늘 고친 규칙을 겨냥한 함정 없이 평범한 이력서처럼 썼다. 실제 학생 답에서 흔한 모양(질문한 항목 말고 다른 프로젝트 얘기를 같이 하는 답, 사실 뒤에 '그건 안 해 봤다'를 붙이는 답)이 자연스럽게 나올 만한 사실만 facts에 두었다. 서버 코드를 고치는 세션에는 내용을 보내지 않았다. 한 번만 돌리고, 결과로 고치게 되면 다음 확인용은 또 새로 만든다. applicant.facts에는 이력서에 적힌 사실을 모두 넣고 이력서에 없는 사실은 '(이력서에 없음)'으로 표시했다. expected_requirements·expected_star는 Claude가 원문만 읽고 매긴 값이라 사람 라벨이 아니다.",
+  "cases": [
+    {
+      "id": "unseen2_vue_publisher_entry__public",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0401", "email": "", "birthDate": "1998-08-30", "githubUrl": "https://github.com/example-vue", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "웹 퍼블리셔로 1년간 공공기관 홈페이지 화면을 만들었고, 지금은 Vue로 프론트엔드 개발을 하고 있습니다. 웹 접근성 인증 기준에 맞춰 마크업을 고친 경험이 있습니다."
+          },
+          "experience": [
+            {
+              "id": "exp-1", "company": "(주)예시웹에이전시", "role": "웹 퍼블리셔", "startDate": "2023-03", "endDate": "2024-03", "isCurrent": false,
+              "description": "공공기관 홈페이지 구축 프로젝트에서 HTML·CSS 퍼블리싱을 맡았습니다. 웹 접근성 품질인증 심사를 앞두고 대체 텍스트와 키보드 이동 순서를 점검해 수정했습니다."
+            }
+          ],
+          "education": [{"id": "edu-1", "school": "예시전문대학", "major": "시각디자인과", "startDate": "2017-03", "endDate": "2020-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "HTML/CSS", "level": "고급"},
+            {"id": "ts-2", "name": "JavaScript", "level": "중급"},
+            {"id": "ts-3", "name": "Vue.js", "level": "중급"},
+            {"id": "ts-4", "name": "Git", "level": "중급"}
+          ],
+          "certifications": [{"id": "cert-1", "name": "웹디자인기능사", "issuer": "한국산업인력공단", "acquiredDate": "2019-11"}],
+          "awards": [],
+          "trainingExperience": [
+            {"id": "tr-1", "course": "프론트엔드 개발 과정", "organization": "예시IT교육원", "startDate": "2024-06", "endDate": "2024-12", "description": "JavaScript와 Vue를 배우고 팀 프로젝트를 진행했습니다."}
+          ],
+          "otherActivities": [],
+          "projects": [
+            {
+              "id": "prj-1", "name": "도서관 좌석 예약 웹", "startDate": "2024-10", "endDate": "2024-12",
+              "role": "프론트엔드(4인 팀)", "techStack": "Vue 3, Pinia, Axios",
+              "description": "열람실 좌석을 실시간으로 확인하고 예약하는 웹입니다. 저는 좌석 배치도 화면과 예약 모달을 만들었습니다.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "공공기관 홈페이지 리뉴얼", "startDate": "2023-07", "endDate": "2023-12",
+              "role": "퍼블리싱", "techStack": "HTML, CSS, JavaScript",
+              "description": "기관 홈페이지 전체 화면 퍼블리싱과 반응형 작업을 했습니다.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "누구나 쓸 수 있는 화면을 만드는 개발자",
+              "body": "퍼블리셔로 일하며 화면을 보기 좋게 만드는 것만큼 누구나 쓸 수 있게 만드는 것이 중요하다는 것을 배웠습니다. 지금은 Vue로 화면의 동작까지 책임지는 프론트엔드 개발자가 되려고 합니다."
+            },
+            "motivation": {
+              "subtitle": "공공 서비스를 더 편하게",
+              "body": "공공기관 홈페이지를 만들며 어르신이나 장애가 있는 분들이 화면을 쓰기 어려워하는 경우를 많이 봤습니다. 예시디지털의 공공 서비스 화면을 더 많은 사람이 편하게 쓸 수 있게 만드는 데 기여하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "접근성 심사 준비",
+              "body": "웹 접근성 품질인증 심사를 한 달 앞두고 점검 항목에서 여러 개가 미흡으로 나왔습니다. 항목별로 담당 화면을 나눠 매일 고친 내용을 공유했고 심사를 통과했습니다."
+            },
+            "growth": {
+              "subtitle": "디자인에서 개발로",
+              "body": "시각디자인을 전공했지만 화면이 실제로 움직이는 원리가 궁금해 퍼블리싱을 시작했고, 그 궁금증이 프론트엔드 개발 공부로 이어졌습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "세심함 / 로직 설계",
+              "body": "강점은 화면의 작은 차이도 놓치지 않는 세심함입니다. 약점은 복잡한 상태 로직을 설계하는 경험이 아직 부족한 점이라, 팀 프로젝트에서 상태 관리 부분을 일부러 맡아 공부했습니다."
+            },
+            "aspiration": {
+              "subtitle": "접근성을 아는 프론트엔드 개발자",
+              "body": "입사 후에는 서비스 화면 구조와 공통 컴포넌트를 먼저 익히고, 접근성 점검 경험을 살려 공통 컴포넌트에 접근성 기준을 적용하는 일을 맡고 싶습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN2-01",
+        "company": "(주)예시디지털",
+        "title": "공공 서비스 프론트엔드 개발자 (Vue, 신입)",
+        "text": "[주요업무]\n- 공공기관 대민 서비스 웹 화면 개발\n- 공통 컴포넌트 개발과 웹 접근성 대응\n\n[자격요건]\n- Vue.js 기반 웹 개발 경험\n- HTML·CSS·JavaScript 이해\n- REST API 연동 경험\n\n[우대사항]\n- 웹 접근성 인증 대응 경험\n- TypeScript 사용 경험\n- 전자정부 표준프레임워크 환경 경험\n\n[근무조건]\n- 정규직, 대전 유성구"
+      },
+      "applicant": {
+        "facts": [
+          "(주)예시웹에이전시에서 2023년 3월부터 2024년 3월까지 웹 퍼블리셔로 공공기관 홈페이지 HTML·CSS 퍼블리싱을 맡았다",
+          "웹 접근성 품질인증 심사 전에 대체 텍스트와 키보드 이동 순서를 점검해 고쳤고, 항목별로 담당 화면을 나눠 매일 공유하며 심사를 통과했다",
+          "공공기관 홈페이지 리뉴얼에서 전체 화면 퍼블리싱과 반응형 작업을 했다",
+          "프론트엔드 개발 과정에서 JavaScript와 Vue를 배우고 팀 프로젝트를 했다",
+          "도서관 좌석 예약 웹(4인 팀)에서 좌석 배치도 화면과 예약 모달을 만들었다",
+          "팀 프로젝트에서 상태 관리 부분을 일부러 맡았다",
+          "(이력서에 없음) 도서관 좌석 예약 웹에서 Axios로 좌석 조회·예약 API를 연동했고 Pinia로 선택한 좌석 상태를 관리했다. 좌석 상태 실시간 갱신(웹소켓)은 팀원이 맡아서 직접 해 보지는 않았다",
+          "(이력서에 없음) 공공기관 홈페이지 리뉴얼 때 스크린리더(NVDA)로 주요 메뉴를 직접 읽어 보며 점검했다"
+        ],
+        "not_done": ["TypeScript", "전자정부 표준프레임워크", "웹소켓 실시간 기능 구현"]
+      },
+      "expected_requirements": [
+        {"label": "Vue.js 웹 개발", "group": "must", "resume": "ok"},
+        {"label": "HTML·CSS·JavaScript", "group": "must", "resume": "ok"},
+        {"label": "REST API 연동", "group": "must", "resume": "missing"},
+        {"label": "웹 접근성 인증 대응", "group": "preferred", "resume": "ok"},
+        {"label": "TypeScript", "group": "preferred", "resume": "missing"},
+        {"label": "전자정부 표준프레임워크", "group": "preferred", "resume": "missing"}
+      ],
+      "expected_star": {
+        "experience[0].description": "STA",
+        "trainingExperience[0].description": "TA",
+        "projects[0].description": "T",
+        "projects[1].description": "T",
+        "selfIntroduction.intro.body": "S",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "S",
+        "selfIntroduction.strengthsWeaknesses.body": "A"
+      }
+    },
+    {
+      "id": "unseen2_go_backend_1y__delivery",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0402", "email": "", "birthDate": "1997-05-11", "githubUrl": "https://github.com/example-go", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "Go 백엔드 1년. gRPC 서비스 개발. PostgreSQL 쿼리 튜닝 경험."
+          },
+          "experience": [
+            {
+              "id": "exp-1", "company": "(주)예시오더", "role": "백엔드 개발자", "startDate": "2024-07", "endDate": "2025-07", "isCurrent": false,
+              "description": "주문 상태 조회 gRPC 서비스 개발. 느린 쿼리 개선. 사내 배포 도구 사용."
+            }
+          ],
+          "education": [{"id": "edu-1", "school": "강원대학교", "major": "컴퓨터공학과", "startDate": "2017-03", "endDate": "2024-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "Go", "level": "중급"},
+            {"id": "ts-2", "name": "gRPC", "level": "중급"},
+            {"id": "ts-3", "name": "PostgreSQL", "level": "중급"},
+            {"id": "ts-4", "name": "Docker", "level": "초급"}
+          ],
+          "certifications": [],
+          "awards": [],
+          "trainingExperience": [],
+          "otherActivities": [
+            {"id": "act-1", "name": "Go 오픈소스 기여", "startDate": "2025-01", "endDate": "2025-03", "description": "HTTP 라우터 라이브러리 문서 오류 수정 PR 2건 병합."}
+          ],
+          "projects": [
+            {
+              "id": "prj-1", "name": "주문 상태 조회 API 개선", "startDate": "2025-01", "endDate": "2025-04",
+              "role": "백엔드(단독)", "techStack": "Go, gRPC, PostgreSQL",
+              "description": "주문 상태 조회 응답 지연 개선. 인덱스 추가, 쿼리 수정.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "졸업작품 스터디룸 예약 서버", "startDate": "2023-03", "endDate": "2023-11",
+              "role": "백엔드(3인 팀)", "techStack": "Go, Gin, MySQL",
+              "description": "스터디룸 예약 REST API 개발.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "빠른 응답을 고민하는 개발자",
+              "body": "주문 상태를 조회하는 서비스를 맡으며 사용자가 기다리는 몇 초를 줄이는 일에 흥미를 느꼈습니다. Go로 서비스를 만들고 느린 쿼리를 찾아 고치는 일을 해 왔습니다."
+            },
+            "motivation": {
+              "subtitle": "배달 주문의 흐름",
+              "body": "주문 시스템을 다뤄 본 경험을 살려 예시배달의 주문·배차 서비스처럼 트래픽이 몰리는 환경에서 일해 보고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "점심시간 지연",
+              "body": "점심시간마다 주문 상태 조회가 느려진다는 문의가 들어왔습니다. 느린 쿼리 로그를 확인하고 인덱스를 추가해 문의를 줄였습니다."
+            },
+            "growth": {
+              "subtitle": "문서를 읽는 습관",
+              "body": "Go를 처음 배울 때 공식 문서를 끝까지 읽는 습관을 들였고, 그 과정에서 찾은 문서 오류를 오픈소스에 제보했습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "집요함 / 공유",
+              "body": "강점은 원인을 끝까지 찾는 집요함입니다. 약점은 혼자 해결하려다 공유가 늦어지는 점입니다."
+            },
+            "aspiration": {
+              "subtitle": "트래픽에 강한 서버",
+              "body": "입사 후 주문 서비스 구조를 익히고, 부하가 몰리는 시간대의 병목을 찾아 개선하는 일을 맡고 싶습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN2-02",
+        "company": "(주)예시배달",
+        "title": "배달 플랫폼 Go 백엔드 개발자 (경력 1년 이상)",
+        "text": "[주요업무]\n- 주문·배차 마이크로서비스 개발\n- 서비스 성능 개선과 장애 대응\n\n[자격요건]\n- 백엔드 개발 경력 1년 이상\n- Go 기반 서버 개발 경험\n- RDBMS 사용과 쿼리 튜닝 경험\n\n[우대사항]\n- gRPC 기반 서비스 개발 경험\n- Kubernetes 환경 배포 경험\n- 메시지 큐(Kafka, RabbitMQ) 사용 경험\n\n[근무조건]\n- 정규직, 서울 송파구"
+      },
+      "applicant": {
+        "facts": [
+          "(주)예시오더에서 2024년 7월부터 2025년 7월까지 백엔드 개발자로 주문 상태 조회 gRPC 서비스를 개발했다",
+          "사내 배포 도구로 서비스를 배포했다",
+          "주문 상태 조회 API 개선을 혼자 맡아 인덱스를 추가하고 쿼리를 고쳤다",
+          "점심시간 주문 상태 조회 지연 문의에 느린 쿼리 로그를 확인하고 인덱스를 추가했다",
+          "졸업작품 스터디룸 예약 서버(3인 팀)에서 Go와 Gin으로 예약 REST API를 개발했다",
+          "Go HTTP 라우터 라이브러리 문서 오류 수정 PR 2건이 병합됐다",
+          "(이력서에 없음) 주문 상태 조회 API 개선에서 점심시간 p95 응답이 1.8초에서 0.4초로 줄었고, 지연 문의가 주 10건 정도에서 1~2건으로 줄었다",
+          "(이력서에 없음) 졸업작품 스터디룸 예약 서버에서 같은 시간대 중복 예약을 막으려고 MySQL 유니크 제약을 걸었다. 그때는 부하 테스트는 해 보지 않았다"
+        ],
+        "not_done": ["Kubernetes 배포", "Kafka·RabbitMQ", "배차 로직 개발"]
+      },
+      "expected_requirements": [
+        {"label": "백엔드 경력 1년", "group": "must", "resume": "ok", "kind": "eligibility"},
+        {"label": "Go 서버 개발", "group": "must", "resume": "ok"},
+        {"label": "RDBMS 쿼리 튜닝", "group": "must", "resume": "ok"},
+        {"label": "gRPC 서비스", "group": "preferred", "resume": "ok"},
+        {"label": "Kubernetes 배포", "group": "preferred", "resume": "missing"},
+        {"label": "메시지 큐", "group": "preferred", "resume": "missing"}
+      ],
+      "expected_star": {
+        "experience[0].description": "TA",
+        "otherActivities[0].description": "TAR",
+        "projects[0].description": "SA",
+        "projects[1].description": "T",
+        "selfIntroduction.intro.body": "TA",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "AR",
+        "selfIntroduction.strengthsWeaknesses.body": ""
+      }
+    },
+    {
+      "id": "unseen2_dba_4y__insurance",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0403", "email": "", "birthDate": "1991-01-23", "githubUrl": "", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "보험 계약 시스템의 Oracle 데이터베이스를 4년간 운영했습니다. 야간 배치가 몰리는 시간의 성능 문제를 실행 계획 분석으로 풀어 왔고, 백업·복구 훈련을 정기적으로 진행했습니다."
+          },
+          "experience": [
+            {
+              "id": "exp-1", "company": "(주)예시정보시스템", "role": "DBA", "startDate": "2021-03", "endDate": "2025-05", "isCurrent": false,
+              "description": "보험사 계약·청구 시스템의 Oracle 19c 데이터베이스를 운영했습니다. 월말 정산 배치가 제시간에 끝나지 않던 문제를 실행 계획을 분석해 인덱스와 조인 순서를 바꾸는 방식으로 풀어, 배치 시간을 약 6시간에서 2시간 30분으로 줄였습니다. 분기마다 백업 복구 훈련을 주관해 복구 절차 문서를 최신으로 유지했습니다."
+            }
+          ],
+          "education": [{"id": "edu-1", "school": "경기대학교", "major": "정보보호학과", "startDate": "2010-03", "endDate": "2017-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "Oracle", "level": "고급"},
+            {"id": "ts-2", "name": "SQL", "level": "고급"},
+            {"id": "ts-3", "name": "PL/SQL", "level": "중급"},
+            {"id": "ts-4", "name": "Linux", "level": "중급"},
+            {"id": "ts-5", "name": "Shell Script", "level": "중급"}
+          ],
+          "certifications": [
+            {"id": "cert-1", "name": "SQLP", "issuer": "한국데이터산업진흥원", "acquiredDate": "2023-10"},
+            {"id": "cert-2", "name": "OCP (Oracle Database Administration)", "issuer": "Oracle", "acquiredDate": "2021-12"}
+          ],
+          "awards": [
+            {"id": "awd-1", "name": "고객사 우수 협력사 표창", "organization": "예시생명", "date": "2024-12", "description": "월말 정산 배치 시간 단축으로 고객사에서 표창을 받았습니다."}
+          ],
+          "trainingExperience": [],
+          "otherActivities": [],
+          "projects": [
+            {
+              "id": "prj-1", "name": "청구 DB 이관", "startDate": "2023-04", "endDate": "2023-09",
+              "role": "DBA(3인 중 이관 담당)", "techStack": "Oracle Data Pump, GoldenGate",
+              "description": "구형 서버의 청구 데이터베이스를 새 서버로 옮기는 프로젝트였습니다. 저는 이관 리허설을 세 번 진행해 데이터 건수와 합계를 대조하는 검증 스크립트를 만들었고, 실제 전환은 주말 8시간 안에 끝냈습니다.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "DB 사용량 모니터링 대시보드", "startDate": "2024-02", "endDate": "2024-04",
+              "role": "DBA(단독)", "techStack": "Shell Script, Grafana",
+              "description": "테이블스페이스 사용량과 세션 수를 수집해 대시보드로 만들었습니다.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "데이터를 지키는 DBA",
+              "body": "저는 보험 계약과 청구 데이터를 4년간 다루며 데이터가 멈추거나 사라지지 않게 지키는 일을 해 왔습니다. 월말 정산 배치 시간을 6시간에서 2시간 30분으로 줄였고, 분기마다 복구 훈련을 주관했습니다."
+            },
+            "motivation": {
+              "subtitle": "클라우드 데이터베이스로",
+              "body": "온프레미스 Oracle을 오래 운영하며 클라우드 데이터베이스로 옮겨 가는 흐름을 가까이서 봤습니다. 예시손해보험이 클라우드로 전환하는 과정에서 운영 경험을 살려 데이터 안정성을 지키는 데 기여하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "끝나지 않던 월말 배치",
+              "body": "월말 정산 배치가 아침 업무 시작까지 끝나지 않아 청구 담당자들이 기다리는 일이 반복됐습니다. 오래 걸리는 쿼리의 실행 계획을 하나씩 분석해 인덱스와 조인 순서를 바꿨고, 배치를 2시간 30분 만에 끝내게 되었습니다."
+            },
+            "growth": {
+              "subtitle": "절차를 만드는 사람",
+              "body": "처음에는 장애를 빨리 고치는 것에만 집중했지만, 선배가 남긴 복구 절차 문서 덕분에 큰 장애를 막은 뒤로 절차를 정리하고 훈련하는 일의 가치를 알게 되었습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "신중함 / 속도",
+              "body": "강점은 운영 데이터에 손대기 전에 반드시 검증 절차를 거치는 신중함입니다. 약점은 그만큼 결정이 늦어질 때가 있다는 점입니다."
+            },
+            "aspiration": {
+              "subtitle": "클라우드 DB 운영 전문가",
+              "body": "입사 후에는 현재 데이터베이스 구성과 백업 정책을 먼저 파악하고, 클라우드 전환 과정에서 이관 검증 절차를 맡아 데이터 손실 없는 전환을 돕고 싶습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN2-03",
+        "company": "(주)예시손해보험",
+        "title": "데이터베이스 엔지니어 (경력 4년 이상)",
+        "text": "[주요업무]\n- 보험 핵심 시스템 데이터베이스 운영과 성능 관리\n- 클라우드 데이터베이스 전환 지원\n- 백업·복구 정책 운영\n\n[자격요건]\n- DBA 경력 4년 이상\n- Oracle 또는 PostgreSQL 운영 경험\n- SQL 튜닝 경험\n\n[우대사항]\n- AWS RDS 등 클라우드 데이터베이스 경험\n- 데이터 이관 프로젝트 경험\n- 금융·보험 도메인 경험\n\n[근무조건]\n- 정규직, 서울 중구"
+      },
+      "applicant": {
+        "facts": [
+          "(주)예시정보시스템에서 2021년 3월부터 2025년 5월까지 DBA로 보험사 계약·청구 시스템 Oracle 19c를 운영했다",
+          "월말 정산 배치를 실행 계획 분석으로 인덱스·조인 순서를 바꿔 약 6시간에서 2시간 30분으로 줄였고 고객사 표창을 받았다",
+          "분기마다 백업 복구 훈련을 주관하고 복구 절차 문서를 최신으로 유지했다",
+          "청구 DB 이관(3인 중 이관 담당)에서 리허설 3회와 건수·합계 대조 검증 스크립트를 만들고 주말 8시간 안에 전환했다",
+          "DB 사용량 모니터링 대시보드를 혼자 Shell Script와 Grafana로 만들어 테이블스페이스 사용량과 세션 수를 수집했다",
+          "SQLP와 OCP 자격증이 있다",
+          "(이력서에 없음) DB 사용량 모니터링 대시보드에 테이블스페이스 사용률 85% 경보를 붙여 새벽 공간 부족 장애를 미리 막았다(대시보드 도입 뒤 공간 부족 장애 0건)",
+          "(이력서에 없음) 개인 학습으로 AWS RDS for Oracle에 스냅샷 복원을 실습했지만 실제 운영 환경에서 RDS를 다뤄 본 적은 없다"
+        ],
+        "not_done": ["AWS RDS 실무 운영", "PostgreSQL 운영", "클라우드 전환 프로젝트 리드"]
+      },
+      "expected_requirements": [
+        {"label": "DBA 경력 4년", "group": "must", "resume": "ok", "kind": "eligibility"},
+        {"label": "Oracle/PostgreSQL 운영", "group": "must", "resume": "ok"},
+        {"label": "SQL 튜닝", "group": "must", "resume": "ok"},
+        {"label": "클라우드 DB 경험", "group": "preferred", "resume": "missing"},
+        {"label": "데이터 이관 프로젝트", "group": "preferred", "resume": "ok"},
+        {"label": "금융·보험 도메인", "group": "preferred", "resume": "ok"}
+      ],
+      "expected_star": {
+        "experience[0].description": "STAR",
+        "awards[0].description": "AR",
+        "projects[0].description": "STAR",
+        "projects[1].description": "TA",
+        "selfIntroduction.intro.body": "TAR",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "S",
+        "selfIntroduction.strengthsWeaknesses.body": "A"
+      }
+    },
+    {
+      "id": "unseen2_iot_entry__smartfarm",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0404", "email": "", "birthDate": "2000-09-02", "githubUrl": "https://github.com/example-iot", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "라즈베리파이 센서 데이터 수집 경험 있음. Python 으로 MQTT 통신 구현 해봄. 전기공학 전공이라 회로 이해 가능"
+          },
+          "experience": [],
+          "education": [{"id": "edu-1", "school": "순천대학교", "major": "전기공학과", "startDate": "2019-03", "endDate": "2026-02", "status": "졸업예정"}],
+          "techStack": [
+            {"id": "ts-1", "name": "Python", "level": "중급"},
+            {"id": "ts-2", "name": "MQTT", "level": "초급"},
+            {"id": "ts-3", "name": "Raspberry Pi", "level": "중급"},
+            {"id": "ts-4", "name": "InfluxDB", "level": "초급"}
+          ],
+          "certifications": [{"id": "cert-1", "name": "전기기사", "issuer": "한국산업인력공단", "acquiredDate": "2025-06"}],
+          "awards": [
+            {"id": "awd-1", "name": "캡스톤디자인 경진대회 우수상", "organization": "순천대학교", "date": "2025-11", "description": "온실 환경 모니터링 시스템으로 수상"}
+          ],
+          "trainingExperience": [],
+          "otherActivities": [
+            {"id": "act-1", "name": "학과 임베디드 동아리", "startDate": "2021-03", "endDate": "2024-02", "description": "아두이노 스터디 진행. 후배들 납땜 교육"}
+          ],
+          "projects": [
+            {
+              "id": "prj-1", "name": "온실 환경 모니터링 시스템", "startDate": "2025-03", "endDate": "2025-10",
+              "role": "센서·서버(4인 팀)", "techStack": "Raspberry Pi, Python, MQTT, InfluxDB, Grafana",
+              "description": "온실 온도, 습도, 토양수분 센서값 수집해서 대시보드로 보여줌. 기준값 넘으면 알림 가게 만듬.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "현장을 아는 IoT 개발자",
+              "body": "전기공학을 전공하면서 센서와 회로를 다루는게 재밌었고 이걸 소프트웨어랑 연결하는 IoT에 관심이 생겼습니다."
+            },
+            "motivation": {
+              "subtitle": "농업과 기술",
+              "body": "부모님이 시설 하우스 농사를 하셔서 온실 관리가 얼마나 손이 많이 가는지 알고있습니다. 예시팜의 스마트팜 서비스로 농가의 일을 줄이는데 기여하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "끊기는 센서 데이터",
+              "body": "캡스톤 프로젝트에서 온실 안 와이파이가 자주 끊겨서 센서 데이터가 비는 문제가 있었습니다. 여러 방법을 시도해서 해결했습니다."
+            },
+            "growth": {
+              "subtitle": "직접 만들어 보기",
+              "body": "어릴때부터 고장난 가전제품을 뜯어보는 걸 좋아했습니다. 대학에서는 동아리에서 아두이노로 이것저것 만들어 봤습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "손재주 / 문서화",
+              "body": "장점은 하드웨어와 소프트웨어를 둘다 다룰수 있는 점입니다. 단점은 만든 걸 문서로 정리하는 걸 자주 미루는 점입니다."
+            },
+            "aspiration": {
+              "subtitle": "농가가 믿는 시스템",
+              "body": "입사하면 현장 장비와 서버가 어떻게 연결되는지부터 배우고 끊기지 않는 데이터 수집을 만드는 개발자가 되겠습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN2-04",
+        "company": "(주)예시팜",
+        "title": "스마트팜 IoT 백엔드 개발자 (신입)",
+        "text": "[주요업무]\n- 온실 센서 데이터 수집 서버 개발\n- 제어 장비 연동과 알림 기능 개발\n\n[자격요건]\n- Python 또는 Java 기반 개발 경험\n- MQTT 등 IoT 통신 프로토콜 이해\n- 데이터베이스 사용 경험\n\n[우대사항]\n- 시계열 데이터베이스(InfluxDB 등) 사용 경험\n- 라즈베리파이 등 임베디드 보드 경험\n- 클라우드 IoT 서비스 사용 경험\n\n[근무조건]\n- 정규직, 전남 나주시"
+      },
+      "applicant": {
+        "facts": [
+          "온실 환경 모니터링 시스템(4인 팀)에서 센서와 서버를 맡아 온도·습도·토양수분 값을 라즈베리파이로 모아 MQTT로 보내고 InfluxDB와 Grafana로 보여 줬다",
+          "온실 환경 모니터링 시스템에서 기준값을 넘으면 알림이 가게 만들었다",
+          "온실 환경 모니터링 시스템으로 캡스톤디자인 경진대회 우수상을 받았다",
+          "학과 임베디드 동아리에서 아두이노 스터디를 진행하고 후배들에게 납땜을 가르쳤다",
+          "전기기사 자격증이 있다",
+          "부모님이 시설 하우스 농사를 하신다",
+          "(이력서에 없음) 온실 환경 모니터링 시스템에서 와이파이가 끊기면 라즈베리파이에 센서값을 SQLite로 임시 저장했다가 다시 연결되면 한꺼번에 보내게 해 데이터 빈 구간을 없앴다",
+          "(이력서에 없음) 온실 환경 모니터링 시스템의 알림은 텔레그램 봇으로 보냈다. 환풍기 같은 제어 장비를 원격으로 켜고 끄는 기능은 계획만 하고 만들지는 못했다"
+        ],
+        "not_done": ["AWS IoT 등 클라우드 IoT 서비스", "제어 장비 원격 제어 구현", "Java"]
+      },
+      "expected_requirements": [
+        {"label": "Python/Java 개발", "group": "must", "resume": "ok"},
+        {"label": "MQTT 통신 이해", "group": "must", "resume": "ok"},
+        {"label": "데이터베이스 사용", "group": "must", "resume": "ok"},
+        {"label": "시계열 DB", "group": "preferred", "resume": "ok"},
+        {"label": "임베디드 보드", "group": "preferred", "resume": "ok"},
+        {"label": "클라우드 IoT", "group": "preferred", "resume": "missing"}
+      ],
+      "expected_star": {
+        "awards[0].description": "R",
+        "otherActivities[0].description": "TA",
+        "projects[0].description": "TA",
+        "selfIntroduction.intro.body": "S",
+        "selfIntroduction.challenge.body": "SR",
+        "selfIntroduction.growth.body": "A",
+        "selfIntroduction.strengthsWeaknesses.body": ""
+      }
+    },
+    {
+      "id": "unseen2_rn_app_entry__fitness",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0405", "email": "", "birthDate": "1999-12-15", "githubUrl": "https://github.com/example-rn", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "React Native와 TypeScript로 운동 기록 앱을 만들었습니다. 헬스 트레이너로 일한 경험이 있어 운동하는 사람의 불편을 잘 압니다."
+          },
+          "experience": [
+            {
+              "id": "exp-1", "company": "예시피트니스센터", "role": "퍼스널 트레이너", "startDate": "2021-01", "endDate": "2023-06", "isCurrent": false,
+              "description": "회원 PT 수업과 운동 프로그램 작성을 맡았습니다."
+            }
+          ],
+          "education": [{"id": "edu-1", "school": "예시체육대학교", "major": "생활체육학과", "startDate": "2018-03", "endDate": "2022-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "React Native", "level": "중급"},
+            {"id": "ts-2", "name": "TypeScript", "level": "중급"},
+            {"id": "ts-3", "name": "Expo", "level": "중급"}
+          ],
+          "certifications": [{"id": "cert-1", "name": "생활스포츠지도사 2급", "issuer": "국민체육진흥공단", "acquiredDate": "2020-12"}],
+          "awards": [],
+          "trainingExperience": [
+            {"id": "tr-1", "course": "앱 개발 부트캠프", "organization": "예시테크스쿨", "startDate": "2024-09", "endDate": "2025-03", "description": "React Native와 TypeScript로 팀 프로젝트 2개를 만들었습니다."}
+          ],
+          "otherActivities": [],
+          "projects": [
+            {
+              "id": "prj-1", "name": "운동 기록 앱 핏로그", "startDate": "2025-01", "endDate": "2025-03",
+              "role": "앱 개발(3인 팀)", "techStack": "React Native, TypeScript, Expo",
+              "description": "세트·무게·횟수를 빠르게 기록하는 운동 기록 앱입니다. 저는 기록 입력 화면과 지난 기록 불러오기를 맡았습니다.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "스터디 출석 체크 앱", "startDate": "2024-11", "endDate": "2024-12",
+              "role": "앱 개발(2인 팀)", "techStack": "React Native, Expo",
+              "description": "스터디원이 QR로 출석을 체크하는 앱을 만들었습니다.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "운동하는 사람을 위한 앱 개발자",
+              "body": "트레이너로 일하며 회원들이 운동 기록을 종이에 적다가 금방 포기하는 모습을 자주 봤습니다. 기록을 쉽게 만드는 앱을 직접 만들고 싶어 개발을 시작했습니다."
+            },
+            "motivation": {
+              "subtitle": "꾸준히 운동하게 돕는 서비스",
+              "body": "예시핏의 앱은 운동을 꾸준히 이어 가게 돕는 기능이 많아 인상 깊었습니다. 트레이너 경험과 앱 개발 경험을 함께 살려 회원이 오래 쓰는 앱을 만드는 데 기여하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "헬스장에서 쓰기 어려운 앱",
+              "body": "핏로그를 실제로 헬스장에서 써 보니 운동 중에 입력 칸이 작아 누르기 어려웠습니다. 입력 칸을 키우고 지난 기록을 바로 불러오게 바꿨습니다."
+            },
+            "growth": {
+              "subtitle": "몸으로 배운 꾸준함",
+              "body": "운동을 가르치며 작은 목표를 매일 지키는 것이 가장 큰 변화를 만든다는 것을 배웠습니다. 개발 공부도 매일 정해진 시간에 이어 가고 있습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "사용자 이해 / 기술 깊이",
+              "body": "강점은 실제 사용자의 행동을 관찰해 불편을 찾는 눈입니다. 약점은 아직 앱 성능이나 구조를 깊이 다뤄 본 경험이 부족하다는 점입니다."
+            },
+            "aspiration": {
+              "subtitle": "오래 쓰이는 운동 앱",
+              "body": "입사 후에는 앱의 화면 구조와 상태 관리 방식을 먼저 익히고, 운동 기록처럼 자주 쓰는 기능의 사용성을 개선하는 일을 맡고 싶습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN2-05",
+        "company": "(주)예시핏",
+        "title": "피트니스 앱 React Native 개발자 (신입)",
+        "text": "[주요업무]\n- 운동 기록·코칭 앱 React Native 개발\n- 서버 API 연동과 앱 성능 개선\n\n[자격요건]\n- React Native 앱 개발 경험\n- TypeScript 사용 경험\n- REST API 연동 경험\n\n[우대사항]\n- 앱 스토어 출시 경험\n- 상태 관리 라이브러리(Redux, Zustand 등) 사용 경험\n- 헬스케어·피트니스 도메인 이해\n\n[근무조건]\n- 정규직, 서울 강남구"
+      },
+      "applicant": {
+        "facts": [
+          "예시피트니스센터에서 2021년 1월부터 2023년 6월까지 퍼스널 트레이너로 PT 수업과 운동 프로그램 작성을 맡았다",
+          "앱 개발 부트캠프에서 React Native와 TypeScript로 팀 프로젝트 2개를 만들었다",
+          "운동 기록 앱 핏로그(3인 팀)에서 기록 입력 화면과 지난 기록 불러오기를 맡았다",
+          "핏로그를 헬스장에서 써 보고 입력 칸을 키우고 지난 기록을 바로 불러오게 바꿨다",
+          "스터디 출석 체크 앱(2인 팀)에서 QR 출석 체크 앱을 만들었다",
+          "개발 공부를 매일 정해진 시간에 이어 간다",
+          "(이력서에 없음) 핏로그에서 Zustand로 입력 중인 세트 기록 상태를 관리하고, 백엔드 팀원이 만든 REST API로 기록을 저장·조회했다",
+          "(이력서에 없음) 스터디 출석 체크 앱은 Expo로 빌드해 스터디원 8명이 실제로 한 달간 썼지만 스토어에 출시하지는 않았다"
+        ],
+        "not_done": ["앱 스토어 출시", "Redux", "앱 성능 최적화 작업"]
+      },
+      "expected_requirements": [
+        {"label": "React Native 앱 개발", "group": "must", "resume": "ok"},
+        {"label": "TypeScript", "group": "must", "resume": "ok"},
+        {"label": "REST API 연동", "group": "must", "resume": "missing"},
+        {"label": "앱 스토어 출시", "group": "preferred", "resume": "missing"},
+        {"label": "상태 관리 라이브러리", "group": "preferred", "resume": "missing"},
+        {"label": "피트니스 도메인 이해", "group": "preferred", "resume": "ok"}
+      ],
+      "expected_star": {
+        "experience[0].description": "T",
+        "trainingExperience[0].description": "TA",
+        "projects[0].description": "T",
+        "projects[1].description": "T",
+        "selfIntroduction.intro.body": "S",
+        "selfIntroduction.challenge.body": "SA",
+        "selfIntroduction.growth.body": "A",
+        "selfIntroduction.strengthsWeaknesses.body": ""
+      }
+    }
+  ]
+}

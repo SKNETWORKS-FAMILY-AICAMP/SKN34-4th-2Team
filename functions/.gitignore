@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# TypeScript compile output (npm run build 로 생성)
+lib/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Local env (Discord token 등)
+.env
+.env.local

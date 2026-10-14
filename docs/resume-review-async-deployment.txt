@@ -1,0 +1,85 @@
+과거 작업 기록: 아래 배포·검증 결과는 작성 당시 기준입니다. 현재 운영 상태는 별도 확인이 필요합니다.
+
+Resume Review HTTP 504 correction — 2026-10-12
+
+Cause and scope
+CloudFront VPC origin read timeout is 120 seconds. The synchronous review request
+waited for a whole LLM stage; recent Analyze runs exceeded 180–220 seconds.
+This release separates HTTP polling from LLM execution. It does not optimize
+model latency or alter writing/validation policy.
+
+Implementation
+The authenticated /api/resume-review endpoint accepts asyncAttempt. Existing
+clients without it retain their synchronous contract. The request key includes
+the authorized owner, resume and complete payload. Redis NX enqueues one Celery
+job per attempt; polling returns progress without starting another LLM call.
+The existing worker advances at most eight checkpoint stages, keeping the
+canonical request ID and continuation. Existing PostgreSQL execution locks,
+Writer, independent Verifier and rewrite limit remain in force. A verification
+timeout remains pending; it is not promoted to READY. Worker failures surface
+as retryable UI failures rather than a successful result.
+The frontend polls every three seconds, shows stage and elapsed time, and only
+accepts a verified/legacy-final response. Polls do not consume the stage limit.
+Polling is bounded to 30 minutes; Redis records expire after one hour.
+
+Deployment
+API and worker: lms-api:review-async-20261012
+Image ID: sha256:829789c7100d658bd3a8701a5aa3a73853e9da216c98c0de0d28f4180422b083
+Previous: lms-api:adaptive-20261012-a2bdd02
+EC2 release/rollback files: /opt/skn34-lms/releases/review-async-20261012/
+Only review API schema/routing/timeout handling, task registration and the new
+review_jobs module were overlaid on the running production image. The AI image
+was not changed. No migration or infrastructure addition was required.
+Frontend was built from the actual deployed a2bdd02 source with only review
+transport/session method changes; question-workflow, editing locks, highlights,
+authentication and other production changes were preserved.
+CloudFront distribution: E79A6UM0WDCG3
+Invalidation: I56I97XNE4VZK1455TMM5HUWH4 (Completed)
+Entry asset: /assets/index-DUx67vcC.js
+Root, /login and /resume/33/edit all serve the new index, HTTP 200.
+
+Verification
+Related Django tests: 6 passed locally and inside isolated production image.
+Related frontend tests: 65 passed. Local and deployed-overlay TypeScript passed.
+Full regression suite was not run; unrelated quality modules were not changed.
+New tests cover async enqueue deduplication, identity isolation, stage
+continuation, final-response reuse, validation pending, busy/error propagation,
+canonical checkpoint recovery and polling beyond eight responses.
+
+Actual production test (user explicitly authorized resume 33 OpenAI submission)
+Mode: general initial review; no answer fabrication, no suggestion application.
+DB review ID: 24, status complete.
+Request: async-deploy-4318275b27a14966b1fbbe13f94b9edc
+Model: gpt-6-luna / medium
+Policy: resume-policy-22-requirement-scope-review-state (unchanged)
+Pipeline: stage-checkpoint-6-apply-evidence-continuity (unchanged)
+Elapsed: 396.350 seconds. HTTP requests: 133, all 200.
+Initial review acknowledgment: 0.125 seconds. Slowest HTTP call: 0.201 seconds.
+Measurements originate on EC2 through the public CloudFront URL, not a rendered
+browser in Korea. End-to-end browser rendering was not tested.
+Analyze 11: 184.579 seconds, input 13216 / output 15965 tokens.
+Write 11: 37.791 seconds, input 21704 / output 3525.
+Verify 11: 97.348 seconds, input 26278 / output 4901.
+Rewrite 3: 27.577 seconds, input 6696 / output 1458.
+Verify 3: 44.306 seconds, input 8606 / output 1775.
+LLM calls: 5. Total input 76500 / output 27624 tokens. No stage timeout.
+Final: verified, READY 10 / UNCHANGED 1, follow-up questions 2.
+The test session was revoked afterward. Resume content was not applied/edited.
+
+Limits and operations
+This establishes completion without 504 for one actual initial review; it is
+not a new evaluation of sentence quality or the entire question/answer journey.
+Model latency remains substantial. The first optimization target is Analyze,
+followed by verification context, without dropping required factual checks.
+Async operation requires the existing Redis and Celery worker. For local
+development, run a worker with the same environment/Redis as Django (Windows:
+celery -A lms_server worker --pool=solo -l info). Restarting only the AI server
+does not start the Django task worker. Worker restarts/Redis loss can still
+require a manual resume; the AI's persisted checkpoints remain the authority.
+No commit or push was performed for this change.
+
+Local sanitized trace directory:
+C:/Users/MoonSungHo/Documents/ChatGPT/SKN-4th Project/output/review-async-20261012/
+final-result-db.result.json, web-check.json, route-check.json and deployment
+command results provide the measured evidence. Raw SSM output of the live run
+may be truncated; use final-result-db.result.json for the complete summary.

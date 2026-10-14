@@ -1,0 +1,35 @@
+로그인 후 준비 배포 연결 검증 — 2026-10-12
+
+변경
+기존 로그인/세션 복원 비동기 준비 트리거 유지.
+Sol 구현: CHATBOT_CONTEXT_REDIS_URL 우선순위와 선택적 AI 호스트 Redis overlay 추가.
+일반 REDIS_URL 소비자와 인증 Redis는 변경하지 않음. 기능 기본 OFF.
+
+독립 검증
+1. 변경 전 오프라인 챗봇 테스트 187개 통과 (8.402초).
+2. 실제 ThreadPoolExecutor로 로그인 dispatch를 검증:
+   통신 함수를 Event로 정지시킨 상태에서도 작업 등록 함수는 1.547ms에 반환.
+   동일 사용자 중복 등록 억제, 백그라운드 TimeoutError 격리와 pending 해제 확인.
+   이는 전체 로그인 HTTP 지연 시간이 아닌 함수 단일 측정이다.
+3. 실제 로컬 Redis DB12, 별도 Python 프로세스 2개로 검증:
+   프로세스 19856이 공통/개인 캐시 저장, 15716이 읽어 원본과 완전 일치 확인.
+   다른 사용자 개인 데이터 미반환, 권한 회수 거부, alias 누락 시 원본 복구 확인.
+   TTL 확인. 전용 URL을 연결 가능한 Redis로, 일반 URL을 다른 닫힌 포트로
+   지정하여 전용 연결 우선순위를 실제 연결에서도 확인.
+   가상 출결 자료와 mocked DB revision 사용. 운영 DB/모델 호출 없음.
+   테스트 고유 namespace만 정리, 남은 테스트 키 0. FLUSH 사용 안 함.
+4. docker compose -f deploy/docker-compose.ai.yml
+   -f deploy/docker-compose.chat-cache.yml config --quiet 통과.
+   실제 Redis 7 Docker overlay 시작이나 운영 2-worker HTTP 부하 시험은 미실행.
+5. 최종 오프라인 회귀 테스트 192개 통과 (10.404초).
+
+제한 및 다음 단계
+전체 로그인/답변 종단 간 속도 향상을 이번 시험으로 입증한 것은 아니다.
+기존 실제 DB/Redis HTTP 통합 검증은 docs/redis-integration-verification.txt 참조.
+추가 운영 활성화 전 OFF/ON 동일 질문의 준비시간·TTFT·완료시간과 피크 메모리를 측정한다.
+이번 작업에서 운영 이미지/설정/데이터 변경 및 OpenAI 호출은 모두 0회다.
+
+독립 검증 산출물
+C:/Users/MoonSungHo/Documents/ChatGPT/SKN-4th Project/output/login-cache-deployment-20261012/
+  verify_process_cache.py
+  process-cache-results.json

@@ -1,0 +1,294 @@
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { Resume } from '../../../../domain/types';
+
+const post = vi.hoisted(() => vi.fn());
+vi.mock('../../../../data/http', () => ({ http: { post, get: vi.fn() }, API_BASE: '/api' }));
+// 스트림은 따로 갈아끼운다. 기본은 「열 수 없음」이라 예전처럼 `/jobs/chat`으로 물러난다
+const streamChat = vi.hoisted(() => vi.fn());
+vi.mock('../chatStream', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../chatStream')>()),
+  streamChat,
+}));
+
+const { CoachAsk } = await import('../CoachAsk');
+const { StreamFailed, StreamUnavailable } = await import('../chatStream');
+
+Element.prototype.scrollTo ??= function scrollTo() {};
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const blank = { subtitle: '', body: '' };
+const resume = {
+  id: 'r1',
+  title: '백엔드 이력서',
+  content: {
+    basicInfo: { name: '문성호', phone: '', email: '', birthDate: '', githubUrl: '', blogUrl: '' },
+    coreCompetencies: { text: '' },
+    experience: [],
+    education: [],
+    techStack: [{ id: 't1', name: 'Python', level: '' }],
+    certifications: [],
+    awards: [],
+    trainingExperience: [],
+    otherActivities: [],
+    projects: [{ id: 'p1', name: '주문 API', role: '', techStack: '', startDate: '', endDate: '', description: '' }],
+    selfIntroduction: {
+      intro: blank,
+      motivation: blank,
+      challenge: blank,
+      growth: blank,
+      strengthsWeaknesses: blank,
+      aspiration: blank,
+    },
+  },
+} as unknown as Resume;
+
+const job = (id: string, title: string) => ({
+  job_id: id,
+  company: '㈜마켓파일럿',
+  title,
+  source_url: 'https://example.com',
+  region: '서울 금천구',
+  career: '신입',
+  employment_type: '정규직',
+  deadline: '2026-10-10T23:59:00+09:00',
+  tech_stack: ['Python', 'FastAPI'],
+});
+
+let root: Root;
+let host: HTMLDivElement;
+const onOpenDetail = vi.fn();
+
+beforeEach(() => {
+  post.mockReset();
+  streamChat.mockReset();
+  streamChat.mockRejectedValue(new StreamUnavailable('off'));
+  onOpenDetail.mockReset();
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  act(() => root.render(<CoachAsk resume={resume} hidden={false} onBack={() => {}} onOpenDetail={onOpenDetail} />));
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  host.remove();
+});
+
+const button = (name: string) =>
+  [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === name || b.getAttribute('aria-label') === name);
+
+async function click(name: string) {
+  const target = button(name);
+  if (target === undefined) throw new Error(`단추 없음: ${name}`);
+  await act(async () => {
+    target.click();
+  });
+}
+
+describe('코치에게 묻기', () => {
+  it('처음에는 안내와 제안 셋이 나오고, 제안을 누르면 서버에 묻는다', async () => {
+    expect(host.textContent).toContain('채용에 대해 물어보세요');
+    post.mockResolvedValueOnce({
+      data: {
+        mode: '검색',
+        reply: '**백엔드** · 서울 공고 284건을 찾았어요.',
+        filters: { regions: ['서울'] },
+        jobs: [job('J1', '백엔드 엔지니어'), job('J2', 'API 개발자')],
+        suggestions: ['정규직만'],
+      },
+    });
+    await click('서울 백엔드 신입');
+
+    expect(post).toHaveBeenCalledWith('/jobs/chat', expect.objectContaining({ message: '서울 백엔드 신입', resumeId: null, lastJobIds: [] }));
+    expect(host.querySelector('.coach-ask__text strong')?.textContent).toBe('백엔드');
+    expect(host.querySelectorAll('.coach-ask__card')).toHaveLength(2);
+    expect(host.textContent).toContain('마감 2026-10-10');
+    // 지나간 답의 제안은 누를 수 없다 — 첫 안내의 제안은 사라지고 새 답의 제안만 남는다
+    expect(button('요즘 많이 요구하는 기술이 뭐야?')).toBeUndefined();
+    expect(button('정규직만')).toBeDefined();
+  });
+
+  it('보여 준 목록 · 조건을 다음 말에 실어 보내고, 목록을 봤으면 이력서도 함께 알린다', async () => {
+    post.mockResolvedValueOnce({
+      data: { mode: '검색', reply: '찾았어요', filters: { regions: ['서울'] }, jobs: [job('J1', 'A'), job('J2', 'B')], suggestions: ['정규직만'] },
+    });
+    await click('서울 백엔드 신입');
+    post.mockResolvedValueOnce({ data: { mode: '비교', reply: '비교했어요', filters: { regions: ['서울'] }, jobs: [job('J2', 'B')], suggestions: [] } });
+    await click('정규직만');
+
+    expect(post).toHaveBeenLastCalledWith(
+      '/jobs/chat',
+      expect.objectContaining({
+        filters: { regions: ['서울'] },
+        lastJobIds: ['J1', 'J2'],
+        lastAnswerJobIds: ['J1', 'J2'],
+        seenJobIds: ['J1', 'J2'],
+        resumeId: 'r1',
+      }),
+    );
+  });
+
+  it('검색 답 아래 「공고 더 보기」는 같은 조건으로 다음 공고를 그 답의 카드 밑에 잇는다', async () => {
+    const more = { requirement_query: '[주요업무] 전표 처리', prefer_roles: ['백엔드'] };
+    post.mockResolvedValueOnce({
+      data: { mode: '검색', reply: '찾았어요', filters: { regions: ['서울'] }, jobs: [job('J1', 'A'), job('J2', 'B')], suggestions: [], has_more: true, ...more },
+    });
+    await click('서울 백엔드 신입');
+    expect(host.querySelectorAll('.coach-ask__card')).toHaveLength(2);
+
+    post.mockResolvedValueOnce({ data: { reply: '', filters: { regions: ['서울'] }, jobs: [job('J3', 'C')], has_more: false, ...more } });
+    const scrolledTo: Element[] = [];
+    Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
+      scrolledTo.push(this);
+    };
+    await click('공고 더 보기');
+    // 말이 늘지 않아도 새로 붙은 첫 카드로 내려간다
+    expect(scrolledTo.map((el) => (el as HTMLElement).dataset.jobId)).toEqual(['J3']);
+
+    // 직전 답이 준 조건 · 뜻 문장 · 앞에 세운 직무를 그대로, 본 공고는 빼 달라고
+    expect(post).toHaveBeenLastCalledWith('/jobs/chat/more', {
+      filters: { regions: ['서울'] },
+      requirementQuery: '[주요업무] 전표 처리',
+      preferRoles: ['백엔드'],
+      seenJobIds: ['J1', 'J2'],
+    });
+    expect(host.querySelectorAll('.coach-ask__card')).toHaveLength(3);
+    expect(button('공고 더 보기')).toBeUndefined(); // 남은 것이 없다
+
+    // 다음 말("더 보여줘")에도 이어 볼 거리와 늘어난 목록이 실려 간다
+    post.mockResolvedValueOnce({ data: { mode: '안내', reply: '네', filters: { regions: ['서울'] }, jobs: [], suggestions: [] } });
+    await act(async () => {
+      const input = host.querySelector('input')!;
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setValue.call(input, '더 보여줘');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click('보내기');
+    expect(post).toHaveBeenLastCalledWith(
+      '/jobs/chat',
+      expect.objectContaining({
+        requirementQuery: '[주요업무] 전표 처리',
+        preferRoles: ['백엔드'],
+        seenJobIds: ['J1', 'J2', 'J3'],
+        lastJobIds: ['J1', 'J2', 'J3'],
+      }),
+    );
+  });
+
+  it('「공고 더 보기」를 불러오지 못하면 알리고 단추를 남긴다', async () => {
+    post.mockResolvedValueOnce({
+      data: { mode: '검색', reply: '찾았어요', filters: { regions: ['서울'] }, jobs: [job('J1', 'A')], suggestions: [], has_more: true },
+    });
+    await click('서울 백엔드 신입');
+    post.mockRejectedValueOnce(new Error('down'));
+    await click('공고 더 보기');
+
+    expect(host.textContent).toContain('공고를 더 불러오지 못했어요');
+    expect(button('공고 더 보기')).toBeDefined();
+  });
+
+  it('남은 공고가 없다는 검색 답에는 「공고 더 보기」를 두지 않는다', async () => {
+    post.mockResolvedValueOnce({
+      data: { mode: '검색', reply: '찾았어요', filters: {}, jobs: [job('J1', 'A')], suggestions: [], has_more: false },
+    });
+    await click('서울 백엔드 신입');
+    expect(button('공고 더 보기')).toBeUndefined();
+  });
+
+  it('「이 공고 물어보기」를 누르면 그 공고를 놓고 묻고, 띠의 ✕로 그만둔다', async () => {
+    post.mockResolvedValueOnce({ data: { mode: '검색', reply: '찾았어요', filters: {}, jobs: [job('J1', '백엔드 엔지니어')], suggestions: [] } });
+    await click('서울 백엔드 신입');
+    await click('이 공고 물어보기');
+
+    expect(host.querySelector('.coach-ask__about')?.textContent).toContain('"백엔드 엔지니어"에 대해 묻는 중');
+    post.mockResolvedValueOnce({ data: { mode: '공고', reply: '신입도 됩니다', filters: {}, jobs: [], suggestions: [] } });
+    await click('신입도 지원할 수 있어?');
+    expect(post).toHaveBeenLastCalledWith('/jobs/chat', expect.objectContaining({ jobId: 'J1', resumeId: 'r1' }));
+
+    await click('그만 묻기');
+    expect(host.querySelector('.coach-ask__about')).toBeNull();
+  });
+
+  it('추천으로 답하면 그 자리에서 이력서 추천을 돌려 세 건을 보이고, 근거 전체 보기로 넘어간다', async () => {
+    post.mockResolvedValueOnce({ data: { mode: '추천', resume_scope: '프로젝트', reply: '골라 볼게요', filters: {}, jobs: [], suggestions: [] } });
+    const pick = (id: string) => ({ job_id: id, title: `공고 ${id}`, company: '회사', reasons: [{ claim: `${id} 근거` }], conditions: { region: '서울', career: '신입' } });
+    post.mockResolvedValueOnce({ data: { recommendations: [pick('A'), pick('B'), pick('C'), pick('D')] } });
+    await click('서울 백엔드 신입');
+
+    expect(post).toHaveBeenLastCalledWith('/jobs/recommend', { resumeId: 'r1', topK: 10, scope: '프로젝트' });
+    expect(host.textContent).toContain('프로젝트 경험을 읽고 4건을 골랐어요.');
+    expect(host.querySelectorAll('.coach-ask__card')).toHaveLength(3);
+    expect(host.textContent).toContain('A 근거');
+
+    await click('근거 전체 보기 →');
+    expect(onOpenDetail).toHaveBeenCalled();
+  });
+
+  it('답을 쓰는 동안 서버가 하는 일과 쓰는 글을 보이고, 다 쓰면 최종 답으로 바꾼다', async () => {
+    type Handlers = { onProgress(label: string): void; onText(delta: string): void };
+    let handlers!: Handlers;
+    let finish!: (result: unknown) => void;
+    streamChat.mockImplementationOnce((_body: unknown, h: Handlers) => {
+      handlers = h;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    });
+    await click('백엔드 신입은 뭘 준비해야 해?');
+
+    await act(async () => handlers.onProgress('공고를 세어 보는 중…'));
+    expect(host.textContent).toContain('공고를 세어 보는 중…');
+
+    await act(async () => {
+      handlers.onText('백엔드 신입은 ');
+      handlers.onText('API 하나를 끝까지');
+    });
+    expect(host.textContent).toContain('백엔드 신입은 API 하나를 끝까지');
+    expect(host.textContent).not.toContain('공고를 세어 보는 중…');
+
+    await act(async () => finish({ mode: '질문', reply: '백엔드 신입은 API 하나를 끝까지 만들어 보세요.', filters: {}, jobs: [], suggestions: ['면접은?'] }));
+    expect(host.textContent).toContain('백엔드 신입은 API 하나를 끝까지 만들어 보세요.');
+    expect(host.querySelectorAll('.coach-ask__bubble--coach')).toHaveLength(2);
+    expect(button('면접은?')).toBeDefined();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('스트림 도중 서버가 실패를 알리면 물러나지 않고 그 말을 보인다', async () => {
+    streamChat.mockRejectedValueOnce(new StreamFailed('답을 만들지 못했습니다: Timeout'));
+    await click('서울 백엔드 신입');
+    expect(host.textContent).toContain('답을 만들지 못했습니다: Timeout');
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('서버가 거절하면 그 말을 코치 답으로 보인다', async () => {
+    post.mockRejectedValueOnce({ response: { data: { detail: '공고 서버에 연결하지 못했습니다.' } } });
+    await click('서울 백엔드 신입');
+    expect(host.textContent).toContain('공고 서버에 연결하지 못했습니다.');
+  });
+
+  it('기본(편집기)에는 공고 설정 단추가 없고, 뒤로 단추는 있다', async () => {
+    post.mockResolvedValueOnce({ data: { mode: '검색', reply: '찾았어요', filters: {}, jobs: [job('J1', 'A')], suggestions: [] } });
+    await click('서울 백엔드 신입');
+    expect(host.querySelector('.coach-ask__card-pick')).toBeNull();
+    expect(button('코치 화면으로')).toBeDefined();
+  });
+
+  it('onPickJob 을 주면 찾은 공고 카드에 고르기 단추가 붙고, 누르면 그 공고 번호를 넘긴다', async () => {
+    const onPickJob = vi.fn();
+    act(() => root.render(<CoachAsk resume={resume} hidden={false} onPickJob={onPickJob} pickLabel="이 공고 고르기" />));
+    // 공고 맞춤 지원에는 돌아갈 코치 첫 화면이 없다 — 뒤로 단추를 두지 않는다
+    expect(button('코치 화면으로')).toBeUndefined();
+    post.mockResolvedValueOnce({
+      data: { mode: '검색', reply: '찾았어요', filters: {}, jobs: [job('J1', 'A'), job('J2', 'B')], suggestions: [] },
+    });
+    await click('서울 백엔드 신입');
+    expect(host.querySelectorAll('.coach-ask__card-pick')).toHaveLength(2);
+    await act(async () => {
+      (host.querySelectorAll('.coach-ask__card-pick')[1] as HTMLButtonElement).click();
+    });
+    expect(onPickJob).toHaveBeenCalledWith('J2');
+  });
+});

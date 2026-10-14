@@ -1,0 +1,625 @@
+import { useMemo, useState, type CSSProperties } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+
+import { RoutePaths, formFillPath } from '../../app/routePaths';
+import {
+  markFormResponded,
+  useAttendanceOfUser,
+  useCohorts,
+  useCurriculumPdf,
+  curriculumPdfUrl,
+  useFormResponses,
+  useFormTasks,
+  useMySubmissions,
+  useNotices,
+  useQualExams,
+  useWeeklyYoutube,
+  useYoutubeRecommendations,
+} from '../../data/repository';
+import { useHolidays } from '../../data/holidays';
+import { examName, nextStageLabel, subjectsOf, upcomingExams } from '../qual/qualExams';
+import { dateKeyOf } from '../../data/seed';
+import { toTime } from '../../utils/format';
+import { AttendanceColorVars, RecordTypeLabels, SubmissionStatusLabels } from '../../domain/constants';
+import type { Notice } from '../../domain/types';
+import { visibleNotices } from '../../domain/visibleNotices';
+import { StudentTargets } from '../../tour/targets';
+import { useTourTarget } from '../../tour/useTourTarget';
+import { Icon } from '../../ui/Icon';
+import { Badge } from '../../ui/components';
+import { MileageCreditCard } from '../mileage/MileageCreditCard';
+import { VideoCard, youtubeThumb } from '../study/VideoCard';
+import { formatDate, formatDueIn, formatYmd } from '../../utils/format';
+import { buildMissionGuidance, missionProgressOf } from '../../domain/missions';
+import type { MissionGuidanceItem } from '../../domain/missions';
+import { useCurrentUser } from '../auth/session';
+import { NoticeDetailDialog } from '../board/NoticeDetailDialog';
+import { MySeatingDashboardSection } from '../seating/SeatingScreen';
+import { TodayReviewCard } from '../practice/TodayReviewCard';
+
+/**
+ * 대시보드 — features/dashboard/presentation/dashboard_screen.dart
+ *
+ * 왼쪽에 프로필·마일리지 카드와 공지·학습 추천·설문, 오른쪽에 출석 캘린더와
+ * 미션·(확정 직후) 내 자리·커리큘럼·자격 시험·승인 현황을 둔다.
+ *
+ * 1080px 이하에서는 한 줄로 쌓는다. 순서는 CSS(order)가 정한다:
+ * 프로필·마일리지 → 오늘 복습 → 출석·미션 → 공지·추천·설문 → 나머지 카드.
+ */
+export function DashboardScreen() {
+  const notices = visibleNotices(useNotices());
+  const [openNotice, setOpenNotice] = useState<Notice | null>(null);
+
+  return (
+    <div className="dash">
+      <div className="dash__main">
+        <div className="dash__top">
+          <ProfileCard />
+          <MileageCard />
+        </div>
+
+        <TodayReviewCard />
+
+        <section className="section">
+          <header className="section__head">
+            <h2 className="section__title">시스템 공지 모두들 화이팅</h2>
+            <span className="spacer" />
+            <Link className="section__more" to={RoutePaths.board}>
+              더보기 <Icon name="chevron_right" size={16} />
+            </Link>
+          </header>
+          {notices.length === 0 ? (
+            <div className="panel panel--empty">공지사항이 없습니다</div>
+          ) : (
+            <div className="panel panel--flush">
+              <ul className="notice-rows">
+                {notices.slice(0, 5).map((notice) => (
+                  <li key={notice.id}>
+                    <button type="button" className="notice-row" onClick={() => setOpenNotice(notice)}>
+                      {notice.isFavorite && <Badge tone="error">중요</Badge>}
+                      <span className="notice-row__title">{notice.title}</span>
+                      <span className="notice-row__date">{formatDate(notice.createdAt)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+
+        <WeeklyLearningSection />
+        <FormTasksSection />
+      </div>
+
+      {/* 좁은 화면에서는 두 묶음이 따로 움직인다 — 출석·미션은 프로필 바로 아래, 나머지는 맨 아래 */}
+      <aside className="dash__side">
+        <div className="dash__side-group dash__side-group--primary">
+          <AttendanceCalendarCard />
+          <MissionProgressCard />
+        </div>
+        <div className="dash__side-group dash__side-group--more">
+          <MySeatingDashboardSection />
+          <CurriculumCard />
+          <QualExamCard />
+          <ApprovalCard />
+        </div>
+      </aside>
+
+      {openNotice !== null && (
+        <NoticeDetailDialog notice={openNotice} onClose={() => setOpenNotice(null)} />
+      )}
+    </div>
+  );
+}
+
+/** 프로필 카드 — widgets/dashboard_profile_header.dart. 이름 아래에 과정 진행과 이번 과정 출결을 둔다 */
+function ProfileCard() {
+  const user = useCurrentUser();
+  const cohort = useCohorts().find((c) => c.cohortId === user.cohortId);
+  const rows = useAttendanceOfUser(user.uid);
+  const course = courseProgress(cohort?.startDate, cohort?.endDate, new Date());
+  const tally = attendanceTally(rows, cohort?.startDate);
+
+  return (
+    <div className="panel profile-card">
+      <div className="profile-card__row">
+        <span className="profile-card__avatar">
+          <Icon name="person" size={26} />
+        </span>
+        <div className="profile-card__who">
+          <p className="profile-card__cohort">{user.cohortName}</p>
+          <strong className="profile-card__name">{user.displayName}님</strong>
+        </div>
+        {course?.dday && <span className="profile-card__dday">{course.dday}</span>}
+      </div>
+      {course !== null && (
+        <div className="profile-card__course">
+          {/* 날짜는 제목 줄 오른쪽에 — 줄을 하나 아껴 옆 마일리지 카드(신용카드 비율, 높이 고정)와 높이를 맞춘다 */}
+          <div className="profile-card__course-head">
+            <span>과정 진행</span>
+            <strong>{course.label}</strong>
+            <span className="profile-card__course-dates">
+              {course.start} ~ {course.end}
+            </span>
+            <span className="profile-card__course-pct">{Math.round(course.ratio * 100)}%</span>
+          </div>
+          <span className="profile-card__course-bar" role="img" aria-label={`과정 ${Math.round(course.ratio * 100)}% 진행`}>
+            <i style={{ width: `${course.ratio * 100}%` }} />
+          </span>
+        </div>
+      )}
+      {/* 숫자 배지 — 이력서 관리 탭처럼. 색 · 순서는 출석 달력 범례와 같고, 0이어도 자리를 지킨다(0은 회색) */}
+      {tally.length > 0 && (
+        <div className="profile-card__tally" aria-label="이번 과정 출결">
+          {tally.map(({ code, label, n }) => (
+            <span
+              key={code}
+              className={`profile-card__stat${n === 0 ? ' profile-card__stat--zero' : ''}`}
+              style={{ '--tone': AttendanceColorVars[code] } as CSSProperties}
+            >
+              {label}
+              <b>{n}</b>
+            </span>
+          ))}
+        </div>
+      )}
+      {/* 기술 스택은 여기 두지 않는다 — 마이페이지 · 이력서에서 본다. 칩이 늘면 옆 마일리지 카드와 높이가 어긋난다 */}
+    </div>
+  );
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** 기수 기간 → 진행 비율 · 「114일째」 · 「D-62」. 기간을 모르면 null */
+function courseProgress(start: Date | undefined, end: Date | undefined, now: Date) {
+  if (!start || !end || end <= start) return null;
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const today = day(now);
+  const total = day(end) - day(start);
+  const ratio = Math.min(1, Math.max(0, (today - day(start)) / total));
+  const md = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
+  let label: string;
+  let dday: string | null = null;
+  if (today < day(start)) {
+    label = '개강 전';
+    dday = `개강 D-${Math.round((day(start) - today) / DAY_MS)}`;
+  } else if (today > day(end)) {
+    label = '수료했어요';
+  } else {
+    const left = Math.round((day(end) - today) / DAY_MS);
+    label = `${Math.round((today - day(start)) / DAY_MS) + 1}일째`;
+    dday = left === 0 ? '오늘 수료' : `수료 D-${left}`;
+  }
+  return { ratio, label, dday, start: md(start), end: md(end) };
+}
+
+/** 이번 과정의 출결 횟수. 하루에 한 상태(달력과 같다). 범례 순서로 여섯 가지 모두 */
+function attendanceTally(
+  rows: { dateKey: string; status?: string }[],
+  start: Date | undefined,
+): { code: string; label: string; n: number }[] {
+  const from = start ? dateKeyOf(start) : '';
+  const byDate = new Map<string, string>();
+  for (const r of rows) if (r.status !== undefined && r.dateKey >= from) byDate.set(r.dateKey, r.status);
+  const order: [string, string][] = [
+    ['present', '출석'],
+    ['late', '지각'],
+    ['absent', '결석'],
+    ['officialLeave', '공가'],
+    ['earlyLeave', '조퇴'],
+    ['outing', '외출'],
+  ];
+  const counts = new Map<string, number>();
+  for (const status of byDate.values()) counts.set(status, (counts.get(status) ?? 0) + 1);
+  return order.map(([code, label]) => ({ code, label, n: counts.get(code) ?? 0 }));
+}
+
+/** 마일리지 카드 — 눌러서 마일리지로, 포인터를 따라 기울어진다 */
+function MileageCard() {
+  const user = useCurrentUser();
+  const navigate = useNavigate();
+  return (
+    <div
+      className="mileage-card-slot"
+      role="link"
+      tabIndex={0}
+      onClick={() => navigate(RoutePaths.mileage)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') navigate(RoutePaths.mileage);
+      }}
+    >
+      <MileageCreditCard balance={user.mileageBalance} holderName={user.displayName} />
+    </div>
+  );
+}
+
+/** 출석 캘린더 — widgets/attendance_calendar_card.dart */
+function AttendanceCalendarCard() {
+  const user = useCurrentUser();
+  const rows = useAttendanceOfUser(user.uid);
+  const ref = useTourTarget(StudentTargets.dashboardCalendar);
+  const [month, setMonth] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
+
+  const byDate = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of rows) if (r.status !== undefined) map.set(r.dateKey, r.status);
+    return map;
+  }, [rows]);
+
+  // 공휴일은 일요일처럼 칠하고, 올려 두면 이름이 보인다(원본 attendance_calendar_card._dayColor)
+  const holidays = useHolidays(month.getFullYear());
+
+  const first = month.getDay();
+  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  const cells: (Date | null)[] = [
+    ...Array.from({ length: first }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, i) => new Date(month.getFullYear(), month.getMonth(), i + 1)),
+  ];
+  const todayKey = dateKeyOf(new Date());
+
+  const shift = (delta: number) =>
+    setMonth((m) => new Date(m.getFullYear(), m.getMonth() + delta, 1));
+
+  const legend: [string, string][] = [
+    ['출석', 'present'],
+    ['지각', 'late'],
+    ['결석', 'absent'],
+    ['공가', 'officialLeave'],
+    ['조퇴', 'earlyLeave'],
+    ['외출', 'outing'],
+  ];
+
+  return (
+    <div className="panel side-card" ref={ref}>
+      <h3 className="side-card__title">출석</h3>
+      <div className="cal__nav">
+        <button type="button" className="icon-btn" onClick={() => shift(-1)} aria-label="이전 달">
+          <Icon name="chevron_left" size={18} />
+        </button>
+        <strong>
+          {month.getFullYear()}.{String(month.getMonth() + 1).padStart(2, '0')}
+        </strong>
+        <button type="button" className="icon-btn" onClick={() => shift(1)} aria-label="다음 달">
+          <Icon name="chevron_right" size={18} />
+        </button>
+      </div>
+
+      <div className="cal">
+        {['일', '월', '화', '수', '목', '금', '토'].map((d, i) => (
+          <span key={d} className={`cal__head${i === 0 ? ' cal__head--sun' : i === 6 ? ' cal__head--sat' : ''}`}>
+            {d}
+          </span>
+        ))}
+        {cells.map((date, i) => {
+          if (date === null) return <span key={`e-${i}`} />;
+          const key = dateKeyOf(date);
+          const status = byDate.get(key);
+          const weekday = date.getDay();
+          const holiday = holidays[key];
+          return (
+            <span
+              key={key}
+              title={holiday}
+              className={`cal__day${key === todayKey ? ' cal__day--today' : ''}${
+                weekday === 0 || holiday !== undefined ? ' cal__day--sun' : weekday === 6 ? ' cal__day--sat' : ''
+              }`}
+            >
+              {date.getDate()}
+              {status !== undefined && (
+                <i className="cal__dot" style={{ background: AttendanceColorVars[status] }} />
+              )}
+            </span>
+          );
+        })}
+      </div>
+
+      <div className="cal__legend">
+        {legend.map(([label, code]) => (
+          <span key={code}>
+            <i style={{ background: AttendanceColorVars[code] }} />
+            {label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 미션 프로그레스 — widgets/mission_progress_dashboard_card.dart
+ *
+ * 기록실과 같은 규칙을 읽는다. 끝난 미션은 뒤로 밀고 앞에서 셋만 보인다.
+ * 맨 위 옅은 칸에는 아직 못 끝낸 첫 미션이 「다음 · …」으로 선다.
+ */
+function MissionProgressCard() {
+  const user = useCurrentUser();
+  const submissions = useMySubmissions(user.uid);
+  const items = buildMissionGuidance(missionProgressOf(submissions));
+
+  const isDone = (m: MissionGuidanceItem) => m.maxEarn > 0 && m.earned >= m.maxEarn;
+  const sorted = [...items].sort((a, b) => Number(isDone(a)) - Number(isDone(b)));
+  const visible = sorted.slice(0, 3);
+  const next = sorted.find((m) => !isDone(m));
+
+  return (
+    <div className="panel side-card">
+      <header className="side-card__head">
+        <h3 className="side-card__title">미션 프로그레스</h3>
+        <Link className="section__more" to={RoutePaths.records}>
+          기록실
+        </Link>
+      </header>
+
+      {next === undefined ? (
+        <p className="hint">주요 미션을 모두 달성했어요. 기록실에서 추가 활동을 이어가 보세요.</p>
+      ) : (
+        <div className="mission-next">
+          <Icon name="flag" size={16} />
+          <div>
+            <strong>다음 · {next.title}</strong>
+            <span>{next.statusText}</span>
+          </div>
+        </div>
+      )}
+
+      {visible.map((m) => {
+        const done = isDone(m);
+        const ratio = m.maxEarn <= 0 ? 0 : Math.min(1, m.earned / m.maxEarn);
+        return (
+          <div key={m.id} className="mission-row">
+            <strong className="mission-row__label">{m.title}</strong>
+            <span className={`mission-row__value${done ? ' mission-row__value--done' : ''}`}>
+              {done ? '완료' : `${m.earned.toLocaleString()} / ${m.maxEarn.toLocaleString()}M`}
+            </span>
+            <span className="mission-row__bar">
+              <i
+                className={done ? 'mission-row__bar--done' : undefined}
+                style={{ width: `${ratio * 100}%` }}
+              />
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 커리큘럼 — features/curriculum/presentation/widgets/curriculum_dashboard_section.dart */
+function CurriculumCard() {
+  const pdf = useCurriculumPdf();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const openPdf = async () => {
+    const tab = window.open('about:blank', '_blank');
+    if (!tab) { setError('팝업을 허용한 뒤 다시 눌러주세요.'); return; }
+    tab.opener = null;
+    setBusy(true);
+    setError('');
+    try { tab.location.replace(await curriculumPdfUrl()); }
+    catch { tab.close(); setError('PDF를 열지 못했습니다. 잠시 후 다시 시도해 주세요.'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="panel side-card">
+      <h3 className="side-card__title">커리큘럼</h3>
+      <div className="curriculum-row">
+        <span className="curriculum-row__icon">PDF</span>
+        <span className="hint">
+          {pdf?.filename ?? '공개된 커리큘럼 PDF가 없습니다'}
+        </span>
+      </div>
+      <button type="button" className="btn btn--soft btn--md" disabled={!pdf || busy} onClick={openPdf}>
+        <Icon name="picture_as_pdf" size={18} />
+        {busy ? 'PDF 여는 중…' : 'PDF 보기'}
+      </button>
+      {error && <p role="alert">{error}</p>}
+    </div>
+  );
+}
+
+/** 다가오는 자격 시험 — widgets/qual_exam_schedule_section.dart */
+function QualExamCard() {
+  // 대시보드의 곁가지 카드라 화면 전체를 막지 않는다. 못 불러오면 이 칸만 비운다.
+  const { data: exams = [] } = useQualExams();
+  // 맨 앞 종목(정보처리기사)만 — 기사 종목끼리 날짜가 같아 여럿을 섞으면 같은 줄이 겹친다
+  const subject = subjectsOf(exams)[0];
+  const upcoming = upcomingExams(exams.filter((e) => examName(e) === subject)).slice(0, 2);
+
+  return (
+    <div className="panel side-card">
+      <header className="side-card__head">
+        <h3 className="side-card__title">다가오는 자격 시험</h3>
+        <Link className="section__more" to={RoutePaths.qualExams}>
+          전체 보기
+        </Link>
+      </header>
+      {upcoming.length === 0 ? (
+        <p className="hint">다가오는 시험 일정이 없습니다</p>
+      ) : (
+        upcoming.map(({ exam, next }) => (
+          <div key={`${exam.implYy}-${exam.implSeq}-${exam.description}`} className="exam-row">
+            <strong>
+              {examName(exam)} {exam.implSeq > 0 ? `${exam.implSeq}회` : ''}
+            </strong>
+            <span className="hint">
+              {nextStageLabel(next)} · {formatYmd(next.stage.from)}
+              {next.stage.to !== undefined && next.stage.to !== next.stage.from ? ` ~ ${formatYmd(next.stage.to)}` : ''}
+            </span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+/** 승인 현황 */
+function ApprovalCard() {
+  const user = useCurrentUser();
+  const submissions = useMySubmissions(user.uid).slice(0, 4);
+
+  return (
+    <div className="panel side-card">
+      <h3 className="side-card__title">승인 현황</h3>
+      {submissions.length === 0 ? (
+        <p className="hint">제출 내역이 없습니다</p>
+      ) : (
+        submissions.map((s) => (
+          <div key={s.id} className="approval-row">
+            <span className="approval-row__top">
+              <Badge tone="primary">{RecordTypeLabels[s.type]}</Badge>
+              <Badge tone={s.status === 'approved' ? 'success' : s.status === 'pending' ? 'warning' : 'error'}>
+                {SubmissionStatusLabels[s.status]}
+              </Badge>
+            </span>
+            <span className="approval-row__title">{s.title}</span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+/**
+ * 이번 주 학습 추천 — widgets/weekly_learning_recommend_section.dart
+ *
+ * 학습실과 같은 「이번 주 커리큘럼 추천」(서버가 12시간 캐시)을 앞 3개만 보여 준다.
+ * 매니저가 직접 고른 영상이 있으면 그것부터 — 내 기술과 겹치는 태그가 많은 순서로.
+ */
+function WeeklyLearningSection() {
+  const user = useCurrentUser();
+  const curated = useYoutubeRecommendations().filter((v) => v.isPublished);
+  const weekly = useWeeklyYoutube(user.cohortId);
+
+  const curatedCards = curated
+    .map((v) => ({
+      video: v,
+      matched: v.tags.filter((t) => user.skills.some((s) => s.toLowerCase() === t.toLowerCase())),
+    }))
+    .sort((a, b) => b.matched.length - a.matched.length)
+    .map(({ video, matched }) => (
+      <VideoCard
+        key={`curated-${video.id}`}
+        href={video.youtubeUrl}
+        title={video.title}
+        thumb={youtubeThumb(video.videoId)}
+        meta={['매니저 추천', ...(matched.length > 0 ? [`내 스택과 ${matched.length}개 일치`] : [])]}
+      />
+    ));
+  const weeklyCards = (weekly.data?.videos ?? []).map((v) => (
+    <VideoCard
+      key={v.videoId}
+      href={v.url || `https://www.youtube.com/watch?v=${v.videoId}`}
+      title={v.title}
+      thumb={v.thumbnailUrl || youtubeThumb(v.videoId)}
+      meta={[v.channelTitle, v.topicLabel].filter((m) => m !== '')}
+    />
+  ));
+  const cards = [...curatedCards, ...weeklyCards].slice(0, 3);
+  const weekLabel = weekly.data?.weekLabel;
+
+  return (
+    <section className="section">
+      <header className="section__head">
+        <h2 className="section__title">이번 주 학습 추천</h2>
+        {weekLabel && <span className="hint">{weekLabel}</span>}
+        <span className="spacer" />
+        <Link className="section__more" to={RoutePaths.studyRoom}>
+          학습실
+        </Link>
+      </header>
+
+      {cards.length === 0 ? (
+        <div className="panel panel--empty">
+          <p>
+            {weekly.isLoading
+              ? '이번 주 영상을 찾는 중…'
+              : weekly.isError
+                ? '추천을 불러오지 못했습니다. 학습실에서 다시 확인해 보세요.'
+                : (weekly.data?.message ?? '이번 주 추천 영상이 준비되면 여기에 표시됩니다.')}
+          </p>
+          <Link className="btn btn--outline btn--md" to={RoutePaths.studyRoom}>
+            학습실 바로가기
+          </Link>
+        </div>
+      ) : (
+        <div className="study-videos study-videos--compact">{cards}</div>
+      )}
+    </section>
+  );
+}
+
+/** 설문 · 제출 — features/forms의 대시보드 섹션 */
+function FormTasksSection() {
+  const user = useCurrentUser();
+  const tasks = useFormTasks().filter((t) => t.published);
+  const responses = useFormResponses();
+
+  const open = tasks.filter((t) => toTime(t.dueAt) >= Date.now()).slice(0, 3);
+  const notDone = open.filter((t) => !responses.some((r) => r.taskId === t.id && r.userId === user.uid));
+
+  return (
+    <section className="section">
+      <header className="section__head">
+        <h2 className="section__title">설문 · 제출</h2>
+        <span className="spacer" />
+        <Link className="section__more" to={RoutePaths.forms}>
+          전체 보기
+        </Link>
+      </header>
+
+      {notDone.length > 0 && <Badge tone="warning">미제출 {notDone.length}건</Badge>}
+
+      {open.length === 0 ? (
+        <div className="panel panel--empty">마감 전 설문이 없습니다</div>
+      ) : (
+        open.map((task) => {
+          const responded = responses.some((r) => r.taskId === task.id && r.userId === user.uid);
+          return (
+            <div key={task.id} className="panel form-row">
+              <div className="form-row__head">
+                <strong className="form-row__title">{task.title}</strong>
+                <span className="spacer" />
+                <Badge tone={responded ? 'success' : 'warning'}>{responded ? '제출' : '미제출'}</Badge>
+              </div>
+              <span className="form-row__due">
+                <Icon name="schedule" size={15} />
+                마감 {formatDate(task.dueAt)} · {formatDueIn(task.dueAt)}
+              </span>
+              <div className="form-row__actions">
+                {task.mode === 'builtin' ? (
+                  <Link className="btn btn--filled btn--md" to={formFillPath(task.id)}>
+                    <Icon name="edit_square" size={17} />
+                    {responded ? '응답 고치기' : '설문 작성'}
+                  </Link>
+                ) : (
+                  <a
+                    className="btn btn--filled btn--md"
+                    href={task.formUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => {
+                      if (!responded) markFormResponded(task.id, user);
+                    }}
+                  >
+                    <Icon name="open_in_new" size={17} />
+                    외부 폼 작성
+                  </a>
+                )}
+                {task.notionGuideUrl !== undefined && (
+                  <a className="btn btn--outline btn--md" href={task.notionGuideUrl} target="_blank" rel="noreferrer">
+                    <Icon name="menu_book" size={17} />
+                    노션 가이드
+                  </a>
+                )}
+              </div>
+            </div>
+          );
+        })
+      )}
+    </section>
+  );
+}

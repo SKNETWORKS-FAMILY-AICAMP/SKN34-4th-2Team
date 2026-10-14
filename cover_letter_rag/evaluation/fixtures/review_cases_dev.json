@@ -1,0 +1,904 @@
+{
+  "_comment": "공고 맞춤 첨삭을 고치면서 보는 개발용 케이스. 회사·공고·이력서는 모두 지어낸 것이다. 최종 확인은 review_cases_heldout.json으로만 한다(여기서 본 결과로 고친 뒤 같은 케이스로 재면 항상 좋아 보인다). applicant.facts는 이력서에 없지만 질문을 받으면 답할 수 있는 실제 경험, not_done은 해 본 적 없는 것이다. 답변 흉내는 이 두 목록만 쓴다. expected_requirements.resume은 이력서만 보고 사람이 매긴 판정이다(ok 근거 있음 / partial 일부만 / missing 근거 없음). expected_star: 경험 칸마다 원문에 있는 STAR 요소(S 상황·T 과제·A 행동·R 결과). 2026-09-15 Claude가 원문만 읽고 매긴 값이라 사람 라벨이 아니다. 상황·과제는 경계가 애매해 참고로만 보고 행동·결과 일치를 주 지표로 쓴다.",
+  "cases": [
+    {
+      "id": "backend_entry__fintech",
+      "persona": {
+        "source": "scripts/resume_mocks.json",
+        "key": "backend_entry"
+      },
+      "job": {
+        "job_id": "EVAL-DEV-01",
+        "company": "(주)페이노트",
+        "title": "결제 플랫폼 Python 백엔드 개발자 (신입)",
+        "text": "[주요업무]\n- 결제·정산 서비스의 Python 기반 REST API 개발\n- Django/FastAPI 서비스 기능 개발과 운영\n- PostgreSQL 쿼리 튜닝과 데이터 모델 설계\n\n[자격요건]\n- Python 웹 프레임워크(Django 또는 FastAPI) 개발 경험\n- RDBMS(PostgreSQL, MySQL) 활용 경험\n- 단위 테스트 코드 작성 경험\n- Git 기반 협업 경험\n\n[우대사항]\n- Redis, Kafka 등 캐시·메시지 큐 사용 경험\n- AWS 환경에서 서비스 배포 경험\n- 결제·금융 도메인 관심\n\n[근무조건]\n- 정규직, 서울 강남구"
+      },
+      "applicant": {
+        "facts": [
+          "채용공고 추천 API 프로젝트에서 pytest로 추천 점수 계산 함수와 API 엔드포인트 단위 테스트 40여 개를 직접 작성했다",
+          "3인 팀 프로젝트에서 GitHub에서 기능 브랜치를 만들고 PR 리뷰 후 병합하는 방식으로 협업했다",
+          "추천 API 응답 개선 때 자주 조회되는 공고 목록을 Redis에 60초 캐시했다",
+          "추천 API는 AWS EC2에 Docker 컨테이너로 올려 시연했다"
+        ],
+        "not_done": [
+          "Kafka",
+          "결제·정산 시스템 개발",
+          "실무 운영 경험"
+        ]
+      },
+      "expected_requirements": [
+        {
+          "label": "Django/FastAPI 개발",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "RDBMS 활용",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "단위 테스트 작성",
+          "group": "must",
+          "resume": "missing"
+        },
+        {
+          "label": "Git 협업",
+          "group": "must",
+          "resume": "missing"
+        },
+        {
+          "label": "Redis/Kafka",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "AWS 배포",
+          "group": "preferred",
+          "resume": "ok"
+        }
+      ],
+      "expected_star": {
+        "awards[0].description": "T",
+        "otherActivities[0].description": "TAR",
+        "otherActivities[1].description": "TA",
+        "otherActivities[2].description": "AR",
+        "projects[0].description": "TAR",
+        "projects[1].description": "TA",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "SA"
+      }
+    },
+    {
+      "id": "frontend_entry__commerce",
+      "persona": {
+        "source": "scripts/resume_mocks.json",
+        "key": "frontend_entry"
+      },
+      "job": {
+        "job_id": "EVAL-DEV-02",
+        "company": "(주)마켓하우스",
+        "title": "커머스 웹 프론트엔드 개발자 (신입/주니어)",
+        "text": "[주요업무]\n- React·TypeScript 기반 커머스 웹 서비스 화면 개발\n- Next.js SSR 페이지 성능 개선\n- 디자인 시스템 컴포넌트 개발과 유지보수\n\n[자격요건]\n- React와 TypeScript 개발 경험\n- 상태 관리 라이브러리(Redux, Zustand, Recoil 등) 사용 경험\n- 웹 성능 지표(LCP, CLS 등) 이해\n\n[우대사항]\n- Jest, React Testing Library 등 프론트엔드 테스트 경험\n- 웹 접근성 개선 경험\n- 디자이너와 협업해 컴포넌트 라이브러리를 만든 경험\n\n[근무조건]\n- 정규직, 서울 성동구"
+      },
+      "applicant": {
+        "facts": [
+          "학습 대시보드 웹앱에서 필터 상태를 Zustand 스토어로 옮겨 여러 차트가 같은 필터를 쓰게 했다",
+          "해커톤 접근성 웹앱에서 스크린리더용 aria 속성과 키보드 탐색을 직접 구현했다",
+          "인턴 때 공통 폼 컴포넌트를 만들면서 디자이너와 상태별(hover, disabled, error) 화면을 맞췄다"
+        ],
+        "not_done": [
+          "Jest",
+          "React Testing Library",
+          "Redux",
+          "디자인 시스템 전체 구축"
+        ]
+      },
+      "expected_requirements": [
+        {
+          "label": "React·TypeScript",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "상태 관리 라이브러리",
+          "group": "must",
+          "resume": "missing"
+        },
+        {
+          "label": "웹 성능 지표",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "프론트엔드 테스트",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "웹 접근성",
+          "group": "preferred",
+          "resume": "partial"
+        },
+        {
+          "label": "디자이너 협업 컴포넌트",
+          "group": "preferred",
+          "resume": "partial"
+        }
+      ],
+      "expected_star": {
+        "awards[0].description": "TR",
+        "otherActivities[0].description": "STAR",
+        "otherActivities[1].description": "TA",
+        "projects[0].description": "STAR",
+        "projects[1].description": "TA",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "SA"
+      }
+    },
+    {
+      "id": "backend_experienced_3y__commerce",
+      "persona": {
+        "source": "scripts/resume_mocks.json",
+        "key": "backend_experienced_3y"
+      },
+      "job": {
+        "job_id": "EVAL-DEV-03",
+        "company": "(주)루멘커머스",
+        "title": "Web 백엔드 개발자 (Java/Spring, 경력 3년 이상)",
+        "text": "[주요업무]\n- 주문·정산 도메인 API 개발과 운영\n- 대규모 트래픽 대응을 위한 조회 성능 개선\n- 배포·모니터링 체계 개선\n\n[자격요건]\n- Java, Spring Boot 기반 백엔드 개발 경력 3년 이상\n- Spring Boot 3.x, JDK 17 이상 사용 경험\n- RDBMS 설계와 쿼리 튜닝 경험\n- Git 브랜치 전략 기반 협업 경험\n\n[우대사항]\n- Redis Pub/Sub 또는 Kafka 기반 메시지 처리 경험\n- Linux 서버 운영 경험\n- 모니터링 도구(Grafana, Prometheus 등) 구축 경험\n\n[근무조건]\n- 정규직, 서울 송파구"
+      },
+      "applicant": {
+        "facts": [
+          "주문 조회 성능 개선 프로젝트 기간에 Spring Boot 2.7을 3.1로, JDK 11을 17로 올렸다",
+          "회사에서 Git Flow로 develop 브랜치에 PR 리뷰 후 병합했다",
+          "장애 대응 체계 구축 때 슬로우 쿼리 알림과 Grafana 대시보드를 직접 만들어 장애를 먼저 알아채게 했다"
+        ],
+        "not_done": [
+          "Kafka",
+          "Redis Pub/Sub",
+          "Linux 서버 직접 운영"
+        ]
+      },
+      "expected_requirements": [
+        {
+          "label": "Java·Spring Boot 3년",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "Spring Boot 3.x·JDK 17",
+          "group": "must",
+          "resume": "missing"
+        },
+        {
+          "label": "RDBMS 쿼리 튜닝",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "Git 브랜치 전략",
+          "group": "must",
+          "resume": "missing"
+        },
+        {
+          "label": "Redis Pub/Sub·Kafka",
+          "group": "preferred",
+          "resume": "partial"
+        },
+        {
+          "label": "Linux 운영",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "모니터링 도구",
+          "group": "preferred",
+          "resume": "partial"
+        }
+      ],
+      "expected_star": {
+        "experience[0].description": "TA",
+        "awards[0].description": "STR",
+        "otherActivities[0].description": "TA",
+        "projects[0].description": "AR",
+        "projects[1].description": "SAR",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "SA"
+      }
+    },
+    {
+      "id": "data_entry__pipeline",
+      "persona": {
+        "source": "scripts/resume_mocks.json",
+        "key": "data_entry_junior_college"
+      },
+      "job": {
+        "job_id": "EVAL-DEV-04",
+        "company": "(주)데이터온",
+        "title": "데이터 엔지니어 (신입)",
+        "text": "[주요업무]\n- 서비스 로그와 거래 데이터의 수집·적재 파이프라인 개발\n- Airflow 기반 배치 워크플로 운영\n- 분석용 데이터 마트 설계\n\n[자격요건]\n- Python, SQL 활용 능력\n- Airflow 등 워크플로 도구 사용 경험\n- 데이터 정제·중복 제거 경험\n\n[우대사항]\n- Spark 등 분산 처리 경험\n- BigQuery, Redshift 등 클라우드 데이터 웨어하우스 경험\n- dbt 사용 경험\n\n[근무조건]\n- 정규직, 서울 구로구"
+      },
+      "applicant": {
+        "facts": [
+          "채용공고 수집 파이프라인에서 Airflow DAG 실패 시 슬랙 알림을 보내고 재시도 3회를 설정했다",
+          "공고 중복 제거는 회사명·제목·마감일을 합친 키로 판단했다",
+          "Spark는 부트캠프 실습에서 공고 텍스트 10만 건 단어 빈도를 PySpark로 집계해 봤다"
+        ],
+        "not_done": [
+          "BigQuery",
+          "Redshift",
+          "dbt",
+          "실시간 스트리밍"
+        ]
+      },
+      "expected_requirements": [
+        {
+          "label": "Python·SQL",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "Airflow",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "정제·중복 제거",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "Spark",
+          "group": "preferred",
+          "resume": "partial"
+        },
+        {
+          "label": "클라우드 DW",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "dbt",
+          "group": "preferred",
+          "resume": "missing"
+        }
+      ],
+      "expected_star": {
+        "awards[0].description": "T",
+        "otherActivities[0].description": "SAR",
+        "otherActivities[1].description": "A",
+        "projects[0].description": "TA",
+        "selfIntroduction.challenge.body": "SA",
+        "selfIntroduction.growth.body": "SA"
+      }
+    },
+    {
+      "id": "embedded_entry__robotics",
+      "persona": {
+        "source": "scripts/resume_mocks.json",
+        "key": "embedded_entry_regional"
+      },
+      "job": {
+        "job_id": "EVAL-DEV-05",
+        "company": "(주)모션로보틱스",
+        "title": "로봇 제어 펌웨어 개발자 (신입, 대전)",
+        "text": "[주요업무]\n- 협동로봇 모터 제어 펌웨어 개발\n- 센서 인터페이스(I2C, SPI, CAN) 드라이버 개발\n- 펌웨어 시험 자동화\n\n[자격요건]\n- C/C++ 펌웨어 개발 경험\n- RTOS 환경 개발 경험\n- 오실로스코프 등 계측 장비 사용 경험\n\n[우대사항]\n- CAN 통신 개발 경험\n- 모터 제어(PID) 구현 경험\n- Python 시험 자동화 스크립트 작성 경험\n\n[근무조건]\n- 정규직, 대전 유성구"
+      },
+      "applicant": {
+        "facts": [
+          "경진대회 자율주행 로봇에서 바퀴 모터 속도를 PID로 제어하고 게인을 직접 튜닝했다",
+          "현장실습에서 UART 끊김 원인을 찾을 때 오실로스코프로 신호 파형을 확인했다",
+          "현장실습 시험 자동화 스크립트는 Python pyserial로 작성했다"
+        ],
+        "not_done": [
+          "CAN 통신",
+          "SPI 드라이버 양산 개발",
+          "협동로봇"
+        ]
+      },
+      "expected_requirements": [
+        {
+          "label": "C/C++ 펌웨어",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "RTOS",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "계측 장비",
+          "group": "must",
+          "resume": "missing"
+        },
+        {
+          "label": "CAN 통신",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "PID 모터 제어",
+          "group": "preferred",
+          "resume": "partial"
+        },
+        {
+          "label": "Python 시험 자동화",
+          "group": "preferred",
+          "resume": "partial"
+        }
+      ],
+      "expected_star": {
+        "awards[0].description": "T",
+        "trainingExperience[1].description": "STAR",
+        "otherActivities[0].description": "T",
+        "projects[0].description": "AR",
+        "selfIntroduction.challenge.body": "STA",
+        "selfIntroduction.growth.body": "SA"
+      }
+    },
+    {
+      "id": "weak_backend__si",
+      "persona": {
+        "content": {
+          "basicInfo": {
+            "name": "",
+            "phone": "010-0000-0101",
+            "email": "",
+            "birthDate": "2000-04-12",
+            "githubUrl": "https://github.com/example-weak",
+            "blogUrl": ""
+          },
+          "coreCompetencies": {
+            "text": "Java 와 Spring 을 이용한 웹 개발 가능. 데이터베이스 설계 가능. 성실함."
+          },
+          "experience": [],
+          "education": [
+            {
+              "id": "edu-1",
+              "school": "한빛대학교",
+              "major": "소프트웨어학과",
+              "startDate": "2019-03",
+              "endDate": "2026-02",
+              "status": "졸업"
+            }
+          ],
+          "techStack": [
+            {
+              "id": "ts-1",
+              "name": "Java",
+              "level": "중급"
+            },
+            {
+              "id": "ts-2",
+              "name": "Spring Boot",
+              "level": "초급"
+            },
+            {
+              "id": "ts-3",
+              "name": "MySQL",
+              "level": "중급"
+            },
+            {
+              "id": "ts-4",
+              "name": "JSP",
+              "level": "초급"
+            }
+          ],
+          "certifications": [
+            {
+              "id": "cert-1",
+              "name": "정보처리기사",
+              "issuer": "한국산업인력공단",
+              "acquiredDate": "2025-06"
+            }
+          ],
+          "awards": [],
+          "trainingExperience": [
+            {
+              "id": "tr-1",
+              "course": "SK네트웍스 Family AI 캠프 34기",
+              "organization": "PLAYDATA",
+              "startDate": "2026-03",
+              "endDate": "2026-09",
+              "description": "현재 수강 중이며 최종 프로젝트를 진행하고 있습니다."
+            }
+          ],
+          "otherActivities": [],
+          "projects": [
+            {
+              "id": "prj-1",
+              "name": "도서 대여 관리 시스템",
+              "startDate": "2025-09",
+              "endDate": "2025-12",
+              "role": "팀원(4인)",
+              "techStack": "Java, Spring Boot, MySQL",
+              "description": "도서 대여 시스템 개발 하였습니다. 로그인, 게시판 기능 구현 참여.",
+              "url": ""
+            },
+            {
+              "id": "prj-2",
+              "name": "쇼핑몰 웹사이트",
+              "startDate": "2025-03",
+              "endDate": "2025-06",
+              "role": "팀장",
+              "techStack": "JSP, MySQL",
+              "description": "쇼핑몰 만들었음. 조회 속도 3s→1s 개선함. 최선을 다했습니다.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "성실한 개발자",
+              "body": "저는 성실하고 책임감 있는 개발자 입니다. 항상 최선을 다하겠습니다."
+            },
+            "motivation": {
+              "subtitle": "지원동기",
+              "body": "[회사명]의 [직무명]에 지원하게 되었습니다. 귀사의 비전에 공감하여 지원하였습니다."
+            },
+            "challenge": {
+              "subtitle": "어려움을 극복한 경험",
+              "body": "팀 프로젝트에서 팀원간 의견 충돌이 있었지만 대화로 해결 하였습니다."
+            },
+            "growth": {
+              "subtitle": "성장과정",
+              "body": "어릴때부터 컴퓨터를 좋아했습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "장단점",
+              "body": "장점은 성실함이고 단점은 너무 꼼꼼한 것입니다."
+            },
+            "aspiration": {
+              "subtitle": "입사 후 포부",
+              "body": "입사하게 된다면 열심히 배워서 회사에 기여 하겠습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-DEV-06",
+        "company": "(주)한결정보기술",
+        "title": "공공 SI 사업 Java 개발자 (신입)",
+        "text": "[주요업무]\n- 공공기관 업무 시스템 구축·유지보수\n- Spring 기반 웹 애플리케이션 개발\n- Oracle 데이터베이스 SQL 작성\n\n[자격요건]\n- Java, Spring Framework 개발 경험\n- SQL 작성 능력\n- 정보처리기사 소지자\n\n[우대사항]\n- 전자정부 표준프레임워크 경험\n- Oracle 사용 경험\n- JSP/jQuery 화면 개발 경험\n\n[근무조건]\n- 정규직, 서울 마포구 (파견 근무 가능성 있음)"
+      },
+      "applicant": {
+        "facts": [
+          "도서 대여 관리 시스템에서 회원 로그인(Spring Security 세션)과 게시판 CRUD를 직접 구현했다",
+          "쇼핑몰 웹사이트에서 상품 목록 조회 SQL에 인덱스를 추가해 3초 걸리던 조회를 1초로 줄였고, 팀장으로 역할 분담과 주간 회의를 맡았다",
+          "쇼핑몰 화면은 JSP와 jQuery로 만들었다",
+          "팀원 의견 충돌은 로그인 방식을 세션과 JWT 중 무엇으로 할지였고, 두 방식의 장단점을 표로 정리해 투표로 세션을 골랐다"
+        ],
+        "not_done": [
+          "전자정부 표준프레임워크",
+          "Oracle",
+          "공공기관 프로젝트"
+        ]
+      },
+      "expected_requirements": [
+        {
+          "label": "Java·Spring",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "SQL",
+          "group": "must",
+          "resume": "partial"
+        },
+        {
+          "label": "정보처리기사",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "전자정부 프레임워크",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "Oracle",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "JSP/jQuery",
+          "group": "preferred",
+          "resume": "partial"
+        }
+      ],
+      "expected_star": {
+        "projects[0].description": "T",
+        "projects[1].description": "TR",
+        "selfIntroduction.challenge.body": "SR",
+        "selfIntroduction.growth.body": ""
+      }
+    },
+    {
+      "id": "ai_service__rag",
+      "persona": {
+        "content": {
+          "basicInfo": {
+            "name": "",
+            "phone": "010-0000-0102",
+            "email": "",
+            "birthDate": "1999-08-30",
+            "githubUrl": "https://github.com/example-llm",
+            "blogUrl": "https://example-llm.velog.io"
+          },
+          "coreCompetencies": {
+            "text": "LangChain과 OpenAI API를 활용한 RAG 챗봇 개발. 벡터DB(Chroma) 구축. FastAPI로 API 서버 구현."
+          },
+          "experience": [],
+          "education": [
+            {
+              "id": "edu-1",
+              "school": "예시대학교",
+              "major": "산업공학과",
+              "startDate": "2018-03",
+              "endDate": "2025-02",
+              "status": "졸업"
+            }
+          ],
+          "techStack": [
+            {
+              "id": "ts-1",
+              "name": "Python",
+              "level": "중급"
+            },
+            {
+              "id": "ts-2",
+              "name": "LangChain",
+              "level": "중급"
+            },
+            {
+              "id": "ts-3",
+              "name": "FastAPI",
+              "level": "초급"
+            },
+            {
+              "id": "ts-4",
+              "name": "Chroma",
+              "level": "초급"
+            },
+            {
+              "id": "ts-5",
+              "name": "Streamlit",
+              "level": "중급"
+            }
+          ],
+          "certifications": [
+            {
+              "id": "cert-1",
+              "name": "ADsP",
+              "issuer": "한국데이터산업진흥원",
+              "acquiredDate": "2024-11"
+            }
+          ],
+          "awards": [],
+          "trainingExperience": [
+            {
+              "id": "tr-1",
+              "course": "SK네트웍스 Family AI 캠프 34기",
+              "organization": "PLAYDATA",
+              "startDate": "2026-03",
+              "endDate": "2026-09",
+              "description": "LLM 서비스 개발 과정"
+            }
+          ],
+          "otherActivities": [
+            {
+              "id": "act-1",
+              "name": "LLM 논문 스터디",
+              "startDate": "2026-04",
+              "endDate": "",
+              "description": "매주 RAG 관련 논문을 읽고 발표합니다."
+            }
+          ],
+          "projects": [
+            {
+              "id": "prj-1",
+              "name": "사내 규정 질의응답 챗봇",
+              "startDate": "2026-06",
+              "endDate": "2026-08",
+              "role": "팀원(4인)",
+              "techStack": "Python, LangChain, Chroma, Streamlit",
+              "description": "사내 규정 PDF를 RAG로 검색해 답하는 챗봇 개발에 참여. 답변 정확도 향상.",
+              "url": ""
+            },
+            {
+              "id": "prj-2",
+              "name": "영화 리뷰 감성 분석",
+              "startDate": "2026-04",
+              "endDate": "2026-05",
+              "role": "개인",
+              "techStack": "Python, scikit-learn",
+              "description": "리뷰 데이터를 수집해 감성 분류 모델을 학습시켰습니다. 정확도 0.87.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "AI 서비스 개발자",
+              "body": "생성형 AI로 사람들의 불편을 해결하는 서비스를 만들고 싶은 개발자입니다."
+            },
+            "motivation": {
+              "subtitle": "지원동기",
+              "body": "평소 생성형 AI 기술에 관심이 많았고 귀사에서 성장하고 싶어 지원했습니다."
+            },
+            "challenge": {
+              "subtitle": "도전 경험",
+              "body": "챗봇이 엉뚱한 답을 하는 문제가 있었는데, 팀원들과 함께 여러 방법을 시도해서 개선했습니다."
+            },
+            "growth": {
+              "subtitle": "성장과정",
+              "body": "산업공학을 전공하며 데이터로 문제를 푸는 일에 흥미를 느꼈고, 부트캠프에서 개발을 본격적으로 배웠습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "장단점",
+              "body": "새로운 기술을 빠르게 익히는 것이 장점입니다. 단점은 완벽주의 성향입니다."
+            },
+            "aspiration": {
+              "subtitle": "포부",
+              "body": "AI 서비스 전문가로 성장하고 싶습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-DEV-07",
+        "company": "(주)스텔라에이아이",
+        "title": "LLM 서비스 개발자 (신입)",
+        "text": "[주요업무]\n- RAG 기반 기업용 문서 질의응답 서비스 개발\n- 검색 품질 평가와 프롬프트 개선\n- FastAPI 기반 LLM API 서버 개발\n\n[자격요건]\n- Python 개발 경험\n- LangChain 또는 LlamaIndex 사용 경험\n- 벡터 데이터베이스(Pinecone, Chroma, pgvector 등) 사용 경험\n- RAG 검색 품질을 평가·개선해 본 경험\n\n[우대사항]\n- Docker 기반 배포 경험\n- LLM 응답 평가 자동화 경험\n- 한국어 문서 전처리(PDF 파싱, 청킹) 경험\n\n[근무조건]\n- 정규직, 경기 성남시 분당구"
+      },
+      "applicant": {
+        "facts": [
+          "규정 챗봇에서 본인은 PDF 파싱과 청킹, 검색 부분을 맡았고 Streamlit 화면은 팀원이 만들었다",
+          "청크 크기를 1,000자에서 조항 단위로 바꾸고 질문 50개로 정답 포함 여부를 직접 채점해 정답률을 62%에서 81%로 올렸다",
+          "FastAPI는 부트캠프 미니 프로젝트에서 챗봇 응답 API 엔드포인트 2개를 만들어 봤다"
+        ],
+        "not_done": [
+          "Docker 배포",
+          "Pinecone",
+          "LlamaIndex",
+          "LLM 응답 평가 자동화 도구"
+        ]
+      },
+      "expected_requirements": [
+        {
+          "label": "Python",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "LangChain/LlamaIndex",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "벡터 DB",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "RAG 품질 평가·개선",
+          "group": "must",
+          "resume": "partial"
+        },
+        {
+          "label": "Docker 배포",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "LLM 평가 자동화",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "문서 전처리",
+          "group": "preferred",
+          "resume": "partial"
+        }
+      ],
+      "expected_star": {
+        "otherActivities[0].description": "A",
+        "projects[0].description": "TR",
+        "projects[1].description": "AR",
+        "selfIntroduction.challenge.body": "SR",
+        "selfIntroduction.growth.body": ""
+      }
+    },
+    {
+      "id": "career_change__fullstack",
+      "persona": {
+        "content": {
+          "basicInfo": {
+            "name": "",
+            "phone": "010-0000-0103",
+            "email": "",
+            "birthDate": "1994-01-19",
+            "githubUrl": "https://github.com/example-switch",
+            "blogUrl": ""
+          },
+          "coreCompetencies": {
+            "text": "Node.js(Express)와 React로 풀스택 웹 서비스 개발. MongoDB 스키마 설계. 영업 5년 경력으로 고객 요구 파악에 강함."
+          },
+          "experience": [
+            {
+              "id": "exp-1",
+              "company": "(주)예시유통",
+              "role": "영업 담당",
+              "startDate": "2019-01",
+              "endDate": "2024-02",
+              "isCurrent": false,
+              "description": "B2B 거래처 40곳 관리. 거래처 주문 엑셀을 매크로로 자동화 해서 팀 업무시간 단축."
+            }
+          ],
+          "education": [
+            {
+              "id": "edu-1",
+              "school": "예시대학교",
+              "major": "경영학과",
+              "startDate": "2012-03",
+              "endDate": "2018-02",
+              "status": "졸업"
+            }
+          ],
+          "techStack": [
+            {
+              "id": "ts-1",
+              "name": "JavaScript",
+              "level": "중급"
+            },
+            {
+              "id": "ts-2",
+              "name": "Node.js",
+              "level": "중급"
+            },
+            {
+              "id": "ts-3",
+              "name": "Express",
+              "level": "중급"
+            },
+            {
+              "id": "ts-4",
+              "name": "React",
+              "level": "초급"
+            },
+            {
+              "id": "ts-5",
+              "name": "MongoDB",
+              "level": "중급"
+            }
+          ],
+          "certifications": [],
+          "awards": [],
+          "trainingExperience": [
+            {
+              "id": "tr-1",
+              "course": "SK네트웍스 Family AI 캠프 34기",
+              "organization": "PLAYDATA",
+              "startDate": "2026-03",
+              "endDate": "2026-09",
+              "description": "웹 개발과 AI 서비스 개발 과정"
+            }
+          ],
+          "otherActivities": [],
+          "projects": [
+            {
+              "id": "prj-1",
+              "name": "중고거래 커뮤니티",
+              "startDate": "2026-05",
+              "endDate": "2026-07",
+              "role": "풀스택(3인 팀)",
+              "techStack": "Node.js, Express, React, MongoDB",
+              "description": "중고 물품 거래 커뮤니티 웹 서비스. 게시글 작성, 채팅, 찜 기능. 게시글 작성, 채팅, 찜 기능을 구현 했습니다.",
+              "url": ""
+            },
+            {
+              "id": "prj-2",
+              "name": "재고 관리 대시보드",
+              "startDate": "2026-08",
+              "endDate": "",
+              "role": "개인",
+              "techStack": "React, Express",
+              "description": "예전 회사에서 쓰던 재고 엑셀을 웹 대시보드로 옮기는 중입니다.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "고객을 아는 개발자",
+              "body": "영업 5년 동안 고객이 무엇을 불편해하는지 가장 가까이에서 들었습니다. 이제는 그 불편을 직접 코드로 해결하고 싶어 개발자로 전향했습니다."
+            },
+            "motivation": {
+              "subtitle": "지원동기",
+              "body": "고객 요구를 빠르게 제품에 반영하는 스타트업 환경에서 일하고 싶습니다. 영업 경험과 개발 역량을 함께 살릴 수 있다고 생각합니다."
+            },
+            "challenge": {
+              "subtitle": "도전",
+              "body": "서른 살에 영업을 그만두고 개발을 시작한 것이 가장 큰 도전이었습니다. 매일 코딩 테스트 문제를 풀었습니다."
+            },
+            "growth": {
+              "subtitle": "성장과정",
+              "body": "엑셀 매크로로 반복 업무를 줄였던 경험이 개발에 관심을 갖게 된 계기입니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "장단점",
+              "body": "고객 요구를 잘 파악합니다. 개발 경력이 짧은 것은 약점이지만 빠르게 배우고 있습니다."
+            },
+            "aspiration": {
+              "subtitle": "포부",
+              "body": "고객 목소리를 제품으로 바꾸는 개발자가 되겠습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-DEV-08",
+        "company": "(주)링크업",
+        "title": "B2B SaaS 풀스택 개발자 (주니어)",
+        "text": "[주요업무]\n- B2B 주문·재고 관리 SaaS의 Node.js API와 React 화면 개발\n- 고객사 요청 기능 분석과 구현\n- AWS 기반 서비스 운영\n\n[자격요건]\n- Node.js(Express 또는 NestJS) 개발 경험\n- React 개발 경험\n- 데이터베이스(MongoDB, PostgreSQL 등) 설계 경험\n- REST API 설계 경험\n\n[우대사항]\n- TypeScript 사용 경험\n- AWS(EC2, S3) 배포 경험\n- B2B 영업·고객 대응 경험\n\n[근무조건]\n- 정규직, 서울 금천구"
+      },
+      "applicant": {
+        "facts": [
+          "중고거래 커뮤니티에서 채팅은 Socket.io로 직접 구현했고, 게시글 API는 REST로 설계해 팀원이 만든 React 화면과 연결했다",
+          "게시글과 찜 컬렉션을 나누고 찜 목록 조회에 인덱스를 걸었다",
+          "재고 관리 대시보드는 아직 개발 중이며 엑셀 업로드와 품목 목록 화면까지 만들었다",
+          "영업 시절 매크로 자동화로 주문 입력 시간을 하루 2시간에서 30분으로 줄였다"
+        ],
+        "not_done": [
+          "TypeScript",
+          "NestJS",
+          "AWS 배포",
+          "PostgreSQL"
+        ]
+      },
+      "expected_requirements": [
+        {
+          "label": "Node.js·Express",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "React",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "DB 설계",
+          "group": "must",
+          "resume": "ok"
+        },
+        {
+          "label": "REST API 설계",
+          "group": "must",
+          "resume": "missing"
+        },
+        {
+          "label": "TypeScript",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "AWS 배포",
+          "group": "preferred",
+          "resume": "missing"
+        },
+        {
+          "label": "B2B 영업 경험",
+          "group": "preferred",
+          "resume": "ok"
+        }
+      ],
+      "expected_star": {
+        "experience[0].description": "TAR",
+        "projects[0].description": "TA",
+        "projects[1].description": "TA",
+        "selfIntroduction.challenge.body": "SA",
+        "selfIntroduction.growth.body": "AR"
+      }
+    }
+  ]
+}

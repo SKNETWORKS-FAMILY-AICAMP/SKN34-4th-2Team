@@ -1,0 +1,21 @@
+{
+  "name": "playdata-lms-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Firebase seed and setup scripts for PLAYDATA LMS",
+  "type": "module",
+  "scripts": {
+    "seed": "node seed-via-client.mjs",
+    "seed:instructor": "node seed-instructor.mjs",
+    "seed:users": "node seed-test-users.mjs",
+    "seed:students": "node seed-students-bulk.mjs",
+    "setup:production": "node setup-production.mjs",
+    "clear:sample": "node clear-sample-data.mjs",
+    "seed:resumes": "node seed-resume-mocks.mjs",
+    "clear:resumes": "node seed-resume-mocks.mjs --clear"
+  },
+  "dependencies": {
+    "firebase": "^12.18.0",
+    "firebase-admin": "^13.0.0"
+  }
+}

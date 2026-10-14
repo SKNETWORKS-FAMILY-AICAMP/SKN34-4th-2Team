@@ -1,0 +1,138 @@
+/**
+ * 회사 자기소개서 문항 — 공고마다 다른 문항 · 글자 수를 공고용 이력서에 담는다.
+ *
+ * 수집한 공고 글에 문항이 그대로 적힌 경우는 0.1% 남짓이다(2026-09-28, 열린 텍스트 공고 47,132건 중 16~42건).
+ * 문항은 대개 회사 채용 사이트 · 첨부 양식에 있다. 그래서 사용자가 붙여 넣은 글을 문항으로 나누는 것이
+ * 주 경로이고, 아직 문항을 모르면 자주 나오는 문항에서 고른다.
+ */
+import type { ResumeCompanyQuestion } from '../../domain/types';
+
+export type CompanyQuestion = ResumeCompanyQuestion;
+
+/** 회사들이 자주 묻는 문항 — 진짜 문항을 모를 때 먼저 써 둔다 */
+export const COMMON_QUESTIONS: { key: string; question: string; limit: number }[] = [
+  { key: 'motivation', question: '지원 동기와 입사 후 포부', limit: 600 },
+  { key: 'competency', question: '직무 관련 역량과 경험', limit: 800 },
+  { key: 'problem', question: '문제를 해결한 경험', limit: 800 },
+  { key: 'collaboration', question: '협업 · 갈등을 해결한 경험', limit: 500 },
+  { key: 'growth', question: '성장 과정', limit: 500 },
+  { key: 'personality', question: '성격의 장단점', limit: 500 },
+];
+
+// 문항 머리: "1.", "1)", "Q1.", "①", "문항 1.", "[1-1]" 따위. 점 · 괄호 뒤는 붙어 있어도 된다("1.해당 직무…") — 숫자가 이어지면("1.5년") 아니다
+const NUMBERED =
+  /^\s*(?:\[\d{1,2}(?:-\d{1,2})?\]\s*(?=\S)|(?:문항\s*)?(?:Q\s*)?(?:\d{1,2}|[①-⑩])\s*(?:[.)．:]\s*(?=[^\d\s])|\s+(?=\S)))/i;
+// 하위 문항 머리 — "1)", "(1)", "가.", "가)", "1-1." 상위 문항("2. …적합한 인재인 이유 [각 항목 400자]") 아래에 오면 묶음이다
+const SUB_HEAD = /^\s*(?:\(\d{1,2}\)|\d{1,2}\)|[가-하][.)]|\d{1,2}-\d{1,2}[.)]?)\s*/;
+const SUB_PREFIX = /^\s*(?:\(\d{1,2}\)|[가-하][.)]|\d{1,2}-\d{1,2}[.)]?)\s*/;
+const squash = (text: string) => text.replace(/\s+/g, '');
+const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩';
+// "(공백 포함 600자 이내)", "600자 내외", "최대 1,000자" — 숫자만 꺼낸다
+const LIMIT = /(\d{1,2},?\d{3}|\d{2,4})\s*자/;
+// 줄 끝의 글자 수 표기 — 괄호째("(공백 포함 600자 이내)")거나 괄호 없이("공백 포함 800자 이내")
+const LIMIT_NOTE =
+  /\s*(?:[([][^()[\]]*?\d{2,4}\s*자[^()[\]]*[)\]]|(?:[-–/,]\s*)?(?:공백\s*(?:포함|제외)\s*)?(?:최대\s*)?(?:\d{1,2},?\d{3}|\d{2,4})\s*자\s*(?:이내|내외|이하|미만)?)\s*$/;
+// 채용 사이트 입력칸의 글자 수 표시가 같이 복사된 것 — "필수0/800", "(0/1,000)", "0 / 500자". 뒤 숫자가 글자 수다.
+// 입력칸마다 붙어 있어서, 이게 붙은 줄은 번호 · 말투와 상관없이 문항이다.
+const COUNTER = /\s*(?:필수|선택)?\s*[([]?\s*\d{1,4}\s*\/\s*(\d{1,2},?\d{3}|\d{2,4})\s*(?:자|bytes?)?\s*[)\]]?\s*$/i;
+// 입력칸의 필수 표시 — "…작성해 주세요. 필수", "…(선택)", "…*". 글자 수 표시가 다음 줄로 떨어져 나오면 줄 끝에 이것만 남는다
+const REQUIRED_MARK = /\s*(?:[([]\s*(?:필수|선택)\s*[)\]]|(?:필수|선택)|\*+)\s*$/;
+// 문항이 아닌 줄 — 머리글("[자기소개서]"), 작성 안내("(* Guide : …)", "※ …")
+const NOT_QUESTION = /^\s*(?:\[[^\]]*\]\s*$|[(*※·•-])/;
+const ASKS = /(?:\?|시오\.?|주세요\.?|바랍니다\.?|하세요\.?|기술|서술|작성)\s*$/;
+
+function limitOf(text: string): number | null {
+  const found = COUNTER.exec(text) ?? LIMIT.exec(text);
+  if (found === null) return null;
+  const value = Number(found[1].replace(',', ''));
+  return value >= 50 && value <= 5000 ? value : null;
+}
+
+/** 줄 끝의 글자 수 표기(입력칸 표시 · 「600자 이내」)를 뗀다 */
+function stripNote(text: string): string {
+  return text.replace(COUNTER, '').replace(REQUIRED_MARK, '').replace(LIMIT_NOTE, '').replace(REQUIRED_MARK, '').trim();
+}
+
+function cleanQuestion(text: string): string {
+  let q = text.replace(SUB_PREFIX, '').replace(NUMBERED, '').trim();
+  const circled = CIRCLED.indexOf(q[0] ?? '');
+  if (circled >= 0) q = q.slice(1).trim();
+  return stripNote(q);
+}
+
+/**
+ * 붙여 넣은 글 → 문항 목록.
+ * - 번호가 붙은 줄이 있으면 그 줄들이 문항이다. 번호 없는 이어진 줄은 앞 문항에 붙인다(긴 문항이 두 줄로 접힌 경우)
+ * - 번호가 없으면 묻는 말로 끝나는 줄(“…작성해 주세요.”, “…?”)이나 입력칸 글자 수(“0/800”)가 붙은 줄을 문항으로 본다
+ * - 글자 수는 문항 줄이나 바로 다음 줄에서 읽는다
+ */
+export function splitQuestions(text: string, newId: () => string): CompanyQuestion[] {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== '');
+  const numbered = lines.some((l) => NUMBERED.test(l) || CIRCLED.includes(l[0] ?? ''));
+  const out: { question: string; limit: number | null; sub: boolean; group?: string }[] = [];
+  for (const line of lines) {
+    const isHead = NUMBERED.test(line) || CIRCLED.includes(line[0] ?? '') || SUB_PREFIX.test(line);
+    const last = out[out.length - 1];
+    const asks = ASKS.test(stripNote(line)) || (COUNTER.test(line) && stripNote(line).length >= 4);
+    if (numbered ? isHead : !NOT_QUESTION.test(line) && asks) {
+      out.push({ question: cleanQuestion(line), limit: limitOf(line), sub: SUB_HEAD.test(line) });
+      continue;
+    }
+    if (last === undefined) continue;
+    const rest = stripNote(line);
+    // 사이트 제목과 입력칸 안내에 같은 문장이 두 번 있어 함께 복사된다 — 이미 있는 문장이면 잇지 않는다(글자 수는 읽는다)
+    if (rest.length >= 4 && squash(last.question).includes(squash(rest))) {
+      last.limit ??= limitOf(line);
+      continue;
+    }
+    // 번호 문항이 두 줄로 접힌 경우만 잇는다(끝에 글자 수가 붙어 있어도). 안내 문구는 버린다
+    if (numbered && !NOT_QUESTION.test(line) && rest.length >= 2 && last.question.length < 200) {
+      last.question = `${last.question} ${rest}`.trim();
+      last.limit ??= limitOf(line);
+      continue;
+    }
+    // 문항 다음 줄의 글자 수 안내("(공백 포함 600자 이내)")
+    if (last.limit === null && limitOf(line) !== null && line.length < 40) last.limit = limitOf(line);
+  }
+  // 상위 문항 바로 아래 하위 문항이 오면 상위 문항은 묶음 제목이다 — 따로 답하지 않고, 하위 문항마다 제목 · 「각 항목 N자」를 붙인다
+  const grouped: typeof out = [];
+  for (let i = 0; i < out.length; i += 1) {
+    const item = out[i];
+    if (!item.sub && out[i + 1]?.sub === true) {
+      for (let j = i + 1; j < out.length && out[j].sub; j += 1) {
+        out[j].group = item.question;
+        out[j].limit ??= item.limit;
+      }
+      continue;
+    }
+    grouped.push(item);
+  }
+  return grouped
+    .filter((q) => q.question.length >= 4)
+    .map((q) => ({ id: newId(), question: q.question, limit: q.limit, answer: '', ...(q.group ? { group: q.group } : {}) }));
+}
+
+const DEFAULT_SECTIONS = [
+  ['intro', '자기소개'],
+  ['motivation', '지원동기'],
+  ['challenge', '어려움을 극복한 경험'],
+  ['growth', '성장과정'],
+  ['strengthsWeaknesses', '성격의 장단점'],
+  ['aspiration', '입사 후 포부'],
+] as const;
+
+/**
+ * 기본 6문항을 회사 문항 모양으로 — 자유양식 공고도 같은 문항 답변 첨삭을 탄다.
+ * 바탕 이력서에 써 둔 자기소개서를 답으로 옮겨 둔다(첨삭이 그 글을 다듬는 게 아니라 새로 쓰지만, 처음 보는 칸이 비지 않게).
+ */
+export function defaultQuestions(
+  intro: Partial<Record<(typeof DEFAULT_SECTIONS)[number][0], { body?: string }>> | undefined,
+  newId: () => string,
+): CompanyQuestion[] {
+  return DEFAULT_SECTIONS.map(([key, question]) => ({
+    id: newId(),
+    question,
+    limit: null,
+    answer: String(intro?.[key]?.body ?? ''),
+  }));
+}

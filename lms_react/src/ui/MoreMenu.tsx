@@ -1,0 +1,154 @@
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+
+import { Icon } from './Icon';
+
+/**
+ * 「···」 메뉴 — Flutter PopupMenuButton 자리
+ *
+ * 누르면 아래로 짧은 목록이 열리고, 하나를 고르면 닫힌다. 바깥을 누르거나
+ * Esc를 눌러도 닫힌다.
+ */
+export interface MoreMenuItem {
+  key: string;
+  label: string;
+  /** 항목 아래 작은 글씨. 무엇이 일어나는지 한 줄로. */
+  hint?: string;
+  /** 항목 앞에 아이콘 이름 (Material Symbols). */
+  icon?: string;
+  /** 이 항목 위에 가는 줄을 긋는다. 성격이 다른 묶음을 가른다. */
+  divider?: boolean;
+  /** 이 항목 위에 작은 제목을 단다. 묶음 이름 — 「기초」「중급」처럼. */
+  heading?: string;
+  /** 눌러도 아무 일 없이 흐리게 보인다. 이미 한 것을 표시할 때. */
+  done?: boolean;
+  /** 지우기처럼 되돌릴 수 없는 것은 붉게 보인다. */
+  danger?: boolean;
+  onSelect(): void;
+}
+
+export function MoreMenu({
+  items,
+  label = '더보기',
+  icon = 'more_horiz',
+  className,
+  align = 'right',
+  children,
+}: {
+  items: MoreMenuItem[];
+  label?: string;
+  icon?: string;
+  /**
+   * 여는 단추의 클래스. 비우면 아이콘 단추(`icon-btn`)다.
+   * 글자가 있는 단추로 열려면 `btn btn--outline btn--sm` 처럼 준다.
+   */
+  className?: string;
+  /** 목록을 단추의 어느 쪽에 맞출지. 도구 줄 왼쪽에 있는 단추는 `left`. */
+  align?: 'left' | 'right';
+  /** 단추 자리를 직접 그릴 때 쓴다. */
+  children?: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const [side, setSide] = useState(align);
+  const root = useRef<HTMLSpanElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+
+  // 열면 잘리는지 본다. 단추가 줄 왼쪽 끝으로 내려오거나(좁은 창) 창 가장자리에 붙으면
+  // 목록이 그쪽 밖으로 나가 잘렸다 — 그러면 반대쪽으로 펼친다.
+  useLayoutEffect(() => {
+    if (!open) {
+      setSide(align);
+      return;
+    }
+    const box = pop.current?.getBoundingClientRect();
+    if (!box) return;
+    const bounds = clipBounds(root.current);
+    if (box.left < bounds.left + 4) setSide('left');
+    else if (box.right > bounds.right - 4) setSide('right');
+  }, [open, align]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e: MouseEvent) => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const iconOnly = className === undefined;
+  return (
+    <span className="more" ref={root}>
+      <button
+        type="button"
+        className={className ?? 'icon-btn'}
+        aria-label={iconOnly || children !== undefined ? label : undefined}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+      >
+        {children ?? <Icon name={icon} size={iconOnly ? 20 : 18} />}
+        {!iconOnly && children === undefined && label}
+        {!iconOnly && <Icon name="expand_more" size={18} className="more__caret" />}
+      </button>
+
+      {open && (
+        <div ref={pop} className={`more__pop more__pop--${side}`} role="menu">
+          {items.map((item) => (
+            <Fragment key={item.key}>
+              {item.heading !== undefined && (
+                <div className={`more__heading${item.divider === true ? ' more__heading--divider' : ''}`}>{item.heading}</div>
+              )}
+              <button
+                type="button"
+                role="menuitem"
+                className={[
+                  'more__item',
+                  item.danger === true ? 'more__item--danger' : '',
+                  item.divider === true && item.heading === undefined ? 'more__item--divider' : '',
+                  item.hint !== undefined ? 'more__item--hinted' : '',
+                  item.done === true ? 'more__item--done' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpen(false);
+                  item.onSelect();
+                }}
+              >
+                {item.icon !== undefined && <Icon name={item.icon} size={18} className="more__icon" />}
+                <span className="more__text">
+                  {item.label}
+                  {item.hint !== undefined && <small>{item.hint}</small>}
+                </span>
+                {item.done === true && <Icon name="check" size={16} className="more__done" />}
+              </button>
+            </Fragment>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
+/** 목록을 잘라 낼 수 있는 가장 가까운 상자(스크롤 · 넘침 숨김)의 가장자리. 없으면 화면 */
+function clipBounds(from: HTMLElement | null): { left: number; right: number } {
+  for (let el = from?.parentElement ?? null; el; el = el.parentElement) {
+    const { overflowX } = window.getComputedStyle(el);
+    if (overflowX !== 'visible') {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, right: r.right };
+    }
+  }
+  return { left: 0, right: window.innerWidth };
+}

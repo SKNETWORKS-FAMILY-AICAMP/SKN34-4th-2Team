@@ -1,0 +1,12 @@
+[
+  {
+    "origin": [
+      "http://localhost:5000",
+      "https://skn34-3rd-2team.web.app",
+      "https://skn34-3rd-2team.firebaseapp.com"
+    ],
+    "method": ["GET", "HEAD"],
+    "responseHeader": ["Content-Type", "Authorization", "Content-Length", "User-Agent", "x-goog-resumable"],
+    "maxAgeSeconds": 3600
+  }
+]

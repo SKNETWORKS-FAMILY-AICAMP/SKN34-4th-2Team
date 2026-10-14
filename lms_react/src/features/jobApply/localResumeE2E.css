@@ -1,0 +1,18 @@
+.local-resume-e2e .card { overflow-wrap: anywhere; }
+.local-resume-e2e pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.local-resume-e2e label { display: block; margin-bottom: 12px; }
+.local-resume-e2e h3 { font-size: 14px; margin: 0 0 8px; }
+.local-resume-e2e section { margin-top: 22px; }
+.local-resume-e2e li { margin-bottom: 8px; line-height: 1.65; }
+.local-resume-e2e p { line-height: 1.65; }
+.local-resume-e2e__muted { color: var(--text-secondary); font-size: 13px; }
+.local-resume-e2e__question { white-space: pre-line; font-weight: 600; }
+.local-resume-e2e__tags, .local-resume-e2e__actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.local-resume-e2e__actions { margin-top: 20px; }
+.local-resume-e2e__selection { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.local-resume-e2e__focus, .local-resume-e2e__gaps { background: var(--surface-variant); padding: 16px; border-radius: 12px; }
+.local-resume-e2e__focus p, .local-resume-e2e__gap p { margin-bottom: 0; }
+.local-resume-e2e__gap + .local-resume-e2e__gap { margin-top: 18px; }
+.local-resume-e2e__debug { margin-top: 24px; color: var(--text-secondary); font-size: 12px; }
+.local-resume-e2e__debug summary { cursor: pointer; padding: 12px 0; }
+@media (max-width: 600px) { .local-resume-e2e__selection { grid-template-columns: 1fr; } }

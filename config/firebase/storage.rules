@@ -1,0 +1,117 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isActiveUser() {
+      return isAuthenticated()
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+        && (!('isActive' in getUserData()) || getUserData().isActive == true);
+    }
+
+    function isAdmin() {
+      return isActiveUser() && getUserData().role == 'admin';
+    }
+
+    function isInstructor() {
+      return isActiveUser() && getUserData().role == 'instructor';
+    }
+
+    function isInstructorOfCohort(cohortId) {
+      return isInstructor() && getUserData().cohortId == cohortId;
+    }
+
+    function belongsToCohort(cohortId) {
+      return isActiveUser() && getUserData().cohortId == cohortId;
+    }
+
+    function canAccessCohort(cohortId) {
+      return isAdmin() || belongsToCohort(cohortId);
+    }
+
+    // cohorts/{cohortId}/curriculum/{scopeId}/{fileName}
+    match /cohorts/{cohortId}/curriculum/{allPaths=**} {
+      allow read: if canAccessCohort(cohortId);
+      allow write: if isAdmin();
+    }
+
+    // cohorts/{cohortId}/materials/{materialId}/{fileName}
+    match /cohorts/{cohortId}/materials/{allPaths=**} {
+      allow read: if belongsToCohort(cohortId);
+      allow write: if isAdmin();
+    }
+
+    // cohorts/{cohortId}/records/{userId}/{submissionId}/{fileName}
+    match /cohorts/{cohortId}/records/{userId}/{allPaths=**} {
+      allow read: if belongsToCohort(cohortId)
+        && (isAdmin() || userId == request.auth.uid);
+      allow write: if belongsToCohort(cohortId)
+        && userId == request.auth.uid
+        && request.resource.size < 30 * 1024 * 1024;
+    }
+
+    // cohorts/{cohortId}/assignments/{assignmentId}/submissions/{userId}/{fileName}
+    match /cohorts/{cohortId}/assignments/{assignmentId}/submissions/{userId}/{allPaths=**} {
+      allow read: if belongsToCohort(cohortId)
+        && (isAdmin() || userId == request.auth.uid);
+      allow write: if belongsToCohort(cohortId)
+        && userId == request.auth.uid
+        && request.resource.size < 10 * 1024 * 1024; // 10MB 제한
+    }
+
+    // cohorts/{cohortId}/posts/{postId}/{fileName}
+    match /cohorts/{cohortId}/posts/{postId}/{allPaths=**} {
+      allow read: if belongsToCohort(cohortId);
+      allow write: if belongsToCohort(cohortId)
+        && request.resource.size < 5 * 1024 * 1024; // 5MB 제한
+    }
+
+    // cohorts/{cohortId}/notices/{userId}/{fileName}
+    match /cohorts/{cohortId}/notices/{userId}/{fileName} {
+      allow read: if canAccessCohort(cohortId);
+      allow write: if (isAdmin() || isInstructorOfCohort(cohortId))
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // cohorts/{cohortId}/assessments/{assessmentId}/thumbnails/{fileName}
+    match /cohorts/{cohortId}/assessments/{assessmentId}/thumbnails/{fileName} {
+      allow read: if canAccessCohort(cohortId)
+        || isInstructorOfCohort(cohortId);
+      allow write: if (isAdmin() || isInstructorOfCohort(cohortId))
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // cohorts/{cohortId}/curriculumSheets/{sheetId}/{fileName}
+    match /cohorts/{cohortId}/curriculumSheets/{sheetId}/{fileName} {
+      allow read: if isAdmin() || isInstructorOfCohort(cohortId);
+      allow write: if (isAdmin() || isInstructorOfCohort(cohortId))
+        && request.resource.size < 5 * 1024 * 1024;
+    }
+
+    // cohorts/{cohortId}/resumes/{resumeId}/{fileName}
+    match /cohorts/{cohortId}/resumes/{resumeId}/{allPaths=**} {
+      allow read: if belongsToCohort(cohortId);
+      allow write: if belongsToCohort(cohortId)
+        && request.resource.size < 5 * 1024 * 1024;
+    }
+
+    // users/{userId}/profile/{fileName} — 프로필 사진
+    match /users/{userId}/profile/{fileName} {
+      allow read: if isActiveUser();
+      allow write: if isActiveUser()
+        && request.auth.uid == userId
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+  }
+}

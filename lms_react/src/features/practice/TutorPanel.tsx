@@ -1,0 +1,472 @@
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from 'react';
+
+import { readApiError } from '../../data/http';
+import { askTutor, fetchTutorThread, resetTutorThread, type TutorQuestion, type TutorTurn } from '../../data/repository';
+import { Icon } from '../../ui/Icon';
+import { useTutor, type TutorTarget } from './TutorContext';
+
+const LADDER = ['방향', '위치', '거의'];
+
+function threadKey(t: TutorTarget | null) {
+  if (!t) return '';
+  return t.mode === 'problem' ? `${t.thread ? `${t.thread}:` : ''}set:${t.setId}:${t.index}` : 'cell';
+}
+
+/**
+ * 연습장 오른쪽에 붙는 튜터.
+ *
+ * - 문제 튜터: 문제 셀은 3단계 힌트(방향 → 위치 → 거의). 「힌트 더」를 눌러야 단계가 오른다.
+ *   정답 코드는 주지 않는다 — 「정답 알려 줘」는 문제 아래 「모범답안 보기」 규칙을 알려 준다.
+ *   일반 코드 셀은 코드 · 오류 설명.
+ *
+ * 한도는 없다. 잡담은 서버가 LLM 없이 돌려보내고, 이어지면 잠시 멈춘다.
+ */
+/** 이 폭 이하에서는 튜터가 오른쪽 패널이 아니라 아래 시트다(이력서 코치와 같다). CSS 의 1100 과 맞춘다 */
+const SHEET_QUERY = '(max-width: 1100px)';
+const SHEET_HEIGHT_KEY = 'py_tutor_sheet_height';
+const SHEET_MIN = 200;
+/** 위에 남길 높이 — 상단 막대(70) + 코드가 보일 최소 200 */
+const SHEET_KEEP_ABOVE = 270;
+
+function useSheet(): boolean {
+  const [sheet, setSheet] = useState(() => window.matchMedia(SHEET_QUERY).matches);
+  useEffect(() => {
+    const query = window.matchMedia(SHEET_QUERY);
+    const onChange = () => setSheet(query.matches);
+    // 옛 Safari(14 전)는 addListener 만 있다. 둘 다 없으면(테스트의 가짜 matchMedia) 처음 값으로 둔다
+    if (typeof query.addEventListener === 'function') {
+      query.addEventListener('change', onChange);
+      return () => query.removeEventListener('change', onChange);
+    }
+    query.addListener?.(onChange);
+    return () => query.removeListener?.(onChange);
+  }, []);
+  return sheet;
+}
+
+/** 처음 높이 — 창의 45%, 낮은 휴대폰에서도 380 은 준다(탭 · 대상 · 입력칸이 고정으로 자리를 먹어 대화가 안 보였다) */
+function sheetDefault(): number {
+  return clampSheet(Math.max(380, window.innerHeight * 0.45));
+}
+
+function clampSheet(height: number): number {
+  return Math.round(Math.min(Math.max(height, SHEET_MIN), Math.max(SHEET_MIN, window.innerHeight - SHEET_KEEP_ABOVE)));
+}
+
+/**
+ * 좁은 화면 시트의 높이 — 맨 위 막대를 위아래로 끈다. 끄는 동안은 CSS 변수만 고치고 손을 떼면 남긴다.
+ * 두 번 누르면 처음 높이(sheetDefault).
+ */
+function useSheetHeight(root: RefObject<HTMLElement | null>) {
+  const [height, setHeight] = useState<number>(() => {
+    try {
+      const saved = Number(window.localStorage.getItem(SHEET_HEIGHT_KEY));
+      return saved > 0 ? saved : sheetDefault();
+    } catch {
+      return sheetDefault();
+    }
+  });
+  const drag = useRef<{ startY: number; from: number; last: number } | null>(null);
+
+  const commit = (next: number) => {
+    setHeight(next);
+    try {
+      window.localStorage.setItem(SHEET_HEIGHT_KEY, String(next));
+    } catch {
+      /* 못 남겨도 이번에는 이 높이 */
+    }
+  };
+
+  const grip = {
+    onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      const from = clampSheet(height);
+      drag.current = { startY: e.clientY, from, last: from };
+    },
+    onPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+      const d = drag.current;
+      if (d === null) return;
+      // 위로 끌면(거리가 음수) 시트가 커진다
+      d.last = clampSheet(d.from - (e.clientY - d.startY));
+      root.current?.style.setProperty('--tutor-h', `${d.last}px`);
+    },
+    onPointerUp() {
+      const d = drag.current;
+      drag.current = null;
+      if (d !== null) commit(d.last);
+    },
+    onDoubleClick() {
+      commit(sheetDefault());
+    },
+  };
+  return { height: clampSheet(height), grip };
+}
+
+export function TutorPanel() {
+  const tutor = useTutor();
+  const sheet = useSheet();
+  const rootRef = useRef<HTMLElement>(null);
+  const { height: sheetHeight, grip } = useSheetHeight(rootRef);
+  const target = tutor?.target ?? null;
+  const key = threadKey(target);
+  const [turns, setTurns] = useState<ViewTurn[]>([]);
+  const [level, setLevel] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const [draft, setDraft] = useState('');
+  const [confirmReset, setConfirmReset] = useState(false);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // 문제가 바뀌면 그 문제의 지난 대화 · 힌트 단계를 불러온다
+  useEffect(() => {
+    if (!target) return;
+    let alive = true;
+    setTurns([]);
+    setLevel(0);
+    setError('');
+    setConfirmReset(false);
+    setLoading(true);
+    fetchTutorThread(target.mode, target.setId, target.index, target.thread)
+      .then((th) => {
+        if (!alive) return;
+        setTurns(th.turns);
+        setLevel(th.hintLevel);
+      })
+      .catch(async (e) => {
+        const message = await readApiError(e);
+        if (alive) setError(message);
+      })
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+    // 같은 대화(일반 셀끼리)면 다시 부르지 않는다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  /** 「새 대화」 — 서버의 이 대화를 지우고 창을 비운다 */
+  const startOver = async () => {
+    if (!target) return;
+    setConfirmReset(false);
+    setError('');
+    try {
+      await resetTutorThread(target.mode, target.setId, target.index, target.thread);
+      setTurns([]);
+      setLevel(0);
+    } catch (e) {
+      setError(await readApiError(e));
+    }
+  };
+
+  // 처음 열 때만 입력칸으로 — 열린 채 셀을 옮겨 다닐 땐(따라가기) 편집기 포커스를 뺏지 않는다
+  const isOpen = Boolean(target);
+  useEffect(() => {
+    if (!isOpen) return;
+    inputRef.current?.focus();
+  }, [isOpen]);
+
+  useEffect(() => {
+    bodyRef.current?.scrollTo?.({ top: bodyRef.current.scrollHeight, behavior: 'smooth' });
+  }, [turns, sending]);
+
+  if (!tutor || !target) return null;
+  const isProblem = target.mode === 'problem';
+  const snapshot = target.read();
+  const hasError = /Error|오류|에러|Traceback/.test(snapshot.run);
+
+  const send = async (action: TutorQuestion['action'], question = '', fromDraft = false) => {
+    if (sending) return;
+    const now = target.read();
+    const text = question.trim() || (action === 'more' ? '힌트 더 주세요' : action === 'answer' ? '정답 알려 주세요' : '');
+    if (!text) return;
+    setSending(true);
+    setError('');
+    setTurns((t) => [...t, { role: 'user', text, kind: null, hintLevel: null, lines: [], at: new Date().toISOString() }]);
+    try {
+      const r = await askTutor({
+        mode: target.mode,
+        action,
+        question: question.trim() || undefined,
+        setId: target.setId,
+        index: target.index,
+        thread: target.thread,
+        ...now,
+      });
+      const at = new Date().toISOString();
+      // 가리킨 줄은 글이 다 풀린 뒤에 칠한다(TurnBubble onDone)
+      const fresh = { cellId: target.cellId };
+      setTurns((t) => [...t, { role: 'assistant', text: r.reply, kind: r.kind, hintLevel: r.hintLevel, lines: r.lines, at, fresh }]);
+      if (r.hintLevel) setLevel(r.hintLevel);
+    } catch (e) {
+      setTurns((t) => t.slice(0, -1));
+      setError(await readApiError(e));
+      if (fromDraft) setDraft(question);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const submit = (e?: FormEvent) => {
+    e?.preventDefault();
+    const q = draft.trim();
+    if (!q) return;
+    setDraft('');
+    void send('ask', q, true);
+  };
+
+  return (
+    <aside
+      ref={rootRef}
+      className={`tutor${sheet ? ' tutor--sheet' : ''}`}
+      aria-label="튜터"
+      // 좁은 화면 — 아래 시트. 셸이 이 표시를 보고 내려 읽을 때 상단 막대를 숨긴다
+      data-autohide-bar={sheet ? '' : undefined}
+      style={sheet ? ({ '--tutor-h': `${sheetHeight}px` } as CSSProperties) : undefined}
+    >
+      {sheet && (
+        <div
+          className="tutor__grip"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="튜터 높이 조절 · 두 번 누르면 처음 높이"
+          onPointerDown={grip.onPointerDown}
+          onPointerMove={grip.onPointerMove}
+          onPointerUp={grip.onPointerUp}
+          onPointerCancel={grip.onPointerUp}
+          onDoubleClick={grip.onDoubleClick}
+        />
+      )}
+      <header className="tutor__head">
+        <div className="tutor__title">
+            <Icon name="school" size={17} />
+            {isProblem ? '문제 튜터' : '코드 튜터'}
+        </div>
+        <button
+          type="button"
+          className="py-icon-btn"
+          onClick={() => setConfirmReset(true)}
+          disabled={turns.length === 0 || sending || loading}
+          aria-label="새 대화"
+          title="새 대화 — 지난 대화를 지우고 처음부터"
+        >
+          <Icon name="restart_alt" size={18} />
+        </button>
+        <button type="button" className="py-icon-btn" onClick={tutor.close} aria-label="튜터 닫기" title="닫기">
+          <Icon name="close" size={18} />
+        </button>
+      </header>
+
+      {confirmReset && (
+        <div className="tutor__confirm" role="alertdialog" aria-label="새 대화">
+          <p>
+            {isProblem
+              ? '이 문제의 지난 대화를 지우고 새로 시작할까요? 힌트도 1단계부터 다시 받아요.'
+              : '코드 튜터와 나눈 지난 대화를 지우고 새로 시작할까요?'}
+          </p>
+          <div>
+            <button type="button" className="btn btn--text btn--sm" onClick={() => setConfirmReset(false)}>
+              취소
+            </button>
+            <button type="button" className="btn btn--filled btn--sm" onClick={() => void startOver()}>
+              지우고 새로 시작
+            </button>
+          </div>
+        </div>
+      )}
+
+        <>
+          <div className="tutor__target">
+            <strong>{target.label}</strong>
+            {isProblem ? (
+              <div className="tutor__ladder" aria-label={`힌트 ${level} / 3단계`}>
+                {LADDER.map((name, i) => (
+                  <span key={name} className={i < level ? 'on' : ''}>
+                    {i + 1} {name}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <span className="tutor__sub">코드가 하는 일이나 오류를 설명해 줘요</span>
+            )}
+          </div>
+
+          <div className="tutor__body" ref={bodyRef} aria-live="polite">
+            {loading && <p className="tutor__empty">지난 대화를 불러오는 중…</p>}
+            {!loading && turns.length === 0 && (
+              <p className="tutor__empty">
+                {isProblem
+                  ? '막힌 곳을 물어보세요. 정답 코드는 주지 않고, 스스로 고칠 수 있게 한 단계씩 힌트를 줘요.'
+                  : '이 셀의 코드나 오류를 물어보세요. 실행한 결과도 함께 보내요.'}
+              </p>
+            )}
+            {turns.map((t, i) => (
+              <TurnBubble
+                key={i}
+                turn={t}
+                onLines={(lines) => tutor.mark(target.cellId, lines)}
+                onTick={() => bodyRef.current?.scrollTo?.({ top: bodyRef.current.scrollHeight })}
+                onDone={() => t.fresh && tutor.mark(t.fresh.cellId, t.lines)}
+              />
+            ))}
+            {sending && (
+              <div className="tutor__msg tutor__msg--bot tutor__msg--wait">
+                <span className="tutor__dots" aria-label="답을 쓰는 중">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+              </div>
+            )}
+          </div>
+
+          {error && (
+            <p className="tutor__error" role="alert">
+              {error}
+            </p>
+          )}
+
+          <div className="tutor__chips">
+            {isProblem ? (
+              <>
+                <button type="button" onClick={() => send('more')} disabled={sending || level >= 3}>
+                  <Icon name="lightbulb" size={15} />
+                  {/* 괄호 숫자는 누르면 받을 단계 — 「힌트 더 (1/3)」은 하나 받은 것처럼 읽혔다 */}
+                  {level >= 3 ? '마지막 힌트까지 봤어요' : level === 0 ? '힌트 보기 (1/3)' : `다음 힌트 (${level + 1}/3)`}
+                </button>
+                <button type="button" onClick={() => send('ask', '어디가 틀렸는지 알려 주세요')} disabled={sending}>
+                  어디가 틀렸어요?
+                </button>
+                <button type="button" onClick={() => send('answer')} disabled={sending}>
+                  정답 알려 줘
+                </button>
+              </>
+            ) : (
+              <>
+                {hasError && (
+                  <button type="button" onClick={() => send('ask', '이 오류가 왜 났는지 설명해 주세요')} disabled={sending}>
+                    <Icon name="error" size={15} />이 오류 설명
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => send('ask', '이 코드가 하는 일을 설명해 주세요')}
+                  disabled={sending || !snapshot.code.trim()}
+                >
+                  이 코드 설명
+                </button>
+              </>
+            )}
+          </div>
+
+          <form className="tutor__form" onSubmit={submit}>
+            <textarea
+              ref={inputRef}
+              value={draft}
+              rows={2}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+              placeholder={isProblem ? '예: 왜 테스트 2번이 틀려요?' : '예: 3번째 줄이 뭘 하는 거예요?'}
+              aria-label="튜터에게 질문"
+            />
+            <button type="submit" className="btn btn--filled btn--sm" disabled={sending || !draft.trim()} aria-label="보내기">
+              <Icon name="send" size={17} />
+            </button>
+          </form>
+          <p className="tutor__foot">
+            지금 코드 · 실행 결과{isProblem ? ' · 채점 결과' : ''}를 함께 보내요. 문제와 코드에 대한 질문만 받아요.
+          </p>
+        </>
+    </aside>
+  );
+}
+
+/** 방금 받은 답 — 다 받은 뒤 타자 치듯 푼다(학습 도우미 챗봇과 같은 느낌). 서버에서 이미 정답을 가린 글이라 그대로 풀어도 된다 */
+type ViewTurn = TutorTurn & { fresh?: { cellId: string } };
+
+const TYPE_TICK_MS = 22;
+/** 길어도 0.7초 안에 끝나게 한 번에 여러 글자씩 */
+const TYPE_MAX_TICKS = 32;
+
+function prefersReducedMotion() {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+}
+
+function useTyping(text: string, active: boolean, onTick: () => void, onDone: () => void) {
+  const [shown, setShown] = useState(active && !prefersReducedMotion() ? 0 : text.length);
+  const latest = useRef({ onTick, onDone });
+  latest.current = { onTick, onDone };
+  useEffect(() => {
+    if (shown >= text.length) {
+      if (active) latest.current.onDone();
+      return;
+    }
+    const step = Math.max(2, Math.ceil(text.length / TYPE_MAX_TICKS));
+    const id = window.setTimeout(() => {
+      setShown((n) => Math.min(text.length, n + step));
+      latest.current.onTick();
+    }, TYPE_TICK_MS);
+    return () => window.clearTimeout(id);
+  }, [shown, text, active]);
+  return { text: text.slice(0, shown), done: shown >= text.length };
+}
+
+function TurnBubble({
+  turn,
+  onLines,
+  onTick,
+  onDone,
+}: {
+  turn: ViewTurn;
+  onLines: (lines: number[]) => void;
+  onTick: () => void;
+  onDone: () => void;
+}) {
+  const typed = useTyping(turn.text, Boolean(turn.fresh), onTick, onDone);
+  if (turn.role === 'user') return <div className="tutor__msg tutor__msg--me">{turn.text}</div>;
+  const muted = turn.kind === 'offtopic' || turn.kind === 'locked';
+  return (
+    <div className={`tutor__msg tutor__msg--bot${muted ? ' tutor__msg--muted' : ''}`}>
+      {turn.kind === 'hint' && turn.hintLevel && (
+        <span className="tutor__badge">
+          힌트 {turn.hintLevel}단계 · {LADDER[turn.hintLevel - 1]}
+        </span>
+      )}
+      {turn.kind === 'locked' && (
+        <span className="tutor__badge">
+          <Icon name="lock" size={13} />
+          정답은 직접
+        </span>
+      )}
+      <p>
+        {typed.text}
+        {!typed.done && <span className="tutor__caret" aria-hidden />}
+      </p>
+      {typed.done && turn.lines.length > 0 && (
+        <div className="tutor__lines">
+          {turn.lines.map((n) => (
+            <button key={n} type="button" onClick={() => onLines([n])}>
+              {n}번째 줄 보기
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

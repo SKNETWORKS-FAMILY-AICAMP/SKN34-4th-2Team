@@ -1,0 +1,410 @@
+/* 공고 원문 — 추천 카드에서 새 탭으로 여는 화면 */
+
+.posting {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  box-sizing: border-box;
+  width: min(900px, 100%);
+  margin: 0 auto;
+  padding: 32px 40px 40px;
+  color: var(--text-primary);
+}
+
+.posting--state {
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.posting__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.posting__heading {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.posting__source {
+  align-self: flex-start;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.posting__heading h1 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.3;
+}
+
+.posting__heading p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+/* 사이트마다 원문 링크 — 같은 공고가 사람인 · 잡코리아에 함께 있으면 둘 */
+.posting__links {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.posting__links .btn {
+  text-decoration: none;
+}
+
+.posting__link-closed {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning) 20%, transparent);
+  font-size: 11px;
+}
+
+.posting__closed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warning) 14%, var(--surface));
+  font-size: 13px;
+}
+
+.posting__facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-variant);
+}
+
+.posting__facts dt {
+  margin-bottom: 3px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.posting__facts dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.posting__skills {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.posting__label {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.posting__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.posting__tag {
+  padding: 4px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+.posting__tag.is-required {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.posting__body {
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+/* 소제목 — 주요업무 · 자격요건 · 우대사항 … */
+.posting__body h2 {
+  margin: 22px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.posting__body h2:first-child {
+  margin-top: 0;
+}
+
+.posting__body h3 {
+  margin: 14px 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.posting__body p {
+  margin: 0 0 6px;
+}
+
+/* 직무별 공고의 직무 이름 — 그 아래 자격사항 · 우대사항(h3)을 묶는 머리 */
+.posting__body .posting__role {
+  margin: 20px 0 8px;
+  padding: 7px 12px;
+  border-left: 3px solid var(--primary);
+  border-radius: 6px;
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.posting__body ul {
+  margin: 0 0 6px;
+  padding-left: 20px;
+}
+
+.posting__body li {
+  margin: 3px 0;
+}
+
+.posting__body li::marker {
+  color: var(--text-hint);
+}
+
+.posting__body--empty {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.posting__foot {
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  .posting {
+    padding: 20px 16px 32px;
+  }
+
+  .posting__head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .posting__facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* 추천 카드에서 여는 공고 원문 창 — 첨삭 창처럼 화면 위에 뜬다 */
+.posting-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 880;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 54%);
+}
+
+.posting-window {
+  display: flex;
+  flex-direction: column;
+  width: min(960px, 100%);
+  height: min(860px, 100%);
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--background);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 24%);
+}
+
+.posting-window__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.posting-window__head strong {
+  font-size: 16px;
+}
+
+.posting-window__head .btn {
+  text-decoration: none;
+}
+
+.posting-window__icon {
+  color: var(--primary);
+}
+
+.posting-window__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.posting-window__body .posting {
+  padding: 24px 32px 32px;
+}
+
+@media (max-width: 600px) {
+  .posting-layer {
+    padding: 0;
+  }
+
+  .posting-window {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+  }
+
+  .posting-window__body .posting {
+    padding: 20px 16px 28px;
+  }
+}
+
+/* 사람인 간편 양식 공고의 표(PostingForm) — 칸 이름 · 값. 직종 분류는 대분류마다 한 줄 */
+.posting__form {
+  display: grid;
+  gap: 0;
+  margin: 0 0 10px;
+}
+
+.posting__form-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.posting__form-row:last-child {
+  border-bottom: 0;
+}
+
+.posting__form dt {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.posting__form dd {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.posting__cats {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.posting__cat-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.posting__cat-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.posting__cat {
+  padding: 1px 8px;
+  border-radius: 6px;
+  background: var(--surface-variant);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+@media (max-width: 560px) {
+  .posting__form-row,
+  .posting__cats {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+}
+
+/* 이미지로 된 부분(ImageText) — 원본 이미지 링크 + 이미지에서 읽은 글 */
+.posting__image {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 10px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--surface-variant);
+}
+
+.posting__image-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.posting__image-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: auto;
+  font-weight: 700;
+}
+
+.posting__image summary {
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.posting__image summary span {
+  margin-left: 4px;
+  color: var(--text-hint);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.posting__image p {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
+.posting__image .posting__image-note {
+  margin: 8px 0 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}

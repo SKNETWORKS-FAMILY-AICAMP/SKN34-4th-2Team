@@ -1,0 +1,371 @@
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+
+import { usePageCrumbs } from '../../app/crumbs';
+import { RoutePaths } from '../../app/routePaths';
+import { useFullPracticeSets, useMyPracticeAttempts, usePracticeSets } from '../../data/repository';
+import { useCurrentUser } from '../auth/session';
+import { Icon } from '../../ui/Icon';
+import { NotebookCellView } from './NotebookCellView';
+import { FocusedPracticeNotebook } from './FocusedPracticeNotebook';
+import { NotebookToolbar } from './NotebookToolbar';
+import { PYODIDE_VERSION } from './pythonProtocol';
+import { usePythonRunner, type RunnerStatus } from './pythonRunner';
+import { isRetryId, RETRY_SET_ID, retryItems } from './review';
+import { TutorProvider, useTutor } from './TutorContext';
+import { TutorPanel } from './TutorPanel';
+import { useNotebook, type Notebook } from './useNotebook';
+import { compact } from '../study/lessonCode';
+import { noteCodeStoreKey } from './notebookModel';
+import type { NoteCodeRequest } from './PracticeDock';
+import { usePracticeSetMode, type PracticeSetMode } from './usePracticeSetMode';
+
+const STATUS_TEXT: Record<RunnerStatus, string> = {
+  idle: '대기',
+  loading: '런타임 불러오는 중',
+  ready: '준비됨',
+  running: '실행 중',
+  error: '불러오지 못함',
+};
+
+/**
+ * 연습장 — 노트북처럼 셀을 나눠 돌린다.
+ *
+ * ?set= 없이 열면 자유 연습장, ?set=<세트 id> 면 그날 복습 문제, ?set=retry 면 다시 풀 문제.
+ * 세트가 바뀌면 통째로 다시 그린다(key).
+ *
+ * 조각:
+ *   useNotebook          셀 상태 · 실행 대기열 · 편집 동작
+ *   usePracticeSetMode   어떤 문제 세트인지 · 풀이 기록 · 진행률
+ *   NotebookToolbar      도구 줄 · 입력값 · 단축키
+ *   NotebookCellView     셀 한 칸(코드·마크다운·문제)과 출력
+ *   TutorPanel           오른쪽에 붙는 튜터 — 문제 셀은 힌트, 코드 셀은 설명(서버 LLM)
+ *
+ * 코드는 이 브라우저 안(Pyodide)에서만 돈다. 튜터에게 물을 때만 그 셀의 코드 · 출력이 서버로 간다.
+ */
+export function PythonPlaygroundScreen() {
+  const [params] = useSearchParams();
+  const setId = params.get('set');
+  const focus = Number(params.get('focus') ?? 0);
+  return (
+    <TutorProvider key={setId ?? 'free'}>
+      <PracticeSetGate setId={setId}>
+        <Playground setId={setId} focusProblem={focus} />
+      </PracticeSetGate>
+    </TutorProvider>
+  );
+}
+
+/**
+ * 문제 본문이 다 온 뒤에 연습장을 연다. bootstrap 은 목록만 보내서, 본문 없이 열면
+ * 빈 시작 코드로 셀이 만들어져 저장된다. 다시 풀 문제는 틀린 문제가 있는 세트를 모두 받는다.
+ */
+function PracticeSetGate({ setId, children }: { setId: string | null; children: ReactNode }) {
+  const user = useCurrentUser();
+  const sets = usePracticeSets(user.cohortId);
+  const attempts = useMyPracticeAttempts(user.uid);
+  // 다시 풀 문제(retry · 오답노트의 retry:all · retry:날짜)는 틀린 문제가 있는 세트를 모두 받는다
+  const ids = isRetryId(setId) ? retryItems(sets, attempts).map((i) => i.set.id) : setId ? [setId] : [];
+  const { ready, failed } = useFullPracticeSets(ids);
+
+  if (failed) {
+    return (
+      <div className="screen__inner">
+        <p className="muted">문제를 불러오지 못했습니다. 잠시 후 다시 열어 주세요.</p>
+      </div>
+    );
+  }
+  if (!ready) {
+    return (
+      <div className="screen__inner">
+        <p className="muted" role="status">
+          <span className="spinner" aria-hidden /> 문제를 불러오고 있어요…
+        </p>
+      </div>
+    );
+  }
+  return <>{children}</>;
+}
+
+/**
+ * 창(PracticeDock) 안의 연습장 탭 하나. 화면(route)과 같은 연습장이다 — 다른 것은 둘.
+ * 위 경로 표시(crumbs)를 건드리지 않고, 보이는 탭일 때만 로봇을 숨긴다.
+ */
+export function EmbeddedPlayground({
+  setId,
+  focusProblem,
+  focusRequest,
+  note,
+  active,
+  onFinish,
+}: {
+  setId: string | null;
+  focusProblem: number;
+  focusRequest?: number;
+  note?: NoteCodeRequest;
+  active: boolean;
+  onFinish?: () => void;
+}) {
+  return (
+    <TutorProvider>
+      <PracticeSetGate setId={setId}>
+        <Playground setId={setId} focusProblem={focusProblem} focusRequest={focusRequest} note={note} embedded active={active} onFinish={onFinish} />
+      </PracticeSetGate>
+    </TutorProvider>
+  );
+}
+
+function Playground({
+  setId,
+  focusProblem,
+  focusRequest,
+  note,
+  embedded = false,
+  active = true,
+  onFinish,
+}: {
+  setId: string | null;
+  focusProblem: number;
+  focusRequest?: number;
+  note?: NoteCodeRequest;
+  embedded?: boolean;
+  active?: boolean;
+  onFinish?: () => void;
+}) {
+  const navigate = useNavigate();
+  const { runner, status } = usePythonRunner();
+  const mode = usePracticeSetMode(setId);
+  const nb = useNotebook(runner, mode.set, note ? { key: noteCodeStoreKey(note.noteId), intro: noteCodeIntro(note.title) } : undefined);
+  useNoteCode(nb, note);
+
+  const lastId = nb.cells[nb.cells.length - 1]?.id ?? '';
+
+  const tutor = useTutor();
+  const tutorOpen = Boolean(tutor?.target);
+
+  const [playground, setPlayground] = useState<HTMLDivElement | null>(null);
+  const topRef = useRef<HTMLDivElement>(null);
+  const stuck = useStickyTop(playground, topRef);
+
+  // 튜터가 열려 있으면 고른 셀을 따라간다
+  const follow = tutor?.follow;
+  useEffect(() => {
+    follow?.(nb.activeId);
+  }, [follow, nb.activeId]);
+
+  // 튜터가 열려 있으면 오른쪽 아래 로봇(학습 도우미)을 숨긴다 — 패널 입력칸을 가린다.
+  useEffect(() => {
+    const hide = tutorOpen && active;
+    document.body.classList.toggle('py-tutor-open', hide);
+    return () => {
+      if (hide) document.body.classList.remove('py-tutor-open');
+    };
+  }, [tutorOpen, active]);
+
+  return (
+    <div className={`py-layout${mode.set ? ' py-layout--focused' : ''}${tutorOpen ? ' py-layout--tutor' : ''}`}>
+      {!embedded && <PlaygroundCrumbs mode={mode} />}
+      <div className="screen__inner py-playground" ref={setPlayground}>
+        {/* 제목 · 진행 막대 · 도구 줄은 스크롤해도 위에 붙어 있다. 붙어 있는 동안은 설명 줄을 접는다 */}
+        {!mode.set && <div className={`py-top${stuck ? ' py-top--stuck' : ''}`} ref={topRef}>
+          <header className="study-head">
+            {note ? <NoteCodeTitle title={note.title} /> : <PlaygroundTitle mode={mode} />}
+            <span className={`py-status py-status--${status}`} title={`Pyodide ${PYODIDE_VERSION}`}>
+              <span className="py-status__lamp" />
+              <span>
+                <strong>Python</strong> · {STATUS_TEXT[status]}
+              </span>
+            </span>
+          </header>
+
+          <NotebookToolbar nb={nb} set={mode.set} />
+        </div>}
+
+        {setId && !mode.set && (
+          <div className="py-kernel-note" role="status">
+            <Icon name="info" size={18} />
+            <span>
+              {setId === RETRY_SET_ID
+                ? '다시 풀 문제가 없어요. 틀린 복습 문제는 다음 날부터 여기에 모여요 — 바로 다시 풀면 기억으로 맞히기 쉬워서 하루 둬요.'
+                : isRetryId(setId)
+                  ? '여기 모을 틀린 문제가 없어요. 다 풀었거나 숨겨진 문제예요.'
+                  : '찾는 복습 세트가 없어요. 공부방의 수업 카드에서 다시 골라 주세요.'}
+            </span>
+          </div>
+        )}
+
+        {nb.kernelNote && (
+          <div className="py-kernel-note" role="status">
+            <Icon name="info" size={18} />
+            <span>{nb.kernelNote}</span>
+            <button type="button" onClick={nb.dismissKernelNote} aria-label="닫기">
+              <Icon name="close" size={16} />
+            </button>
+          </div>
+        )}
+
+        {mode.set ? <FocusedPracticeNotebook nb={nb} mode={mode} focusProblem={focusProblem} focusRequest={focusRequest} status={status}
+          onFinish={() => { onFinish?.(); navigate(RoutePaths.studyRoomNotes); }} /> : <div className="py-notebook">
+          {nb.cells.map((cell, index) => (
+            <NotebookCellView key={cell.id} cell={cell} index={index} total={nb.cells.length} nb={nb} mode={mode} />
+          ))}
+          <div className="py-add-row">
+            <button type="button" className="py-add-cell" onClick={() => nb.addCellAfter(lastId)}>
+              <Icon name="add" size={18} />
+              코드 셀
+            </button>
+            <button type="button" className="py-add-cell" onClick={() => nb.addCellAfter(lastId, 'markdown')}>
+              <Icon name="notes" size={18} />
+              마크다운 셀
+            </button>
+            <button type="button" className="py-add-cell" onClick={() => nb.addCellAfter(lastId, 'sql')}>
+              <Icon name="database" size={18} />
+              SQL 셀
+            </button>
+          </div>
+        </div>}
+
+        {!mode.set && <p className="py-foot">
+          파일 읽기·인터넷 요청은 쓸 수 없습니다. torch·cv2 같은 모델 라이브러리도 브라우저에서는 돌지 않습니다. 그래프의 한글은 글꼴이 없어 네모로
+          나오니 영어로 적어 주세요. 마지막 줄 끝에 <code>;</code>를 붙이면 값 표시를 숨깁니다.
+        </p>}
+      </div>
+      <TutorPanel />
+    </div>
+  );
+}
+
+/** 노트 코드 탭의 첫 셀 */
+function noteCodeIntro(title: string): string {
+  return (
+    `#### ${title} 노트에서 연 코드
+` +
+    '노트의 코드는 수업 코드를 잘라 온 것이라, 앞 셀이 없으면 `NameError` 가 날 수 있어요. ' +
+    '그럴 때는 노트에서 「수업 파일에서 보기」를 눌러 수업 파일의 앞뒤 셀을 가져오세요.'
+  );
+}
+
+/**
+ * 노트 코드 탭 — 노트에서 누른 코드가 탭에 없으면 끝에 덧붙이고, 그 코드가 든 셀로 간다.
+ * 같은 코드를 다시 누르면 덧붙이지 않고 그 셀로만 간다.
+ */
+function useNoteCode(nb: Notebook, note: NoteCodeRequest | undefined) {
+  const { cells, setActiveId, appendCells } = nb;
+  const handled = useRef(-1);
+  const [target, setTarget] = useState<{ want: string; seq: number } | null>(null);
+  useEffect(() => {
+    if (!note || handled.current === note.seq) return;
+    handled.current = note.seq;
+    const want = compact(note.focusText);
+    if (!cells.some((c) => compact(c.code).includes(want))) appendCells(note.cells);
+    setTarget({ want, seq: note.seq });
+    // 누를 때(seq)만 — 셀이 바뀔 때마다 다시 덧붙이지 않는다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note?.seq]);
+
+  const done = useRef(-1);
+  useEffect(() => {
+    if (!target || done.current === target.seq) return;
+    const cell = cells.find((c) => compact(c.code).includes(target.want));
+    if (!cell) return;
+    done.current = target.seq;
+    setActiveId(cell.id);
+    // 탭을 막 열면 코드 편집기가 늦게 그려져 셀 높이가 나중에 늘어난다. 자리 잡을 때까지 몇 번 다시 맞춘다
+    const go = () => document.querySelector(`[data-cell-id="${cell.id}"]`)?.scrollIntoView({ block: 'center' });
+    const timers = [0, 300, 900].map((ms) => window.setTimeout(go, ms));
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [target, cells, setActiveId]);
+}
+
+/** 노트 코드 탭의 제목 */
+/**
+ * 위에 붙는 머리(제목 · 도구 줄) — 붙어 있는지 돌려주고, 높이를 --py-top-h 로 셀에 알린다(셀로 스크롤할 때 머리 밑에 서게).
+ * 붙는 자리는 CSS 가 정한다: 화면은 상단 막대 밑, 창(.pd-pane)은 창 몸통 맨 위, 좁은 화면은 붙지 않는다.
+ */
+function useStickyTop(root: HTMLElement | null, topRef: RefObject<HTMLDivElement | null>): boolean {
+  const [stuck, setStuck] = useState(false);
+
+  useEffect(() => {
+    const top = topRef.current;
+    if (root === null || top === null || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      root.style.setProperty('--py-top-h', `${Math.round(top.getBoundingClientRect().height)}px`);
+    });
+    observer.observe(top);
+    return () => observer.disconnect();
+  }, [root, topRef]);
+
+  useEffect(() => {
+    const top = topRef.current;
+    if (root === null || top === null) return;
+    // 머리는 연습장의 첫 줄이다 — 연습장이 위로 지나가는데 머리가 남아 있으면 붙은 것
+    const check = () => setStuck(top.getBoundingClientRect().top - root.getBoundingClientRect().top > 0.5);
+    check();
+    // 창(.pd-pane) 안의 스크롤은 window 로 올라오지 않아서 capture 로 받는다
+    window.addEventListener('scroll', check, { capture: true, passive: true });
+    window.addEventListener('resize', check);
+    return () => {
+      window.removeEventListener('scroll', check, { capture: true });
+      window.removeEventListener('resize', check);
+    };
+  }, [root, topRef]);
+
+  return stuck;
+}
+
+function NoteCodeTitle({ title }: { title: string }) {
+  return (
+    <div>
+      <h1 className="study-head__title">{title} 노트 코드</h1>
+      <p className="study-head__desc">노트에서 누른 코드만 모아요. 고쳐 실행해 봐도 노트와 수업 파일은 바뀌지 않아요.</p>
+    </div>
+  );
+}
+
+/** 위 경로 표시 — 화면으로 열었을 때만. 창 안에서는 뒤 화면의 경로를 덮지 않는다 */
+function PlaygroundCrumbs({ mode }: { mode: PracticeSetMode }) {
+  usePageCrumbs(
+    mode.set
+      ? [
+          { label: '학습실', to: RoutePaths.studyRoom },
+          { label: '공부방', to: RoutePaths.studyRoomNotes },
+          { label: mode.isRetry ? '다시 풀 문제' : '복습 문제' },
+        ]
+      : [{ label: '학습실', to: RoutePaths.studyRoom }, { label: '연습장' }],
+  );
+  return null;
+}
+
+/** 위치 · 제목 · 설명, 문제 세트면 진행 막대 */
+function PlaygroundTitle({ mode }: { mode: PracticeSetMode }) {
+  const { set, isRetry, passedCount, visibleCount } = mode;
+  return (
+    <div>
+      <h1 className="study-head__title">
+        {/* 주제(set.title)는 설명 줄로 — 제목에 붙이면 주제 세 개가 22px 로 두 줄씩 꺾였다 */}
+        {isRetry ? (set?.dayLabel ?? '다시 풀 문제') : set ? `${set.dayLabel} 복습` : '연습장'}
+      </h1>
+      <p className="study-head__desc">
+        {isRetry && set
+          ? `지난 복습에서 통과하지 못한 문제 ${set.problems.length}개입니다. 통과하면 다음에 열 때 목록에서 빠져요.`
+          : set
+            ? `${set.title ? `${set.title} — ` : ''}${set.lessonDate} 수업 코드로 만든 문제 ${set.problems.length}개. 문제 사이에 셀을 추가해 자유롭게 시험해 봐도 됩니다.`
+            : '셀을 나눠 실행합니다. 코드는 이 브라우저 안에서만 돕니다.'}
+      </p>
+      {set && (
+        <div className="pb-progress" aria-label={`통과 ${passedCount} / ${visibleCount}`}>
+          <div className="pb-progress__bar">
+            {set.problems.map((_, i) => {
+              if (mode.hiddenOf(i)) return null;
+              const a = mode.attemptOf(i);
+              return <i key={i} className={a?.passed ? 'ok' : a ? 'no' : ''} />;
+            })}
+          </div>
+          <span>
+            통과 <strong>{passedCount}</strong> / {visibleCount}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}

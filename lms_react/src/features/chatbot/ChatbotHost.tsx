@@ -1,0 +1,378 @@
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+
+import { RobotHead } from '../../ui/RobotHead';
+import { Button, Row, Spacer } from '../../ui/components';
+import { API_BASE, http } from '../../data/http';
+import { useSessionStore } from '../../data/sessionStore';
+import { useSession } from '../auth/session';
+import { answerFor, chatbotGreeting, quickTopics } from './chatbotAnswers';
+
+/**
+ * 학생 챗봇 — features/chatbot/presentation/student_chatbot_host.dart
+ *
+ * 화면 오른쪽 아래에 떠 있다가 누르면 대화 패널이 열린다. 답은 데모 클라이언트와
+ * 같은 규칙으로 고른다. 실제 답변은 서버의 토큰을 받는 즉시 표시한다.
+ */
+interface Message {
+  id: string;
+  role: 'user' | 'bot';
+  text: string;
+  /** 아직 흘러나오는 중인가 */
+  streaming?: boolean;
+  feedback?: 'up' | 'down';
+}
+
+/** 다른 화면이 학습 도우미를 여는 신호 — 연습장 튜터의 「학습 도우미」 탭 */
+export const OPEN_CHATBOT_EVENT = 'lms:open-chatbot';
+
+const newThreadId = () => globalThis.crypto?.randomUUID?.()
+  ?? `chat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+export function ChatbotHost() {
+  const { user } = useSession();
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [draft, setDraft] = useState('');
+  const [thinking, setThinking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [topic, setTopic] = useState<string | null>(null);
+  // 로봇 버튼을 누를 때마다 1씩 올린다. 그때만 머리가 한 번 튄다.
+  const [bounce, setBounce] = useState(0);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const timers = useRef<number[]>([]);
+  const threadId = useRef(newThreadId());
+  const requestController = useRef<AbortController | null>(null);
+  const identity = `${user?.uid ?? ''}:${user?.cohortId ?? ''}:${user?.role ?? ''}`;
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+
+  useLayoutEffect(() => {
+    requestController.current?.abort();
+    requestController.current = null;
+    timers.current.forEach((timer) => window.clearTimeout(timer));
+    timers.current = [];
+    threadId.current = newThreadId();
+    setMessages([]); setDraft(''); setTopic(null);
+    setThinking(false); setBusy(false); setOpen(false);
+    return () => {
+      requestController.current?.abort();
+      timers.current.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [identity]);
+
+  useEffect(
+    () => () => {
+      timers.current.forEach((t) => window.clearTimeout(t));
+    },
+    [],
+  );
+
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
+  }, [messages, thinking]);
+
+  useEffect(() => {
+    const show = () => setOpen(true);
+    window.addEventListener(OPEN_CHATBOT_EVENT, show);
+    return () => window.removeEventListener(OPEN_CHATBOT_EVENT, show);
+  }, []);
+
+  // 학생만 쓴다. 강사·관리자 화면에는 뜨지 않는다.
+  if (user === null || user.role !== 'student') return null;
+
+  /** 답을 몇 글자씩 흘려보낸다. */
+  const stream = (text: string, onFirstChar?: () => void) => {
+    const streamThread = threadId.current;
+    const id = `bot-${Date.now()}`;
+    // API 대기 중에도 thinking 이 true 일 수 있다. 타이핑 직전에 잠깐 더 보여 준다.
+    setThinking(true);
+    setBusy(true);
+    const start = window.setTimeout(() => {
+      if (threadId.current !== streamThread) return;
+      setThinking(false);
+      setMessages((m) => [...m, { id, role: 'bot', text: '', streaming: true }]);
+      let cursor = 0;
+      const tick = () => {
+        if (threadId.current !== streamThread) return;
+        const firstChar = cursor === 0;
+        cursor = Math.min(text.length, cursor + 6);
+        const slice = text.slice(0, cursor);
+        setMessages((m) => m.map((msg) => (msg.id === id ? { ...msg, text: slice } : msg)));
+        if (firstChar) window.requestAnimationFrame(() => onFirstChar?.());
+        if (cursor < text.length) {
+          timers.current.push(window.setTimeout(tick, 22));
+        } else {
+          setMessages((m) => m.map((msg) => (msg.id === id ? { ...msg, streaming: false } : msg)));
+          setBusy(false);
+        }
+      };
+      tick();
+    }, 700);
+    timers.current.push(start);
+  };
+
+  const ask = (question: string) => {
+    setMessages((m) => [...m, { id: `user-${Date.now()}`, role: 'user', text: question }]);
+    if (import.meta.env.MODE === 'test') {
+      stream(answerFor(question));
+      return;
+    }
+    setThinking(true);
+    setBusy(true);
+    const currentThread = threadId.current;
+    const currentIdentity = identityRef.current;
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
+    const isCurrent = () => threadId.current === currentThread && identityRef.current === currentIdentity
+      && requestController.current === controller && !controller.signal.aborted;
+    void (async () => {
+      const requestStarted = performance.now();
+      let requestMs = 0;
+      const logFirstChar = () => {
+        if (import.meta.env.DEV) console.debug('[chatbot latency ms]', {
+          request: Math.round(requestMs),
+          first_char: Math.round(performance.now() - requestStarted),
+        });
+      };
+      const id = `bot-${Date.now()}`;
+      let text = '';
+      const append = (delta: string) => {
+        if (!isCurrent()) return;
+        if (!text && delta) window.requestAnimationFrame(logFirstChar);
+        text += delta;
+        setThinking(false);
+        setMessages((items) => {
+          const found = items.some((item) => item.id === id);
+          return found
+            ? items.map((item) => (item.id === id ? { ...item, text } : item))
+            : [...items, { id, role: 'bot', text, streaming: true }];
+        });
+      };
+      let response: Response | undefined;
+      try {
+        const access = useSessionStore.getState().access;
+        response = await fetch(`${API_BASE}/chat/stream`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/x-ndjson',
+            ...(access ? { Authorization: `Bearer ${access}` } : {}),
+          },
+          body: JSON.stringify({ message: question, threadId: currentThread }),
+          signal: controller.signal,
+        });
+        requestMs = performance.now() - requestStarted;
+      } catch {
+        if (!isCurrent()) return;
+        // 연결 전 실패는 기존 JSON 경로로 재시도한다.
+      }
+      if (!response?.ok || !response.headers.get('content-type')?.includes('application/x-ndjson') || !response.body) {
+        try {
+          const { data } = await http.post<{ answer?: string }>('/chat',
+            { message: question, threadId: currentThread }, { signal: controller.signal });
+          if (!isCurrent()) return;
+          requestMs = performance.now() - requestStarted;
+          stream(data.answer || '답변을 받지 못했습니다.', logFirstChar);
+        } catch {
+          if (!isCurrent()) return;
+          stream('학습 도우미에 잠시 연결하지 못했습니다. 잠시 후 다시 시도하세요.');
+        }
+        return;
+      }
+      try {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let completed = false;
+        while (!completed) {
+          const { value, done } = await reader.read();
+          buffer += decoder.decode(value, { stream: !done });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            let event: { type: string; content?: string; message?: string };
+            try {
+              event = JSON.parse(line) as typeof event;
+            } catch {
+              throw new Error('답변을 읽지 못했습니다.');
+            }
+            if (event.type === 'token' && event.content) append(event.content);
+            if (event.type === 'error') throw new Error(event.message || '답변 생성 중 오류가 발생했습니다.');
+            if (event.type === 'done') completed = true;
+          }
+          if (done && !completed) throw new Error('답변 전송이 중단됐습니다.');
+        }
+        if (!text) append('답변을 받지 못했습니다.');
+      } catch (error) {
+        append(`${text ? '\n\n' : ''}${error instanceof Error ? error.message : '답변 생성 중 오류가 발생했습니다.'}`);
+      } finally {
+        if (isCurrent()) {
+          setThinking(false);
+          setBusy(false);
+          setMessages((items) => items.map((item) => (item.id === id ? { ...item, streaming: false } : item)));
+          requestController.current = null;
+        }
+      }
+    })();
+  };
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const question = draft.trim();
+    if (question === '' || busy) return;
+    setDraft('');
+    ask(question);
+  };
+
+  const openTopic = (title: string) => {
+    const found = quickTopics.find((t) => t.title === title);
+    if (found === undefined) return;
+    setTopic(title);
+    setMessages((m) => [...m, { id: `user-${Date.now()}`, role: 'user', text: title }]);
+    stream(found.answer);
+  };
+
+  const followUps = quickTopics.find((t) => t.title === topic)?.followUps ?? [];
+
+  const launcher = (
+    <button
+      type="button"
+      className="chatbot-launcher"
+      onClick={() => {
+        // 원본과 같다: 누를 때마다 머리가 한 번 늘어났다 돌아오고, 패널이 열리고 닫힌다.
+        setBounce((b) => b + 1);
+        setOpen((v) => !v);
+      }}
+      aria-label={open ? '챗봇 닫기' : '학생 챗봇 열기'}
+    >
+      {!open && <span className="chatbot-launcher__bubble">{chatbotGreeting}</span>}
+      <RobotHead size={104} bounce={bounce} />
+    </button>
+  );
+
+  if (!open) return launcher;
+
+  return (
+    <>
+      {launcher}
+      <section className="chatbot" aria-label="학습 도우미 챗봇">
+      <header className="chatbot__head">
+        <RobotHead size={44} />
+        <div>
+          <strong>학습 도우미</strong>
+          <p className="hint">LMS 정책·출결·프로젝트를 물어보세요</p>
+        </div>
+        <Spacer />
+        <button type="button" className="chatbot__close" onClick={() => setOpen(false)} aria-label="닫기">
+          ✕
+        </button>
+      </header>
+
+      <div className="chatbot__body" ref={bodyRef}>
+        {messages.length === 0 && (
+          <>
+            <p className="muted">자주 묻는 질문을 골라 보세요.</p>
+            <Row gap={6}>
+              {quickTopics.map((t) => (
+                <button key={t.title} type="button" className="chip" onClick={() => openTopic(t.title)}>
+                  {t.title}
+                </button>
+              ))}
+            </Row>
+          </>
+        )}
+
+        {messages.map((message) => (
+          <div key={message.id} className={`bubble-row bubble-row--${message.role}`}>
+            {message.role === 'bot' && <RobotHead size={36} />}
+            <div className={`bubble bubble--${message.role}`}>
+            <MarkdownLite text={message.text} />
+            {message.role === 'bot' && message.streaming !== true && (
+              <Row gap={4}>
+                <Spacer />
+                <button
+                  type="button"
+                  className={`bubble__vote${message.feedback === 'up' ? ' bubble__vote--on' : ''}`}
+                  onClick={() =>
+                    setMessages((m) =>
+                      m.map((x) => (x.id === message.id ? { ...x, feedback: 'up' } : x)),
+                    )
+                  }
+                  aria-label="도움이 됐어요"
+                >
+                  👍
+                </button>
+                <button
+                  type="button"
+                  className={`bubble__vote${message.feedback === 'down' ? ' bubble__vote--on' : ''}`}
+                  onClick={() =>
+                    setMessages((m) =>
+                      m.map((x) => (x.id === message.id ? { ...x, feedback: 'down' } : x)),
+                    )
+                  }
+                  aria-label="아쉬워요"
+                >
+                  👎
+                </button>
+              </Row>
+            )}
+            </div>
+          </div>
+        ))}
+
+        {thinking && (
+          <div className="bubble bubble--bot bubble--loading" role="status" aria-live="polite">
+            <span className="dot" />
+            <span className="dot" />
+            <span className="dot" />
+            <span className="hint">답변을 생성하고 있어요</span>
+          </div>
+        )}
+
+        {followUps.length > 0 && !thinking && (
+          <Row gap={6}>
+            {followUps.map((f) => (
+              <button key={f.question} type="button" className="chip" onClick={() => ask(f.question)}>
+                {f.question}
+              </button>
+            ))}
+          </Row>
+        )}
+      </div>
+
+      <form className="chatbot__form" onSubmit={submit}>
+        <input
+          className="input"
+          value={draft}
+          placeholder="궁금한 점을 적어 주세요"
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <Button type="submit" size="sm" disabled={draft.trim() === '' || busy}>
+          보내기
+        </Button>
+      </form>
+      </section>
+    </>
+  );
+}
+
+/** 굵게(**)와 줄바꿈만 다루는 최소 표시기 */
+function MarkdownLite({ text }: { text: string }) {
+  return (
+    <div className="bubble__text">
+      {text.split('\n').map((line, i) => (
+        <p key={i}>
+          {line.split(/(\*\*[^*]+\*\*)/g).map((part, j) =>
+            part.startsWith('**') && part.endsWith('**') ? (
+              <strong key={j}>{part.slice(2, -2)}</strong>
+            ) : (
+              <span key={j}>{part}</span>
+            ),
+          )}
+        </p>
+      ))}
+    </div>
+  );
+}

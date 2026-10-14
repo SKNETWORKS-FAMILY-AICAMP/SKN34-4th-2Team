@@ -1,0 +1,532 @@
+{
+  "_comment": "2026-09-15 저녁, resume-v16w 마지막 확인용 케이스(사람 답변 모드 --applicant human으로 돌린다). dev·heldout·detailed·probe·fresh·unseen~unseen4와 직무·도메인이 겹치지 않게 썼고, 오늘 고친 규칙을 겨냥한 함정 없이 평범한 이력서처럼 썼다. 사람 답변 모드가 항목 이름을 줄여 부르거나 다른 항목 이야기를 섞을 수 있도록, 이력서에 항목이 둘 이상 있는 케이스로 만들었다. 서버 코드를 고치는 세션에는 내용을 보내지 않았다. applicant.facts에는 이력서에 적힌 사실을 모두 넣고 이력서에 없는 사실은 '(이력서에 없음)'으로 표시했다. expected_requirements·expected_star는 Claude가 원문만 읽고 매긴 값이라 사람 라벨이 아니다.",
+  "cases": [
+    {
+      "id": "unseen5_llm_chatbot_entry__hotel",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0701", "email": "", "birthDate": "1999-06-12", "githubUrl": "https://github.com/example-llm", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "LangChain과 OpenAI API로 문서 기반 질의응답 챗봇을 만들었습니다. 답변 근거 문서를 함께 보여 주는 방식으로 잘못된 안내를 줄이는 데 관심이 많습니다."
+          },
+          "experience": [
+            {
+              "id": "exp-1", "company": "예시호텔 서울", "role": "프런트 데스크", "startDate": "2020-03", "endDate": "2023-02", "isCurrent": false,
+              "description": "체크인·체크아웃 응대와 투숙객 문의 대응을 맡았습니다. 자주 묻는 질문을 정리한 안내 문서를 만들어 신입 직원 교육에 썼습니다."
+            }
+          ],
+          "education": [{"id": "edu-1", "school": "예시관광대학교", "major": "호텔경영학과", "startDate": "2016-03", "endDate": "2020-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "Python", "level": "중급"},
+            {"id": "ts-2", "name": "LangChain", "level": "중급"},
+            {"id": "ts-3", "name": "FastAPI", "level": "초급"},
+            {"id": "ts-4", "name": "Chroma", "level": "초급"}
+          ],
+          "certifications": [],
+          "awards": [],
+          "trainingExperience": [
+            {"id": "tr-1", "course": "생성형 AI 서비스 개발 과정", "organization": "예시AI아카데미", "startDate": "2024-07", "endDate": "2025-01", "description": "LLM API 활용, RAG, 프롬프트 설계를 배우고 팀 프로젝트 2개를 진행했습니다."}
+          ],
+          "otherActivities": [],
+          "projects": [
+            {
+              "id": "prj-1", "name": "호텔 FAQ 챗봇", "startDate": "2024-11", "endDate": "2025-01",
+              "role": "백엔드·RAG(3인 팀)", "techStack": "Python, LangChain, Chroma, FastAPI",
+              "description": "호텔 이용 안내 문서를 검색해 투숙객 질문에 답하는 챗봇입니다. 저는 문서를 나눠 벡터 DB에 넣는 부분과 답변 API를 맡았습니다.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "회의록 요약 도구", "startDate": "2024-09", "endDate": "2024-10",
+              "role": "개발(2인 팀)", "techStack": "Python, OpenAI API, Streamlit",
+              "description": "회의 녹취 텍스트를 올리면 결정 사항과 할 일을 뽑아 주는 도구를 만들었습니다.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "현장 문의를 아는 챗봇 개발자",
+              "body": "호텔 프런트에서 3년간 같은 질문에 매일 답하며, 정확한 안내를 빠르게 주는 일이 얼마나 중요한지 겪었습니다. 그 경험이 문서 기반 챗봇 개발로 이어졌습니다."
+            },
+            "motivation": {
+              "subtitle": "투숙객 경험을 바꾸는 AI",
+              "body": "예시스테이의 호텔 AI 컨시어지를 보고 제가 프런트에서 받던 질문을 AI가 대신 답할 수 있다는 가능성을 느꼈습니다. 현장 경험과 챗봇 개발 경험을 함께 살려 기여하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "엉뚱한 답을 하던 챗봇",
+              "body": "호텔 FAQ 챗봇 초기 버전은 조식 시간을 물으면 수영장 운영 시간을 답하는 식으로 엉뚱한 문서를 가져왔습니다. 문서를 나누는 기준을 바꾸고 답변에 근거 문서를 보여 주도록 고쳤습니다."
+            },
+            "growth": {
+              "subtitle": "서비스직에서 개발자로",
+              "body": "프런트 업무를 하며 반복 문의를 정리하던 습관이 문서를 구조화하는 일에 대한 관심으로 이어졌고, 결국 개발 공부를 시작하게 됐습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "사용자 이해 / 평가 경험",
+              "body": "강점은 사용자가 실제로 어떻게 질문하는지 잘 안다는 점입니다. 약점은 챗봇 답변 품질을 체계적으로 평가해 본 경험이 적다는 점입니다."
+            },
+            "aspiration": {
+              "subtitle": "믿고 묻는 컨시어지",
+              "body": "입사 후에는 컨시어지 서비스의 문서 구조와 답변 흐름을 먼저 익히고, 틀린 안내를 줄이는 평가 방식을 만드는 일에 참여하고 싶습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN5-01",
+        "company": "(주)예시스테이",
+        "title": "호텔 AI 컨시어지 LLM 애플리케이션 개발자 (신입)",
+        "text": "[주요업무]\n- 호텔 AI 컨시어지 챗봇 개발\n- RAG 파이프라인과 답변 품질 개선\n\n[자격요건]\n- Python 기반 개발 경험\n- LLM API 또는 LangChain 활용 경험\n- RAG 구조 이해\n\n[우대사항]\n- 챗봇 답변 품질 평가 경험\n- 벡터 DB 운영 경험\n- 호텔·서비스업 도메인 경험\n\n[근무조건]\n- 정규직, 서울 중구"
+      },
+      "applicant": {
+        "facts": [
+          "예시호텔 서울 프런트 데스크에서 2020년 3월부터 2023년 2월까지 체크인·체크아웃 응대와 투숙객 문의 대응을 했다",
+          "자주 묻는 질문 안내 문서를 만들어 신입 직원 교육에 썼다",
+          "생성형 AI 서비스 개발 과정에서 LLM API·RAG·프롬프트 설계를 배우고 팀 프로젝트 2개를 했다",
+          "호텔 FAQ 챗봇(3인 팀)에서 문서를 나눠 벡터 DB(Chroma)에 넣는 부분과 FastAPI 답변 API를 맡았다",
+          "호텔 FAQ 챗봇 초기에 엉뚱한 문서를 가져와 문서 나누는 기준을 바꾸고 답변에 근거 문서를 보여 주게 고쳤다",
+          "회의록 요약 도구(2인 팀)에서 녹취 텍스트에서 결정 사항과 할 일을 뽑는 도구를 OpenAI API와 Streamlit으로 만들었다",
+          "(이력서에 없음) 호텔 FAQ 챗봇에서 문서를 제목 단위로 나누도록 바꾼 뒤, 직접 만든 질문 50개로 확인해 맞는 문서를 가져온 질문이 31개에서 44개로 늘었다",
+          "(이력서에 없음) 회의록 요약 도구에서 결정 사항 추출 프롬프트를 몇 번 고쳤다. 요약 품질을 점수로 평가하는 방식은 만들어 보지 않았다"
+        ],
+        "not_done": ["챗봇 답변 품질 자동 평가 체계", "벡터 DB 운영 서버 관리", "파인튜닝"]
+      },
+      "expected_requirements": [
+        {"label": "Python 개발", "group": "must", "resume": "ok"},
+        {"label": "LLM API·LangChain", "group": "must", "resume": "ok"},
+        {"label": "RAG 구조 이해", "group": "must", "resume": "ok"},
+        {"label": "답변 품질 평가", "group": "preferred", "resume": "missing"},
+        {"label": "벡터 DB 운영", "group": "preferred", "resume": "partial"},
+        {"label": "호텔·서비스업 도메인", "group": "preferred", "resume": "ok"}
+      ],
+      "expected_star": {
+        "experience[0].description": "TA",
+        "trainingExperience[0].description": "TA",
+        "projects[0].description": "T",
+        "projects[1].description": "T",
+        "selfIntroduction.intro.body": "S",
+        "selfIntroduction.challenge.body": "SA",
+        "selfIntroduction.growth.body": "S",
+        "selfIntroduction.strengthsWeaknesses.body": ""
+      }
+    },
+    {
+      "id": "unseen5_spring_entry__coworking",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0702", "email": "", "birthDate": "2000-01-28", "githubUrl": "https://github.com/example-spring", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "Java Spring Boot 로 예약 API 개발. JPA 사용. AWS EC2 배포 해봄."
+          },
+          "experience": [],
+          "education": [{"id": "edu-1", "school": "예시대학교", "major": "경영정보학과", "startDate": "2019-03", "endDate": "2025-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "Java", "level": "중급"},
+            {"id": "ts-2", "name": "Spring Boot", "level": "중급"},
+            {"id": "ts-3", "name": "JPA", "level": "초급"},
+            {"id": "ts-4", "name": "MySQL", "level": "초급"},
+            {"id": "ts-5", "name": "AWS", "level": "초급"}
+          ],
+          "certifications": [{"id": "cert-1", "name": "SQLD", "issuer": "한국데이터산업진흥원", "acquiredDate": "2024-12"}],
+          "awards": [],
+          "trainingExperience": [
+            {"id": "tr-1", "course": "자바 백엔드 부트캠프", "organization": "예시코드랩", "startDate": "2025-03", "endDate": "2025-08", "description": "Spring Boot, JPA 수업. 팀 프로젝트 1개"}
+          ],
+          "otherActivities": [
+            {"id": "act-1", "name": "학과 학생회 IT부", "startDate": "2021-03", "endDate": "2022-02", "description": "학생회 행사 신청 구글폼 관리. 공지 페이지 운영"}
+          ],
+          "projects": [
+            {
+              "id": "prj-1", "name": "공유 회의실 예약 서비스", "startDate": "2025-06", "endDate": "2025-08",
+              "role": "백엔드(4인 팀)", "techStack": "Java, Spring Boot, JPA, MySQL, AWS EC2",
+              "description": "회의실 시간대 예약 API. 예약 가능 시간 조회. 관리자 승인 기능.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "도서 대출 관리 콘솔 프로그램", "startDate": "2024-03", "endDate": "2024-06",
+              "role": "개인(수업 과제)", "techStack": "Java",
+              "description": "도서 대출·반납 콘솔 프로그램",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "예약이 꼬이지 않는 서버",
+              "body": "경영정보학을 전공하면서 업무 흐름을 시스템으로 옮기는 일에 흥미가 생겼습니다. 부트캠프에서 예약 서비스를 만들며 백엔드 개발자가 되기로 했습니다."
+            },
+            "motivation": {
+              "subtitle": "공간 예약",
+              "body": "학생회에서 행사 공간 예약을 구글폼으로 받다가 시간이 겹치는 일이 자주 있었습니다. 예시스페이스의 공유오피스 예약 서비스를 더 편하게 만드는 데 참여하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "겹치는 예약",
+              "body": "회의실 예약 서비스를 만들때 같은 시간에 예약이 두개 들어가는 문제가 있었습니다. 팀원들과 방법을 찾아서 해결했습니다."
+            },
+            "growth": {
+              "subtitle": "비전공에 가까운 출발",
+              "body": "경영정보학과라 코딩 수업이 많지 않았지만 자바 수업 과제를 계기로 혼자 공부를 이어왔습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "책임감 / 설계 경험",
+              "body": "장점은 맡은 일을 끝까지 하는 책임감입니다. 단점은 아직 큰 시스템을 설계해 본 경험이 없는 것입니다."
+            },
+            "aspiration": {
+              "subtitle": "믿을 수 있는 예약",
+              "body": "입사하면 예약 서비스 구조를 먼저 배우고 사용자가 불편 없이 예약할 수 있는 API를 만드는 개발자가 되겠습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN5-02",
+        "company": "(주)예시스페이스",
+        "title": "공유오피스 예약 플랫폼 백엔드 개발자 (신입)",
+        "text": "[주요업무]\n- 좌석·회의실 예약 API 개발\n- 결제·정기권 기능 개발\n\n[자격요건]\n- Java, Spring Boot 기반 개발 경험\n- JPA 등 ORM 사용 경험\n- RDBMS 사용 경험\n\n[우대사항]\n- 동시성 문제 해결 경험\n- AWS 배포 경험\n- 테스트 코드 작성 경험\n\n[근무조건]\n- 정규직, 서울 성동구"
+      },
+      "applicant": {
+        "facts": [
+          "공유 회의실 예약 서비스(4인 팀)에서 백엔드를 맡아 회의실 시간대 예약 API, 예약 가능 시간 조회, 관리자 승인 기능을 만들었다",
+          "공유 회의실 예약 서비스를 AWS EC2에 배포했다",
+          "회의실 예약 서비스에서 같은 시간 예약이 두 개 들어가는 문제를 팀원들과 해결했다",
+          "도서 대출 관리 콘솔 프로그램을 수업 과제로 Java로 만들어 대출·반납을 처리했다",
+          "자바 백엔드 부트캠프에서 Spring Boot와 JPA를 배우고 팀 프로젝트 1개를 했다",
+          "학과 학생회 IT부에서 행사 신청 구글폼을 관리하고 공지 페이지를 운영했다",
+          "SQLD 자격증이 있다",
+          "(이력서에 없음) 회의실 예약 중복 문제는 예약 테이블에 회의실·시작 시각 유니크 제약을 걸고, 저장할 때 겹치는 시간을 먼저 조회해 막는 방식으로 해결했다. 동시 요청 테스트는 JMeter로 20건만 해 봤다",
+          "(이력서에 없음) 공유 회의실 예약 서비스에서 예약 서비스 계층 단위 테스트를 JUnit으로 12개 작성했다"
+        ],
+        "not_done": ["결제·정기권 기능 개발", "대규모 부하 테스트", "Kotlin"]
+      },
+      "expected_requirements": [
+        {"label": "Java/Spring Boot 개발", "group": "must", "resume": "ok"},
+        {"label": "JPA ORM", "group": "must", "resume": "ok"},
+        {"label": "RDBMS 사용", "group": "must", "resume": "ok"},
+        {"label": "동시성 문제 해결", "group": "preferred", "resume": "partial"},
+        {"label": "AWS 배포", "group": "preferred", "resume": "ok"},
+        {"label": "테스트 코드 작성", "group": "preferred", "resume": "missing"}
+      ],
+      "expected_star": {
+        "trainingExperience[0].description": "T",
+        "otherActivities[0].description": "TA",
+        "projects[0].description": "T",
+        "projects[1].description": "T",
+        "selfIntroduction.intro.body": "S",
+        "selfIntroduction.challenge.body": "SR",
+        "selfIntroduction.growth.body": "S",
+        "selfIntroduction.strengthsWeaknesses.body": ""
+      }
+    },
+    {
+      "id": "unseen5_react_labeling_2y__autonomous",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0703", "email": "", "birthDate": "1996-07-19", "githubUrl": "https://github.com/example-label", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "React와 TypeScript로 데이터 라벨링 도구 화면을 2년간 개발했습니다. 작업자가 하루 수천 장을 다루는 도구라 단축키와 반응 속도를 특히 신경 써 왔습니다."
+          },
+          "experience": [
+            {
+              "id": "exp-1", "company": "(주)예시데이터웍스", "role": "프론트엔드 개발자", "startDate": "2023-04", "endDate": "2025-05", "isCurrent": false,
+              "description": "이미지·영상 라벨링 도구의 프론트엔드를 맡았습니다. 박스·폴리곤 그리기 화면을 Canvas로 다시 만들어 이미지 한 장의 도구 조작 지연을 줄였고, 작업자 요청을 받아 단축키 체계를 정리했습니다. 작업자 1인당 하루 처리량이 약 20% 늘었습니다."
+            }
+          ],
+          "education": [{"id": "edu-1", "school": "예시대학교", "major": "산업디자인학과", "startDate": "2015-03", "endDate": "2021-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "React", "level": "고급"},
+            {"id": "ts-2", "name": "TypeScript", "level": "고급"},
+            {"id": "ts-3", "name": "Canvas API", "level": "중급"},
+            {"id": "ts-4", "name": "Zustand", "level": "중급"}
+          ],
+          "certifications": [],
+          "awards": [],
+          "trainingExperience": [],
+          "otherActivities": [
+            {"id": "act-1", "name": "사내 디자인 시스템 작업", "startDate": "2024-06", "endDate": "2024-12", "description": "디자이너와 함께 공통 버튼·입력 컴포넌트 20여 개를 정리했습니다."}
+          ],
+          "projects": [
+            {
+              "id": "prj-1", "name": "폴리곤 라벨링 화면 개편", "startDate": "2024-01", "endDate": "2024-05",
+              "role": "프론트엔드(단독)", "techStack": "React, TypeScript, Canvas API",
+              "description": "DOM 요소로 점을 그리던 폴리곤 도구가 점이 수백 개가 되면 느려졌습니다. Canvas로 다시 그리고 화면에 보이는 영역만 갱신하도록 바꿔 점 500개 폴리곤에서도 끊김 없이 편집할 수 있게 했습니다.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "영상 프레임 라벨 복사 기능", "startDate": "2024-08", "endDate": "2024-10",
+              "role": "프론트엔드(2인)", "techStack": "React, Zustand",
+              "description": "앞 프레임의 라벨을 다음 프레임으로 복사하는 기능을 만들었습니다.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "작업자의 손을 덜어 주는 개발자",
+              "body": "라벨링 작업자는 하루에 수천 번 같은 동작을 반복합니다. 저는 그 반복을 한 번이라도 줄이는 화면을 만드는 일을 해 왔고, 도구 개편 뒤 작업자 처리량이 약 20% 늘었습니다."
+            },
+            "motivation": {
+              "subtitle": "자율주행 데이터를 만드는 도구",
+              "body": "라벨링 도구를 만들며 데이터 품질이 결국 모델 품질이 된다는 것을 배웠습니다. 예시모빌리티AI의 자율주행 데이터 플랫폼에서 대용량 라이다·영상 데이터를 다루는 도구를 만드는 데 기여하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "점 500개에서 멈추던 화면",
+              "body": "건물 윤곽처럼 복잡한 폴리곤을 그리면 화면이 멈춘다는 작업자 불만이 계속됐습니다. DOM 대신 Canvas로 다시 그리고 보이는 영역만 갱신하도록 바꿔 점 500개에서도 끊김 없이 편집되게 했습니다."
+            },
+            "growth": {
+              "subtitle": "디자인 전공에서 개발로",
+              "body": "산업디자인을 전공하며 사용성 테스트를 배웠고, 직접 만든 화면을 고쳐 보고 싶어 프론트엔드 개발을 시작했습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "사용성 감각 / 3D 경험",
+              "body": "강점은 작업자 옆에서 사용 모습을 보고 불편한 지점을 찾는 사용성 감각입니다. 약점은 3D 점군 데이터를 다뤄 본 경험이 없다는 점입니다."
+            },
+            "aspiration": {
+              "subtitle": "라벨링 시간을 줄이는 도구",
+              "body": "입사 후에는 플랫폼의 라벨링 흐름과 데이터 형식을 먼저 익히고, 영상 라벨링 화면의 반복 작업을 줄이는 기능부터 맡고 싶습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN5-03",
+        "company": "(주)예시모빌리티AI",
+        "title": "자율주행 데이터 플랫폼 프론트엔드 개발자 (경력 2년 이상)",
+        "text": "[주요업무]\n- 자율주행 영상·라이다 라벨링 도구 개발\n- 대용량 데이터 뷰어 성능 개선\n\n[자격요건]\n- 프론트엔드 개발 경력 2년 이상\n- React, TypeScript 기반 개발 경험\n- Canvas 또는 WebGL을 이용한 그래픽 처리 경험\n\n[우대사항]\n- 3D 점군(Point Cloud) 시각화 경험\n- 라벨링 도구 개발 경험\n- 웹 워커 등 브라우저 성능 최적화 경험\n\n[근무조건]\n- 정규직, 경기 판교"
+      },
+      "applicant": {
+        "facts": [
+          "(주)예시데이터웍스에서 2023년 4월부터 2025년 5월까지 프론트엔드 개발자로 이미지·영상 라벨링 도구를 맡았다",
+          "박스·폴리곤 그리기 화면을 Canvas로 다시 만들고 단축키 체계를 정리해 작업자 1인당 하루 처리량이 약 20% 늘었다",
+          "폴리곤 라벨링 화면 개편을 혼자 맡아 DOM 대신 Canvas로 다시 그리고 보이는 영역만 갱신해 점 500개 폴리곤도 끊김 없이 편집되게 했다",
+          "영상 프레임 라벨 복사 기능(2인)에서 앞 프레임 라벨을 다음 프레임으로 복사하는 기능을 React와 Zustand로 만들었다",
+          "사내 디자인 시스템 작업에서 디자이너와 공통 버튼·입력 컴포넌트 20여 개를 정리했다",
+          "(이력서에 없음) 영상 프레임 라벨 복사 기능에서 프레임 사이 박스 위치를 선형 보간해 복사하는 옵션도 넣었고, 작업자들이 영상 1개 라벨링 시간이 절반 가까이 줄었다고 했다(정확히 잰 수치는 없음)",
+          "(이력서에 없음) 폴리곤 라벨링 화면 개편에서 좌표 계산 일부를 웹 워커로 옮겨 봤다. 3D 점군은 개인적으로 Three.js 예제만 따라 해 봤다"
+        ],
+        "not_done": ["3D 점군 시각화 실무", "WebGL 셰이더 직접 작성", "라이다 데이터 처리"]
+      },
+      "expected_requirements": [
+        {"label": "프론트엔드 경력 2년", "group": "must", "resume": "ok", "kind": "eligibility"},
+        {"label": "React/TypeScript", "group": "must", "resume": "ok"},
+        {"label": "Canvas/WebGL 그래픽", "group": "must", "resume": "ok"},
+        {"label": "3D 점군 시각화", "group": "preferred", "resume": "missing"},
+        {"label": "라벨링 도구 개발", "group": "preferred", "resume": "ok"},
+        {"label": "웹 워커 성능 최적화", "group": "preferred", "resume": "missing"}
+      ],
+      "expected_star": {
+        "experience[0].description": "TAR",
+        "otherActivities[0].description": "TA",
+        "projects[0].description": "SAR",
+        "projects[1].description": "T",
+        "selfIntroduction.intro.body": "SR",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "S",
+        "selfIntroduction.strengthsWeaknesses.body": "A"
+      }
+    },
+    {
+      "id": "unseen5_accounting_to_python_entry__taxsaas",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0704", "email": "", "birthDate": "1995-08-08", "githubUrl": "https://github.com/example-tax", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "세무사무소에서 4년간 장부 정리와 부가세 신고 보조를 했고, Python으로 반복 업무를 자동화하며 개발을 시작했습니다. 세무 업무 흐름을 알고 데이터로 옮기는 일에 강점이 있습니다."
+          },
+          "experience": [
+            {
+              "id": "exp-1", "company": "예시세무회계사무소", "role": "사무원", "startDate": "2019-01", "endDate": "2023-02", "isCurrent": false,
+              "description": "거래처 50여 곳의 장부 정리와 부가가치세 신고 자료 준비를 맡았습니다. 매달 거래처 엑셀 자료를 신고 양식으로 옮기는 반복 작업을 Python 스크립트로 바꿔 자료 준비 시간을 줄였습니다."
+            }
+          ],
+          "education": [{"id": "edu-1", "school": "예시대학교", "major": "세무회계학과", "startDate": "2014-03", "endDate": "2018-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "Python", "level": "중급"},
+            {"id": "ts-2", "name": "pandas", "level": "중급"},
+            {"id": "ts-3", "name": "Django", "level": "초급"},
+            {"id": "ts-4", "name": "PostgreSQL", "level": "초급"}
+          ],
+          "certifications": [{"id": "cert-1", "name": "전산세무 2급", "issuer": "한국세무사회", "acquiredDate": "2018-08"}],
+          "awards": [],
+          "trainingExperience": [
+            {"id": "tr-1", "course": "파이썬 웹 개발 과정", "organization": "예시테크캠퍼스", "startDate": "2023-09", "endDate": "2024-03", "description": "Django와 PostgreSQL로 웹 서비스를 만드는 과정을 수료했습니다."}
+          ],
+          "otherActivities": [],
+          "projects": [
+            {
+              "id": "prj-1", "name": "간편장부 웹", "startDate": "2024-01", "endDate": "2024-03",
+              "role": "백엔드(3인 팀)", "techStack": "Django, PostgreSQL",
+              "description": "소상공인이 매출·매입을 입력하면 월별 합계와 부가세 예상액을 보여 주는 웹을 만들었습니다. 저는 거래 입력 API와 부가세 계산 로직을 맡았습니다.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "은행 거래내역 분류 스크립트", "startDate": "2022-05", "endDate": "2022-08",
+              "role": "개인", "techStack": "Python, pandas",
+              "description": "은행 거래내역 엑셀을 불러와 적요를 보고 계정과목을 자동으로 붙이는 스크립트를 만들었습니다.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "세무 업무를 코드로 옮기는 개발자",
+              "body": "세무사무소에서 매달 같은 엑셀 작업을 반복하다가 Python으로 그 일을 줄여 본 경험이 개발자의 길로 이끌었습니다. 세무 실무와 개발을 함께 아는 것이 제 강점입니다."
+            },
+            "motivation": {
+              "subtitle": "사장님들의 세무 부담 줄이기",
+              "body": "거래처 사장님들이 신고철마다 영수증을 들고 오셔서 막막해하시던 모습을 기억합니다. 예시택스의 세무 SaaS에서 실무 흐름을 아는 개발자로 그 부담을 줄이는 데 기여하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "적요가 제각각인 거래내역",
+              "body": "은행 거래내역을 자동 분류하려 했더니 같은 거래처도 적요가 제각각이라 규칙이 잘 맞지 않았습니다. 자주 나오는 적요를 모아 규칙표를 만들고, 맞지 않는 건만 사람이 고르게 했습니다."
+            },
+            "growth": {
+              "subtitle": "엑셀에서 파이썬으로",
+              "body": "처음에는 엑셀 함수로 버티다가 한계를 느껴 퇴근 후 Python을 배우기 시작했고, 교육 과정을 거쳐 웹 개발까지 공부했습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "정확성 / 개발 경력",
+              "body": "강점은 숫자 하나 틀리지 않게 대사하는 정확성입니다. 약점은 개발 실무 경력이 없다는 점입니다."
+            },
+            "aspiration": {
+              "subtitle": "현장이 믿는 세무 서비스",
+              "body": "입사 후에는 서비스의 신고 데이터 흐름을 먼저 익히고, 세무 실무에서 자주 틀리는 부분을 미리 막는 검증 로직을 만드는 일을 맡고 싶습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN5-04",
+        "company": "(주)예시택스",
+        "title": "세무 SaaS Python 백엔드 개발자 (신입)",
+        "text": "[주요업무]\n- 소상공인 세무 신고 서비스 백엔드 개발\n- 거래 데이터 분류·검증 로직 개발\n\n[자격요건]\n- Python 기반 웹 프레임워크 개발 경험\n- SQL 사용 경험\n\n[우대사항]\n- 세무·회계 업무 이해\n- pandas 등 데이터 처리 경험\n- 테스트 코드 작성 경험\n\n[근무조건]\n- 정규직, 서울 영등포구"
+      },
+      "applicant": {
+        "facts": [
+          "예시세무회계사무소 사무원으로 2019년 1월부터 2023년 2월까지 거래처 50여 곳 장부 정리와 부가세 신고 자료 준비를 했다",
+          "매달 거래처 엑셀을 신고 양식으로 옮기는 반복 작업을 Python 스크립트로 바꿨다",
+          "파이썬 웹 개발 과정에서 Django와 PostgreSQL로 웹 서비스 만드는 과정을 수료했다",
+          "간편장부 웹(3인 팀)에서 거래 입력 API와 부가세 계산 로직을 맡았다",
+          "은행 거래내역 분류 스크립트를 혼자 pandas로 만들어 적요를 보고 계정과목을 붙이게 했고, 자주 나오는 적요로 규칙표를 만들고 안 맞는 건만 사람이 고르게 했다",
+          "전산세무 2급 자격증이 있다",
+          "(이력서에 없음) 거래처 엑셀 자동화 스크립트로 거래처 1곳당 월 자료 준비 시간이 약 1시간에서 15분 정도로 줄었다",
+          "(이력서에 없음) 간편장부 웹의 부가세 계산 로직에는 pytest로 계산 경우별 테스트 18개를 작성했다. 은행 거래내역 분류 스크립트에는 테스트를 작성하지 않았다"
+        ],
+        "not_done": ["실제 세무 SaaS 개발 실무", "FastAPI", "홈택스 연동 개발"]
+      },
+      "expected_requirements": [
+        {"label": "Python 웹 프레임워크", "group": "must", "resume": "ok"},
+        {"label": "SQL 사용", "group": "must", "resume": "ok"},
+        {"label": "세무·회계 이해", "group": "preferred", "resume": "ok"},
+        {"label": "pandas 데이터 처리", "group": "preferred", "resume": "ok"},
+        {"label": "테스트 코드 작성", "group": "preferred", "resume": "missing"}
+      ],
+      "expected_star": {
+        "experience[0].description": "TA",
+        "trainingExperience[0].description": "TR",
+        "projects[0].description": "T",
+        "projects[1].description": "TA",
+        "selfIntroduction.intro.body": "S",
+        "selfIntroduction.challenge.body": "SA",
+        "selfIntroduction.growth.body": "SA",
+        "selfIntroduction.strengthsWeaknesses.body": ""
+      }
+    },
+    {
+      "id": "unseen5_solidity_entry__ticketing",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0705", "email": "", "birthDate": "1999-11-11", "githubUrl": "https://github.com/example-sol", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "Solidity 스마트 컨트랙트 개발. Hardhat 테스트 작성. ethers.js 로 프론트 연동 경험."
+          },
+          "experience": [],
+          "education": [{"id": "edu-1", "school": "예시대학교", "major": "소프트웨어학부", "startDate": "2018-03", "endDate": "2025-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "Solidity", "level": "중급"},
+            {"id": "ts-2", "name": "Hardhat", "level": "중급"},
+            {"id": "ts-3", "name": "ethers.js", "level": "초급"},
+            {"id": "ts-4", "name": "React", "level": "초급"}
+          ],
+          "certifications": [],
+          "awards": [
+            {"id": "awd-1", "name": "블록체인 해커톤 장려상", "organization": "예시블록체인협회", "date": "2024-08", "description": "공연 티켓 되팔이 방지 NFT 티켓 아이디어로 수상."}
+          ],
+          "trainingExperience": [],
+          "otherActivities": [
+            {"id": "act-1", "name": "학교 블록체인 학회", "startDate": "2022-03", "endDate": "2024-02", "description": "스마트 컨트랙트 보안 사례 스터디. 발표 4회"}
+          ],
+          "projects": [
+            {
+              "id": "prj-1", "name": "NFT 공연 티켓", "startDate": "2024-07", "endDate": "2024-11",
+              "role": "스마트 컨트랙트(3인 팀)", "techStack": "Solidity, Hardhat, ethers.js, React",
+              "description": "공연 티켓 NFT 발행 컨트랙트 개발. 정가 이상 재판매 제한 기능. 테스트넷 배포.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "학회 투표 DApp", "startDate": "2023-05", "endDate": "2023-06",
+              "role": "개인", "techStack": "Solidity, React",
+              "description": "학회 임원 선거용 투표 컨트랙트와 화면",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "공정한 거래를 코드로",
+              "body": "블록체인 학회에서 스마트 컨트랙트를 공부하며 규칙을 코드로 강제할 수 있다는 점에 끌렸습니다. 공연 티켓 되팔이 문제를 컨트랙트로 풀어 보는 프로젝트를 했습니다."
+            },
+            "motivation": {
+              "subtitle": "티켓 시장",
+              "body": "좋아하는 공연 티켓이 몇 배 가격으로 되팔리는 걸 보면서 이 문제를 기술로 풀고 싶었습니다. 예시티켓체인의 NFT 티켓 플랫폼에서 일하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "보안 사고 사례",
+              "body": "학회에서 스마트 컨트랙트 해킹 사례를 공부하면서 한 줄 실수로 큰 돈이 사라질 수 있다는 걸 알게 됐습니다. 그 뒤로 컨트랙트를 짤때 테스트를 먼저 생각합니다."
+            },
+            "growth": {
+              "subtitle": "게임에서 블록체인으로",
+              "body": "게임 아이템 거래에 관심이 많아서 블록체인을 알게 됐고 학회에 들어가 본격적으로 공부했습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "꼼꼼함 / 백엔드",
+              "body": "장점은 테스트를 꼼꼼하게 쓰는 것입니다. 단점은 일반 백엔드 서버 경험이 부족한 것입니다."
+            },
+            "aspiration": {
+              "subtitle": "안전한 티켓 컨트랙트",
+              "body": "입사하면 서비스 컨트랙트 구조를 먼저 익히고 보안 점검 절차를 배워서 사고 없는 컨트랙트를 만드는 개발자가 되겠습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN5-05",
+        "company": "(주)예시티켓체인",
+        "title": "NFT 티켓 플랫폼 스마트 컨트랙트 개발자 (신입)",
+        "text": "[주요업무]\n- NFT 티켓 발행·거래 스마트 컨트랙트 개발\n- 컨트랙트 테스트와 보안 점검\n\n[자격요건]\n- Solidity 기반 스마트 컨트랙트 개발 경험\n- Hardhat 또는 Foundry 테스트 작성 경험\n\n[우대사항]\n- 메인넷 배포 경험\n- 스마트 컨트랙트 보안 감사 이해\n- Node.js 백엔드 개발 경험\n\n[근무조건]\n- 정규직, 서울 강남구"
+      },
+      "applicant": {
+        "facts": [
+          "NFT 공연 티켓(3인 팀)에서 스마트 컨트랙트를 맡아 티켓 NFT 발행 컨트랙트와 정가 이상 재판매 제한 기능을 개발하고 테스트넷에 배포했다",
+          "학회 투표 DApp을 혼자 Solidity와 React로 만들어 학회 임원 선거 투표 컨트랙트와 화면을 구현했다",
+          "공연 티켓 되팔이 방지 NFT 티켓 아이디어로 블록체인 해커톤 장려상을 받았다",
+          "학교 블록체인 학회에서 스마트 컨트랙트 보안 사례를 스터디하고 4회 발표했다",
+          "게임 아이템 거래에 관심이 많아 블록체인을 알게 됐다",
+          "(이력서에 없음) NFT 공연 티켓 컨트랙트에 Hardhat으로 테스트 35개를 작성했고, 재판매 가격 제한을 우회하는 경우(직접 전송 후 장외 거래)를 테스트로 찾아 전송 함수에도 제한을 걸었다",
+          "(이력서에 없음) 학회 투표 DApp은 학회원 30명이 실제 임원 선거에 한 번 썼다. 메인넷에는 배포하지 않고 테스트넷에서만 썼다"
+        ],
+        "not_done": ["메인넷 배포", "외부 보안 감사 수행", "Node.js 백엔드 실무"]
+      },
+      "expected_requirements": [
+        {"label": "Solidity 컨트랙트 개발", "group": "must", "resume": "ok"},
+        {"label": "Hardhat/Foundry 테스트", "group": "must", "resume": "partial"},
+        {"label": "메인넷 배포", "group": "preferred", "resume": "missing"},
+        {"label": "보안 감사 이해", "group": "preferred", "resume": "partial"},
+        {"label": "Node.js 백엔드", "group": "preferred", "resume": "missing"}
+      ],
+      "expected_star": {
+        "awards[0].description": "R",
+        "otherActivities[0].description": "TA",
+        "projects[0].description": "TA",
+        "projects[1].description": "T",
+        "selfIntroduction.intro.body": "ST",
+        "selfIntroduction.challenge.body": "S",
+        "selfIntroduction.growth.body": "S",
+        "selfIntroduction.strengthsWeaknesses.body": ""
+      }
+    }
+  ]
+}

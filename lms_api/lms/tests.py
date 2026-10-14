@@ -1,0 +1,603 @@
+"""Small API-contract checks that do not require a database connection."""
+
+import json
+import os
+from collections import namedtuple
+
+from django.test import SimpleTestCase
+from unittest import TestCase
+from unittest.mock import Mock, patch
+
+from lms.api import ChatIn, _data, _notice_image_key, api, chat, upload_notice_image
+from lms.bootstrap_service import _dicts
+from lms.commands import (
+    _validate_record_submission_write, _validate_resume_write, op_add_todo,
+    _save_user_skills, op_create_cohort, op_delete_todo, op_set_seat_presence, op_toggle_todo,
+    op_update_cohort, op_upsert_sql,
+)
+from lms.seating_layout import seating_payload
+from lms.services import sync_notice_vector
+
+
+class CurriculumPdfTests(SimpleTestCase):
+    def lookup(self, cohort_id=1, row=('cohorts/cohort_34/curriculum/a.pdf', 'a.pdf'), url='https://example.test/signed'):
+        from lms.api import curriculum_pdf
+        request = Mock(auth={'id': 7, 'cohort_id': 1, 'role': 'student', 'is_active': True})
+        with patch('lms.api.connection') as connection, patch('lms.api.resolve_cohort', return_value=cohort_id), patch('lms.storage.read_url', return_value=url) as signer:
+            cur = connection.cursor.return_value.__enter__.return_value
+            cur.fetchone.return_value = row
+            result = curriculum_pdf(request, 'cohort_34')
+            return result, cur, signer
+
+    def test_own_published_pdf_gets_fresh_url(self):
+        result, cur, signer = self.lookup()
+        self.assertEqual(result['filename'], 'a.pdf')
+        self.assertIn('published=true', cur.execute.call_args.args[0])
+        signer.assert_called_once_with('cohorts/cohort_34/curriculum/a.pdf')
+
+    def test_other_cohort_cannot_read_or_sign_pdf(self):
+        result, cur, signer = self.lookup(cohort_id=2)
+        self.assertEqual(result[0], 403)
+        cur.execute.assert_not_called()
+        signer.assert_not_called()
+
+    def test_missing_or_unavailable_pdf_is_explicit(self):
+        self.assertEqual(self.lookup(row=None)[0][0], 404)
+        self.assertEqual(self.lookup(url=None)[0][0], 503)
+
+
+class AttendanceUpsertTests(TestCase):
+    @patch("lms.commands._prepare_row", return_value={
+        "user_id": 9, "cohort_id": 2, "attendance_date": "2026-09-24",
+        "status": "late", "data_source": "manual",
+    })
+    @patch("lms.commands._table_columns", return_value={
+        "id", "user_id", "cohort_id", "attendance_date", "status", "data_source",
+        "created_at", "updated_at",
+    })
+    def test_repeated_daily_insert_updates_existing_row(self, _columns, _prepare):
+        cur = Mock()
+        cur.fetchone.return_value = (17,)
+        with patch('lms.commands._assert_cohort_writable'):
+            result = op_upsert_sql(cur, {"role": "admin", "id": 1}, {
+                "table": "attendances", "action": "insert", "userId": "student-uid",
+                "dateKey": "2026-09-24", "status": "late",
+            })
+        sql, values = cur.execute.call_args.args
+        self.assertEqual(result, {"id": "17"})
+        self.assertIn("ON CONFLICT (user_id, attendance_date) DO UPDATE SET", sql)
+        self.assertIn("status = EXCLUDED.status", sql)
+        self.assertNotIn("user_id = EXCLUDED.user_id", sql)
+        self.assertEqual(values, [9, 2, "2026-09-24", "late", "manual"])
+
+
+class SeatPresenceTests(TestCase):
+    def test_repeat_mark_upserts_same_student_period(self):
+        cur = Mock()
+        cur.fetchone.side_effect = [(8, 2), (2,), None, (17,)]
+        actor = {"id": 4, "role": "instructor", "cohort_id": 2, "is_active": True}
+        result = op_set_seat_presence(cur, actor, {
+            "userId": "student-uid", "dateKey": "2026-09-24", "period": 9,
+            "state": "held",
+        })
+        self.assertEqual(result, {"id": "17"})
+        sql, values = cur.execute.call_args.args
+        self.assertIn("ON CONFLICT (cohort_id, user_id, presence_date, period)", sql)
+        self.assertEqual(values[0:2], [2, 8])
+        self.assertEqual(values[4:], ["held", 4])
+
+    def test_instructor_cannot_mark_another_cohort(self):
+        cur = Mock()
+        cur.fetchone.return_value = (8, 3)
+        actor = {"id": 4, "role": "instructor", "cohort_id": 2, "is_active": True}
+        with self.assertRaises(PermissionError):
+            op_set_seat_presence(cur, actor, {
+                "userId": "student-uid", "dateKey": "2026-09-24", "period": 9,
+                "state": "confirmed",
+            })
+        self.assertEqual(cur.execute.call_count, 1)
+
+
+class SeatingPayloadTests(TestCase):
+    """cohort_seating(기수당 한 줄, layout jsonb)을 화면이 받는 강의실 · 칸 · 배치 · 좌석으로 편다."""
+
+    def _row(self, published):
+        return {
+            "cohort_id": 1, "room_number": "강의실 1", "published": published, "updated_at": None,
+            "layout": json.dumps({
+                "rows": 2, "cols": 3, "sourceRoomId": "room-1",
+                "cells": [
+                    {"row": 0, "col": 0, "type": "empty", "seatId": ""},
+                    {"row": 0, "col": 1, "type": "instructor", "seatId": "", "groupId": "__instructor__"},
+                    {"row": 1, "col": 0, "type": "seat", "seatId": "1", "label": "1"},
+                    {"row": 1, "col": 1, "type": "seat", "seatId": "2", "label": "2"},
+                ],
+                "assignments": {"1": "uid-a", "9": "uid-gone"},
+            }),
+        }
+
+    def test_layout_unfolds_into_room_cells_and_seats(self):
+        view = seating_payload([self._row(True)], {1: "cohort_34"})
+        room = view["seatingRooms"][0]
+        self.assertEqual((room["id"], room["cohortId"], room["rows"], room["cols"]), ("room-1", "cohort_34", 2, 3))
+        self.assertEqual([c["type"] for c in view["seatingCells"]], ["instructor", "seat", "seat"])
+        self.assertEqual(view["seatAssignments"], [{"roomId": "room-1", "cellId": "room-1:1_0", "userId": "uid-a"}])
+        self.assertEqual(view["seatingAssignments"][0]["status"], "published")
+        self.assertEqual(view["publishedSeatingRooms"], {"cohort_34": "room-1"})
+
+    def test_draft_is_not_listed_as_published(self):
+        view = seating_payload([self._row(False)], {1: "cohort_34"})
+        self.assertEqual(view["seatingAssignments"][0]["status"], "draft")
+        self.assertEqual(view["publishedSeatingRooms"], {})
+
+
+class NoticeVectorCountTests(TestCase):
+    @patch("lms.services.connection.cursor")
+    @patch("lms.services.notice_vectors.upsert_notice_vectors", return_value=2)
+    def test_upsert_persists_chunk_count(self, upsert, cursor):
+        count = sync_notice_vector("cohort_34", 17, {"title": "Test", "content": "Text"})
+        self.assertEqual(count, 2)
+        upsert.assert_called_once()
+        cursor.return_value.__enter__.return_value.execute.assert_called_once_with(
+            "UPDATE notices SET vector_chunk_count = %s WHERE id = %s", [2, 17]
+        )
+
+    @patch("lms.services.connection.cursor")
+    @patch("lms.services.notice_vectors.delete_notice_vectors")
+    def test_delete_only_removes_existing_vectors(self, delete, cursor):
+        sync_notice_vector("cohort_34", 17, None, previous_chunk_count=2)
+        delete.assert_called_once_with("cohort_34", 17, 2)
+        cursor.assert_not_called()
+
+    @patch("lms.services.notice_vectors.delete_notice_vectors")
+    @patch("lms.services.notice_vectors.upsert_notice_vectors", side_effect=RuntimeError("image extraction failed"))
+    def test_failed_image_extraction_keeps_previous_vectors(self, _upsert, delete):
+        with self.assertRaises(RuntimeError):
+            sync_notice_vector("cohort_34", 17, {"image_storage_key": "notices/a/b.png"}, previous_chunk_count=2)
+        delete.assert_not_called()
+
+    @patch("lms.services.connection.cursor")
+    @patch("lms.services.notice_vectors.delete_notice_vectors")
+    @patch("lms.services.notice_vectors.upsert_notice_vectors")
+    def test_only_scheduled_attendance_is_excluded(self, upsert, delete, cursor):
+        cursor.return_value.__enter__.return_value.fetchone.return_value = ("scheduled",)
+        count = sync_notice_vector(
+            "cohort_34", 17, {"title": "[출결] 오늘 예외 출결 제출", "content": "내용"},
+            previous_chunk_count=2,
+        )
+        self.assertEqual(count, 0)
+        upsert.assert_not_called()
+        delete.assert_called_once_with("cohort_34", 17, 2, start=0)
+
+        cursor.return_value.__enter__.return_value.fetchone.return_value = (None,)
+        upsert.return_value = 1
+        self.assertEqual(sync_notice_vector(
+            "cohort_34", 18, {"title": "[출결] 오늘 예외 출결 제출", "content": "내용"}
+        ), 1)
+        upsert.assert_called_once()
+
+
+class NoticeImageTests(SimpleTestCase):
+    def test_table_values_keep_their_column_labels(self):
+        from lms.notice_vectors import build_records
+
+        records = build_records("cohort_34", 39, {
+            "title": "정기 상담 공지",
+            "image_text": (
+                "| 일자 | 시간 | 송희 매니저 (상담실 A) | 희애 매니저 (상담실 B) |\n"
+                "|---|---|---|---|\n"
+                "| 9/30 (수) | 15:50~16:00 | 김진화 | 최인영 |"
+            ),
+        })
+        text = records[0]["page_content"]
+        self.assertIn("송희 매니저 (상담실 A): 김진화", text)
+        self.assertIn("희애 매니저 (상담실 B): 최인영", text)
+
+    def test_image_text_is_a_single_separate_record(self):
+        from lms.notice_vectors import CHUNK_OVERLAP, CHUNK_SIZE, build_records, chunk_text
+
+        body = "본문 안내\n" * 90
+        image_text = "09:50~10:00\n" * 160
+        records = build_records("cohort_34", 17, {
+            "title": "정기 상담 공지", "content": body, "image_text": image_text
+        })
+        self.assertEqual((CHUNK_SIZE, CHUNK_OVERLAP), (500, 40))
+        self.assertEqual(len(records), len(chunk_text(body)) + 1)
+        self.assertTrue(all(row["page_content"].startswith("정기 상담 공지\n\n") for row in records))
+        self.assertTrue(all("[첨부 이미지에서 추출한 텍스트]" not in row["page_content"] for row in records[:-1]))
+        self.assertTrue(records[-1]["page_content"].startswith("정기 상담 공지\n\n[첨부 이미지에서 추출한 텍스트]"))
+        self.assertGreater(len(records[-1]["page_content"]), len(image_text))
+        self.assertEqual(records[-1]["page_content"].count("09:50~10:00"), 160)
+
+    @patch("lms.storage.put_object")
+    @patch("lms.storage.get_object", side_effect=[None, b"\x89PNG\r\n\x1a\nimage"])
+    @patch("lms.notice_vectors.extract_image_text", return_value="신청 마감 10월 5일")
+    def test_existing_image_is_extracted_and_cached(self, extract, get, put):
+        from lms.notice_vectors import image_text_for_notice
+
+        text = image_text_for_notice("notices/manager-a/old.png")
+        self.assertEqual(text, "신청 마감 10월 5일")
+        self.assertEqual(get.call_count, 2)
+        extract.assert_called_once_with(b"\x89PNG\r\n\x1a\nimage", "image/png")
+        put.assert_called_once_with("notices/manager-a/old.png.txt", text.encode(), "text/plain; charset=utf-8")
+
+    def test_only_own_uploaded_key_or_https_url_is_accepted(self):
+        user = {"firebase_uid": "manager-a"}
+        own = f"notices/manager-a/{'a' * 32}.png"
+        self.assertEqual(_notice_image_key({"imageStorageKey": own}, user), own)
+        self.assertIs(_notice_image_key({"imageStorageKey": own.replace("manager-a", "manager-b")}, user), False)
+        self.assertEqual(_notice_image_key({"imageStorageKey": ""}, user, own), None)
+        self.assertEqual(_notice_image_key({"imageStorageKey": own}, {"firebase_uid": "manager-b"}, own), own)
+
+    @patch("lms.storage.read_url", return_value="/api/files?t=token")
+    @patch("lms.storage.put_object")
+    @patch("lms.notice_vectors.extract_image_text", return_value="신청 마감 10월 5일")
+    @patch("lms.api._require_user", return_value={"role": "admin", "firebase_uid": "manager-a"})
+    def test_png_upload_checks_file_bytes_and_returns_saved_key(self, _user, extract, put, _url):
+        file = Mock(content_type="image/png", size=12, name="notice.png")
+        file.read.return_value = b"not an image"
+        self.assertEqual(upload_notice_image(Mock(), file).status_code, 400)
+        put.assert_not_called()
+
+        data = b"\x89PNG\r\n\x1a\n" + b"image"
+        file.read.return_value = data
+        result = upload_notice_image(Mock(), file)
+        self.assertRegex(result["key"], r"^notices/manager-a/[0-9a-f]{32}\.png$")
+        extract.assert_called_once_with(data, "image/png")
+        self.assertEqual(put.call_count, 2)
+        put.assert_any_call(result["key"], data, "image/png")
+        put.assert_any_call(result["key"] + ".txt", "신청 마감 10월 5일".encode(), "text/plain; charset=utf-8")
+
+
+class JsonBodyContractTests(SimpleTestCase):
+    def test_arbitrary_json_fields_survive(self):
+        payload = {"title": "Notice", "cohortId": "cohort_34", "isActive": False}
+        self.assertEqual(_data(payload), payload)
+        self.assertEqual(_data(None), {})
+
+    def test_write_routes_accept_json_request_bodies(self):
+        paths = api.get_openapi_schema()["paths"]
+        for path, method in (
+            ("/api/notices", "post"),
+            ("/api/notices/{pk}", "patch"),
+            ("/api/scheduled-notices", "post"),
+            ("/api/scheduled-notices/{pk}", "patch"),
+            ("/api/alert-popups", "post"),
+            ("/api/alert-popups/{pk}", "patch"),
+        ):
+            with self.subTest(path=path, method=method):
+                operation = paths[path][method]
+                self.assertIn("requestBody", operation)
+                self.assertFalse(any(p["name"] == "body" for p in operation.get("parameters", [])))
+
+
+class AiProxyContractTests(SimpleTestCase):
+    def test_missing_internal_token_does_not_call_ai_service(self):
+        request = Mock(auth={"id": 42, "role": "student", "firebase_uid": "student-a"})
+        with patch.dict(os.environ, {"CHATBOT_URL": "http://ai:8001", "LMS_AI_SHARED_TOKEN": ""}), \
+             patch("lms.api.urllib.request.urlopen") as urlopen:
+            response = chat(request, ChatIn(message="hello"))
+        self.assertEqual(response.status_code, 503)
+        urlopen.assert_not_called()
+
+    def test_internal_token_is_sent_in_header_not_body(self):
+        request = Mock(auth={"role": "student", "firebase_uid": "student-a"})
+        with patch.dict(os.environ, {"CHATBOT_URL": "http://ai:8001", "LMS_AI_SHARED_TOKEN": "private-test-token"}), \
+             patch("lms.api.urllib.request.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = b'{"answer":"ok"}'
+            response = chat(request, ChatIn(message="hello"))
+            sent = urlopen.call_args.args[0]
+        self.assertEqual(json.loads(response.content)["answer"], "ok")
+        self.assertTrue(response["Server-Timing"].startswith("ai_upstream;dur="))
+        self.assertEqual(sent.get_header("X-lms-ai-token"), "private-test-token")
+        self.assertNotIn(b"private-test-token", sent.data)
+
+
+class ResumeReviewIdTests(SimpleTestCase):
+    """첨삭 서버로 넘기는 이력서 id — 화면의 공개 id(legacy_id, 없으면 resumes.id)."""
+
+    def _promote(self, owned_row):
+        from lms.api import TailoredPromoteIn, resume_review_promote
+
+        with patch("lms.api._owned_resume", return_value=(owned_row, None)),              patch.dict(os.environ, {"RESUME_REVIEW_URL": "http://ai:8001"}),              patch("lms.api.urllib.request.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = b'{"workspace_resume_id":"matched_x"}'
+            resume_review_promote(Mock(), TailoredPromoteIn(resumeId="x", tailoredResumeId="tailored_abc"))
+        return json.loads(urlopen.call_args.args[0].data)
+
+    def test_new_resume_without_legacy_id_is_sent_as_resume_pk(self):
+        sent = self._promote({"id": 10, "legacy_id": None, "code": "34", "firebase_uid": "student-a"})
+        self.assertEqual(sent, {"uid": "student-a", "cohort_id": "34", "resume_id": "10", "tailored_resume_id": "tailored_abc"})
+
+    def test_migrated_resume_is_sent_as_legacy_id(self):
+        sent = self._promote({"id": 10, "legacy_id": "BASEdoc", "code": "34", "firebase_uid": "student-a"})
+        self.assertEqual(sent["resume_id"], "BASEdoc")
+
+
+class ResumeDeleteTests(SimpleTestCase):
+    """이력서 삭제 — DB FK 에 ON DELETE 가 없어 딸린 행을 먼저 처리하고 마지막에 resumes 를 지운다."""
+
+    def test_dependents_are_cleared_before_the_resume(self):
+        from lms.commands import _delete_resume
+
+        cur = Mock()
+        cur.fetchone.return_value = (None,)  # v2 migration not present in this mocked deployment
+        _delete_resume(cur, 11)
+        sqls = [" ".join(call.args[0].split()) for call in cur.execute.call_args_list]
+        self.assertEqual(sqls[-1], "DELETE FROM resumes WHERE id = %s")
+        for table in ("resume_feedback_reads", "resume_feedback", "resume_revisions",
+                      "resume_ai_applications", "resume_ai_reviews", "resume_tailorings"):
+            self.assertTrue(any(sql.startswith(f"DELETE FROM {table} ") for sql in sqls[:-1]), table)
+        # 원본 · 편집용 연결은 지우지 않고 끊는다
+        self.assertIn("UPDATE resumes SET base_resume_id = NULL WHERE base_resume_id = %s", sqls)
+        self.assertIn("UPDATE resumes SET source_tailored_resume_id = NULL WHERE source_tailored_resume_id = %s", sqls)
+
+
+class ResumeWriteValidationTests(SimpleTestCase):
+    def setUp(self):
+        self.actor = {"id": 1, "role": "student", "cohort_id": 34}
+
+    def test_cannot_edit_another_users_resume(self):
+        with self.assertRaises(PermissionError):
+            _validate_resume_write(Mock(), self.actor, {"title": "changed"}, {"id": 5, "user_id": 2, "cohort_id": 34, "base_resume_id": None, "is_base_resume": True})
+
+    @patch("lms.commands.resolve_row")
+    def test_parent_must_be_own_base_resume(self, resolve):
+        resolve.return_value = {"id": 7, "user_id": 2, "is_base_resume": True}
+        with self.assertRaises(ValueError):
+            _validate_resume_write(Mock(), self.actor, {"base_resume_id": 7}, None)
+
+    def test_linked_job_must_exist(self):
+        cur = Mock()
+        cur.fetchone.return_value = None
+        with self.assertRaises(ValueError):
+            _validate_resume_write(cur, self.actor, {"linked_job_id": "missing"}, None)
+
+    @patch("lms.commands.resolve_row")
+    def test_original_that_is_not_the_default_is_accepted(self, resolve):
+        """대표가 아닌 기본 이력서(원본)도 바탕이 된다 — 대표를 바꾼 뒤 옛 대표의 맞춤 이력서도 저장된다."""
+        resolve.return_value = {"id": 7, "user_id": 1, "is_base_resume": False, "base_resume_id": None,
+                                "source_tailored_resume_id": None}
+        data = {"title": "고침"}
+        _validate_resume_write(Mock(), self.actor, data, {"id": 30, "user_id": 1, "cohort_id": 34, "base_resume_id": 7,
+                                                          "is_base_resume": False})
+        self.assertEqual(data["base_resume_id"], 7)
+
+    @patch("lms.commands.resolve_row")
+    def test_tailored_resume_cannot_be_a_parent(self, resolve):
+        for link in ({"base_resume_id": 3, "source_tailored_resume_id": None},
+                     {"base_resume_id": None, "source_tailored_resume_id": 9}):
+            resolve.return_value = {"id": 7, "user_id": 1, "is_base_resume": False, **link}
+            with self.assertRaises(ValueError, msg=link):
+                _validate_resume_write(Mock(), self.actor, {"base_resume_id": 7}, None)
+
+    @patch("lms.commands.resolve_row")
+    def test_resume_cannot_be_its_own_parent(self, resolve):
+        resolve.return_value = {"id": 7, "user_id": 1, "is_base_resume": False, "base_resume_id": None,
+                                "source_tailored_resume_id": None}
+        with self.assertRaises(ValueError):
+            _validate_resume_write(Mock(), self.actor, {"base_resume_id": 7},
+                                   {"id": 7, "user_id": 1, "cohort_id": 34, "base_resume_id": None, "is_base_resume": False})
+
+    @patch("lms.commands.resolve_row")
+    def test_own_base_resume_is_accepted(self, resolve):
+        resolve.return_value = {"id": 7, "user_id": 1, "is_base_resume": True}
+        data = {"base_resume_id": 7}
+        _validate_resume_write(Mock(), self.actor, data, None)
+        self.assertEqual(data["user_id"], 1)
+        self.assertEqual(data["base_resume_id"], 7)
+
+
+class CohortPeriodTests(SimpleTestCase):
+    """관리자 화면 「기수 관리」의 시작일 · 종료일이 저장된다(예전에는 버렸다)."""
+
+    ADMIN = {"id": 1, "role": "admin"}
+
+    def _update(self, payload, current_start=None):
+        cur = Mock()
+        cur.fetchone.side_effect = [(7, current_start), (7,), None]
+        op_update_cohort(cur, self.ADMIN, {"cohortId": "cohort_34", **payload})
+        sql, args = cur.execute.call_args_list[-1].args
+        return sql, args
+
+    def test_update_saves_end_date_from_screen_value(self):
+        from datetime import date
+        sql, args = self._update({"name": "34기", "endDate": "2026-12-14T00:00:00.000Z"})
+        self.assertIn("end_date = %s", sql)
+        self.assertNotIn("start_date", sql, "보내지 않은 시작일은 건드리지 않는다")
+        self.assertIn(date(2026, 12, 14), args)
+        self.assertEqual(7, args[-1])
+
+    def test_update_rejects_end_before_start(self):
+        with self.assertRaises(ValueError):
+            self._update({"startDate": "2026-06-15", "endDate": "2026-06-01"})
+
+    def test_started_cohort_keeps_its_start_date(self):
+        """개강한 기수의 시작일은 못 바꾼다 — 출석 단위기간이 시작일부터 나뉜다. 종료일은 바꿀 수 있다."""
+        from datetime import date
+        with self.assertRaises(ValueError):
+            self._update({"startDate": "2026-06-22", "endDate": "2026-12-14"}, current_start=date(2026, 6, 15))
+        # 화면은 저장할 때 같은 시작일을 그대로 보낸다 — 같은 값이면 통과하고 종료일만 바뀐다
+        sql, args = self._update({"startDate": "2026-06-15T00:00:00.000Z", "endDate": "2026-12-14"}, current_start=date(2026, 6, 15))
+        self.assertIn(date(2026, 12, 14), args)
+
+    def test_not_started_cohort_can_move_its_start_date(self):
+        from datetime import date
+        sql, args = self._update({"startDate": "2099-03-09"}, current_start=date(2099, 3, 2))
+        self.assertIn(date(2099, 3, 9), args)
+
+    def test_create_saves_period(self):
+        from datetime import date
+        cur = Mock()
+        cur.fetchone.side_effect = [None, (9,)]
+        cur.fetchall.return_value = []
+        op_create_cohort(cur, self.ADMIN, {"cohortId": "cohort_36", "startDate": "2026-11-02", "endDate": "2027-04-30"})
+        sql, args = cur.execute.call_args.args
+        self.assertIn("start_date, end_date", sql)
+        self.assertEqual([date(2026, 11, 2), date(2027, 4, 30)], args[7:9])
+
+    def test_only_admin_can_change_period(self):
+        with self.assertRaises(PermissionError):
+            op_update_cohort(Mock(), {"id": 2, "role": "instructor"}, {"cohortId": "cohort_34", "endDate": "2026-12-14"})
+
+
+class ProfileSkillsTests(SimpleTestCase):
+    """마이페이지 기술 스택 — 숙련도와 원래 표기를 함께 저장한다."""
+
+    def test_saves_level_and_label(self):
+        cur = Mock()
+        cur.fetchone.return_value = (11,)
+        _save_user_skills(cur, 5, [{"name": " Python ", "level": "중급"}, "SQL", {"name": "", "level": "고급"}])
+        calls = [c.args for c in cur.execute.call_args_list]
+        self.assertIn("DELETE FROM user_skills", calls[0][0])
+        skills = [args for sql, args in calls if sql.lstrip().startswith("INSERT INTO skills")]
+        self.assertEqual([["python"], ["sql"]], skills, "찾기용 이름은 소문자, 빈 이름은 버린다")
+        links = [args for sql, args in calls if "INSERT INTO user_skills" in sql]
+        self.assertEqual([5, 11, "중급", '{"label": "Python"}'], links[0])
+        self.assertEqual([5, 11, None, '{"label": "SQL"}'], links[1], "예전 이름 목록은 숙련도 없이")
+
+
+class UpsertRoleTests(SimpleTestCase):
+    def test_student_cannot_mutate_administrative_tables(self):
+        student = {"id": 1, "role": "student"}
+        for table in ("cohorts", "mileage_products", "assessments", "cohort_seating"):
+            with self.subTest(table=table), self.assertRaises(PermissionError):
+                op_upsert_sql(Mock(), student, {"table": table, "action": "insert"})
+
+    def test_instructor_cannot_mutate_cohorts(self):
+        with self.assertRaises(PermissionError):
+            op_upsert_sql(Mock(), {"id": 2, "role": "instructor"}, {"table": "cohorts", "action": "insert"})
+
+    def test_student_cannot_write_unvalidated_scores_or_purchase_state(self):
+        student = {"id": 1, "role": "student"}
+        for table in (
+            "assessment_submissions", "submission_responses", "purchase_requests",
+            "mileage_cart_items", "mission_progress", "recommendation_events",
+        ):
+            with self.subTest(table=table), self.assertRaises(PermissionError):
+                op_upsert_sql(Mock(), student, {"table": table, "action": "insert", "userId": 2})
+
+
+class RecordSubmissionValidationTests(SimpleTestCase):
+    def setUp(self):
+        self.actor = {"id": 1, "role": "student", "cohort_id": 34, "is_active": True}
+
+    def test_student_cannot_edit_another_users_submission(self):
+        with self.assertRaises(PermissionError):
+            _validate_record_submission_write(
+                self.actor, {"title": "changed"}, {"user_id": 2, "cohort_id": 34}
+            )
+
+    def test_student_cannot_set_review_status(self):
+        with self.assertRaises(PermissionError):
+            _validate_record_submission_write(self.actor, {"status": "approved"}, None)
+
+    def test_student_cannot_forge_review_comment(self):
+        with self.assertRaises(PermissionError):
+            _validate_record_submission_write(self.actor, {"review_comment": "approved"}, None)
+
+    def test_student_insert_uses_own_identity(self):
+        data = {"status": "submitted"}
+        _validate_record_submission_write(self.actor, data, None)
+        self.assertEqual(data["user_id"], 1)
+        self.assertEqual(data["cohort_id"], 34)
+
+
+class TodoAuthorizationTests(SimpleTestCase):
+    def setUp(self):
+        self.actor = {"id": 1, "role": "student", "firebase_uid": "student-a"}
+
+    @patch("lms.commands.resolve_user")
+    def test_student_cannot_add_todo_for_another_user(self, resolve):
+        with self.assertRaises(PermissionError):
+            op_add_todo(Mock(), self.actor, {"uid": "student-b", "title": "wrong"})
+        resolve.assert_not_called()
+
+    @patch("lms.commands.resolve_row", return_value={"id": 3, "user_id": 2})
+    def test_student_cannot_toggle_another_users_todo(self, _resolve):
+        cur = Mock()
+        with self.assertRaises(PermissionError):
+            op_toggle_todo(cur, self.actor, {"todoId": "3"})
+        cur.execute.assert_not_called()
+
+    @patch("lms.commands.resolve_row", return_value={"id": 3, "user_id": 2})
+    def test_student_cannot_delete_another_users_todo(self, _resolve):
+        cur = Mock()
+        with self.assertRaises(PermissionError):
+            op_delete_todo(cur, self.actor, {"todoId": "3"})
+        cur.execute.assert_not_called()
+
+    @patch("lms.commands.resolve_row", return_value={"id": 3, "user_id": 1})
+    def test_student_can_toggle_own_todo(self, _resolve):
+        cur = Mock()
+        op_toggle_todo(cur, self.actor, {"todoId": "3"})
+        cur.execute.assert_called_once()
+
+
+class BootstrapJsonTests(SimpleTestCase):
+    def test_jsonb_is_an_object_not_a_json_string(self):
+        cur = Mock()
+        column = namedtuple("Column", "name type_code")
+        cur.description = [column("content", 3802), column("title", 1043)]
+        cur.fetchall.return_value = [('{"section_status":{"intro":true}}', "Resume")]
+        rows = _dicts(cur)
+        self.assertEqual(rows[0]["content"]["section_status"], {"intro": True})
+        self.assertEqual(rows[0]["title"], "Resume")
+
+
+class JobChatProxyTests(SimpleTestCase):
+    """코치에게 묻기 — 공고 서버로 넘기는 말과 이력서 평문."""
+
+    content = {
+        "techStack": [{"name": "Kubernetes"}],
+        "projects": [{"name": "주문 API 서버", "description": "FastAPI 로 주문 처리 API 를 만들었다"}],
+        "coreCompetencies": {"text": "백엔드 설계"},
+    }
+    row = {"job_preferences": None, "firebase_uid": "student-a", "cohort_id": 1}
+
+    def _call(self, handler, body, resume=None):
+        request = Mock(auth={"id": 42, "role": "student", "firebase_uid": "student-a"})
+        resume = resume if resume is not None else (self.row, self.content, None)
+        with patch.dict(os.environ, {"JOBS_URL": "http://jobs:8001"}), \
+             patch("lms.api._jobs_resume", return_value=resume) as read_resume, \
+             patch("lms.api.urllib.request.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = b'{"mode":"\xea\xb2\x80\xec\x83\x89","reply":"ok"}'
+            response = handler(request, body)
+        sent = json.loads(urlopen.call_args.args[0].data) if urlopen.called else None
+        return response, sent, read_resume, urlopen
+
+    def test_chat_sends_snake_case_and_builds_resume_on_server(self):
+        from lms.api import JobChatIn, jobs_chat
+
+        response, sent, _read, _ = self._call(
+            jobs_chat,
+            JobChatIn(message="2번 나한테 맞아?", resumeId="r1", lastJobIds=["a", "b"], filters={"regions": ["서울"]}),
+        )
+        self.assertEqual(response["reply"], "ok")
+        self.assertEqual(sent["last_job_ids"], ["a", "b"])
+        self.assertEqual(sent["filters"], {"regions": ["서울"]})
+        self.assertIn("주문 API 서버", sent["resume_text"])
+        self.assertNotIn("resumeId", sent)
+
+    def test_chat_without_resume_does_not_read_one(self):
+        from lms.api import JobChatIn, jobs_chat
+
+        _response, sent, read_resume, _ = self._call(jobs_chat, JobChatIn(message="서울 백엔드 신입"))
+        read_resume.assert_not_called()
+        self.assertNotIn("resume_text", sent)
+
+    def test_chat_with_someone_elses_resume_is_blocked(self):
+        from lms.api import JobChatIn, jobs_chat
+        from ninja.responses import Response
+
+        blocked = (None, None, Response({"detail": "본인 이력서만 추천받을 수 있습니다."}, status=403))
+        response, _sent, _read, urlopen = self._call(jobs_chat, JobChatIn(message="맞아?", resumeId="other"), resume=blocked)
+        self.assertEqual(response.status_code, 403)
+        urlopen.assert_not_called()
+
+    def test_scoped_recommend_reads_only_that_part(self):
+        from lms.api import JobRecommendIn, jobs_recommend
+
+        _response, sent, _read, _ = self._call(jobs_recommend, JobRecommendIn(resumeId="r1", scope="프로젝트"))
+        self.assertIn("주문 API 서버", sent["resume_text"])
+        self.assertNotIn("Kubernetes", sent["resume_text"])
+        self.assertNotIn("백엔드 설계", sent["resume_text"])

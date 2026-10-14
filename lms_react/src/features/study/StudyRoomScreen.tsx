@@ -1,0 +1,858 @@
+import { useEffect, useRef, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+
+import type { ImportedCell } from '../practice/notebookFile';
+import { NotebookMarkdown } from '../practice/NotebookMarkdown';
+import { PracticeLink, usePracticeDock } from '../practice/PracticeDock';
+import { findCodeInFiles, isSqlBlock, isWebBlock, lessonCells, lessonSlice, significantLines, type LessonFile } from './lessonCode';
+
+import { RoutePaths } from '../../app/routePaths';
+import {
+  deleteStudyNote,
+  fetchLessonFile,
+  fetchWeeklyYoutube,
+  fetchStudySourceTree,
+  refreshStudyNote,
+  requestStudyNote,
+  startPracticeFromNote,
+  useInflearnPackages,
+  useMyPracticeAttempts,
+  usePracticeSets,
+  useStudyNotes,
+  useStudySources,
+  useWeeklyYoutube,
+  useYoutubeRecommendations,
+  type StudySourceTree,
+} from '../../data/repository';
+import { readApiError } from '../../data/http';
+import { queryClient } from '../../data/queryClient';
+import type { InflearnPackage, PracticeSet, StudyNote, StudyNoteScopeType } from '../../domain/types';
+import { Icon } from '../../ui/Icon';
+import {
+  Button,
+  Card,
+  Checkbox,
+  PageHeader,
+  Row,
+  Spacer,
+  Tabs,
+} from '../../ui/components';
+import { formatDate } from '../../utils/format';
+import { retryItems, shortDate, wrongNoteDays } from '../practice/review';
+import { MakeProblems } from '../practice/MakeProblems';
+import { useIsHidden } from '../practice/useIsHidden';
+import { usePageCrumbs } from '../../app/crumbs';
+import { useCurrentUser } from '../auth/session';
+import { LessonDaysSection, setProgress } from './LessonDaysSection';
+import { noteDate, noteLabel } from './noteScope';
+import { VideoCard, youtubeThumb } from './VideoCard';
+import './studyHome.css';
+
+const packageTypeLabels: Record<string, string> = {
+  review: '예복습',
+  preview: '예습',
+  bonus: '보너스',
+};
+
+/**
+ * 학습실 — features/study_room/presentation/study_room_screen.dart
+ *
+ * 위에서 아래로 한 줄기다: 머리글 · 공부방 안내 · 이번 주 커리큘럼 추천 ·
+ * 배정된 인프런 강의(검색 + 패키지 카드). 탭으로 가르지 않는다.
+ */
+export function StudyRoomScreen() {
+  const user = useCurrentUser();
+  const packages = useInflearnPackages().filter((p) => p.isPublished);
+  const [query, setQuery] = useState('');
+
+  const q = query.trim().toLowerCase();
+  const filtered = packages.filter((p) => {
+    if (q === '') return true;
+    const hay = [
+      p.title,
+      p.subject,
+      p.summary ?? '',
+      ...p.units.flatMap((u) => [u.name, ...u.courses.map((c) => c.title)]),
+      ...p.courses.map((c) => c.title),
+    ];
+    return hay.some((t) => t.toLowerCase().includes(q));
+  });
+
+  return (
+    <div className="screen__inner study-room study-home">
+      <header className="study-head">
+        <div>
+          <h1 className="study-head__title">학습실</h1>
+          <p className="study-head__desc">
+            수업을 복습하고, 틀린 문제를 다시 풀고, 코드로 연습하세요.
+          </p>
+        </div>
+      </header>
+
+      <div className="study-home__shortcuts" role="group" aria-label="학습 바로가기">
+      {/* 공부방 — 수업 날짜마다 노트와 복습 문제가 있는 곳으로 들어가는 문 */}
+      <section className="study-entry">
+        <div>
+          <div className="study-entry__header">
+            <span className="study-home__icon"><Icon name="menu_book" size={22} /></span>
+            <h2 className="study-entry__title">공부방</h2>
+          </div>
+          <p className="study-entry__desc">수업별 문제를 풀고 복습 노트를 확인하세요.</p>
+          <StudyRoomSummary cohortId={user.cohortId} uid={user.uid} />
+        </div>
+        <Link className="btn btn--filled btn--md" to={RoutePaths.studyRoomNotes}>
+          공부방 열기 <Icon name="arrow_forward" size={17} />
+        </Link>
+      </section>
+
+      {/* 오답노트 — 틀린 복습 문제를 수업 날짜별로 */}
+      <section className="study-entry">
+        <div>
+          <div className="study-entry__header">
+            <span className="study-home__icon"><Icon name="replay" size={22} /></span>
+            <h2 className="study-entry__title">오답노트</h2>
+          </div>
+          <p className="study-entry__desc">틀린 문제를 다시 풀고 해결한 기록을 확인하세요.</p>
+          <WrongNotesSummary cohortId={user.cohortId} uid={user.uid} />
+        </div>
+        <Link className="btn btn--outline btn--md" to={RoutePaths.studyRoomWrongNotes}>
+          오답노트 열기 <Icon name="arrow_forward" size={17} />
+        </Link>
+      </section>
+
+      {/* 연습장 — 문제 없이 코드를 바로 돌려 보는 곳 */}
+      <section className="study-entry study-entry--quiet">
+        <div>
+          <div className="study-entry__header">
+            <span className="study-home__icon"><Icon name="terminal" size={22} /></span>
+            <h2 className="study-entry__title">자유 연습장</h2>
+          </div>
+          <p className="study-entry__desc">코드를 직접 작성하고 실행하며 실험하세요.</p>
+        </div>
+        <PracticeLink className="btn btn--outline btn--md" setId={null}>
+          연습장 열기 <Icon name="arrow_forward" size={17} />
+        </PracticeLink>
+      </section>
+      </div>
+
+      <YoutubeRecommendations cohortName={user.cohortName} />
+
+      <section className="study-list">
+        <header className="study-home__course-head">
+          <div><h2 className="study-section__title">배정된 인프런 강의</h2>
+          <p className="study-section__desc">필요한 교과목과 강의를 찾아 학습을 이어가세요.</p></div>
+          <span className="study-home__count">{filtered.length}개 패키지</span>
+        </header>
+        <label className="study-search">
+          <Icon name="search" size={20} />
+          <input
+            className="study-search__input"
+            value={query}
+            placeholder="교과목·강의명 검색"
+            aria-label="배정된 인프런 강의 검색"
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
+
+        {filtered.length === 0 ? (
+          <div className="study-empty">
+            <Icon name="menu_book" size={48} />
+            <p>{q ? '검색 결과가 없습니다' : '배정된 인프런 강의가 없습니다'}</p>
+            <span className="hint">{q ? '다른 교과목이나 강의명으로 검색해 보세요.' : '강의 배정 후 이곳에 표시됩니다.'}</span>
+            {q && <button type="button" className="btn btn--outline btn--sm" onClick={() => setQuery('')}>검색 초기화</button>}
+          </div>
+        ) : (
+          filtered.map((pkg) => <PackageCard key={pkg.id} pkg={pkg} />)
+        )}
+      </section>
+    </div>
+  );
+}
+
+/** 공부방 카드의 요약 — 다시 풀 문제 수와 가장 최근 수업의 복습 진행 */
+function StudyRoomSummary({ cohortId, uid }: { cohortId: string; uid: string }) {
+  const sets = usePracticeSets(cohortId);
+  const attempts = useMyPracticeAttempts(uid);
+  const isHidden = useIsHidden();
+  const retries = retryItems(sets, attempts).filter((i) => !isHidden(i.set.id, i.index));
+  const latest = sets.reduce<PracticeSet | undefined>((a, s) => (!a || s.lessonDate > a.lessonDate ? s : a), undefined);
+  if (!latest && retries.length === 0) return null;
+  const progress = latest ? setProgress(latest, attempts, isHidden) : null;
+  return (
+    <div className="study-entry__summary">
+      {retries.length > 0 && <span className="study-entry__pill study-entry__pill--warn">다시 풀 문제 {retries.length}개</span>}
+      {latest && progress && (
+        <span className="study-entry__pill">
+          최근 수업 {latest.lessonDate.slice(5).replace('-', '/')} · 복습 {progress.passed} / {progress.total}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** 학습실 오답노트 카드의 요약 — 못 푼 문제 수와 최근 날짜들 */
+function WrongNotesSummary({ cohortId, uid }: { cohortId: string; uid: string }) {
+  const sets = usePracticeSets(cohortId);
+  const attempts = useMyPracticeAttempts(uid);
+  const isHidden = useIsHidden();
+  const days = wrongNoteDays(sets, attempts, isHidden).filter((d) => d.wrong.length > 0);
+  if (days.length === 0) return null;
+  const count = days.reduce((n, d) => n + d.wrong.length, 0);
+  const dates = days.slice(0, 3).map((d) => shortDate(d.date)).join(', ') + (days.length > 3 ? ` 외 ${days.length - 3}일` : '');
+  return (
+    <div className="study-entry__summary">
+      <span className="study-entry__pill study-entry__pill--warn">못 푼 문제 {count}개</span>
+      <span className="study-entry__pill">{dates}</span>
+    </div>
+  );
+}
+
+/**
+ * 이번 주 커리큘럼 추천 — widgets/youtube_recommendation_section.dart
+ *
+ * 서버가 이번 주 커리큘럼 주제로 YouTube 를 찾아 12시간 캐시한다. 매니저가 직접 고른 영상이 있으면 위에 따로 둔다.
+ */
+function YoutubeRecommendations({ cohortName }: { cohortName: string }) {
+  const user = useCurrentUser();
+  const curated = useYoutubeRecommendations().filter((v) => v.isPublished);
+  const weekly = useWeeklyYoutube(user.cohortId);
+  const [topic, setTopic] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const canRefresh = user.role !== 'student';
+
+  const data = weekly.data;
+  const topics = data?.topics ?? [];
+  const videos = (data?.videos ?? []).filter((v) => topic === null || v.topicLabel === topic);
+
+  // 매니저가 고른 영상은 내 기술과 겹치는 태그가 많은 것을 앞에 둔다
+  const rankedCurated = curated
+    .map((v) => ({
+      video: v,
+      matched: v.tags.filter((t) => user.skills.some((s) => s.toLowerCase() === t.toLowerCase())),
+    }))
+    .sort((a, b) => b.matched.length - a.matched.length);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      const next = await fetchWeeklyYoutube(user.cohortId, true);
+      queryClient.setQueryData(['youtube-weekly', user.cohortId], next);
+      setTopic(null);
+    } catch (error) {
+      setRefreshError(await readApiError(error));
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const loadError = weekly.isError ? '추천 영상을 불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요.' : null;
+  const notice = refreshError ?? loadError ?? data?.message ?? null;
+
+  return (
+    <section className="study-youtube">
+      <header className="study-section__head">
+        <h2 className="study-section__title">이번 주 커리큘럼 추천</h2>
+        {data?.weekLabel && <span className="study-youtube__week">{data.weekLabel}</span>}
+        {canRefresh && (
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="새 영상 찾기"
+            title="YouTube 에서 새로 찾기"
+            disabled={refreshing || weekly.isLoading}
+            onClick={() => void refresh()}
+          >
+            <Icon name="refresh" size={20} />
+          </button>
+        )}
+      </header>
+      <p className="study-section__desc">
+        「{cohortName} 커리큘럼」의 이번 주 주제로 YouTube 영상을 찾았습니다.
+      </p>
+
+      {topics.length > 1 && (
+        <div className="study-youtube__topics" role="group" aria-label="주제로 거르기">
+          <button
+            type="button"
+            className={`chip${topic === null ? ' chip--on' : ''}`}
+            onClick={() => setTopic(null)}
+          >
+            전체
+          </button>
+          {topics.map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={`chip${topic === t ? ' chip--on' : ''}`}
+              onClick={() => setTopic(topic === t ? null : t)}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {rankedCurated.length > 0 && (
+        <div className="study-videos">
+          {rankedCurated.map(({ video, matched }) => (
+            <VideoCard
+              key={`curated-${video.id}`}
+              href={video.youtubeUrl}
+              title={video.title}
+              thumb={youtubeThumb(video.videoId)}
+              meta={['매니저 추천', ...(matched.length > 0 ? [`내 스택과 ${matched.length}개 일치`] : [])]}
+              chips={video.tags.map((tag) => ({ label: tag, on: matched.includes(tag) }))}
+            />
+          ))}
+        </div>
+      )}
+
+      {weekly.isLoading || refreshing ? (
+        <div className="study-card study-card--empty" aria-busy="true">
+          <span className="spinner study-youtube__spinner" aria-hidden="true" /> 이번 주 영상을 찾는 중…
+        </div>
+      ) : videos.length === 0 ? (
+        rankedCurated.length === 0 && (
+          <div className="study-card study-card--empty">
+            {notice ?? '이번 주 추천 영상이 준비되면 여기에 표시됩니다.'}
+          </div>
+        )
+      ) : (
+        <>
+          {notice !== null && <p className="hint">{notice}</p>}
+          <div className="study-videos">
+            {videos.map((v) => (
+              <VideoCard
+                key={v.videoId}
+                href={v.url || `https://www.youtube.com/watch?v=${v.videoId}`}
+                title={v.title}
+                thumb={v.thumbnailUrl || youtubeThumb(v.videoId)}
+                meta={[v.channelTitle, v.topicLabel].filter((m) => m !== '')}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** 인프런 패키지 카드 — widgets/inflearn_package_card.dart */
+function PackageCard({ pkg }: { pkg: InflearnPackage }) {
+  const courseCount =
+    pkg.courses.length + pkg.units.reduce((sum, u) => sum + u.courses.length, 0);
+
+  return (
+    <article className="pkg-card">
+      <div className="pkg-card__badges">
+        <span className={`pkg-badge pkg-badge--${pkg.type}`}>
+          {packageTypeLabels[pkg.type] ?? pkg.type}
+        </span>
+        <span className="pkg-badge pkg-badge--subject">{pkg.subject}</span>
+        {pkg.publishedAt !== undefined && (
+          <span className="hint">배정일 {formatDate(pkg.publishedAt)}</span>
+        )}
+      </div>
+
+      <h3 className="pkg-card__title">{pkg.title}</h3>
+      <p className="pkg-card__count">총 {courseCount}개 강의</p>
+      {pkg.summary !== undefined && <p className="pkg-card__summary">{pkg.summary}</p>}
+
+      {pkg.units.length > 0
+        ? pkg.units.map((unit) => (
+            <UnitSection key={unit.name} name={unit.name} courses={unit.courses} />
+          ))
+        : pkg.courses.map((course) => (
+            <CourseRow key={course.title} title={course.title} url={course.url} />
+          ))}
+    </article>
+  );
+}
+
+/** 교과목 한 묶음 — 접힌 채로 시작한다(ExpansionTile). */
+function UnitSection({
+  name,
+  courses,
+}: {
+  name: string;
+  courses: { title: string; url: string }[];
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="unit">
+      <button type="button" className="unit__head" onClick={() => setOpen((v) => !v)}>
+        <span className="unit__text">
+          <strong>{name}</strong>
+          <span className="hint">{courses.length}개 강의</span>
+        </span>
+        <Icon name={open ? 'expand_less' : 'expand_more'} size={20} />
+      </button>
+      {open && (
+        <div className="unit__body">
+          {courses.map((course) => (
+            <CourseRow key={course.title} title={course.title} url={course.url} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CourseRow({ title, url }: { title: string; url: string }) {
+  return (
+    <a className="course-row" href={url} target="_blank" rel="noreferrer">
+      <Icon name="play_circle" size={18} />
+      <span>{title}</span>
+      <Icon name="open_in_new" size={15} className="course-row__go" />
+    </a>
+  );
+}
+
+/** 공부방 — study_room_notes_screen.dart. 오늘 복습 · 다시 풀 문제 · 과목별 목록(LessonDaysSection) */
+export function StudyNotesScreen() {
+  const user = useCurrentUser();
+  usePageCrumbs([{ label: '학습실', to: RoutePaths.studyRoom }, { label: '공부방' }]);
+
+  return (
+    <div className="screen__inner study-room">
+      <header className="study-head">
+        <div>
+          <h1 className="study-head__title">공부방</h1>
+          <p className="study-head__desc">수업이 끝나면 그날 복습 문제가 생겨요. 문제로 확인하고, 필요하면 노트로 다시 읽으세요.</p>
+        </div>
+      </header>
+
+      <LessonDaysSection cohortId={user.cohortId} uid={user.uid} />
+    </div>
+  );
+}
+
+/** 정리 중인 노트를 다시 물어보는 간격 — 노트 하나에 몇 분 걸린다 */
+const POLL_MS = 5000;
+
+const STATUS_SUFFIX: Record<string, string> = { generating: ' · 정리 중', failed: ' · 실패' };
+
+/** 노트 상세 — study_room_note_source_screen.dart */
+export function StudyNoteSourceScreen() {
+  const { sourceId = '' } = useParams<{ sourceId: string }>();
+  const sources = useStudySources();
+  const allNotes = useStudyNotes();
+  const source = sources.find((s) => s.id === sourceId);
+  const query = new URLSearchParams(window.location.search);
+  const initialNoteId = query.get('note');
+  // 공부방 수업 카드의 「노트 만들기」로 오면 그 날짜를 미리 고른다
+  const askedDate = query.get('date') ?? '';
+  const initialDate = /^\d{4}-\d{2}-\d{2}$/.test(askedDate) ? askedDate : '';
+  // 과목 카드의 「과목 전체 요약」으로 오면 있던 요약을 열거나 새로 만든다
+  const askedSummary = query.get('summary') === '1';
+  const [selectedId, setSelectedId] = useState<string | null>(initialNoteId);
+  const [tab, setTab] = useState('report');
+  const [scopeMode, setScopeMode] = useState<'date' | 'folder' | 'file'>('date');
+  const [scopeValue, setScopeValue] = useState(initialDate);
+  const user = useCurrentUser();
+  usePageCrumbs([
+    { label: '학습실', to: RoutePaths.studyRoom },
+    { label: '공부방', to: RoutePaths.studyRoomNotes },
+    { label: source?.title ?? '학습 노트' },
+  ]);
+  const sets = usePracticeSets(user.cohortId);
+  const attempts = useMyPracticeAttempts(user.uid);
+  const isHidden = useIsHidden();
+  const [checkedFiles, setCheckedFiles] = useState<string[]>([]);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [tree, setTree] = useState<StudySourceTree | null>(null);
+  const [treeError, setTreeError] = useState('');
+  // 범위가 너무 넓다고 돌아온 파일들 — 이 중에서 고르게 한다
+  const [candidates, setCandidates] = useState<string[] | null>(null);
+
+  // 너무 넓었던 노트는 목록에 두지 않는다(보고 있는 것만)
+  const notes = allNotes.filter((n) => n.sourceId === sourceId && (n.status !== 'too_broad' || n.id === selectedId));
+  const note = notes.find((item) => item.id === selectedId);
+
+  useEffect(() => {
+    let alive = true;
+    fetchStudySourceTree(sourceId)
+      .then((next) => {
+        if (alive) setTree(next);
+      })
+      .catch(async (e) => {
+        const reason = await readApiError(e);
+        if (alive) setTreeError(reason);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [sourceId]);
+
+  // 정리 중이면 끝날 때까지 물어본다. 화면을 떠나도 서버는 계속 만든다
+  const pollId = note?.status === 'generating' ? note.id : null;
+  useEffect(() => {
+    if (!pollId) return;
+    const timer = window.setInterval(() => {
+      refreshStudyNote(pollId).catch(() => {
+        // 잠깐 끊겨도 다음 차례에 다시 묻는다
+      });
+    }, POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [pollId]);
+
+  const summaryAsked = useRef(false);
+  useEffect(() => {
+    if (!askedSummary || summaryAsked.current) return;
+    summaryAsked.current = true;
+    const existing = allNotes.find((n) => n.sourceId === sourceId && n.scopeType === 'subject');
+    if (existing) setSelectedId(existing.id);
+    else void request('subject', 'all');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askedSummary, sourceId]);
+
+  const files = candidates ?? tree?.files ?? [];
+  const dateChoices = [...new Set([...(initialDate ? [initialDate] : []), ...(tree?.dates ?? [])])].sort().reverse();
+  const noteDay = note ? noteDate(note) : null;
+  const daySet = noteDay ? sets.find((s) => s.lessonDate === noteDay) : undefined;
+  const dayProgress = daySet ? setProgress(daySet, attempts, isHidden) : null;
+  const folderChoices = source?.allowedPrefixes.length
+    ? source.allowedPrefixes
+    : [...new Set((tree?.files ?? []).filter((p) => p.includes('/')).map((p) => p.split('/')[0]))];
+
+  const request = async (scopeType: StudyNoteScopeType, value: string | string[]) => {
+    setBusy(true);
+    setError('');
+    try {
+      const made = await requestStudyNote(sourceId, scopeType, value);
+      setSelectedId(made.id);
+      setTab('report');
+    } catch (e) {
+      setError(await readApiError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const generate = () => {
+    if ((scopeMode === 'file' && checkedFiles.length === 0) || (scopeMode !== 'file' && scopeValue === '')) {
+      setError(scopeMode === 'file' ? '파일을 1개 이상 선택하세요.' : '정리할 범위를 선택하세요.');
+      return;
+    }
+    // 범위 종류는 백엔드와 같은 이름 — 폴더는 prefix
+    const scopeType = scopeMode === 'date' ? 'date' : scopeMode === 'folder' ? 'prefix' : 'files';
+    void request(scopeType, scopeMode === 'file' ? [...checkedFiles].sort() : scopeValue);
+  };
+
+  const pickFromTooBroad = (picked: string[]) => {
+    setCandidates(picked);
+    setCheckedFiles([]);
+    setScopeMode('file');
+    setScopeValue('');
+    setSelectedId(null);
+  };
+
+  return (
+    <div className="screen__inner">
+      <PageHeader
+        title={source?.title ?? '학습 노트'}
+        description="날짜·폴더·파일 중 필요한 범위만 골라 복습 노트를 만듭니다."
+        actions={<Link className="btn btn--outline btn--sm" to={RoutePaths.studyRoomNotes}>공부방으로</Link>}
+      />
+      <div className="split split--side-first">
+          <Card padded={false} className="split__side">
+            <ul className="list" style={{ padding: '0 12px' }}>
+              <li className="list__item">
+                <button
+                  type="button"
+                  className={`plain-btn${selectedId === null ? ' plain-btn--on' : ''}`}
+                  onClick={() => setSelectedId(null)}
+                >
+                  + 새 수업노트
+                </button>
+              </li>
+              {notes.map((n) => (
+                <li key={n.id} className="list__item">
+                  <button
+                    type="button"
+                    className={`plain-btn${n.id === selectedId ? ' plain-btn--on' : ''}`}
+                    onClick={() => setSelectedId(n.id)}
+                  >
+                    {noteLabel(n)}
+                    {STATUS_SUFFIX[n.status] ?? ''}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </Card>
+
+          {note === undefined ? (
+            <Card className="split__main" title="새 수업노트 만들기">
+              <p className="muted">정리할 범위를 하나만 고르면 됩니다. 저장소를 읽어 AI 가 정리하느라 몇 분 걸려요.</p>
+              <Tabs
+                items={[
+                  { id: 'date', label: '날짜' },
+                  { id: 'folder', label: '폴더' },
+                  { id: 'file', label: '파일' },
+                ]}
+                active={scopeMode}
+                onChange={(id) => {
+                  setScopeMode(id as 'date' | 'folder' | 'file');
+                  setScopeValue('');
+                  setError('');
+                }}
+              />
+              {tree === null && treeError === '' && <p className="hint">저장소를 읽는 중…</p>}
+              {treeError !== '' && <div className="callout callout--error">저장소 목록을 불러오지 못했어요 — {treeError}</div>}
+              {scopeMode === 'date' && tree !== null && dateChoices.length === 0 && (
+                <p className="hint">이 저장소에는 수업 파일을 올린 날짜가 없어요. 폴더나 파일로 골라 주세요.</p>
+              )}
+              <div className="study-scope-options">
+                {scopeMode === 'date' && dateChoices.map((date) => (
+                  <button key={date} type="button" className={`chip${scopeValue === date ? ' chip--on' : ''}`} onClick={() => setScopeValue(date)}>{date}</button>
+                ))}
+                {scopeMode === 'folder' && folderChoices.map((folder) => (
+                  <button key={folder} type="button" className={`chip${scopeValue === folder ? ' chip--on' : ''}`} onClick={() => setScopeValue(folder)}>{folder}</button>
+                ))}
+                {scopeMode === 'file' && files.map((path) => (
+                  <Checkbox
+                    key={path}
+                    checked={checkedFiles.includes(path)}
+                    onChange={(checked) => setCheckedFiles((current) =>
+                      checked ? [...current, path].slice(0, 8) : current.filter((item) => item !== path),
+                    )}
+                    label={path}
+                  />
+                ))}
+              </div>
+              {scopeMode === 'file' && (
+                <Row gap={8}>
+                  <span className="hint">{checkedFiles.length}/8개 선택</span>
+                  {candidates && (
+                    <button type="button" className="btn btn--text btn--sm" onClick={() => setCandidates(null)}>
+                      전체 파일 보기
+                    </button>
+                  )}
+                </Row>
+              )}
+              {error !== '' && <div className="callout callout--error">{error}</div>}
+              <Row><Spacer /><Button onClick={generate} disabled={busy}>{busy ? '요청 중…' : '선택한 범위 정리하기'}</Button></Row>
+            </Card>
+          ) : note.status === 'generating' ? (
+            <Card className="split__main" title={noteLabel(note)} actions={<NoteDelete id={note.id} onDeleted={() => setSelectedId(null)} />}>
+              <div className="callout" role="status">
+                {note.scopeType === 'subject' && note.message
+                  ? note.message
+                  : '정리 중이에요. 저장소를 읽고 AI 가 요약하느라 몇 분 걸려요.'}{' '}
+                이 화면을 떠나도 계속 만들고, 끝나면 여기에 나타나요.
+              </div>
+            </Card>
+          ) : note.status === 'failed' ? (
+            <Card className="split__main" title={noteLabel(note)} actions={<NoteDelete id={note.id} onDeleted={() => setSelectedId(null)} />}>
+              <div className="callout callout--error">{note.errorMessage || '노트를 만들지 못했어요.'}</div>
+              {error !== '' && <div className="callout callout--error">{error}</div>}
+              {note.scopeType && note.scopeValue !== undefined && (
+                <Row>
+                  <Spacer />
+                  <Button onClick={() => void request(note.scopeType!, note.scopeValue!)} disabled={busy}>
+                    다시 만들기
+                  </Button>
+                </Row>
+              )}
+            </Card>
+          ) : note.status === 'too_broad' ? (
+            <Card className="split__main" title={noteLabel(note)}>
+              <div className="callout">
+                {note.message || '파일이 너무 많아요.'} 이 범위의 파일 {note.files.length}개 중에서 골라 주세요.
+              </div>
+              <Row>
+                <Spacer />
+                <Button onClick={() => pickFromTooBroad(note.files.map((f) => f.path))}>파일 골라 정리하기</Button>
+              </Row>
+            </Card>
+          ) : (
+          <Card className="split__main" title={noteLabel(note)} actions={<NoteDelete id={note.id} onDeleted={() => setSelectedId(null)} />}>
+            {daySet && dayProgress && (
+              <div className="note-practice">
+                <Icon name="fitness_center" size={18} />
+                <span>
+                  <strong>이 날 복습 문제 {dayProgress.total}개</strong> · 통과 {dayProgress.passed} / {dayProgress.total}
+                </span>
+                <Spacer />
+                <PracticeLink className="btn btn--filled btn--sm" setId={daySet.id}>
+                  복습 문제 풀기
+                </PracticeLink>
+              </div>
+            )}
+            <MakeProblems
+              key={note.id}
+              start={() => startPracticeFromNote(note.id)}
+              idleLabel="이 노트로 문제 만들기"
+              hint="이 노트가 정리한 수업 파일로 복습 문제 6개를 만들어요. 만든 문제는 나만 봐요."
+            />
+            <Tabs
+              items={[
+                { id: 'report', label: '요약' },
+                // 노트에는 이제 문제를 넣지 않는다(복습은 위의 그날 복습 문제). 예전 노트에만 남아 있다
+                ...(note.reviewMarkdown.trim() === '' ? [] : [{ id: 'review', label: '복습' }]),
+                { id: 'files', label: '파일', count: note.files.length },
+              ]}
+              active={tab}
+              onChange={setTab}
+            />
+            {tab === 'report' && <Markdown text={note.reportMarkdown} note={{ id: note.id, title: noteLabel(note), sourceId: note.sourceId, files: note.files }} />}
+            {tab === 'review' && <Markdown text={note.reviewMarkdown} />}
+            {tab === 'files' && (
+              <ul className="list">
+                {note.files.map((f) => (
+                  <li key={f.path} className="list__item">
+                    <code>{f.path}</code>
+                    <Spacer />
+                    <span className="hint">{f.commit.slice(0, 7)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+          )}
+        </div>
+    </div>
+  );
+}
+
+/** 노트 삭제 — 되돌릴 수 없어 한 번 더 묻는다. 같은 범위를 다시 고르면 새로 만들 수 있다 */
+function NoteDelete({ id, onDeleted }: { id: string; onDeleted(): void }) {
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  if (!asking) {
+    return (
+      <button type="button" className="btn btn--text btn--sm" onClick={() => setAsking(true)}>
+        <Icon name="delete" size={16} />
+        노트 삭제
+      </button>
+    );
+  }
+  return (
+    <Row gap={6}>
+      <span className="hint">{error || '이 노트를 지울까요?'}</span>
+      <Button
+        size="sm"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await deleteStudyNote(id);
+            onDeleted();
+          } catch (e) {
+            setError(await readApiError(e));
+            setBusy(false);
+          }
+        }}
+      >
+        삭제
+      </Button>
+      <Button size="sm" variant="outline" disabled={busy} onClick={() => setAsking(false)}>
+        취소
+      </Button>
+    </Row>
+  );
+}
+
+/**
+ * 노트 표시 — 연습장 마크다운 표시기(굵게 · 인라인 코드 · 코드 블록 · 목록 · 인용)를 그대로 쓴다.
+ * 예전 표시기는 제목 · 목록 · 문단만 알아서 `**굵게**` · `코드` · 코드 블록이 기호째 보였다.
+ * 예전 노트는 소제목을 「**오늘의 핵심 한 문장**」처럼 굵은 줄로 썼다 — 그런 줄은 소제목으로 바꿔 보인다.
+ */
+/** 노트 코드 블록에 버튼을 달 때 필요한 노트 정보 */
+interface NoteRef {
+  id: string;
+  /** 「09/11 수업」 — 연습장 탭 이름 */
+  title: string;
+  sourceId: string;
+  files: StudyNote['files'];
+}
+
+export function Markdown({ text, note }: { text: string; note?: NoteRef }) {
+  return (
+    <NotebookMarkdown
+      source={boldLinesAsHeadings(text)}
+      codeAction={
+        note ? (code, lang) => (isWebBlock(lang) ? null : <NoteCodeActions code={code} sql={isSqlBlock(code, lang)} note={note} />) : undefined
+      }
+    />
+  );
+}
+
+/** 노트를 만든 수업 파일(셀로 바꾼 것). 같은 노트의 코드 블록을 여러 번 눌러도 한 번만 받는다 */
+const lessonFiles = new Map<string, Promise<LessonFile>>();
+
+function loadLessonFiles(sourceId: string, files: StudyNote['files']) {
+  return Promise.all(
+    files.map((f) => {
+      const key = `${sourceId}:${f.path}:${f.commit}`;
+      let hit = lessonFiles.get(key);
+      if (!hit) {
+        hit = fetchLessonFile(sourceId, f.path, f.commit).then((r) => ({ path: f.path, cells: lessonCells(f.path, r.text) }));
+        hit.catch(() => lessonFiles.delete(key));
+        lessonFiles.set(key, hit);
+      }
+      return hit;
+    }),
+  );
+}
+
+/**
+ * 코드 블록 아래 버튼 두 개 — 노트마다 연습장 탭 하나(「09/11 수업 코드」)에 모은다.
+ * - 연습장에서 열기: 이 코드 블록만 셀로 덧붙인다.
+ * - 수업 파일에서 보기: 이 코드가 든 수업 파일 셀과 앞뒤 몇 셀만 가져온다. 파일을 통째로 열면 너무 길다.
+ *   노트가 설명하려고 새로 쓴 코드면 수업 파일에 없다고 알린다.
+ */
+function NoteCodeActions({ code, sql, note }: { code: string; sql: boolean; note: NoteRef }) {
+  const dock = usePracticeDock();
+  const [state, setState] = useState<'idle' | 'busy' | 'missing' | 'failed'>('idle');
+  if (!dock || significantLines(code, sql).length === 0) return null;
+  const openCells = (cells: ImportedCell[], focusText: string) =>
+    dock.open({ setId: null, note: { noteId: note.id, title: note.title, cells, focusText, seq: Date.now() } });
+
+  const openLesson = async () => {
+    setState('busy');
+    try {
+      const files = await loadLessonFiles(note.sourceId, note.files);
+      const match = findCodeInFiles(code, files, sql);
+      if (!match) {
+        setState('missing');
+        return;
+      }
+      const file = files.find((f) => f.path === match.path)!;
+      const slice = lessonSlice(file.cells, match.cellIndex);
+      const name = file.path.split('/').pop();
+      openCells(
+        [{ type: 'markdown', source: `#### 수업 파일 · ${name} (${slice.from}~${slice.to}번째 셀)` }, ...slice.cells],
+        file.cells[match.cellIndex].source,
+      );
+      setState('idle');
+    } catch {
+      setState('failed');
+    }
+  };
+  return (
+    <div className="nb-md__codeaction">
+      <button type="button" className="btn btn--text btn--sm" onClick={() => openCells([{ type: sql ? 'sql' : 'code', source: code }], code)}>
+        <Icon name="terminal" size={16} />
+        연습장에서 열기
+      </button>
+      {note.files.length > 0 && (
+        <button type="button" className="btn btn--text btn--sm" onClick={() => void openLesson()} disabled={state === 'busy'}>
+          <Icon name="description" size={16} />
+          {state === 'busy' ? '수업 파일을 찾는 중…' : '수업 파일에서 보기'}
+        </button>
+      )}
+      {state === 'missing' && <span className="hint">이 코드는 수업 파일에 그대로 있지 않아요(노트가 설명하려고 새로 쓴 코드예요).</span>}
+      {state === 'failed' && <span className="hint">수업 파일을 불러오지 못했어요. 잠시 후 다시 눌러 주세요.</span>}
+    </div>
+  );
+}
+
+export function boldLinesAsHeadings(text: string): string {
+  return text.replace(/^[ \t]*\*\*([^*\n]{1,60})\*\*[ \t]*:?[ \t]*$/gm, '## $1');
+}

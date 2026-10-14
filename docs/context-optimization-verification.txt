@@ -1,0 +1,83 @@
+Answer context measurement and lossless deduplication — 2026-10-12
+
+Scope and decision
+- Sol implemented context_builder.py and integration; primary reviewed and tested.
+- No routing, retrieval, calculator, policy threshold or system prompt changes.
+- Runtime default remains legacy. Only LMS_CHATBOT_CONTEXT_MODE=compact enables
+  deduplication. Missing/unknown values retain the original context serialization.
+- Metrics compare both representations even in legacy mode. Do not promote
+  compact as a latency optimization: the limited experiment did not show that.
+
+Behavior
+- Matching nonempty dict/list subtrees at the same paths in shared and personal
+  unit-period contexts become explicit $context_ref pointers to shared values.
+- Different cohort, policy hash/storage key/review state prevents deduplication.
+- Scalars, attendance records, calculations, document body and metadata remain.
+- Original state is not mutated. If reference overhead removes the size benefit,
+  the original representation is retained. References reconstruct the original JSON.
+- This is not summarization or question-dependent evidence filtering.
+
+Measurements
+- Categories: system, history, question, shared, student, policy, notice, project,
+  other. Each document separates body and metadata sizes.
+- Local tokenizer estimates are labeled with encoding and excluded message framing;
+  category sums are attribution aids, not exact provider token billing.
+- Uses existing o200k_base cache or cl100k_base cache. Never downloads at runtime.
+  Missing/corrupt cache reports unavailable and chars; never invents a token count.
+- Telemetry allowlists numeric sizes and opaque positional IDs; no source text,
+  query, document storage path, or attendance values in the measurement report.
+- Existing handler preparation timing changes and tests are included with this
+  measurement work. Handler timings exclude authentication done before handler entry.
+
+Paired actual answer-model experiment
+- Frozen synthetic policies and attendance only; no production DB/S3/Pinecone access.
+- Six Responses.create calls; retries 0, parse/embedding calls prohibited.
+- Same gpt-6-luna answer prompt and fixed context snapshots. Only context formatting
+  differs. Three cases, one run per mode, alternating mode order across cases.
+- This isolates the answer stage; it is NOT full browser/supervisor/retrieval E2E.
+
+Case                         Input tokens             Completion seconds
+80 percent / 3 exceptions    8098 -> 7305 (-9.79%)      6.979 -> 6.734
+90 percent / 2 exceptions    8098 -> 7305 (-9.79%)      6.944 -> 7.497
+One missing past record      7753 -> 6960 (-10.23%)     7.838 -> 10.438
+
+Total input: 23949 -> 21570 (-2379 tokens, approximately 9.93%).
+Total output (including reasoning): 1957 -> 2253. Do not equate input savings
+with the same percentage reduction in total cost.
+Mean answer-stage time in this tiny sample: 7.254 -> 8.223 seconds.
+Provider prompt-cache hit counts differ and reasoning length varies; these are
+not controlled latency averages or evidence of a general slowdown/speedup.
+
+Primary answer review
+- Both modes preserve 18 scheduled days; 80/3 recognizes 13 of 14 days (92.9%),
+  needs 2 more normal days, and next-day lateness still needs 2 more normal days.
+- Both modes preserve 90/2 recognition of 12 of 14 (85.7%), 5 needed vs 4 remaining,
+  and after next-day lateness 5 needed vs 3 remaining (not reachable).
+- Both modes refuse a definite future normal-attendance count/scenario when a
+  past record is missing; provisional/review status remains in all six answers.
+- Wording is not identical; both 90/2 answers have a potentially ambiguous final
+  conversion-warning sentence. No stronger claim of universal answer equivalence.
+
+Local overhead probe (20 warm iterations, synthetic 80/3 fixture)
+- cl100k_base local estimate; NOT the model's authoritative tokenizer.
+- Cold tokenizer load: 352.301 ms; warm builder + both-mode metrics median:
+  20.619 ms; maximum 28.571 ms. Single-machine observations, not production SLOs.
+- Shared context estimated 1492 tokens; student 3743 -> 2810; policy 381;
+  system 4407 unchanged. Reference explanation adds overhead.
+
+Reproduction
+python -m unittest discover -s chatbot/tests -q
+Final run: 154 tests passed (9.284 seconds); paid answer-model calls: 6 total.
+New tests cover exact legacy serialization, full reference reconstruction,
+source mutation, mismatched versions/cohorts, unchanged documents/calculations,
+empty/small contexts, no fake estimates/no cache download, telemetry privacy,
+provider usage/source preservation, and explicit compact opt-in.
+Local detailed artifacts: workspace output/context-optimization-20261012/
+  baseline-contexts.json, answer-results.json, call-audit.json, offline-metrics.json,
+  compare_answers.py. These contain synthetic fixture data and are not required
+  runtime assets. Original source hash is frozen for each pair.
+
+Next decision
+Keep measurement enabled and compact opt-in. Broader held-out multi-turn and
+real-policy comparisons are needed before changing the default. No reranker,
+prompt rewrite, caching expansion, policy upload or develop deployment in this work.

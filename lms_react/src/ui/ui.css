@@ -1,0 +1,1306 @@
+/* 공통 위젯 — src/ui/components.tsx가 쓰는 스타일 */
+
+/* ── 버튼 ─────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.btn--md {
+  padding: 9px 16px;
+}
+
+.btn--sm {
+  padding: 5px 11px;
+  font-size: 13px;
+}
+
+.btn--filled {
+  background: var(--primary);
+  color: #fff;
+}
+
+.btn--filled:hover:not(:disabled) {
+  background: var(--primary-dark);
+}
+
+.btn--outline {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.btn--outline:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.btn--text {
+  background: transparent;
+  color: var(--primary);
+  font-weight: 500;
+  padding-inline: 10px;
+}
+
+.btn--text:hover:not(:disabled) {
+  background: var(--primary-light);
+}
+
+.btn--danger {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--error);
+  font-weight: 500;
+}
+
+.btn--danger:hover:not(:disabled) {
+  border-color: var(--error);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn__icon {
+  font-size: 0.95em;
+}
+
+/* ── 카드 · 페이지 머리 ────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--pad);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+.card--flush {
+  padding: 0;
+  overflow: hidden;
+}
+
+.card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  min-height: 24px;
+}
+
+.card--flush .card__head {
+  padding: var(--pad) var(--pad) 0;
+}
+
+.card__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  flex: 1;
+}
+
+.card__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gap);
+  flex-wrap: wrap;
+}
+
+.page-head__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.page-head__desc {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.page-head__actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ── 표시 조각 ─────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.badge--neutral {
+  background: var(--surface-variant);
+  color: var(--text-secondary);
+}
+
+.badge--primary {
+  background: var(--primary-light);
+  color: var(--primary-dark);
+}
+
+.badge--success {
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success);
+}
+
+.badge--warning {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
+}
+
+.badge--error {
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+  color: var(--error);
+}
+
+.badge--info {
+  background: color-mix(in srgb, var(--info) 14%, transparent);
+  color: var(--info);
+}
+
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.stat-tile__label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.stat-tile__value {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.stat-tile__sub {
+  font-size: 12px;
+  color: var(--text-hint);
+}
+
+.stat-tile--primary .stat-tile__value {
+  color: var(--primary);
+}
+.stat-tile--success .stat-tile__value {
+  color: var(--success);
+}
+.stat-tile--warning .stat-tile__value {
+  color: var(--warning);
+}
+.stat-tile--error .stat-tile__value {
+  color: var(--error);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 36px 16px;
+  color: var(--text-hint);
+  text-align: center;
+}
+
+.empty__icon {
+  font-size: 26px;
+}
+
+.empty__msg {
+  margin: 0;
+  font-size: 13px;
+}
+
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+}
+
+.avatar--initial {
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  font-weight: 700;
+}
+
+.progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-variant);
+  overflow: hidden;
+}
+
+.progress__fill {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  border-radius: inherit;
+}
+
+/* ── 탭 화면 틀 · 탭 ──────────────────────────────────────
+   모든 탭 화면: 제목 · 설명 · 버튼 → 밑줄 탭 → 내용, 가운데 1080px. */
+.tab-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.tab-page--wide {
+  max-width: none;
+}
+
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+/* 탭 한 개가 제 색을 지닌다. 밑줄 · 글자 · 개수 배지가 그 색을 같이 쓴다. */
+.tabs__tab {
+  --tab-tone: var(--primary);
+  --tab-on-ink: #ffffff;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text-secondary);
+  padding: 10px 2px 12px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.tabs__tab[data-tone='neutral'] {
+  --tab-tone: var(--text-primary);
+  --tab-on-ink: var(--surface);
+}
+
+.tabs__tab[data-tone='warning'] {
+  --tab-tone: var(--warning);
+  --tab-on-ink: #1f2328;
+}
+
+.tabs__tab[data-tone='info'] {
+  --tab-tone: #1d6fe0;
+}
+
+.tabs__tab[data-tone='success'] {
+  --tab-tone: var(--success);
+}
+
+.tabs__tab--on {
+  color: var(--tab-tone);
+  border-bottom-color: var(--tab-tone);
+  font-weight: 700;
+}
+
+.tabs__count {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--tab-tone) 12%, transparent);
+  color: var(--tab-tone);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tabs__tab--on .tabs__count {
+  background: var(--tab-tone);
+  color: var(--tab-on-ink);
+}
+
+/* 탭 줄 오른쪽 — 검색 · 버튼 */
+.tabs__trailing {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+}
+
+/* ── 입력 ─────────────────────────────────────────────── */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.field__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.field__hint {
+  font-size: 12px;
+  color: var(--text-hint);
+}
+
+.field__error {
+  font-size: 12px;
+  color: var(--error);
+}
+
+.input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.input--area {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+/* 글 길이에 맞춰 높이를 스크립트가 잡는다(AutoTextarea) — 손잡이 · 안쪽 스크롤이 필요 없다 */
+.input--grow {
+  resize: none;
+  overflow: hidden;
+}
+
+.input--select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-hint) 50%),
+    linear-gradient(135deg, var(--text-hint) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 32px;
+}
+
+.checkbox,
+.toggle {
+  /* 숨긴 체크박스(position: absolute)의 기준점 — 없으면 표의 가로 스크롤 상자를 벗어나 화면을 밀어낸다 */
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.checkbox input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
+.toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toggle__track {
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--border);
+  position: relative;
+  transition: background 120ms ease;
+}
+
+.toggle__track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 120ms ease;
+}
+
+.toggle input:checked + .toggle__track {
+  background: var(--primary);
+}
+
+.toggle input:checked + .toggle__track::after {
+  transform: translateX(16px);
+}
+
+/* ── 표 ───────────────────────────────────────────────── */
+.table-wrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--divider);
+  vertical-align: middle;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.table__row--clickable {
+  cursor: pointer;
+}
+
+.table__row--clickable:hover {
+  background: var(--surface-variant);
+}
+
+/* ── 대화상자 ──────────────────────────────────────────── */
+.dialog-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: grid;
+  /* 칸 폭을 화면에 맞춘다 — 기본(auto)이면 칸이 창의 width(480px 등)로 잡혀 좁은 화면에서 창이 오른쪽으로 밀렸다 */
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  z-index: 1100;
+  padding: 16px;
+}
+
+.dialog {
+  background: var(--surface);
+  border-radius: 16px;
+  box-shadow: 0 18px 48px var(--shadow);
+  max-width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.dialog__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 18px 10px;
+}
+
+.dialog__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  flex: 1;
+}
+
+.dialog__close {
+  border: 0;
+  background: transparent;
+  color: var(--text-hint);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.dialog__close:hover {
+  background: var(--surface-variant);
+}
+
+.dialog__body {
+  padding: 4px 18px 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+.dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px 16px;
+  border-top: 1px solid var(--divider);
+}
+
+/* ── 잡동사니 ──────────────────────────────────────────── */
+.row {
+  display: flex;
+  align-items: center;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  cursor: default;
+  white-space: nowrap;
+}
+
+button.chip {
+  cursor: pointer;
+}
+
+.chip--on {
+  background: var(--primary-light);
+  border-color: var(--primary);
+  color: var(--primary-dark);
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.55;
+}
+
+.hint {
+  color: var(--text-hint);
+  font-size: 12px;
+}
+
+.grid {
+  display: grid;
+  gap: var(--gap);
+}
+
+.grid--2 {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.grid--3 {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.grid--4 {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.list__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 2px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.list__item:last-child {
+  border-bottom: 0;
+}
+
+/* 옅은 파랑 버튼 — 커리큘럼 PDF 보기 등 */
+.btn--soft {
+  background: var(--primary-light);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.btn--soft:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+/* 검색 줄 — 성취도평가·목록 화면 상단 */
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-hint);
+  max-width: 830px;
+}
+
+.search-bar__input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.assess-row__score {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+/* 관리자 대시보드 */
+.admin-dash {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+  align-items: start;
+  max-width: 1240px;
+}
+
+.admin-dash__main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-dash__main .page-head {
+  margin-bottom: 6px;
+}
+
+.admin-dash__pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 10px;
+}
+
+.admin-dash__side {
+  position: sticky;
+  top: 76px;
+}
+
+/* 900px 이하 — 머리글 → 승인 현황 → 메뉴 순으로 한 줄. (이 파일이 styles.css 뒤에 불려서 여기 둔다) */
+@media (max-width: 900px) {
+  .admin-dash {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .admin-dash__main {
+    display: contents;
+  }
+
+  .admin-dash__main > .page-head {
+    order: 0;
+  }
+
+  .admin-dash__side {
+    position: static;
+    order: 1;
+    margin-bottom: 10px;
+  }
+
+  .admin-dash__main > :not(.page-head) {
+    order: 2;
+  }
+
+  .admin-dash__pair {
+    grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  }
+}
+
+.approval-panel__title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.approval-link:first-child {
+  border-top: 0;
+}
+
+.approval-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--divider);
+  color: inherit;
+}
+
+.approval-link:hover {
+  background: var(--surface-variant);
+}
+
+.approval-link > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.approval-link strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.approval-link .hint {
+  display: block;
+}
+
+.approval-link .hint {
+  font-size: 12px;
+}
+
+/* 뱃지는 줄 전체를 차지하지 않는다 */
+.section > .badge {
+  align-self: flex-start;
+}
+
+/* ── 마일리지 교환소 ── */
+.shop__credit {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 4px;
+}
+
+.shop__limits {
+  margin-bottom: 4px;
+}
+
+.limit-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.limit-card__cap,
+.limit-card__break {
+  font-size: 11px;
+}
+
+.limit-card__left {
+  font-size: 18px;
+}
+
+.product-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.product-card:hover {
+  border-color: var(--primary);
+}
+
+.product-card__image {
+  align-self: center;
+  height: 64px;
+  object-fit: contain;
+}
+
+.product-card__image--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-hint);
+  font-size: 32px;
+}
+
+.product-card__name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.product-card__price {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.notice-banner {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  font-size: 13px;
+}
+
+/* ── 기록 종류 고르기 · 블로그 주차 ── */
+.type-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.type-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+}
+
+.type-row:hover {
+  border-color: var(--primary);
+}
+
+.type-row__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+
+.type-row__text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.week-picker {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.week-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 0 0 auto;
+  width: 104px;
+  padding: 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.week-chip--on {
+  border: 1.5px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.week-chip:disabled {
+  background: var(--surface-variant);
+  color: var(--text-hint);
+  cursor: not-allowed;
+}
+
+.notice-form__image {
+  max-width: 320px;
+  max-height: 180px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+/* ── 공고 추천 카드 — ai_job_coach_panel.dart 의 _RecommendationCard 치수 그대로 ── */
+.job-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.job-card__top {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.job-card__no {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+  font-size: 11px;
+}
+
+.job-card__title {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.job-card__title strong {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.job-card__title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.job-card__title a:hover strong {
+  text-decoration: underline;
+}
+
+.job-card__company {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.job-card__open {
+  flex: 0 0 auto;
+  color: var(--text-hint);
+}
+
+/* 근무지 · 고용형태 · 경력 — 지원할지 정할 때 먼저 보는 것 */
+.job-card__summary {
+  font-size: 10.5px;
+  color: var(--info, var(--primary));
+  line-height: 1.4;
+}
+
+.job-card__deadline {
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+
+.job-card__check {
+  font-size: 10px;
+  color: var(--warning, var(--text-secondary));
+}
+
+.job-card__toggle {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: #7c3aed;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* 근거 보기 · 공고 맞춤 첨삭 — 원본처럼 한 줄 양 끝 */
+.job-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.job-card__foot .btn {
+  margin-top: 4px;
+}
+
+/* 원본 _reviewButton — 작게, 근거를 펼치면 근거 위 오른쪽으로 */
+.job-card__review {
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.job-card__review-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+
+/* 펼친 근거 */
+.job-card__why {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-variant) 70%, transparent);
+}
+
+.job-card__label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.job-card__label--ok {
+  margin-top: 4px;
+  color: var(--success);
+}
+
+.job-card__label--warn {
+  margin-top: 4px;
+  color: var(--warning, var(--text-secondary));
+}
+
+.job-card__conds {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 2px 8px;
+  margin: 0;
+  font-size: 10.5px;
+}
+
+.job-card__conds > div {
+  display: contents;
+}
+
+.job-card__conds dt {
+  color: var(--text-secondary);
+}
+
+.job-card__conds dd {
+  margin: 0;
+}
+
+.job-card__reason {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 6px;
+}
+
+.job-card__reason strong {
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.job-card__quote {
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.job-card__quote--resume {
+  color: var(--success);
+}
+
+.job-card__quote--job {
+  color: var(--info, var(--primary));
+}
+
+.job-card__concern {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.coach-jobs__notice {
+  margin-top: 8px;
+}
+
+/* ── 화면 한 폭 ──────────────────────────────────────────
+   모든 화면을 이력서 관리 · 탭 화면(.tab-page)과 같은 비율로 — 가운데 1080px, 좌우 여백 없음.
+   화면마다 1240 · 1120 · 980 · 860 · 700px, 꽉 채움, 16 · 20 · 24px 여백으로 달랐다.
+   예외: 공고 원문(.posting) · 로그인 · 평가 응시는 셸 밖이라 제 모양. 연습장 · 이력서 편집은 따로(편집기가 오른쪽 끝까지).
+   ui.css 가 styles.css 뒤에 불려서 여기(맨 끝)에 둔다 — 앞에 두면 .admin-dash 1240px 가 이긴다. */
+.screen__inner,
+.assess-page,
+.study-room,
+.record-page,
+.admin-page,
+.admin-page--wide,
+.admin-dash,
+.dash,
+.form-page,
+.curri-page,
+.practice-mod,
+.mypage,
+.qual-page,
+.settings,
+.seat-page {
+  width: 100%;
+  max-width: 1080px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 0;
+  padding-right: 0;
+  padding-top: 0;
+}
+
+/* 화면 안에서 다시 좁히던 칸 — 폭은 위 틀이 정한다 */
+.mypage__column,
+.qual-column,
+.form-page__column,
+.curri-column {
+  max-width: none;
+}
+
+/* 제목 머리글 ↔ 첫 내용 16px — 이력서 관리 · 탭 화면과 같게.
+   틀마다 gap 이 0 · 8 · 10 · 12 · 20px 로 달라 머리글 아래에서 모자란 만큼만 채운다(본문 간격은 그대로). */
+.study-room > header:first-child {
+  margin-bottom: -4px; /* gap 20 */
+}
+
+.record-page > header:first-child,
+.mypage__column > .page-head,
+.admin-page--wide > .page-head {
+  margin-bottom: 4px; /* gap 12 */
+}
+
+.qual-column > .page-head,
+.curri-column > .page-head,
+.assess-page--manage > .page-head {
+  margin-bottom: 6px; /* gap 10 */
+}
+
+.admin-page.llmops > .page-head,
+.admin-page.study-admin > .page-head {
+  margin-bottom: 8px; /* gap 8 */
+}
+
+.study-admin > .page-head + .sec-head {
+  margin-top: 0;
+}
+
+.form-page > .page-head,
+.admin-page:not(.admin-page--wide) > .page-head {
+  margin-bottom: 16px; /* gap 없음 */
+}
+
+/* 연습장 — 튜터가 닫혀 있으면 다른 화면과 같은 가운데 1080px.
+   튜터가 열리면 노트북 왼쪽 끝은 그 자리에 두고 튜터가 오른쪽 여백으로 나간다. 제목이 옮겨 가지 않는다.
+   1100px 아래에서는 튜터가 서랍으로 덮으므로 틀은 그대로다. */
+.py-layout {
+  max-width: 1080px;
+}
+
+@media (min-width: 1101px) {
+  .py-layout--tutor {
+    width: auto;
+    max-width: none;
+    margin-left: max(0px, calc((100% - 1080px) / 2));
+    margin-right: 16px;
+  }
+}
+
+.py-playground > header:first-child {
+  margin-bottom: 2px; /* gap 14 */
+}
+
+/* 왼쪽 메뉴를 접으면(☰) 본문이 가운데 틀을 벗고 메뉴 옆부터 화면 끝까지 채운다 — 지메일처럼.
+   펼치면 다시 가운데 1080px. */
+.shell--rail-mini :is(
+    .screen__inner,
+    .assess-page,
+    .study-room,
+    .record-page,
+    .admin-page,
+    .admin-page--wide,
+    .admin-dash,
+    .dash,
+    .form-page,
+    .curri-page,
+    .practice-mod,
+    .mypage,
+    .qual-page,
+    .settings,
+    .seat-page,
+    .tab-page,
+    .py-layout
+  ) {
+  max-width: none;
+}
+
+.shell--rail-mini .appbar__crumbs,
+.shell--rail-mini .appbar__cohort-slot,
+.shell--rail-mini .resume-edit {
+  margin-left: 0;
+}
+
+@media (min-width: 1101px) {
+  .shell--rail-mini .py-layout--tutor {
+    margin-left: 0;
+    margin-right: 0;
+  }
+}

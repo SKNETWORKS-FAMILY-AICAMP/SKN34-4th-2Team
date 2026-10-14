@@ -1,0 +1,532 @@
+{
+  "_comment": "2026-09-15 저녁, 커밋 전 검증용으로 새로 만든 확인용 케이스. dev·heldout·detailed·probe·fresh와 직무·도메인이 겹치지 않게 썼고, 오늘 고친 규칙을 겨냥한 함정은 넣지 않고 평범한 학생·경력자 이력서처럼 썼다. 서버 코드를 고치는 세션에는 내용을 보내지 않았다. 이 케이스는 한 번만 돌리고, 결과를 보고 고치게 되면 다음 확인용은 또 새로 만든다. applicant.facts에는 이력서에 적힌 사실을 모두 넣고 이력서에 없는 사실은 '(이력서에 없음)'으로 표시했다. expected_requirements·expected_star는 Claude가 원문만 읽고 매긴 값이라 사람 라벨이 아니다.",
+  "cases": [
+    {
+      "id": "unseen_data_eng_2y__ott",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0301", "email": "", "birthDate": "1996-02-14", "githubUrl": "https://github.com/example-de", "blogUrl": "https://example-de.tistory.com"},
+          "coreCompetencies": {
+            "text": "Airflow와 Spark로 광고 로그 배치 파이프라인을 2년간 운영했습니다. 적재 지연을 줄이고 리포트용 집계 테이블을 다시 설계해 조회 비용을 낮춘 경험이 있습니다."
+          },
+          "experience": [
+            {
+              "id": "exp-1", "company": "(주)예시애드랩", "role": "데이터 엔지니어", "startDate": "2023-02", "endDate": "2025-06", "isCurrent": false,
+              "description": "광고 노출·클릭 로그를 모으는 배치 파이프라인을 운영했습니다. 하루 약 3억 건의 로그를 Airflow로 시간 단위 적재했고, Spark 작업을 파티션 기준으로 나눠 적재 지연을 평균 90분에서 25분으로 줄였습니다. 적재가 실패하면 Slack으로 알림이 오도록 했고, DAG 마지막 단계에 행 수와 널 비율을 확인하는 품질 검사를 붙였습니다."
+            }
+          ],
+          "education": [{"id": "edu-1", "school": "숭실대학교", "major": "산업정보시스템공학과", "startDate": "2015-03", "endDate": "2022-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "Python", "level": "고급"},
+            {"id": "ts-2", "name": "SQL", "level": "고급"},
+            {"id": "ts-3", "name": "Spark", "level": "중급"},
+            {"id": "ts-4", "name": "Airflow", "level": "중급"},
+            {"id": "ts-5", "name": "BigQuery", "level": "중급"},
+            {"id": "ts-6", "name": "Docker", "level": "초급"}
+          ],
+          "certifications": [{"id": "cert-1", "name": "SQLD", "issuer": "한국데이터산업진흥원", "acquiredDate": "2022-09"}],
+          "awards": [],
+          "trainingExperience": [],
+          "otherActivities": [
+            {"id": "act-1", "name": "사내 데이터 스터디", "startDate": "2024-01", "endDate": "2024-12", "description": "매달 한 번 데이터 엔지니어링 사례 글을 읽고 우리 파이프라인에 적용할 점을 정리해 발표했습니다."}
+          ],
+          "projects": [
+            {
+              "id": "prj-1", "name": "광고 리포트 집계 테이블 재설계", "startDate": "2024-03", "endDate": "2024-07",
+              "role": "데이터 엔지니어(2인)", "techStack": "Spark, BigQuery, Airflow",
+              "description": "광고주 리포트 화면이 원본 로그 테이블을 직접 조회해 느리고 비용이 컸습니다. 캠페인·일자 단위 집계 테이블을 새로 만들고 날짜 파티션을 적용해 리포트 조회 비용을 월 약 40% 줄였습니다.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "로그 스키마 변경 대응", "startDate": "2023-09", "endDate": "2023-11",
+              "role": "데이터 엔지니어", "techStack": "Python, Airflow",
+              "description": "앱 로그 필드가 바뀔 때마다 적재가 멈추던 문제를 해결하기 위해 적재 전 스키마 확인 단계를 추가했습니다.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "데이터가 제때 도착하게 만드는 엔지니어",
+              "body": "저는 분석가와 광고주가 필요한 데이터를 제시간에 받을 수 있게 만드는 일을 해 왔습니다. 하루 3억 건의 광고 로그를 다루며 적재 지연을 90분에서 25분으로 줄였고, 리포트 집계 테이블을 다시 설계해 조회 비용을 낮췄습니다."
+            },
+            "motivation": {
+              "subtitle": "시청 데이터로 더 나은 추천을",
+              "body": "광고 로그를 다루면서 데이터가 늦게 도착하면 좋은 분석도 쓸모가 없어진다는 것을 느꼈습니다. 예시플릭스의 시청 로그 파이프라인을 안정적으로 운영해 추천과 콘텐츠 분석 팀이 믿고 쓸 수 있는 데이터를 만드는 데 기여하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "멈추던 적재를 다시 돌린 일",
+              "body": "앱 배포 때마다 로그 필드가 바뀌어 새벽 적재가 멈추는 일이 반복됐습니다. 원인을 모아 보니 대부분 필드가 추가된 경우였습니다. 적재 전에 스키마를 확인하는 단계를 넣어 문제를 미리 알 수 있게 했습니다."
+            },
+            "growth": {
+              "subtitle": "운영하는 사람의 시선",
+              "body": "처음에는 파이프라인을 만드는 것에만 관심이 있었습니다. 새벽 장애 알림을 몇 번 받은 뒤로는 만든 다음 어떻게 운영될지를 먼저 생각하게 되었습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "꼼꼼함 / 발표",
+              "body": "강점은 작업 전후를 수치로 확인하는 꼼꼼함입니다. 약점은 여러 사람 앞에서 설명하는 것이 서툰 점이라, 사내 스터디에서 매달 발표를 맡아 연습하고 있습니다."
+            },
+            "aspiration": {
+              "subtitle": "믿을 수 있는 데이터 기반",
+              "body": "입사 후에는 시청 로그 파이프라인의 구조와 지연 지점을 먼저 파악하겠습니다. 이후 데이터 품질 검사를 늘려 분석 팀이 이상한 데이터를 먼저 발견하는 일이 없도록 만들겠습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN-01",
+        "company": "(주)예시플릭스",
+        "title": "OTT 시청 로그 데이터 엔지니어 (경력 2년 이상)",
+        "text": "[주요업무]\n- 시청 로그 수집·적재 파이프라인 개발과 운영\n- 추천·콘텐츠 분석용 데이터 마트 구축\n- 데이터 품질 모니터링\n\n[자격요건]\n- 데이터 엔지니어링 경력 2년 이상\n- Spark 등 분산 처리 프레임워크 사용 경험\n- Airflow 등 워크플로 도구 운영 경험\n- SQL 활용 능력\n\n[우대사항]\n- Kafka 기반 스트리밍 파이프라인 경험\n- 데이터 품질 모니터링 체계 구축 경험\n- dbt 사용 경험\n\n[근무조건]\n- 정규직, 서울 강남구"
+      },
+      "applicant": {
+        "facts": [
+          "(주)예시애드랩에서 2023년 2월부터 2025년 6월까지 데이터 엔지니어로 광고 노출·클릭 로그 배치 파이프라인을 운영했다",
+          "하루 약 3억 건 로그를 Airflow로 시간 단위 적재했고 Spark 작업을 파티션 기준으로 나눠 적재 지연을 평균 90분에서 25분으로 줄였다",
+          "적재 실패 시 Slack 알림을 붙이고 DAG 마지막 단계에 행 수·널 비율 품질 검사를 넣었다",
+          "광고 리포트 집계 테이블 재설계(2인)에서 캠페인·일자 집계 테이블과 날짜 파티션으로 리포트 조회 비용을 월 약 40% 줄였다",
+          "로그 스키마 변경 대응에서 적재 전 스키마 확인 단계를 추가했다",
+          "사내 데이터 스터디에서 매달 사례 글을 읽고 적용할 점을 발표했다",
+          "(이력서에 없음) 로그 스키마 변경 대응에서 새 필드가 생기면 경고만 보내고 적재는 계속하도록 바꿔 월 3~4회 나던 적재 중단을 없앴다",
+          "(이력서에 없음) 사내 스터디에서 Kafka 토픽을 만들고 컨슈머를 작성하는 실습은 해 봤지만 실제 스트리밍 파이프라인을 운영한 적은 없다"
+        ],
+        "not_done": ["Kafka 스트리밍 파이프라인 실서비스 운영", "dbt", "데이터 마트 구축 리드"]
+      },
+      "expected_requirements": [
+        {"label": "데이터 엔지니어링 경력 2년", "group": "must", "resume": "ok", "kind": "eligibility"},
+        {"label": "Spark 분산 처리", "group": "must", "resume": "ok"},
+        {"label": "Airflow 운영", "group": "must", "resume": "ok"},
+        {"label": "SQL", "group": "must", "resume": "ok"},
+        {"label": "Kafka 스트리밍", "group": "preferred", "resume": "missing"},
+        {"label": "데이터 품질 모니터링", "group": "preferred", "resume": "partial"},
+        {"label": "dbt", "group": "preferred", "resume": "missing"}
+      ],
+      "expected_star": {
+        "experience[0].description": "TAR",
+        "otherActivities[0].description": "TA",
+        "projects[0].description": "STAR",
+        "projects[1].description": "SA",
+        "selfIntroduction.intro.body": "AR",
+        "selfIntroduction.challenge.body": "SA",
+        "selfIntroduction.growth.body": "S",
+        "selfIntroduction.strengthsWeaknesses.body": "A"
+      }
+    },
+    {
+      "id": "unseen_game_server_entry__mobile",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0302", "email": "", "birthDate": "2001-06-03", "githubUrl": "https://github.com/example-gs", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "C# 으로 게임 서버 개발 가능. 소켓 통신 이해함. 알고리즘 문제 꾸준히 풀고있음."
+          },
+          "experience": [],
+          "education": [{"id": "edu-1", "school": "청운대학교", "major": "게임공학과", "startDate": "2020-03", "endDate": "2026-02", "status": "졸업예정"}],
+          "techStack": [
+            {"id": "ts-1", "name": "C#", "level": "중급"},
+            {"id": "ts-2", "name": "ASP.NET Core", "level": "초급"},
+            {"id": "ts-3", "name": "MySQL", "level": "초급"},
+            {"id": "ts-4", "name": "Redis", "level": "초급"}
+          ],
+          "certifications": [],
+          "awards": [],
+          "trainingExperience": [
+            {"id": "tr-1", "course": "게임 서버 프로그래머 양성과정", "organization": "예시게임아카데미", "startDate": "2025-03", "endDate": "2025-08", "description": "C#, 네트워크 프로그래밍 수강"}
+          ],
+          "otherActivities": [
+            {"id": "act-1", "name": "교내 게임잼", "startDate": "2024-11", "endDate": "2024-11", "description": "48시간 게임잼 참가. 서버 파트 담당"}
+          ],
+          "projects": [
+            {
+              "id": "prj-1", "name": "실시간 대전 퍼즐 게임 서버", "startDate": "2025-05", "endDate": "2025-08",
+              "role": "서버(3인 팀)", "techStack": "C#, ASP.NET Core, SignalR, Redis",
+              "description": "1대1 매칭 서버 개발. 방 생성, 매칭 대기열 구현. 동접 테스트 해봄.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "게임 랭킹 API", "startDate": "2025-01", "endDate": "2025-02",
+              "role": "개인", "techStack": "C#, MySQL",
+              "description": "랭킹 조회 API 만듬. 페이징 적용",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "서버 개발자 지망생",
+              "body": "게임을 좋아해서 게임 개발자가 되고싶었습니다. 그중에서도 여러 사람이 동시에 즐기는 게임의 서버에 관심이 많습니다."
+            },
+            "motivation": {
+              "subtitle": "모바일 게임 서버",
+              "body": "예시게임즈의 모바일 게임을 즐겨 했습니다. 많은 유저가 동시에 접속해도 끊기지 않는 서버를 만들고 싶어서 지원 하게 되었습니다."
+            },
+            "challenge": {
+              "subtitle": "매칭이 안되던 문제",
+              "body": "대전 게임 서버를 만들때 매칭이 가끔 안되는 문제가 있었습니다. 팀원들과 로그를 보면서 원인을 찾았고 결국 해결 했습니다."
+            },
+            "growth": {
+              "subtitle": "꾸준함",
+              "body": "고등학교때부터 알고리즘 문제를 매일 풀었습니다. 지금도 하루 한 문제씩 풀고 있습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "끈기 / 발표",
+              "body": "장점은 끈기 입니다. 단점은 발표를 할때 긴장을 많이 하는 것 입니다."
+            },
+            "aspiration": {
+              "subtitle": "성장하는 서버 개발자",
+              "body": "입사후 선배님들께 많이 배우면서 안정적인 서버를 만드는 개발자가 되겠습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN-02",
+        "company": "(주)예시게임즈",
+        "title": "모바일 게임 서버 개발자 (신입)",
+        "text": "[주요업무]\n- 모바일 게임 실시간 서버 개발\n- 매칭·랭킹 등 게임 콘텐츠 서버 기능 개발\n\n[자격요건]\n- C# 또는 C++ 기반 서버 개발 경험\n- TCP/IP 등 네트워크 프로그래밍 이해\n- RDBMS 사용 경험\n\n[우대사항]\n- Redis 사용 경험\n- 부하 테스트 경험\n- 클라우드 환경 배포 경험\n\n[근무조건]\n- 정규직, 경기 성남시 분당구"
+      },
+      "applicant": {
+        "facts": [
+          "실시간 대전 퍼즐 게임 서버(3인 팀)에서 서버를 맡아 1대1 매칭 서버, 방 생성, 매칭 대기열을 구현했다",
+          "게임 랭킹 API를 혼자 C#과 MySQL로 만들고 페이징을 적용했다",
+          "게임 서버 프로그래머 양성과정에서 C#과 네트워크 프로그래밍을 수강했다",
+          "교내 48시간 게임잼에서 서버 파트를 맡았다",
+          "고등학교 때부터 알고리즘 문제를 매일 풀어 지금도 하루 한 문제씩 푼다",
+          "대전 게임 서버에서 매칭이 가끔 안 되는 문제를 팀원들과 로그를 보며 원인을 찾아 해결했다",
+          "(이력서에 없음) 실시간 대전 퍼즐 게임 서버에서 매칭 대기열을 Redis Sorted Set으로 만들어 비슷한 점수끼리 매칭되게 했다",
+          "(이력서에 없음) 동접 테스트는 봇 클라이언트 500개를 띄워 매칭까지 걸리는 시간이 1초 안인지 확인했다"
+        ],
+        "not_done": ["AWS 등 클라우드 배포", "C++ 서버 개발", "상용 게임 출시"]
+      },
+      "expected_requirements": [
+        {"label": "C#/C++ 서버 개발", "group": "must", "resume": "ok"},
+        {"label": "네트워크 프로그래밍 이해", "group": "must", "resume": "partial"},
+        {"label": "RDBMS 사용", "group": "must", "resume": "ok"},
+        {"label": "Redis 사용", "group": "preferred", "resume": "partial"},
+        {"label": "부하 테스트", "group": "preferred", "resume": "partial"},
+        {"label": "클라우드 배포", "group": "preferred", "resume": "missing"}
+      ],
+      "expected_star": {
+        "trainingExperience[0].description": "T",
+        "otherActivities[0].description": "T",
+        "projects[0].description": "TA",
+        "projects[1].description": "TA",
+        "selfIntroduction.intro.body": "",
+        "selfIntroduction.challenge.body": "SR",
+        "selfIntroduction.growth.body": "A",
+        "selfIntroduction.strengthsWeaknesses.body": ""
+      }
+    },
+    {
+      "id": "unseen_nurse_to_web__medical",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0303", "email": "", "birthDate": "1994-10-27", "githubUrl": "https://github.com/example-nurse", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "간호사로 5년간 병동에서 일한 경험과 Java·Spring Boot 웹 개발 역량을 함께 갖추고 있습니다. 병동 업무를 돕는 투약 알림 웹을 팀 프로젝트로 만들었습니다."
+          },
+          "experience": [
+            {
+              "id": "exp-1", "company": "예시대학교병원", "role": "간호사", "startDate": "2018-03", "endDate": "2023-08", "isCurrent": false,
+              "description": "내과 병동 간호사로 근무했습니다. 교대 인수인계 양식을 개선하는 병동 TF에 참여했습니다."
+            }
+          ],
+          "education": [
+            {"id": "edu-1", "school": "예시간호대학교", "major": "간호학과", "startDate": "2014-03", "endDate": "2018-02", "status": "졸업"}
+          ],
+          "techStack": [
+            {"id": "ts-1", "name": "Java", "level": "중급"},
+            {"id": "ts-2", "name": "Spring Boot", "level": "중급"},
+            {"id": "ts-3", "name": "JPA", "level": "초급"},
+            {"id": "ts-4", "name": "MySQL", "level": "중급"}
+          ],
+          "certifications": [
+            {"id": "cert-1", "name": "간호사 면허", "issuer": "보건복지부", "acquiredDate": "2018-02"},
+            {"id": "cert-2", "name": "정보처리기사", "issuer": "한국산업인력공단", "acquiredDate": "2025-06"}
+          ],
+          "awards": [],
+          "trainingExperience": [
+            {"id": "tr-1", "course": "자바 웹 개발자 과정", "organization": "예시교육원", "startDate": "2024-03", "endDate": "2024-09", "description": "Spring Boot, JPA, MySQL을 배우고 팀 프로젝트 2개를 수행했습니다."}
+          ],
+          "otherActivities": [],
+          "projects": [
+            {
+              "id": "prj-1", "name": "병동 투약 알림 웹", "startDate": "2024-10", "endDate": "2025-02",
+              "role": "백엔드(2인 팀)", "techStack": "Java, Spring Boot, MySQL, Thymeleaf",
+              "description": "간호사가 투약 시간을 놓치지 않도록 투약 일정을 등록하면 10분 전에 화면 알림을 띄우는 웹을 만들었습니다. 저는 일정 등록 API와 알림 스케줄러를 맡았습니다.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "개인 가계부", "startDate": "2024-06", "endDate": "2024-07",
+              "role": "개인", "techStack": "Java, Spring Boot",
+              "description": "지출 등록과 월별 합계 조회 기능을 만들었습니다.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "병동을 아는 개발자",
+              "body": "5년간 내과 병동에서 간호사로 일하며 바쁜 교대 시간에 필요한 정보를 빠르게 찾는 것이 얼마나 중요한지 겪었습니다. 그 경험을 살려 의료 현장에서 실제로 쓰이는 프로그램을 만들고 싶어 개발을 시작했습니다."
+            },
+            "motivation": {
+              "subtitle": "현장에서 쓰이는 의료 정보 시스템",
+              "body": "병원에서 일할 때 전산 화면이 복잡해 입력에 시간이 오래 걸리는 경우가 많았습니다. 예시메디칼의 의료 정보 시스템을 만드는 일에 간호사로 일한 경험과 개발 역량을 함께 보태고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "서른에 다시 시작한 공부",
+              "body": "간호사를 그만두고 개발 공부를 시작했을 때 처음 몇 달은 용어부터 낯설었습니다. 매일 배운 내용을 블로그처럼 노트에 정리하며 교육 과정을 마쳤고, 정보처리기사도 취득했습니다."
+            },
+            "growth": {
+              "subtitle": "환자에게 배운 설명하는 법",
+              "body": "환자와 보호자에게 치료 과정을 설명하면서 어려운 내용을 쉬운 말로 풀어내는 연습을 많이 했습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "침착함 / 완벽주의",
+              "body": "강점은 급한 상황에서도 순서를 정해 침착하게 처리하는 것입니다. 약점은 완벽하게 하려다 시간이 오래 걸리는 것입니다."
+            },
+            "aspiration": {
+              "subtitle": "간호사와 개발자를 잇는 사람",
+              "body": "입사 후에는 병동 업무 흐름을 아는 개발자로서 기획자와 개발자 사이에서 현장의 요구를 정확히 전달하는 역할을 하고 싶습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN-03",
+        "company": "(주)예시메디칼",
+        "title": "의료 정보 시스템 웹 개발자 (신입)",
+        "text": "[주요업무]\n- 병원 의료 정보 시스템(EMR) 웹 기능 개발\n- 병원 현장 요구사항 분석과 반영\n\n[자격요건]\n- Java, Spring 기반 웹 개발 경험\n- RDBMS 사용 경험\n\n[우대사항]\n- 병원 업무에 대한 이해\n- HL7, FHIR 등 의료 정보 표준 이해\n- 테스트 코드 작성 경험\n\n[근무조건]\n- 정규직, 서울 서초구"
+      },
+      "applicant": {
+        "facts": [
+          "예시대학교병원 내과 병동에서 2018년 3월부터 2023년 8월까지 간호사로 근무했다",
+          "병동 교대 인수인계 양식 개선 TF에 참여했다",
+          "자바 웹 개발자 과정에서 Spring Boot, JPA, MySQL을 배우고 팀 프로젝트 2개를 했다",
+          "병동 투약 알림 웹(2인 팀)에서 일정 등록 API와 투약 10분 전 알림 스케줄러를 맡았다",
+          "개인 가계부에서 지출 등록과 월별 합계 조회를 만들었다",
+          "개발 공부를 시작하며 배운 내용을 매일 노트에 정리했고 정보처리기사를 취득했다",
+          "(이력서에 없음) 병동 투약 알림 웹에서 JUnit으로 알림 시간 계산 테스트 15개를 작성했다",
+          "(이력서에 없음) FHIR는 공식 튜토리얼로 Patient 리소스를 조회하는 예제만 따라 해 봤고, 실제 시스템과 연동하는 개발은 해 본 적 없다"
+        ],
+        "not_done": ["HL7·FHIR 실제 연동 개발", "EMR 개발 실무", "React"]
+      },
+      "expected_requirements": [
+        {"label": "Java/Spring 웹 개발", "group": "must", "resume": "ok"},
+        {"label": "RDBMS 사용", "group": "must", "resume": "ok"},
+        {"label": "병원 업무 이해", "group": "preferred", "resume": "ok"},
+        {"label": "HL7/FHIR 표준", "group": "preferred", "resume": "missing"},
+        {"label": "테스트 코드 작성", "group": "preferred", "resume": "missing"}
+      ],
+      "expected_star": {
+        "experience[0].description": "T",
+        "trainingExperience[0].description": "TA",
+        "projects[0].description": "ST",
+        "projects[1].description": "T",
+        "selfIntroduction.intro.body": "S",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "SA",
+        "selfIntroduction.strengthsWeaknesses.body": ""
+      }
+    },
+    {
+      "id": "unseen_infra_to_cloud_3y__edtech",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0304", "email": "", "birthDate": "1993-12-08", "githubUrl": "", "blogUrl": "https://example-infra.velog.io"},
+          "coreCompetencies": {
+            "text": "사내 서버·네트워크 3년 운영. VMware 가상화 환경 관리. AWS 자격증 보유 및 개인 학습 프로젝트 진행."
+          },
+          "experience": [
+            {
+              "id": "exp-1", "company": "(주)예시소프트", "role": "IT 인프라 엔지니어", "startDate": "2022-01", "endDate": "2025-01", "isCurrent": false,
+              "description": "사내 서버·네트워크 운영. VMware 가상화 서버 40대 관리. 백업 정책 수립. 장애 대응."
+            }
+          ],
+          "education": [{"id": "edu-1", "school": "한국공학대학교", "major": "컴퓨터공학부", "startDate": "2012-03", "endDate": "2019-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "VMware", "level": "고급"},
+            {"id": "ts-2", "name": "Windows Server", "level": "중급"},
+            {"id": "ts-3", "name": "AWS", "level": "초급"},
+            {"id": "ts-4", "name": "Shell Script", "level": "초급"}
+          ],
+          "certifications": [
+            {"id": "cert-1", "name": "AWS Certified Solutions Architect – Associate", "issuer": "Amazon Web Services", "acquiredDate": "2025-04"},
+            {"id": "cert-2", "name": "네트워크관리사 2급", "issuer": "한국정보통신자격협회", "acquiredDate": "2021-08"}
+          ],
+          "awards": [],
+          "trainingExperience": [],
+          "otherActivities": [],
+          "projects": [
+            {
+              "id": "prj-1", "name": "사내 파일서버 NAS 이전", "startDate": "2023-06", "endDate": "2023-08",
+              "role": "인프라(단독)", "techStack": "Synology NAS, rsync",
+              "description": "노후 파일서버를 NAS로 이전. 주말 작업으로 업무 중단 없이 전환.",
+              "url": ""
+            },
+            {
+              "id": "prj-2", "name": "AWS 웹서버 구성 학습", "startDate": "2025-02", "endDate": "2025-05",
+              "role": "개인", "techStack": "AWS EC2, S3, CloudWatch",
+              "description": "EC2에 웹서버 구성, S3로 정적 파일 분리, CloudWatch 경보 설정.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "멈추지 않는 인프라를 지키는 엔지니어",
+              "body": "3년 동안 사내 서버와 네트워크를 운영하며 직원들이 인프라를 의식하지 않고 일할 수 있게 만드는 것을 목표로 삼았습니다. 이제 그 경험을 클라우드 환경으로 넓히려고 합니다."
+            },
+            "motivation": {
+              "subtitle": "온프레미스에서 클라우드로",
+              "body": "회사에서 일부 서비스를 클라우드로 옮기는 논의를 지켜보며 클라우드 운영을 제대로 배우고 싶어졌습니다. 수많은 학생이 동시에 접속하는 예시클래스의 교육 플랫폼을 안정적으로 운영하는 일에 기여하고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "새벽의 백업 장애",
+              "body": "백업 서버 디스크가 가득 차 새벽 백업이 실패한 적이 있습니다. 보관 기간을 정리하고 용량 알림을 추가해 같은 문제가 다시 생기지 않게 했습니다."
+            },
+            "growth": {
+              "subtitle": "문서로 남기는 습관",
+              "body": "장애를 처리한 뒤 원인과 조치를 사내 위키에 정리하는 습관을 들였습니다. 같은 장애가 났을 때 다른 동료도 문서를 보고 처리할 수 있었습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "책임감 / 새 도구",
+              "body": "강점은 맡은 시스템을 끝까지 책임지는 태도입니다. 약점은 익숙한 방식을 고수하려는 점인데, 요즘은 새 도구를 작은 환경에서 먼저 시험해 보고 있습니다."
+            },
+            "aspiration": {
+              "subtitle": "클라우드 운영 전문가",
+              "body": "입사 후에는 교육 플랫폼의 AWS 구성과 모니터링 체계를 먼저 익히겠습니다. 이후 온프레미스 운영에서 쌓은 장애 대응 경험을 살려 클라우드 환경의 장애 대응 절차를 다듬겠습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN-04",
+        "company": "(주)예시클래스",
+        "title": "교육 플랫폼 클라우드 엔지니어 (경력 3년 이상)",
+        "text": "[주요업무]\n- AWS 기반 교육 플랫폼 인프라 운영\n- 모니터링·장애 대응 체계 운영\n- 인프라 자동화\n\n[자격요건]\n- 인프라 운영 경력 3년 이상\n- AWS 서비스 운영 경험\n- Linux 서버 운영 경험\n- 모니터링과 장애 대응 경험\n\n[우대사항]\n- Terraform 등 IaC 사용 경험\n- Kubernetes 운영 경험\n- CI/CD 파이프라인 구축 경험\n\n[근무조건]\n- 정규직, 서울 구로구"
+      },
+      "applicant": {
+        "facts": [
+          "(주)예시소프트에서 2022년 1월부터 2025년 1월까지 IT 인프라 엔지니어로 사내 서버·네트워크를 운영했다",
+          "VMware 가상화 서버 40대를 관리하고 백업 정책을 세웠으며 장애에 대응했다",
+          "사내 파일서버 NAS 이전을 혼자 맡아 주말 작업으로 업무 중단 없이 전환했다",
+          "개인 학습으로 AWS EC2에 웹서버를 구성하고 S3로 정적 파일을 분리했으며 CloudWatch 경보를 설정했다",
+          "백업 서버 디스크가 가득 차 백업이 실패했을 때 보관 기간을 정리하고 용량 알림을 추가했다",
+          "장애 처리 뒤 원인과 조치를 사내 위키에 정리했다",
+          "AWS Solutions Architect Associate와 네트워크관리사 2급 자격증이 있다",
+          "(이력서에 없음) 사내 파일서버 NAS 이전에서 rsync로 3TB를 미리 복사해 두고 전환 당일에는 바뀐 파일만 옮겨 전환 작업을 2시간 안에 끝냈다",
+          "(이력서에 없음) 사내 리눅스 서버 6대(CentOS)의 패치와 계정 관리를 맡았다",
+          "(이력서에 없음) Terraform으로 개인 AWS 계정에 VPC와 서브넷을 만들어 봤지만 모듈을 나누거나 팀에서 운영해 본 적은 없다"
+        ],
+        "not_done": ["Kubernetes 운영", "Terraform 실무 운영", "CI/CD 파이프라인 구축"]
+      },
+      "expected_requirements": [
+        {"label": "인프라 운영 경력 3년", "group": "must", "resume": "ok", "kind": "eligibility"},
+        {"label": "AWS 서비스 운영", "group": "must", "resume": "partial"},
+        {"label": "Linux 서버 운영", "group": "must", "resume": "missing"},
+        {"label": "모니터링·장애 대응", "group": "must", "resume": "ok"},
+        {"label": "Terraform IaC", "group": "preferred", "resume": "missing"},
+        {"label": "Kubernetes 운영", "group": "preferred", "resume": "missing"},
+        {"label": "CI/CD 구축", "group": "preferred", "resume": "missing"}
+      ],
+      "expected_star": {
+        "experience[0].description": "TA",
+        "projects[0].description": "TAR",
+        "projects[1].description": "TA",
+        "selfIntroduction.intro.body": "T",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "AR",
+        "selfIntroduction.strengthsWeaknesses.body": "A"
+      }
+    },
+    {
+      "id": "unseen_flutter_entry__petcare",
+      "persona": {
+        "content": {
+          "basicInfo": {"name": "", "phone": "010-0000-0305", "email": "", "birthDate": "2000-04-19", "githubUrl": "https://github.com/example-flutter", "blogUrl": ""},
+          "coreCompetencies": {
+            "text": "Flutter와 Firebase로 모바일 앱을 만들었습니다. 사용자가 직접 기록하는 화면을 쉽게 쓰도록 다듬는 일을 좋아합니다."
+          },
+          "experience": [],
+          "education": [{"id": "edu-1", "school": "대구가톨릭대학교", "major": "소프트웨어학과", "startDate": "2019-03", "endDate": "2025-02", "status": "졸업"}],
+          "techStack": [
+            {"id": "ts-1", "name": "Flutter", "level": "중급"},
+            {"id": "ts-2", "name": "Dart", "level": "중급"},
+            {"id": "ts-3", "name": "Firebase", "level": "중급"}
+          ],
+          "certifications": [{"id": "cert-1", "name": "정보처리산업기사", "issuer": "한국산업인력공단", "acquiredDate": "2024-06"}],
+          "awards": [],
+          "trainingExperience": [
+            {"id": "tr-1", "course": "모바일 앱 개발 부트캠프", "organization": "예시코딩스쿨", "startDate": "2024-07", "endDate": "2024-12", "description": "Flutter와 Firebase로 앱 3개를 만들었습니다."}
+          ],
+          "otherActivities": [],
+          "projects": [
+            {
+              "id": "prj-1", "name": "반려견 산책 기록 앱", "startDate": "2025-01", "endDate": "2025-04",
+              "role": "앱 개발(3인 팀)", "techStack": "Flutter, Dart, Firebase",
+              "description": "산책 경로를 GPS로 기록하고 주간 산책 시간을 차트로 보여주는 앱을 만들었습니다. 저는 기록 화면과 Firestore 저장을 맡았습니다.",
+              "url": ""
+            }
+          ],
+          "selfIntroduction": {
+            "intro": {
+              "subtitle": "반려동물과 함께 사는 앱 개발자",
+              "body": "강아지를 키우며 산책 시간을 기록하고 싶어 앱을 직접 만들어 보았습니다. 사용자가 매일 여는 앱을 만드는 개발자가 되고 싶습니다."
+            },
+            "motivation": {
+              "subtitle": "반려인의 일상을 돕는 서비스",
+              "body": "예시펫의 서비스를 사용하며 반려인의 불편을 잘 이해하는 회사라고 느꼈습니다. 제가 만든 산책 기록 앱 경험을 살려 반려인이 매일 쓰는 앱을 함께 만들고 싶습니다."
+            },
+            "challenge": {
+              "subtitle": "GPS 기록이 튀던 문제",
+              "body": "산책 기록 앱을 만들 때 GPS 좌표가 가끔 크게 튀어 경로가 이상하게 그려졌습니다. 팀원과 함께 이동 거리가 비정상적으로 큰 좌표를 걸러내 경로를 자연스럽게 만들었습니다."
+            },
+            "growth": {
+              "subtitle": "만들어 보며 배우기",
+              "body": "강의를 듣기보다 작은 앱을 직접 만들며 배우는 편입니다. 부트캠프에서도 과제 외에 제가 쓰고 싶은 기능을 따로 만들어 보았습니다."
+            },
+            "strengthsWeaknesses": {
+              "subtitle": "사용자 관점 / 일정 관리",
+              "body": "강점은 사용자 입장에서 화면을 여러 번 써 보며 불편한 점을 찾는 것입니다. 약점은 한 기능에 오래 매달리는 점이라, 요즘은 할 일을 시간 단위로 나눠 관리합니다."
+            },
+            "aspiration": {
+              "subtitle": "매일 쓰이는 앱",
+              "body": "입사 후에는 서비스의 주요 화면과 상태 관리 구조를 먼저 익히고, 반려인이 자주 쓰는 기능의 사용성을 개선하는 데 참여하겠습니다."
+            }
+          }
+        }
+      },
+      "job": {
+        "job_id": "EVAL-UNSEEN-05",
+        "company": "(주)예시펫",
+        "title": "반려동물 서비스 Flutter 앱 개발자 (신입)",
+        "text": "[주요업무]\n- 반려동물 케어 앱 Flutter 개발\n- 서버 API 연동과 화면 개발\n\n[자격요건]\n- Flutter, Dart 기반 앱 개발 경험\n- Provider·Riverpod·Bloc 등 상태 관리 경험\n- REST API 연동 경험\n\n[우대사항]\n- Firebase 사용 경험\n- 앱 스토어 출시 경험\n- 푸시 알림 구현 경험\n\n[근무조건]\n- 정규직, 서울 성동구"
+      },
+      "applicant": {
+        "facts": [
+          "반려견 산책 기록 앱(3인 팀)에서 GPS 경로 기록 화면과 Firestore 저장을 맡았다",
+          "반려견 산책 기록 앱에서 이동 거리가 비정상적으로 큰 GPS 좌표를 팀원과 함께 걸러내 경로를 자연스럽게 만들었다",
+          "모바일 앱 개발 부트캠프에서 Flutter와 Firebase로 앱 3개를 만들었다",
+          "강아지를 키우며 산책 시간을 기록하고 싶어 앱을 만들었다",
+          "할 일을 시간 단위로 나눠 관리한다",
+          "(이력서에 없음) 반려견 산책 기록 앱에서 Riverpod으로 산책 기록 상태를 관리했다",
+          "(이력서에 없음) 이력서에 적지 않은 개인 앱으로, 동네 동물병원 예약 알림 앱을 혼자 만들어 Google Play에 출시했고 FCM 푸시로 예약 하루 전에 알림을 보냈다. 설치 수는 약 120회다"
+        ],
+        "not_done": ["iOS 앱스토어 출시", "Bloc", "외부 REST API 서버 연동 실무"]
+      },
+      "expected_requirements": [
+        {"label": "Flutter/Dart 앱 개발", "group": "must", "resume": "ok"},
+        {"label": "상태 관리 경험", "group": "must", "resume": "missing"},
+        {"label": "REST API 연동", "group": "must", "resume": "missing"},
+        {"label": "Firebase 사용", "group": "preferred", "resume": "ok"},
+        {"label": "앱 스토어 출시", "group": "preferred", "resume": "missing"},
+        {"label": "푸시 알림 구현", "group": "preferred", "resume": "missing"}
+      ],
+      "expected_star": {
+        "trainingExperience[0].description": "TA",
+        "projects[0].description": "TA",
+        "selfIntroduction.intro.body": "SA",
+        "selfIntroduction.challenge.body": "SAR",
+        "selfIntroduction.growth.body": "A",
+        "selfIntroduction.strengthsWeaknesses.body": "A"
+      }
+    }
+  ]
+}

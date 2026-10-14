@@ -1,0 +1,223 @@
+{
+  "raw_planner_output": {
+    "assignments": [
+      {
+        "question_id": "A-Q1",
+        "primary_experience_ids": [
+          "exp-C"
+        ],
+        "story_focus": "직무 관련 준비로 churn 분석 프로젝트에서 데이터 불균형을 고려해 평가 기준과 threshold를 다룬 경험을 제시한다. 회사 지원 이유는 개인 의사와 회사 정보가 없어 별도로 보완한다.",
+        "core_evidence_ids": [
+          "exp-C-3",
+          "exp-C-4"
+        ],
+        "supporting_evidence_ids": [
+          "exp-C-1",
+          "exp-C-5"
+        ],
+        "result_evidence_ids": [],
+        "missing_information": [
+          {
+            "key": "company_motivation",
+            "category": "applicant_intent",
+            "target_experience_id": null,
+            "reason": "회사에 지원한 개인적인 이유나 회사의 어떤 점에 끌렸는지 확인된 답변이 없다.",
+            "importance": "high",
+            "question_proposal": "이 회사에 지원한 개인적인 이유는 무엇인가요? 회사의 어떤 점이 본인의 관심이나 목표와 연결되나요?"
+          },
+          {
+            "key": "company_motivation",
+            "category": "target_context",
+            "target_experience_id": null,
+            "reason": "회사 사업·제품 등 회사 고유의 정보가 제공되지 않아 회사에 대한 근거 있는 지원 이유를 구성할 자료가 부족하다.",
+            "importance": "medium",
+            "question_proposal": ""
+          }
+        ],
+        "rationale": "회사 지원 동기는 개인 의사와 회사 정보가 모두 확인되지 않아 작성에 필요한 자료가 부족하다. 반면 churn 분석 프로젝트는 데이터 분석·AI 서비스 직무와 관련된 실제 수행 및 학습 경험이므로, 회사 입사를 위해 했다고 단정하지 않고 직무 관련 준비로 활용할 수 있다.",
+        "requirement_coverage": [
+          {
+            "requirement": "company_motivation",
+            "status": "missing",
+            "evidence_ids": [],
+            "reason": "개인적인 지원 이유와 이를 뒷받침할 회사 고유 정보가 확인되지 않았다.",
+            "blocking_missing_information": "본인의 회사 지원 이유와 그 이유를 뒷받침할 회사의 사업·제품 등 구체 정보가 필요하다."
+          },
+          {
+            "requirement": "preparation_effort",
+            "status": "satisfied",
+            "evidence_ids": [
+              "exp-C-1",
+              "exp-C-3",
+              "exp-C-4",
+              "exp-C-5"
+            ],
+            "reason": "약 99만 건의 데이터를 분석하고, 불균형 상황에서 평가 지표를 선택해 threshold에 따른 F1 변화를 비교했으며 예측 signal을 확인한 직무 관련 수행 경험이 있다. 회사 입사를 위한 활동이라고 주장하지 않고도 준비 경험으로 작성할 수 있다.",
+            "blocking_missing_information": ""
+          }
+        ]
+      },
+      {
+        "question_id": "A-Q2",
+        "primary_experience_ids": [
+          "exp-C"
+        ],
+        "story_focus": "실제 사용자 문제를 데이터 기반으로 해결하고 싶다는 희망을 제시하고, churn 분석에서 불균형 데이터에 맞는 지표를 판단하고 threshold를 비교한 경험으로 데이터 분석 역량을 뒷받침한다.",
+        "core_evidence_ids": [
+          "exp-C-3",
+          "exp-C-4"
+        ],
+        "supporting_evidence_ids": [
+          "exp-C-1",
+          "exp-C-2",
+          "exp-C-5"
+        ],
+        "result_evidence_ids": [],
+        "missing_information": [],
+        "rationale": "하고 싶은 일은 사용자 답변으로 확인되었다. 차별화된 능력과 이를 뒷받침하는 경험은 불균형 데이터 분석에서의 평가 기준 선택, threshold 비교 및 signal 확인으로 구체화할 수 있다. 확인되지 않은 성과나 타인 대비 우월성을 주장할 필요는 없다.",
+        "requirement_coverage": [
+          {
+            "requirement": "desired_work",
+            "status": "satisfied",
+            "evidence_ids": [],
+            "reason": "사용자가 실제 사용자 문제를 데이터 기반으로 해결하는 업무를 하고 싶다고 답변했다.",
+            "blocking_missing_information": ""
+          },
+          {
+            "requirement": "differentiating_strength",
+            "status": "satisfied",
+            "evidence_ids": [
+              "exp-C-2",
+              "exp-C-3",
+              "exp-C-4"
+            ],
+            "reason": "불균형 문제를 확인하고 Accuracy보다 PR-AUC와 Recall/F1을 중요하게 판단한 뒤 threshold를 조정해 F1 변화를 비교한 사실로 데이터 분석에서의 판단 및 적용 역량을 근거 있게 제시할 수 있다.",
+            "blocking_missing_information": ""
+          },
+          {
+            "requirement": "supporting_experience",
+            "status": "satisfied",
+            "evidence_ids": [
+              "exp-C-1",
+              "exp-C-2",
+              "exp-C-4",
+              "exp-C-5"
+            ],
+            "reason": "약 99만 건의 사용자 데이터 분석, 불균형 문제 확인, threshold 비교 및 예측 signal 확인이라는 구체적 프로젝트 경험이 있다.",
+            "blocking_missing_information": ""
+          }
+        ]
+      },
+      {
+        "question_id": "A-Q3",
+        "primary_experience_ids": [
+          "exp-B"
+        ],
+        "story_focus": "팀 프로젝트의 API 연결 오류를 도전 상황으로 제시하고, 원인을 추적·수정하며 팀원들과 API contract를 조율해 오류를 해결한 경험에 초점을 둔다.",
+        "core_evidence_ids": [
+          "exp-B-5",
+          "exp-B-4"
+        ],
+        "supporting_evidence_ids": [
+          "exp-B-1",
+          "exp-B-2"
+        ],
+        "result_evidence_ids": [
+          "exp-B-3"
+        ],
+        "missing_information": [],
+        "rationale": "API 연결 오류 해결 경험은 상황, 본인의 조치, 협업 및 확인된 결과가 자료에 포함되어 있어 도전 경험과 성과를 작성할 수 있다.",
+        "requirement_coverage": [
+          {
+            "requirement": "challenge",
+            "status": "satisfied",
+            "evidence_ids": [
+              "exp-B-3",
+              "exp-B-5"
+            ],
+            "reason": "팀 프로젝트 API 연결 과정에서 오류가 있었고, 원인을 추적하고 수정한 경험이 확인된다.",
+            "blocking_missing_information": ""
+          },
+          {
+            "requirement": "result",
+            "status": "satisfied",
+            "evidence_ids": [
+              "exp-B-3"
+            ],
+            "reason": "API 연결 과정의 오류를 해결한 사실이 확인된 결과로 제공되어 있다.",
+            "blocking_missing_information": ""
+          }
+        ]
+      }
+    ]
+  },
+  "raw_analyzer_output": {
+    "questions": [
+      {
+        "question_id": "A-Q1",
+        "asks_for": [
+          {
+            "key": "company_motivation",
+            "required": true,
+            "source_quote": "당사에 지원한 이유"
+          },
+          {
+            "key": "preparation_effort",
+            "required": true,
+            "source_quote": "입사를 위해\n어떤 노력을 하였는지"
+          }
+        ],
+        "constraints": {
+          "character_limit": 1000,
+          "count_unit": "characters",
+          "include_spaces": null
+        }
+      },
+      {
+        "question_id": "A-Q2",
+        "asks_for": [
+          {
+            "key": "desired_work",
+            "required": true,
+            "source_quote": "지원한 직군에서 구체적으로 하고 싶은 일"
+          },
+          {
+            "key": "differentiating_strength",
+            "required": true,
+            "source_quote": "본인이 그 일을 남들보다 잘할 수 있는\n차별화된 능력"
+          },
+          {
+            "key": "supporting_experience",
+            "required": true,
+            "source_quote": "경험을 기술하시오."
+          }
+        ],
+        "constraints": {
+          "character_limit": 1000,
+          "count_unit": "characters",
+          "include_spaces": null
+        }
+      },
+      {
+        "question_id": "A-Q3",
+        "asks_for": [
+          {
+            "key": "challenge",
+            "required": true,
+            "source_quote": "가장 열정적이고 도전적으로 몰입하여"
+          },
+          {
+            "key": "result",
+            "required": true,
+            "source_quote": "성과를 창출했거나 목표를 달성한 경험"
+          }
+        ],
+        "constraints": {
+          "character_limit": 1000,
+          "count_unit": "characters",
+          "include_spaces": null
+        }
+      }
+    ]
+  }
+}

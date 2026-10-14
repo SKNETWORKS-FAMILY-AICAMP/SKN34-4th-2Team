@@ -1,0 +1,23 @@
+{
+  "region": "us-east-1",
+  "status": "serving-auth-security-release-verified-full-user-e2e-pending",
+  "web_url": "https://d1zqs4mfabqpqs.cloudfront.net",
+  "cloudfront_distribution": "E79A6UM0WDCG3",
+  "cloudfront_vpc_origin": "vo_GNVnBLHHRLnEbLnbzVwDKD",
+  "web_bucket": "skn34-lxp-web-711425439897-us-east-1",
+  "scheduled_jobs_enabled": false,
+  "runtime_directory": "/opt/skn34-lms",
+  "source": "b07537f plus user-approved working changes at build time",
+  "django": {
+    "instance_id": "i-09af311c959d14cc4",
+    "image": "711425439897.dkr.ecr.us-east-1.amazonaws.com/lms-api@sha256:0e732660b3438f78212e567ccc6b65f09764ed578678f2ba887d22d0d08fac5a",
+    "tag": "security-20261009-0e732660b343",
+    "previous_image": "711425439897.dkr.ecr.us-east-1.amazonaws.com/lms-api@sha256:e481a956efc89dcb9da76adec8631151056f1d80818d73d6c7f2c679d09c1dcc",
+    "security_manifest": "security-release-20261009.json"
+  },
+  "ai": {
+    "instance_id": "i-07856cc9d2859e4e8",
+    "image": "711425439897.dkr.ecr.us-east-1.amazonaws.com/lms-ai@sha256:475a6ae2a2d6e2f5060c31e3d0a88ea5a2474d951cc0e74c84f951bf3fb92918",
+    "tag": "release-20261009-475a6ae2a2d6"
+  }
+}
