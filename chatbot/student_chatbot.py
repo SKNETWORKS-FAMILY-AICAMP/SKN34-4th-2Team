@@ -26,7 +26,7 @@ from pinecone import Pinecone
 from pydantic import BaseModel, Field
 
 from chatbot.attendance import enrich_student_context
-from chatbot.answer_effort import choose_answer_effort
+from chatbot.answer_effort import choose_answer_effort, attendance_context_sufficient_without_search
 from chatbot.simple_schedule import parse_simple_schedule_request, schedule_answer, validated_schedule_dates
 from chatbot.attendance_basis import (
     BasisDecision, CLARIFICATION, persist_decision, prepare_short_basis,
@@ -268,7 +268,7 @@ ANSWER_PROMPT = """
 - 학생에게는 기간·예정 수업일 → 기록된 날 중 인정 출석일과 출석률 → 목표까지 필요한 정상 출석일 →
   결과를 바꾸는 예외 출결 조건 순서로 안내한다. 질문과 무관한 항목이나 이미 확인한 설명은 반복하지 않는다.
   출석률은 "기록된 N일 중 인정 출석 M일(P%)"처럼 분모를 밝힌다. 진행 중 출석률만으로
-  "이번 단위기간 기준을 충족했다"고 말하지 말고 전체 기간의 목표와 구분한다.
+  "이번 단위기간 기준을 충족했다"고 말하지 말고 선택한 범위 전체 예정일의 목표와 구분한다.
   모든 숫자는 이번 요청의 제공된 값만 사용한다. 특정 학생의 숫자를 예시에서 가져오지 않는다.
 - 단위기간 날짜는 제공된 periods와 current_unit_period를 사용한다.
   schedule_status가 generated_unconfirmed이면 등록 일정으로 생성한 예상 기간이며 확정된 경계가 아님을 밝힌다.
@@ -288,7 +288,7 @@ ANSWER_PROMPT = """
   서버 결과를 재계산하거나 수료·수당 자격을 판정하지 않는다. in_progress_estimate가 있으면
   attendance_rate는 "기록된 N일 중 인정 출석 M일(P%)"로 설명한다.
   requirement_met_so_far는 기록된 날만의 기준 충족 여부를 직접 물었을 때만 설명하며,
-  일반 현황 질문에는 해당 비교 문장을 생략하고 전체 기간 목표까지 필요한 출석일을 안내한다.
+  일반 현황 질문에는 해당 비교 문장을 생략하고 선택한 범위 목표까지 필요한 출석일을 안내한다.
   remaining_scheduled_days는 기록되지 않은 예정 수업일 수이며, 과거 누락 기록이 포함될 수 있다.
 - 앞으로 몇 일 더 출석해야 하는지 물으면 서버의 full_period_required_recognized_days,
   recognized_attendance_days, additional_normal_attendance_days_needed를 그대로 사용하고 직접 빼거나 올림하지 않는다.
@@ -296,7 +296,9 @@ ANSWER_PROMPT = """
   앞으로 필요한 출석일을 확정하지 않는다. unrecorded_future_days만 앞으로 남은 예정일로 설명한다.
   reachable_with_future_normal_attendance가 false면 현재 기록 기준 남은 정상 출석만으로는 목표에 도달하지 못한다고 안내한다.
   유효한 계산에서 additional_normal_attendance_days_needed가 0이고 reachable_with_future_normal_attendance가 true이면
-  현재 기록상 전체 기간 목표의 필요 인정일수에 이미 도달했다고 안내한다.
+  현재 기록상 선택한 범위 목표의 필요 인정일수에 이미 도달했다고 안내한다.
+  unit은 "이번 단위기간 목표", completion은 "전체 훈련기간 수료 목표"로 명시한다.
+  두 기준 비교에서는 각 범위의 결과를 따로 안내하며 단위기간을 전체 훈련기간으로 표현하지 않는다.
   이 경우 "남은 수업에 출석하면 목표를 맞출 수 있다"고 아직 미달인 것처럼 말하지 않는다.
   남은 일정의 정상 출석과 기록 확인은 권하되 지급 확정이나 향후 예외 출결에도 결과가 불변이라고 단정하지 않는다.
   필요일이 양수면 제공된 필요일을 안내하고, null이나 도달 불가 상태를 이미 도달로 바꾸지 않는다.
@@ -1139,6 +1141,8 @@ class LmsStudentChatbot:
     def _after_student_tools(
         self, state: ChatState,
     ) -> Literal["policy_notice_retrieve", "project_retrieve", "answer"]:
+        if attendance_context_sufficient_without_search(state):
+            return "answer"
         if any(namespace in state.get("namespaces", []) for namespace in ("policy", "notice")):
             return "policy_notice_retrieve"
         return "project_retrieve" if "project_reference" in state.get("namespaces", []) else "answer"
