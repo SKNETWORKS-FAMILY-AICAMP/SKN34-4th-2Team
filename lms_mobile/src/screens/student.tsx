@@ -37,6 +37,7 @@ import type {
 import { useSession } from '../auth/session';
 import { MileageCard, MileageTile } from '../ui/MileageCard';
 import { RobotHead } from '../ui/RobotHead';
+import { openManualPdf } from '../manual/open';
 import { quickTopics } from '@web/features/chatbot/chatbotAnswers';
 import { AlertBell } from './extra';
 import { useIssues, submitAttendanceRequest, cancelAttendanceRequest } from '../data/attendance';
@@ -1758,7 +1759,8 @@ export function CoachPage() {
 
 export function SettingsPage() {
   const { palette, mode, setMode } = useTheme();
-  const { signOut } = useSession();
+  const { signOut, user } = useSession();
+  const [manualBusy, setManualBusy] = useState(false);
   return (
     <Screen title="설정">
       <T variant="label" tone="secondary" style={{ marginLeft: 4 }}>화면 테마</T>
@@ -1774,6 +1776,18 @@ export function SettingsPage() {
       <T variant="label" tone="secondary" style={{ marginLeft: 4, marginTop: 8 }}>도움말</T>
       <ListGroup>
         <ListItem title="이용 안내 다시 보기" left={<MenuIcon name="help-outline" />} onPress={() => go('/tour?replay=1')} />
+        <ListItem
+          title="PDF 매뉴얼 보기"
+          subtitle={manualBusy ? '설명서를 만드는 중…' : '기능별 자세한 사용 설명서'}
+          left={<MenuIcon name="picture-as-pdf" />}
+          onPress={() => {
+            if (manualBusy || !user) return;
+            setManualBusy(true);
+            void openManualPdf(user.role)
+              .catch((error: unknown) => Alert.alert('설명서를 열지 못했습니다', error instanceof Error ? error.message : '잠시 후 다시 시도해 주세요.'))
+              .finally(() => setManualBusy(false));
+          }}
+        />
       </ListGroup>
       <T variant="label" tone="secondary" style={{ marginLeft: 4, marginTop: 8 }}>계정</T>
       <ListGroup>
