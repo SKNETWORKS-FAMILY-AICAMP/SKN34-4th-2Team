@@ -92,11 +92,17 @@ function desktopPath(role: UserRole): string {
   return role === 'admin' ? '/(admin)/desktop' : role === 'instructor' ? '/(instructor)/desktop' : '/(student)/desktop';
 }
 
+/**
+ * 앱에 없는 기능은 메뉴에서 뺀다 — 눌렀을 때 「PC에서 이용해 주세요」로 막히지 않게.
+ * 공고 맞춤 지원(공고 · AI 첨삭) · 복습 문제 출제는 웹에서만 한다.
+ */
+const hiddenInApp = new Set<string>([R.jobApply, R.instructorPractice]);
+
 export function appNav(role: UserRole): AppNavSection[] {
   const sections: AppNavSection[] = navFor(role).map((section) => ({
     id: section.id,
     title: section.title,
-    items: section.items.map((item) => ({
+    items: section.items.filter((item) => !hiddenInApp.has(item.path)).map((item) => ({
       label: item.label,
       icon: toIcon(item.icon),
       // 앱에 아직 없는 새 메뉴는 「PC 에서 이용해 주세요」로 보낸다

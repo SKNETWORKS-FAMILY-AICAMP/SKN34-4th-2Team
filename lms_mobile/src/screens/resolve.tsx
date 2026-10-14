@@ -2,9 +2,7 @@ import type { RecordType, UserRole } from '@web/domain/types';
 import type { ReactNode } from 'react';
 
 import {
-  ApplyPage,
-  JobPage,
-  JobsPage,
+  AlertsPage,
   ResumeEditPage,
   ResumeListPage,
 } from './extra';
@@ -36,7 +34,6 @@ import {
 import {
   AttendancePage,
   ChatPage,
-  CoachPage,
   DesktopPage,
   FormFillPage,
   FormsPage,
@@ -59,6 +56,7 @@ const recordTypes = new Set(['certification', 'study', 'blog', 'studyCert', 'pre
 export function StudentRoute({ parts }: { parts: string[] }): ReactNode {
   const [a, b, c] = parts;
   if (a === 'notice' && b) return <NoticePage id={b} />;
+  if (a === 'alerts') return <AlertsPage />;
   if (a === 'post' && b) return <PostPage id={b} />;
   if (a === 'records' && b === 'new') return <RecordNewPage />;
   if (a === 'records' && b === 'form' && c && recordTypes.has(c)) return <RecordFormPage type={c as RecordType} />;
@@ -82,11 +80,9 @@ export function StudentRoute({ parts }: { parts: string[] }): ReactNode {
   if (a === 'resume' && b === 'new') return <ResumeEditPage id="" />;
   if (a === 'resume' && b) return <ResumeEditPage id={decodeURIComponent(b)} />;
   if (a === 'resume') return <ResumeListPage />;
-  if (a === 'jobs' && b) return <JobPage id={b} />;
-  if (a === 'jobs') return <JobsPage />;
-  if (a === 'apply') return <ApplyPage />;
+  // 공고 · 공고 맞춤 지원 · 취업 코치(AI)는 앱에서 뺐다 — 예전 주소는 이력서 목록으로 연다
+  if (a === 'jobs' || a === 'apply' || a === 'coach') return <ResumeListPage />;
   if (a === 'chat') return <ChatPage />;
-  if (a === 'coach') return <CoachPage />;
   if (a === 'mypage') return <MyPage />;
   if (a === 'settings') return <SettingsPage />;
   if (a === 'desktop') return <DesktopPage feature={b === 'playground' ? '연습장' : '이 기능'} />;
@@ -122,6 +118,7 @@ export function AdminRoute({ parts }: { parts: string[] }): ReactNode {
   if (a === 'people' && b) return <PersonPage uid={b} />;
   if (a === 'counsel') return <CounselPage studentId={b} />;
   if (a === 'quests') return <AdminQuestsPage />;
+  if (a === 'attendance' && b === 'spot') return <AttendanceAdminPage initialTab="spot" />;
   if (a === 'attendance') return <AttendanceAdminPage />;
   // 관리자 자리 확인은 없앴다 — 예전 주소는 불시 점검이 있는 출석 관리로 연다
   if (a === 'presence') return <AttendanceAdminPage />;

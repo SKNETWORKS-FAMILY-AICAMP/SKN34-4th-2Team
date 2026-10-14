@@ -4,6 +4,7 @@ import type { SeatingCell, SeatingGrid } from '@web/domain/types';
 import { useMemo, useState } from 'react';
 import { Pressable, Text, View, type ViewStyle } from 'react-native';
 
+import { useUsers } from '../data/people';
 import { useTheme } from '../theme/Theme';
 
 export type SeatMark = 'unknown' | 'confirmed' | 'held';
@@ -96,12 +97,15 @@ export function SeatGrid({
   const mapW = track * grid.cols;
   const mapH = grid.rows * seatH + Math.max(0, grid.rows - 1) * rowGap;
   const [picked, setPicked] = useState<string | null>(null);
+  // 저장된 좌석 이름(seatNames)이 비어 있으면 배정된 학생 이름으로 채운다 — 웹 좌석 배치와 같은 결과
+  const users = useUsers();
+  const nameById = useMemo(() => new Map(users.map((user) => [user.uid, user.displayName])), [users]);
 
   const seatOf = (cell: SeatingCell) => {
     const userId = cell.type === 'seat' ? seatUserIds[cell.seatId] : undefined;
     return {
       userId,
-      name: cell.type === 'seat' ? seatNames[cell.seatId] : undefined,
+      name: cell.type === 'seat' ? seatNames?.[cell.seatId] || (userId !== undefined ? nameById.get(userId) : undefined) : undefined,
       mark: userId !== undefined && markOf ? markOf(userId) : ('unknown' as SeatMark),
     };
   };
