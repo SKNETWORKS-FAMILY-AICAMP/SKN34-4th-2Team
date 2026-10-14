@@ -133,6 +133,11 @@ export function ReviewWindow(props: ReviewWindowProps) {
     return () => window.removeEventListener('beforeunload', warn);
   }, [session.busy, session.mutationPending]);
 
+  const complete = (alwaysConfirm = true) => {
+    if ((session.answer !== '' || answerEditDirty) && !window.confirm('전송하거나 저장하지 않은 답변이 있어요. 취소하면 작성 중인 내용을 계속 편집할 수 있습니다. 저장하지 않고 첨삭을 마칠까요?')) return;
+    void session.completeReview(alwaysConfirm);
+  };
+
   const jobSource =
     session.result?.job_source !== null && typeof session.result?.job_source === 'object'
       ? (session.result.job_source as Json)
@@ -157,6 +162,7 @@ export function ReviewWindow(props: ReviewWindowProps) {
       answerRef={answerRef}
       canMinimize
       onAnswerEditDirty={setAnswerEditDirty}
+      onComplete={() => complete(false)}
     />
   );
 
@@ -177,7 +183,7 @@ export function ReviewWindow(props: ReviewWindowProps) {
             type="button"
             className="btn btn--outline btn--sm"
             disabled={session.busy}
-            onClick={() => void session.completeReview()}
+            onClick={() => complete()}
           >
             <Icon name="check" size={16} />
             첨삭 완료
@@ -620,6 +626,7 @@ function ReviewChatPane({
   answerRef,
   canMinimize,
   onAnswerEditDirty,
+  onComplete,
 }: {
   session: ReviewSession;
   view: ReturnType<ReviewSession['view']>;
@@ -628,6 +635,7 @@ function ReviewChatPane({
   answerRef: React.RefObject<HTMLTextAreaElement>;
   canMinimize: boolean;
   onAnswerEditDirty(dirty: boolean): void;
+  onComplete(): void;
 }) {
   const { activeQuestion, remainingQuestionCount, reviewCompleted, currentStage } = view;
   const resultAvailable = session.result !== null;
@@ -712,7 +720,7 @@ function ReviewChatPane({
             hasFailures={session.hasUnresolvedReviewFailure}
             informationPending={session.informationReviewPending}
             hasSuggestions={session.messages.some((m) => m.type === 'suggestion' || m.type === 'identity')}
-            onClose={() => void session.completeReview(false)}
+            onClose={onComplete}
             onRestart={session.restartReview}
           />
         )}
