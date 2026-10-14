@@ -8,7 +8,7 @@
 | 제출일 | 미확정 |
 | GitHub | https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN34-4th-2Team |
 
-[PDF](test-plan-results.pdf) · [상세 시나리오](../../README.md#16-테스트-시나리오)
+[PDF](test-plan-results.pdf) · [통합 테스트 시나리오](#42-통합-테스트-시나리오---계획)
 
 ## 1. 테스트 개요
 
@@ -108,6 +108,6 @@ pytest가 없어 수집 전 중단했다. 성공 또는 실패로 집계하지 �
 
 ### 근거·참고 양식
 
-시나리오: README 16절. 참고 양식: 프로젝트 가이드의 테스트 계획 및 결과 보고서이다.
+통합 테스트 시나리오는 이 문서 4.2절에 정리한다. 참고 양식은 프로젝트 가이드의 테스트 계획 및 결과 보고서이다.
 
 [가이드 참고 양식](https://drive.google.com/file/d/1dAaS_ELJv5pmN3WUf6mjbaqf6xdEtL0k/view)
