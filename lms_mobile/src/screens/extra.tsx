@@ -17,9 +17,10 @@ import { useDismissedToday, useSeenAlerts, visibleAlerts } from '../data/alertSe
 import { featuredPostings, fetchApplyLink, fetchPosting, type Posting } from '../data/jobs';
 import { updateResume, useFeedbacks, useResumes, createResume, setBaseResume, deleteResume } from '../data/resumes';
 import { useAlerts, dismissAlertToday, markAlertRead } from '../data/notices';
-import { Badge, Btn, Card, Chip, EmptyState, Field, Muted, Row, Screen, T, goBack, todayKey } from '../ui/kit';
+import { Badge, Btn, Card, Chip, EmptyState, Field, Muted, Row, Screen, Segmented, T, goBack, todayKey } from '../ui/kit';
 import { ChipRow, confirmAction } from '../ui/form';
 import { useTheme } from '../theme/Theme';
+import { TechStackEditor } from '../ui/TechStackEditor';
 import { elevation } from '../theme/tokens';
 
 function section(body: string) {
@@ -84,13 +85,13 @@ function dateOf(value?: Date | string | null): string {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function SectionBar({ filled, total, thin }: { filled: number; total: number; thin?: boolean }) {
+/** 카드 한 줄 끝에 붙이는 작은 채움 표시 — 막대를 따로 한 줄로 두면 카드가 위아래로 커 보였다 */
+function MiniProgress({ filled, total }: { filled: number; total: number }) {
   const { palette } = useTheme();
-  const h = thin ? 4 : 6;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-      <View style={{ flex: 1, height: h, borderRadius: h / 2, backgroundColor: palette.surfaceVariant, overflow: 'hidden' }}>
-        <View style={{ width: `${(filled / total) * 100}%`, height: h, borderRadius: h / 2, backgroundColor: palette.success }} />
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }} accessibilityLabel={`섹션 ${total}개 중 ${filled}개 작성`}>
+      <View style={{ width: 52, height: 4, borderRadius: 2, backgroundColor: palette.surfaceVariant, overflow: 'hidden' }}>
+        <View style={{ width: `${(filled / total) * 100}%`, height: 4, borderRadius: 2, backgroundColor: palette.success }} />
       </View>
       <T variant="caption" tone="secondary">
         <T variant="caption" style={{ fontWeight: '700' }}>{filled}</T>/{total}
@@ -118,10 +119,10 @@ function ResumeCard({ resume, isBase, tailored }: { resume: Resume; isBase?: boo
         accessibilityRole="button"
         accessibilityLabel={`${resume.title} 열기`}
         onPress={() => openResume(resume.id)}
-        style={({ pressed }) => ({ paddingHorizontal: 20, paddingVertical: 18, gap: 14, opacity: pressed ? 0.85 : 1 })}
+        style={({ pressed }) => ({ paddingHorizontal: 18, paddingVertical: 14, gap: 8, opacity: pressed ? 0.85 : 1 })}
       >
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-          <View style={{ flex: 1, gap: 6 }}>
+          <View style={{ flex: 1, gap: 2 }}>
             {isBase ? (
               <T variant="label" tone="primary">기본 이력서</T>
             ) : null}
@@ -129,8 +130,10 @@ function ResumeCard({ resume, isBase, tailored }: { resume: Resume; isBase?: boo
           </View>
           <Badge label={ResumeStatusLabels[resume.status] ?? '작성 중'} tone={STATUS_TONE[resume.status] ?? 'warning'} />
         </View>
-        <SectionBar filled={filledCount(resume)} total={total} />
-        <T variant="caption" tone="secondary">{meta}</T>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <T variant="caption" tone="secondary" style={{ flex: 1 }} numberOfLines={1}>{meta}</T>
+          <MiniProgress filled={filledCount(resume)} total={total} />
+        </View>
       </Pressable>
       {tailored.length > 0 ? (
         <View style={{ borderTopWidth: 1, borderTopColor: palette.divider }}>
@@ -139,8 +142,8 @@ function ResumeCard({ resume, isBase, tailored }: { resume: Resume; isBase?: boo
             accessibilityLabel={`맞춤 이력서 ${tailored.length}개 ${open ? '접기' : '펼치기'}`}
             onPress={() => setOpen((prev) => !prev)}
             style={({ pressed }) => ({
-              minHeight: 52,
-              paddingHorizontal: 20,
+              minHeight: 44,
+              paddingHorizontal: 18,
               flexDirection: 'row',
               alignItems: 'center',
               gap: 6,
@@ -152,7 +155,7 @@ function ResumeCard({ resume, isBase, tailored }: { resume: Resume; isBase?: boo
             <MaterialIcons name={open ? 'expand-less' : 'expand-more'} size={22} color={palette.textSecondary} />
           </Pressable>
           {open ? (
-            <View style={{ paddingHorizontal: 16, paddingBottom: 16, gap: 10 }}>
+            <View style={{ paddingHorizontal: 14, paddingBottom: 14, gap: 8 }}>
               {tailored.map((child) => (
                 <Pressable
                   key={child.id}
@@ -160,9 +163,8 @@ function ResumeCard({ resume, isBase, tailored }: { resume: Resume; isBase?: boo
                   accessibilityLabel={`${child.title} 열기`}
                   onPress={() => openResume(child.id)}
                   style={({ pressed }) => ({
-                    paddingHorizontal: 16,
-                    paddingVertical: 14,
-                    gap: 10,
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
                     borderRadius: 12,
                     backgroundColor: palette.surfaceVariant,
                     opacity: pressed ? 0.85 : 1,
@@ -170,9 +172,9 @@ function ResumeCard({ resume, isBase, tailored }: { resume: Resume; isBase?: boo
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <T variant="body" style={{ flex: 1, fontWeight: '600' }} numberOfLines={1}>{child.title}</T>
+                    <MiniProgress filled={filledCount(child)} total={total} />
                     <Badge label={ResumeStatusLabels[child.status] ?? '작성 중'} tone={STATUS_TONE[child.status] ?? 'warning'} />
                   </View>
-                  <SectionBar filled={filledCount(child)} total={total} thin />
                 </Pressable>
               ))}
             </View>
@@ -225,25 +227,83 @@ export function ResumeListPage({ canApprove = false }: { canApprove?: boolean })
   return <ReviewerResumeList />;
 }
 
+type ReviewFilter = 'requested' | 'approved' | 'all';
+
+/**
+ * 관리자 · 강사의 이력서 목록 — 웹 ReviewerResumesScreen 과 같다.
+ * 작성 중인 이력서는 아직 학생의 것이라 올리지 않는다: 피드백을 요청했거나 승인한 것만, 최근 수정 순.
+ * 공고 맞춤 지원에서 만든 자소서(지원용 사본)와 편집용 사본으로 옮긴 첨삭 작업본은 뺀다.
+ */
 function ReviewerResumeList() {
-  const resumes = useResumes();
+  const all = useResumes();
   const { user } = useSession();
+  const { palette } = useTheme();
+  const [filter, setFilter] = useState<ReviewFilter>('requested');
   const base = user?.role === 'instructor' ? '/(instructor)/resume' : '/(admin)/resume';
+  const time = (r: Resume) => (r.updatedAt ? new Date(r.updatedAt).getTime() : 0);
+  const resumes = withoutPromotedWorkCopies(all)
+    .filter((r) => !isApplyCopy(r))
+    .filter((r) => r.status === 'feedbackRequested' || r.status === 'approved')
+    .sort((a, b) => time(b) - time(a));
+  const counts: Record<ReviewFilter, number> = {
+    requested: resumes.filter((r) => r.status === 'feedbackRequested').length,
+    approved: resumes.filter((r) => r.status === 'approved').length,
+    all: resumes.length,
+  };
+  const shown = filter === 'all' ? resumes : resumes.filter((r) => (filter === 'requested' ? r.status === 'feedbackRequested' : r.status === 'approved'));
+  const subtitle =
+    user?.role === 'instructor'
+      ? `${user.cohortName || '담당 기수'} · 피드백을 요청했거나 승인한 이력서만 보입니다.`
+      : '보고 있는 기수의 이력서입니다. 피드백을 요청했거나 승인한 것만 보입니다.';
+
   return (
-    <Screen title="이력서">
-      {resumes.map((resume) => (
-        <Row
-          key={resume.id}
-          title={resume.title}
-          subtitle={`${resume.userDisplayName ?? ''} · ${ResumeStatusLabels[resume.status] ?? '작성 중'}`}
-          onPress={() => router.push(`${base}/${encodeURIComponent(resume.id)}` as never)}
-        />
-      ))}
+    <Screen title="이력서 관리" onRefresh={refreshBootstrap}>
+      <T variant="caption" tone="secondary">{subtitle}</T>
+      <Segmented
+        options={[
+          { key: 'requested', label: `피드백 요청 ${counts.requested}` },
+          { key: 'approved', label: `승인 ${counts.approved}` },
+          { key: 'all', label: `전체 ${counts.all}` },
+        ]}
+        value={filter}
+        onChange={setFilter}
+      />
+      {shown.length === 0 ? (
+        <Card>
+          <EmptyState icon="description" text={resumes.length === 0 ? '피드백을 요청한 이력서가 없습니다' : '이 묶음에 해당하는 이력서가 없습니다'} />
+        </Card>
+      ) : (
+        shown.map((resume) => {
+          const done = computeSections(resume.content);
+          const filled = ResumeSectionKeys.filter((key) => done[key]).length;
+          const approved = resume.status === 'approved';
+          return (
+            <Card key={resume.id} onPress={() => router.push(`${base}/${encodeURIComponent(resume.id)}` as never)} style={{ gap: 6, paddingVertical: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <T variant="label" tone="secondary" style={{ flex: 1 }} numberOfLines={1}>{resume.userDisplayName ?? resume.userId}</T>
+                <Badge label={ResumeStatusLabels[resume.status] ?? ''} tone={approved ? 'success' : 'info'} />
+              </View>
+              <T variant="subtitle" numberOfLines={2}>{resume.title}</T>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <T variant="caption" tone="secondary" style={{ flex: 1 }} numberOfLines={1}>
+                  {resume.updatedAt ? `수정 ${new Date(resume.updatedAt).toLocaleDateString('ko-KR')}` : '수정일 없음'} ·{' '}
+                  {resume.feedbackCount ? `피드백 ${resume.feedbackCount}건` : '아직 남긴 피드백 없음'}
+                </T>
+                <MiniProgress filled={filled} total={ResumeSectionKeys.length} />
+                <MaterialIcons name="chevron-right" size={20} color={palette.textHint} />
+              </View>
+            </Card>
+          );
+        })
+      )}
     </Screen>
   );
 }
 
 type IntroKey = keyof ResumeContent['selfIntroduction'];
+
+/** 편집 화면에서 「추가」로 여러 개 넣는 섹션 */
+type ListKey = 'experience' | 'education' | 'projects' | 'certifications' | 'awards' | 'trainingExperience' | 'otherActivities';
 
 const INTRO_FIELDS: { key: IntroKey; label: string }[] = [
   { key: 'growth', label: '성장 과정' },
@@ -308,7 +368,6 @@ export function ResumeEditPage({ id }: { id: string }) {
   const feedbacks = useFeedbacks(existing?.id ?? '');
   const [title, setTitle] = useState(existing?.title ?? '새 이력서');
   const [draft, setDraft] = useState<ResumeContent>(() => existing?.content ?? emptyContent(user?.displayName ?? ''));
-  const [tech, setTech] = useState('');
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -337,10 +396,10 @@ export function ResumeEditPage({ id }: { id: string }) {
   const basic = (key: keyof ResumeContent['basicInfo'], value: string) => patch({ basicInfo: { ...draft.basicInfo, [key]: value } });
   const intro = (key: IntroKey, body: string) =>
     patch({ selfIntroduction: { ...draft.selfIntroduction, [key]: { ...(draft.selfIntroduction[key] ?? section('')), body } } });
-  function editList<K extends 'experience' | 'education' | 'projects'>(key: K, index: number, change: Partial<ResumeContent[K][number]>) {
+  function editList<K extends ListKey>(key: K, index: number, change: Partial<ResumeContent[K][number]>) {
     patch({ [key]: draft[key].map((row, i) => (i === index ? { ...row, ...change } : row)) } as Partial<ResumeContent>);
   }
-  function removeFrom<K extends 'experience' | 'education' | 'projects' | 'techStack'>(key: K, index: number) {
+  function removeFrom<K extends ListKey | 'techStack'>(key: K, index: number) {
     patch({ [key]: draft[key].filter((_, i) => i !== index) } as Partial<ResumeContent>);
   }
 
@@ -502,27 +561,75 @@ export function ResumeEditPage({ id }: { id: string }) {
       </SectionCard>
 
       <SectionCard title="기술 스택">
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          {draft.techStack.map((row, i) => (
-            <Chip key={row.id} label={`${row.name}  ✕`} onPress={() => removeFrom('techStack', i)} />
-          ))}
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
-          <View style={{ flex: 1 }}>
-            <Field label="기술 이름" value={tech} onChangeText={setTech} placeholder="예: Python" />
-          </View>
-          <View style={{ minWidth: 92 }}>
-            <Btn
-              label="추가"
-              tone="soft"
-              disabled={!tech.trim()}
-              onPress={() => {
-                patch({ techStack: [...draft.techStack, { id: newId(), name: tech.trim(), level: '' }] });
-                setTech('');
-              }}
-            />
-          </View>
-        </View>
+        <TechStackEditor items={draft.techStack} onChange={(next) => patch({ techStack: next })} newId={newId} />
+      </SectionCard>
+
+      <SectionCard
+        title="자격증"
+        onAdd={() => patch({ certifications: [...draft.certifications, { id: newId(), name: '', issuer: '', acquiredDate: '' }] })}
+      >
+        {draft.certifications.length === 0 ? <Muted>추가 버튼으로 자격증을 넣어 주세요.</Muted> : null}
+        {draft.certifications.map((row, i) => (
+          <ItemBox key={row.id} onRemove={() => removeFrom('certifications', i)}>
+            <Pair wide={wide}>
+              <Field label="자격증 이름" value={row.name} onChangeText={(v) => editList('certifications', i, { name: v })} />
+              <Field label="발행 기관" value={row.issuer} onChangeText={(v) => editList('certifications', i, { issuer: v })} />
+              <Field label="취득일" value={row.acquiredDate} onChangeText={(v) => editList('certifications', i, { acquiredDate: v })} placeholder="YYYY-MM" />
+            </Pair>
+          </ItemBox>
+        ))}
+      </SectionCard>
+
+      <SectionCard
+        title="수상"
+        onAdd={() => patch({ awards: [...draft.awards, { id: newId(), name: '', organization: '', date: '', description: '' }] })}
+      >
+        {draft.awards.length === 0 ? <Muted>추가 버튼으로 수상 내역을 넣어 주세요.</Muted> : null}
+        {draft.awards.map((row, i) => (
+          <ItemBox key={row.id} onRemove={() => removeFrom('awards', i)}>
+            <Pair wide={wide}>
+              <Field label="수상명" value={row.name} onChangeText={(v) => editList('awards', i, { name: v })} />
+              <Field label="수여 기관" value={row.organization} onChangeText={(v) => editList('awards', i, { organization: v })} />
+              <Field label="수상일" value={row.date} onChangeText={(v) => editList('awards', i, { date: v })} placeholder="YYYY-MM" />
+            </Pair>
+            <Field label="설명" value={row.description} onChangeText={(v) => editList('awards', i, { description: v })} multiline />
+          </ItemBox>
+        ))}
+      </SectionCard>
+
+      <SectionCard
+        title="교육 이력"
+        onAdd={() => patch({ trainingExperience: [...draft.trainingExperience, { id: newId(), course: '', organization: '', startDate: '', endDate: '', description: '' }] })}
+      >
+        {draft.trainingExperience.length === 0 ? <Muted>추가 버튼으로 교육 이력을 넣어 주세요.</Muted> : null}
+        {draft.trainingExperience.map((row, i) => (
+          <ItemBox key={row.id} onRemove={() => removeFrom('trainingExperience', i)}>
+            <Pair wide={wide}>
+              <Field label="교육 과정" value={row.course} onChangeText={(v) => editList('trainingExperience', i, { course: v })} />
+              <Field label="교육 기관" value={row.organization} onChangeText={(v) => editList('trainingExperience', i, { organization: v })} />
+              <Field label="시작" value={row.startDate} onChangeText={(v) => editList('trainingExperience', i, { startDate: v })} placeholder="YYYY-MM" />
+              <Field label="종료" value={row.endDate} onChangeText={(v) => editList('trainingExperience', i, { endDate: v })} placeholder="YYYY-MM" />
+            </Pair>
+            <Field label="내용" value={row.description} onChangeText={(v) => editList('trainingExperience', i, { description: v })} multiline />
+          </ItemBox>
+        ))}
+      </SectionCard>
+
+      <SectionCard
+        title="기타 활동"
+        onAdd={() => patch({ otherActivities: [...draft.otherActivities, { id: newId(), name: '', startDate: '', endDate: '', description: '' }] })}
+      >
+        {draft.otherActivities.length === 0 ? <Muted>추가 버튼으로 동아리 · 봉사 · 대외활동을 넣어 주세요.</Muted> : null}
+        {draft.otherActivities.map((row, i) => (
+          <ItemBox key={row.id} onRemove={() => removeFrom('otherActivities', i)}>
+            <Pair wide={wide}>
+              <Field label="활동 이름" value={row.name} onChangeText={(v) => editList('otherActivities', i, { name: v })} />
+              <Field label="시작" value={row.startDate} onChangeText={(v) => editList('otherActivities', i, { startDate: v })} placeholder="YYYY-MM" />
+              <Field label="종료" value={row.endDate} onChangeText={(v) => editList('otherActivities', i, { endDate: v })} placeholder="YYYY-MM" />
+            </Pair>
+            <Field label="내용" value={row.description} onChangeText={(v) => editList('otherActivities', i, { description: v })} multiline />
+          </ItemBox>
+        ))}
       </SectionCard>
 
       <SectionCard
@@ -572,6 +679,106 @@ export function ResumeEditPage({ id }: { id: string }) {
   );
 }
 
+/**
+ * 관리자 · 강사가 학생 이력서를 볼 때 — 읽기 전용.
+ * 예전엔 학생용 편집 화면을 그대로 열어, 글자를 건드리면 학생 이력서에 자동 저장되고 삭제 · 기본 지정 버튼도 보였다.
+ */
+export function ResumeViewPage({ id }: { id: string }) {
+  const { palette } = useTheme();
+  const resume = useResumes().find((row) => row.id === id);
+  const feedbacks = useFeedbacks(id);
+  if (!resume) return <Screen title="이력서" empty emptyText="이력서를 찾지 못했습니다." />;
+  const c = resume.content;
+  const period = (a?: string, b?: string) => [a, b].filter(Boolean).join(' ~ ');
+  const line = (...parts: (string | undefined)[]) => parts.map((part) => part?.trim()).filter(Boolean).join(' · ');
+  const all: { title: string; rows: { head: string; sub?: string; body?: string }[] }[] = [
+    { title: '경력', rows: c.experience.map((r) => ({ head: line(r.company, r.role), sub: period(r.startDate, r.isCurrent ? '재직 중' : r.endDate), body: r.description })) },
+    { title: '학력', rows: c.education.map((r) => ({ head: line(r.school, r.major), sub: line(period(r.startDate, r.endDate), r.status) })) },
+    { title: '프로젝트', rows: c.projects.map((r) => ({ head: line(r.name, r.role), sub: line(period(r.startDate, r.endDate), r.techStack), body: [r.description, r.url].filter(Boolean).join('\n') })) },
+    { title: '자격증', rows: c.certifications.map((r) => ({ head: r.name, sub: line(r.issuer, r.acquiredDate) })) },
+    { title: '수상', rows: c.awards.map((r) => ({ head: r.name, sub: line(r.organization, r.date), body: r.description })) },
+    { title: '교육 이력', rows: c.trainingExperience.map((r) => ({ head: line(r.course, r.organization), sub: period(r.startDate, r.endDate), body: r.description })) },
+    { title: '기타 활동', rows: c.otherActivities.map((r) => ({ head: r.name, sub: period(r.startDate, r.endDate), body: r.description })) },
+  ];
+  const items = all.filter((section) => section.rows.some((row) => row.head || row.body));
+  const intro = c.companyQuestions?.length
+    ? c.companyQuestions.map((q) => ({ label: q.question, body: q.answer }))
+    : INTRO_FIELDS.map((f) => ({ label: f.label, body: c.selfIntroduction[f.key]?.body ?? '' }));
+  const contact = line(c.basicInfo.name, c.basicInfo.birthDate, c.basicInfo.phone, c.basicInfo.email);
+  const links = [c.basicInfo.githubUrl, c.basicInfo.blogUrl].filter(Boolean);
+
+  return (
+    <Screen title="이력서 보기">
+      <Card style={{ gap: 6 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <T variant="title" style={{ flex: 1 }}>{resume.title}</T>
+          <Badge label={ResumeStatusLabels[resume.status] ?? '작성 중'} tone={resume.status === 'approved' ? 'success' : resume.status === 'feedbackRequested' ? 'info' : 'neutral'} />
+        </View>
+        <T variant="caption" tone="secondary">
+          {line(resume.userDisplayName, resume.isBaseResume ? '기본 이력서' : undefined, resume.updatedAt ? `수정 ${new Date(resume.updatedAt).toLocaleDateString('ko-KR')}` : undefined)}
+        </T>
+      </Card>
+      <View style={{ flexDirection: 'row', gap: 8, padding: 12, borderRadius: 12, backgroundColor: palette.primaryLight }}>
+        <MaterialIcons name="visibility" size={18} color={palette.primary} />
+        <T variant="caption" style={{ flex: 1, color: palette.primary }}>읽기 전용입니다. 피드백 작성 · 승인은 PC 웹에서 할 수 있습니다.</T>
+      </View>
+
+      {contact || links.length ? (
+        <Card style={{ gap: 4 }}>
+          <T variant="label" tone="secondary">기본 정보</T>
+          {contact ? <T>{contact}</T> : null}
+          {links.map((url) => (
+            <Pressable key={url} onPress={() => void Linking.openURL(url)}>
+              <T tone="primary" numberOfLines={1}>{url}</T>
+            </Pressable>
+          ))}
+        </Card>
+      ) : null}
+      {c.coreCompetencies?.text?.trim() ? (
+        <Card style={{ gap: 4 }}>
+          <T variant="label" tone="secondary">핵심 역량</T>
+          <T>{c.coreCompetencies.text}</T>
+        </Card>
+      ) : null}
+      {c.techStack.length ? (
+        <Card style={{ gap: 8 }}>
+          <T variant="label" tone="secondary">기술 스택</T>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            {c.techStack.map((t) => <Badge key={t.id ?? t.name} label={t.level ? `${t.name} · ${t.level}` : t.name} tone="primary" />)}
+          </View>
+        </Card>
+      ) : null}
+      {items.map((section) => (
+        <Card key={section.title} style={{ gap: 10 }}>
+          <T variant="label" tone="secondary">{section.title}</T>
+          {section.rows.map((row, index) => (
+            <View key={`${section.title}-${index}`} style={{ gap: 2 }}>
+              {row.head ? <T variant="subtitle">{row.head}</T> : null}
+              {row.sub ? <T variant="caption" tone="secondary">{row.sub}</T> : null}
+              {row.body?.trim() ? <T style={{ marginTop: 2 }}>{row.body}</T> : null}
+            </View>
+          ))}
+        </Card>
+      ))}
+      {intro.some((q) => q.body.trim()) ? (
+        <Card style={{ gap: 12 }}>
+          <T variant="label" tone="secondary">자기소개서</T>
+          {intro.filter((q) => q.body.trim()).map((q) => (
+            <View key={q.label} style={{ gap: 4 }}>
+              <T variant="subtitle">{q.label}</T>
+              <T>{q.body}</T>
+            </View>
+          ))}
+        </Card>
+      ) : null}
+
+      <Btn label="PDF로 공유" icon="ios-share" tone="ghost" onPress={() => void printResume(resume)} />
+      {feedbacks.length > 0 ? <Muted>강사 피드백</Muted> : null}
+      {feedbacks.map((row) => <Row key={row.id} title={row.authorName} subtitle={row.content} />)}
+    </Screen>
+  );
+}
+
 function esc(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
 }
@@ -587,6 +794,10 @@ async function printResume(resume: Resume): Promise<void> {
     c.experience.length ? `<h2>경력</h2>${c.experience.map((r) => block(`${r.company} · ${r.role} (${r.startDate}~${r.endDate})`, r.description || ' ')).join('')}` : '',
     c.education.length ? `<h2>학력</h2>${c.education.map((r) => `<p>${esc(`${r.school} ${r.major} · ${r.status} (${r.startDate}~${r.endDate})`)}</p>`).join('')}` : '',
     c.techStack.length ? `<h2>기술 스택</h2><p>${esc(c.techStack.map((t) => t.name).join(', '))}</p>` : '',
+    c.certifications?.length ? `<h2>자격증</h2>${c.certifications.map((r) => `<p>${esc([r.name, r.issuer, r.acquiredDate].filter(Boolean).join(' · '))}</p>`).join('')}` : '',
+    c.awards?.length ? `<h2>수상</h2>${c.awards.map((r) => block([r.name, r.organization, r.date].filter(Boolean).join(' · '), r.description || ' ')).join('')}` : '',
+    c.trainingExperience?.length ? `<h2>교육 이력</h2>${c.trainingExperience.map((r) => block(`${r.course} · ${r.organization} (${r.startDate}~${r.endDate})`, r.description || ' ')).join('')}` : '',
+    c.otherActivities?.length ? `<h2>기타 활동</h2>${c.otherActivities.map((r) => block(`${r.name} (${r.startDate}~${r.endDate})`, r.description || ' ')).join('')}` : '',
     c.projects.length ? `<h2>프로젝트</h2>${c.projects.map((r) => block(`${r.name} · ${r.role} (${r.startDate}~${r.endDate})`, [r.techStack, r.description, r.url].filter(Boolean).join('\n') || ' ')).join('')}` : '',
     `<h2>자기소개서</h2>${INTRO_FIELDS.map((f) => block(f.label, c.selfIntroduction[f.key]?.body ?? '')).join('')}`,
     '</body></html>',
