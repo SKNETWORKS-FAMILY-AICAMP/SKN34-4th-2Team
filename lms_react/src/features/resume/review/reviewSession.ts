@@ -556,18 +556,21 @@ export class ReviewSession {
     );
   }
 
-  private persistSession(): Promise<void> {
+  private persistSession(requireSuccess = false): Promise<void> {
     const tailoredId = this.tailoredResumeId;
     if (this.opts.generalReview || tailoredId === null || this.result === null) return Promise.resolve();
     const state = this.sessionState();
-    this.sessionSaveChain = this.sessionSaveChain.then(async () => {
+    const request = this.sessionSaveChain.then(async () => {
       try {
         await reviewApi.saveSession(this.opts.resumeId, tailoredId, state);
       } catch {
-        // 이력서 적용 자체는 이미 원자 저장됐다. 세션 저장 실패로 적용을 실패처럼 보이게 하지 않는다
+        // 완료 시에는 저장 성공을 확인해야 창을 닫을 수 있다.
+        if (requireSuccess) throw new Error('첨삭 진행 상태를 저장하지 못했어요. 창을 닫지 말고 첨삭 완료를 다시 눌러 주세요.');
+        // 일반 진행 중에는 이미 저장된 이력서 적용을 실패처럼 표시하지 않는다
       }
     });
-    return this.sessionSaveChain;
+    this.sessionSaveChain = request.catch(() => undefined);
+    return request;
   }
 
   // ── 실행 ────────────────────────────────────────────────
@@ -1591,10 +1594,11 @@ export class ReviewSession {
       if (identity !== null) identity._skipped = true;
     }
     this.notify();
+    this.retryableReview = false;
     await this.run(async () => {
       this.mutationPending = true;
       try {
-        await this.persistSession();
+        await this.persistSession(true);
         await this.sessionSaveChain;
         let workspaceResumeId: string | undefined;
         if (!this.opts.generalReview && this.tailoredResumeId !== null) {
