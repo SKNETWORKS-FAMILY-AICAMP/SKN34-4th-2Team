@@ -1149,6 +1149,8 @@ class QuestionWorkflowIn(Schema):
     # 문항 전체를 여러 요청에 나눈다 — plan: 계획만, finish: 문항별로 받은 답(answers)으로 한 벌 검토만
     stage: Literal["all", "plan", "finish"] = "all"
     answers: dict | None = None
+    # 있으면 백그라운드(Celery)로 — 같은 번호로 다시 물으면 상태나 결과를 돌려준다(이력서 첨삭과 같은 방식)
+    asyncAttempt: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 @api.post("/resume-review/question-workflow")
@@ -1173,6 +1175,12 @@ def resume_review_question_workflow(request, body: QuestionWorkflowIn):
         "stage": body.stage,
         "answers": body.answers,
     }
+    if body.asyncAttempt:
+        from lms.review_jobs import submit_or_poll_workflow
+        try:
+            return submit_or_poll_workflow(payload, body.asyncAttempt)
+        except Exception:
+            return Response({'detail': '자소서 쓰기 작업 상태를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.'}, status=503)
     return _review_call("/api/v1/resumes/question-workflow/proxy", payload, timeout=300)
 
 

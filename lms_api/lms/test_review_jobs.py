@@ -110,3 +110,48 @@ class ReviewJobTests(SimpleTestCase):
         with patch('lms.models.ResumeAiReviews.objects') as rows, patch.object(jobs.time, 'time', return_value=60):
             rows.filter.side_effect = RuntimeError('db down')
             self.assertEqual(jobs.submit_or_poll(self.payload, 'attempt')['async_job']['preview_reviews'], [])
+
+
+class QuestionWorkflowJobTests(SimpleTestCase):
+    """자소서 답 쓰기 백그라운드 — CloudFront 시간 제한을 피해 워커가 AI 서버를 직접 부른다."""
+
+    def setUp(self):
+        self.db = MemoryStore()
+        self.patch = patch.object(jobs, 'store', return_value=self.db)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+        self.payload = {'uid': 'student-a', 'resume_id': '33', 'tailored_resume_id': 'apply_1', 'stage': 'plan'}
+
+    def submit(self):
+        with patch.object(jobs.run_question_workflow_job, 'apply_async') as enqueue:
+            first = jobs.submit_or_poll_workflow(self.payload, 'attempt')
+            again = jobs.submit_or_poll_workflow(self.payload, 'attempt')
+        self.assertEqual(enqueue.call_count, 1)  # 같은 작업 번호로 다시 물어도 한 번만 넣는다
+        self.assertEqual(first['async_job']['state'], 'queued')
+        self.assertEqual(again['async_job']['state'], 'queued')
+        return jobs.workflow_key(self.payload, 'attempt')
+
+    def test_result_is_returned_as_is_once_the_worker_finishes(self):
+        key = self.submit()
+        result = {'questions': [{'question_id': 'cq1', 'draft': '답'}], 'plan': {'a': 1}, 'job_closed': False}
+        with patch('lms.api._review_call', return_value=result) as call:
+            jobs.run_question_workflow_job.run(key, self.payload)
+        self.assertEqual(call.call_args.args[0], '/api/v1/resumes/question-workflow/proxy')
+        self.assertEqual(call.call_args.kwargs['timeout'], 600)
+        self.assertEqual(jobs.submit_or_poll_workflow(self.payload, 'attempt'), result)
+        with patch('lms.api._review_call') as call:  # 다시 배달돼도 다시 쓰지 않는다
+            jobs.run_question_workflow_job.run(key, self.payload)
+            call.assert_not_called()
+
+    def test_failure_keeps_status_and_detail(self):
+        key = self.submit()
+        with patch('lms.api._review_call', return_value=Response({'detail': 'company_question_not_found'}, status=422)):
+            jobs.run_question_workflow_job.run(key, self.payload)
+        failed = jobs.submit_or_poll_workflow(self.payload, 'attempt')
+        self.assertEqual(failed.status_code, 422)
+        self.assertEqual(json.loads(failed.content)['detail'], 'company_question_not_found')
+
+    def test_other_student_cannot_read_the_result_by_attempt_id(self):
+        self.submit()
+        other = {**self.payload, 'uid': 'student-b'}
+        self.assertNotEqual(jobs.workflow_key(other, 'attempt'), jobs.workflow_key(self.payload, 'attempt'))
