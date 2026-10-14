@@ -130,7 +130,7 @@ function SetSteps({ step }: { step: { at: 'plan' | 'write' | 'finish'; done: num
           </li>
         ))}
       </ol>
-      <span className="hint">{seconds}초 지남 · 보통 2~3분 걸려요. 다 쓴 문항부터 아래에 보여요.</span>
+      <span className="hint">{seconds}초 지남 · 약 5분 걸려요. 다 쓴 문항부터 아래에 보여요.</span>
     </div>
   );
 }
@@ -165,6 +165,9 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
   const [memos, setMemos] = useState<Record<string, string>>({});
   const [texts, setTexts] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState<Record<string, 'idle' | 'saving' | 'saved' | 'failed'>>({});
+  const [savingAll, setSavingAll] = useState(false);
+  const savingAllRef = useRef(false);
+  const [saveAllMessage, setSaveAllMessage] = useState<{ text: string; failed: boolean } | null>(null);
   const [results, setResults] = useState<Record<string, Result>>({});
   const [overlaps, setOverlaps] = useState<Overlap[]>([]);
   /** 공고 필수 요건을 답에 얼마나 담았나 — 이력서에 있는데 안 쓴 요건은 알린다(없는 요건은 문항 질문으로 묻는다) */
@@ -215,6 +218,7 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
    * drafted(앞서 넣은 답)가 있으면 한 벌 점검이 다시 쓴 답이다 — 답 칸이 앞 답 그대로면 새 답으로 바꾼다
    */
   const show = (data: Json, drafted?: Record<string, Result>) => {
+    setSaveAllMessage(null);
     const next: Record<string, Result> = {};
     for (const r of list<Json>(data.questions)) next[String(r.question_id)] = toResult(r);
     setTexts((t) => ({ ...t, ...Object.fromEntries(questions.filter((q) => q.id in next).map((q) => {
@@ -303,6 +307,8 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
   };
 
   const save = async (q: ResumeCompanyQuestion) => {
+    if (savingAllRef.current) return;
+    setSaveAllMessage(null);
     setSaved((s) => ({ ...s, [q.id]: 'saving' }));
     try {
       await persist({ [q.id]: { answer: textOf(q) } });
@@ -312,15 +318,46 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
     }
   };
 
+  const saveAll = async () => {
+    if (savingAllRef.current || busy !== null || Object.values(saved).includes('saving')) return;
+    const filled = questions.filter((q) => textOf(q).trim() !== '');
+    const over = filled.filter((q) => q.limit !== null && textOf(q).length > q.limit);
+    if (over.length > 0) {
+      setSaveAllMessage({ text: `${over.map((q) => questions.indexOf(q) + 1).join(', ')}번 문항의 글자 수를 줄인 뒤 전체 저장해 주세요.`, failed: true });
+      return;
+    }
+    if (filled.length === 0) return;
+    savingAllRef.current = true;
+    setSavingAll(true);
+    setSaveAllMessage(null);
+    try {
+      await persist(Object.fromEntries(filled.map((q) => [q.id, { answer: textOf(q), memo: memoOf(q) }])));
+      setSaved((s) => ({ ...s, ...Object.fromEntries(filled.map((q) => [q.id, 'saved' as const])) }));
+      const empty = questions.length - filled.length;
+      setSaveAllMessage({ text: `${filled.length}개 답변을 저장했어요.${empty > 0 ? ` 빈 답변 ${empty}개는 제외했어요.` : ''}`, failed: false });
+    } catch {
+      setSaveAllMessage({ text: '전체 저장하지 못했어요. 입력한 내용은 유지되니 다시 시도해 주세요.', failed: true });
+    } finally {
+      savingAllRef.current = false;
+      setSavingAll(false);
+    }
+  };
+
   const no = (id: string) => questions.findIndex((q) => q.id === id) + 1;
 
   return (
     <div className="qa-list">
       <div className="qw-run">
-        <Button variant="outline" onClick={() => void run()} disabled={busy !== null}>
+        <div className="qw-run__actions">
+        <Button variant="outline" onClick={() => void run()} disabled={busy !== null || savingAll}>
           <Icon name="fact_check" size={18} />
           {busy === 'all' ? `문항 ${questions.length}개를 함께 쓰는 중…` : '문항 전체 한 번에 쓰기 · 점검'}
         </Button>
+        <Button onClick={() => void saveAll()} disabled={savingAll || busy !== null || Object.values(saved).includes('saving') || !questions.some((q) => textOf(q).trim() !== '')}>
+          <Icon name="save" size={18} />{savingAll ? '전체 저장 중…' : '전체 저장'}
+        </Button>
+        </div>
+        {saveAllMessage && <p role={saveAllMessage.failed ? 'alert' : 'status'} className={saveAllMessage.failed ? 'apply-error' : 'hint'}>{saveAllMessage.text}</p>}
         <span className="hint">
           초안은 이력서를 바탕으로 쓰고, 메모를 적으면 그 내용을 더해 써요. 다른 문항에 이미 쓴 이야기는 되풀이하지 않아요.
           전체를 한 번에 쓰면 같은 이야기 겹침 · 공고 필수 요건까지 점검해요.
@@ -368,15 +405,16 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
               <label className="apply-label" htmlFor={`qw-memo-${q.id}`}>
                 쓰고 싶은 내용 메모 <span className="hint">· 키워드만 적어도 돼요. 메모와 이력서에 없는 사실은 붙이지 않아요</span>
               </label>
-              <TextArea id={`qw-memo-${q.id}`} rows={2} value={memoOf(q)}
+              <TextArea id={`qw-memo-${q.id}`} rows={2} value={memoOf(q)} disabled={savingAll}
                 placeholder="예: LMS 프로젝트 API 오류 3일 붙잡음 / 요청 형식 불일치가 원인 / contract 문서로 공유"
                 onChange={(e) => setMemos((m) => ({ ...m, [q.id]: e.target.value }))}
                 onBlur={() => { if (memoOf(q) !== (q.memo ?? '')) void persist({ [q.id]: { memo: memoOf(q) } }).catch(() => undefined); }} />
             </div>
 
             {/* 이력서 칸처럼 글만큼 늘어난다 — 긴 답도 안쪽 스크롤 없이 한눈에(7줄은 기본 높이) */}
-            <AutoTextarea rows={7} value={text} aria-label={`문항 ${i + 1} 답변`} placeholder="AI 초안을 받거나 직접 써 보세요."
+            <AutoTextarea rows={7} value={text} disabled={savingAll} aria-label={`문항 ${i + 1} 답변`} placeholder="AI 초안을 받거나 직접 써 보세요."
               onChange={(e) => {
+                setSaveAllMessage(null);
                 setTexts((t) => ({ ...t, [q.id]: e.target.value }));
                 setSaved((s) => ({ ...s, [q.id]: 'idle' }));
               }} />
@@ -385,12 +423,12 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
                 {text.length.toLocaleString()}{q.limit !== null && ` / ${q.limit.toLocaleString()}자`}{over && ' · 글자 수를 넘었어요'}
               </span>
               <span className="spacer" />
-              <Button variant="outline" size="sm" onClick={() => void run(q.id)} disabled={busy !== null}>
+              <Button variant="outline" size="sm" onClick={() => void run(q.id)} disabled={busy !== null || savingAll}>
                 <Icon name="auto_fix_high" size={16} />
                 {busy === q.id ? '이 문항 쓰는 중…'
                   : result !== undefined ? '이 문항 다시 쓰기' : memoOf(q).trim() !== '' ? '메모 반영해 AI 초안 쓰기' : 'AI 초안 쓰기'}
               </Button>
-              <Button size="sm" onClick={() => void save(q)} disabled={state === 'saving' || text.trim() === '' || over}>
+              <Button size="sm" onClick={() => void save(q)} disabled={savingAll || state === 'saving' || text.trim() === '' || over}>
                 <Icon name={state === 'saved' ? 'check' : 'save'} size={16} />
                 {state === 'saving' ? '저장 중…' : state === 'saved' ? '저장됨' : '저장'}
               </Button>
@@ -418,7 +456,7 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
                   </span>
                   <span className="spacer" />
                   {result.draft !== '' && result.draft !== text && (
-                    <Button variant="text" size="sm" onClick={() => setTexts((t) => ({ ...t, [q.id]: result.draft }))}>
+                    <Button variant="text" size="sm" disabled={savingAll} onClick={() => { setSaveAllMessage(null); setSaved((s) => ({ ...s, [q.id]: 'idle' })); setTexts((t) => ({ ...t, [q.id]: result.draft })); }}>
                       이 초안으로 바꾸기
                     </Button>
                   )}
@@ -475,7 +513,7 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
                       );
                     })}
                     <div>
-                      <Button size="sm" onClick={() => void run(q.id)} disabled={busy !== null || answered(q.id).length === 0}>
+                      <Button size="sm" onClick={() => void run(q.id)} disabled={savingAll || busy !== null || answered(q.id).length === 0}>
                         <Icon name="send" size={16} />
                         {busy === q.id ? '이 문항 쓰는 중…' : '답하고 이 문항 다시 쓰기'}
                       </Button>

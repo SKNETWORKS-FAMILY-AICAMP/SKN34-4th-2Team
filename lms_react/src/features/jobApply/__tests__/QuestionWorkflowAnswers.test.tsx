@@ -84,6 +84,49 @@ function staged(options: Options) {
 }
 
 describe('문항 전체 답변', () => {
+  it('전체 저장은 현재 입력한 답변들을 한 요청에 저장한다', async () => {
+    act(() => root.render(<QuestionWorkflowAnswers resumeId="r1" tailoredId="apply_1" editId="r1/tailored/apply_1" />));
+    type(answerBox(1), '첫 번째 수정한 답');
+    type(answerBox(2), '두 번째 수정한 답');
+    await act(async () => button('전체 저장').click());
+    expect(repo.updateResume).toHaveBeenCalledTimes(1);
+    expect(repo.updateResume).toHaveBeenCalledWith('r1/tailored/apply_1', { content: { companyQuestions: [
+      expect.objectContaining({ id: 'cq1', answer: '첫 번째 수정한 답', memo: '데이터로 문제 해결' }),
+      expect.objectContaining({ id: 'cq2', answer: '두 번째 수정한 답', notes: expect.any(Array) }),
+    ] } });
+    expect(host.textContent).toContain('2개 답변을 저장했어요.');
+    type(answerBox(1), '다시 수정');
+    expect(host.textContent).not.toContain('2개 답변을 저장했어요.');
+  });
+
+  it('글자 수 초과는 전체 저장을 막고 빈 답변은 제외한다', async () => {
+    act(() => root.render(<QuestionWorkflowAnswers resumeId="r1" tailoredId="apply_1" editId="r1/tailored/apply_1" />));
+    type(answerBox(1), '가'.repeat(501));
+    await act(async () => button('전체 저장').click());
+    expect(repo.updateResume).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('1번 문항의 글자 수를 줄인 뒤');
+    type(answerBox(1), '');
+    await act(async () => button('전체 저장').click());
+    expect(host.textContent).toContain('1개 답변을 저장했어요. 빈 답변 1개는 제외했어요.');
+  });
+
+  it('저장 중 중복 클릭을 막고 실패해도 입력을 유지하여 재시도한다', async () => {
+    let rejectSave: (error: Error) => void = () => undefined;
+    repo.updateResume.mockImplementationOnce(() => new Promise<void>((_, reject) => { rejectSave = reject; }));
+    act(() => root.render(<QuestionWorkflowAnswers resumeId="r1" tailoredId="apply_1" editId="r1/tailored/apply_1" />));
+    type(answerBox(1), '유지할 답변');
+    act(() => button('전체 저장').click());
+    expect(button('전체 저장 중').disabled).toBe(true);
+    expect(answerBox(1).disabled).toBe(true);
+    act(() => button('전체 저장 중').click());
+    expect(repo.updateResume).toHaveBeenCalledTimes(1);
+    await act(async () => rejectSave(new Error('network')));
+    expect(host.textContent).toContain('전체 저장하지 못했어요.');
+    expect(answerBox(1).value).toBe('유지할 답변');
+    await act(async () => button('전체 저장').click());
+    expect(host.textContent).toContain('2개 답변을 저장했어요.');
+  });
+
   it('계획 → 문항마다 → 한 벌 점검으로 나눠 부르고, 빈 칸에만 초안을 넣고, 겹쳐 줄인 이야기를 알린다', async () => {
     api.questionWorkflow.mockImplementation((...args: unknown[]) => Promise.resolve(staged(args[3] as Options)));
     act(() => root.render(<QuestionWorkflowAnswers resumeId="r1" tailoredId="apply_1" editId="r1/tailored/apply_1" />));

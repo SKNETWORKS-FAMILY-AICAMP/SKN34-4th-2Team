@@ -1334,6 +1334,15 @@
   flex-wrap: wrap;
 }
 
+.qw-run__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+}
+
 /* 쓰는 동안 단계 — 실제 단계가 아니라 지난 시간으로 어림한 순서 */
 .qw-steps {
   display: flex;
