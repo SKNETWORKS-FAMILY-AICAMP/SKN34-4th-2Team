@@ -35,3 +35,10 @@
 ## 검증 범위
 
 PR의 verify job은 AWS 운영 권한 없이 실행된다. main 배포 및 OIDC 실제 인증의 최종 확인은 최초 main 배포 시 수행된다. 부분 회귀 테스트와 상태 확인은 실제 사용자 첨삭 품질·전체 화면 동작 검증을 대체하지 않는다.
+
+## 실제 GitHub OIDC 식별자
+
+이 저장소의 현재 토큰 `sub`에는 이름뿐 아니라 조직/저장소 ID가 포함된다.
+`repo:SKNETWORKS-FAMILY-AICAMP@169222902/SKN34-4th-2Team@1373784236:ref:refs/heads/main`
+
+AWS 신뢰 정책은 위 값과 `aud=sts.amazonaws.com`을 정확히 일치시킨다. 이름만 있는 과거 형식으로 되돌리면 `AssumeRoleWithWebIdentity`가 거절된다. 다른 저장소에 적용할 때는 그 저장소의 실제 식별자를 확인하며, 오류를 피하려고 와일드카드로 범위를 넓히지 않는다.
