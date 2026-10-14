@@ -227,6 +227,8 @@ export function ResumeListPage({ canApprove = false }: { canApprove?: boolean })
 
 function ReviewerResumeList() {
   const resumes = useResumes();
+  const { user } = useSession();
+  const base = user?.role === 'instructor' ? '/(instructor)/resume' : '/(admin)/resume';
   return (
     <Screen title="이력서">
       {resumes.map((resume) => (
@@ -234,7 +236,7 @@ function ReviewerResumeList() {
           key={resume.id}
           title={resume.title}
           subtitle={`${resume.userDisplayName ?? ''} · ${ResumeStatusLabels[resume.status] ?? '작성 중'}`}
-          onPress={() => router.push(`/(admin)/resume/${encodeURIComponent(resume.id)}` as never)}
+          onPress={() => router.push(`${base}/${encodeURIComponent(resume.id)}` as never)}
         />
       ))}
     </Screen>

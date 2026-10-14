@@ -92,7 +92,9 @@ export function StudentRoute({ parts }: { parts: string[] }): ReactNode {
 export function InstructorRoute({ parts }: { parts: string[] }): ReactNode {
   const [a, b, c, d] = parts;
   if (a === 'menu') return <MenuPage role="instructor" />;
-  if (a === 'resumes') return <ResumeListPage />;
+  // 강사도 관리자처럼 학생 이력서 전체를 본다 — 예전엔 학생용 목록이라 강사 본인 이력서만 보였다
+  if (a === 'resumes') return <ResumeListPage canApprove />;
+  if (a === 'resume' && b) return <ResumeEditPage id={decodeURIComponent(b)} />;
   if (a === 'board' || a === 'notice') return <NoticeAdminPage allowScheduled={false} />;
   if (a === 'exams' && b === 'new') return <ExamEditPage />;
   if (a === 'exams' && c === 'edit') return <ExamEditPage id={b} />;
