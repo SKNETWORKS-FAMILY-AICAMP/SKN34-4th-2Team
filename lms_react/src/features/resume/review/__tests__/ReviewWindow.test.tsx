@@ -141,6 +141,52 @@ describe('첨삭 중 이력서 잠금', () => {
 });
 
 describe('첨삭 창', () => {
+  it('기존 답변을 수정 중이면 확인하고 원래 값으로 되돌리면 바로 닫는다', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    api.review.mockResolvedValue({ ...review, sentence_reviews: [], telemetry: { answer_edit_supported: true },
+      confirmed_answers: [{ question_id: 'old', question: '경험은?', answer: '저장된 답변' }] });
+    act(() => root.render(<MemoryRouter><ReviewDockHost><GeneralOpener /></ReviewDockHost></MemoryRouter>));
+    await settle();
+    await act(async () => button('첨삭 시작')!.click());
+    await settle();
+    act(() => button('답변 수정')!.click());
+    const input = document.querySelector('[aria-label="수정할 답변"]') as HTMLTextAreaElement;
+    const change = (value: string) => act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    change('수정 중인 답변');
+    act(() => (document.querySelector('[aria-label="닫기"]') as HTMLButtonElement).click());
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(input.value).toBe('수정 중인 답변');
+    change('저장된 답변');
+    await act(async () => (document.querySelector('[aria-label="닫기"]') as HTMLButtonElement).click());
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('.rv-window')).toBeNull();
+    confirm.mockRestore();
+  });
+  it.each([true, false])('미전송 답변 닫기 취소는 내용을 보존한다 (일반=%s)', async (general) => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    api.review.mockResolvedValue({ ...review, sentence_reviews: [] });
+    act(() => root.render(<MemoryRouter><ReviewDockHost>{general ? <GeneralOpener /> : <Opener />}</ReviewDockHost></MemoryRouter>));
+    await settle();
+    await act(async () => button('첨삭 시작')!.click());
+    await settle();
+    const input = document.querySelector('.rv-answer textarea') as HTMLTextAreaElement;
+    expect(input).not.toBeNull();
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, '작성 중인 답변');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => (document.querySelector('[aria-label="닫기"]') as HTMLButtonElement).click());
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(input.value).toBe('작성 중인 답변');
+    expect(document.querySelector('.rv-window')).not.toBeNull();
+    confirm.mockReturnValue(true);
+    await act(async () => (document.querySelector('[aria-label="닫기"]') as HTMLButtonElement).click());
+    expect(document.querySelector('.rv-window')).toBeNull();
+    confirm.mockRestore();
+  });
   it('부분 실패 완료 안내와 요건 대기를 성공 및 0/N으로 표시하지 않는다',async ()=>{
     const saved={version:1,resume_id:'r1',job_id:'JOB-1',result:{...review,questions:[],
       requirement_map:[{id:'r',group:'must',label:'요건',status:'partial',assessment_state:'pending'}],

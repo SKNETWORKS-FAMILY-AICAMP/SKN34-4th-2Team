@@ -68,6 +68,7 @@ export function ReviewWindow(props: ReviewWindowProps) {
   const changedRef = useRef(props.onChanged);
   changedRef.current = props.onChanged;
   const [confirming, setConfirming] = useState<((ok: boolean) => void) | null>(null);
+  const [answerEditDirty, setAnswerEditDirty] = useState(false);
 
   const [session] = useState(
     () =>
@@ -155,6 +156,7 @@ export function ReviewWindow(props: ReviewWindowProps) {
       chatRef={chatRef}
       answerRef={answerRef}
       canMinimize
+      onAnswerEditDirty={setAnswerEditDirty}
     />
   );
 
@@ -194,7 +196,10 @@ export function ReviewWindow(props: ReviewWindowProps) {
           aria-label="닫기"
           title="닫기"
           disabled={session.busy || session.mutationPending}
-          onClick={() => dock.close()}
+          onClick={() => {
+            if ((session.answer !== '' || answerEditDirty) && !window.confirm('전송하거나 저장하지 않은 답변이 있어요. 취소하면 작성 중인 내용을 계속 편집할 수 있습니다. 저장하지 않고 닫을까요?')) return;
+            dock.close();
+          }}
         >
           <Icon name="close" size={22} />
         </button>
@@ -614,6 +619,7 @@ function ReviewChatPane({
   chatRef,
   answerRef,
   canMinimize,
+  onAnswerEditDirty,
 }: {
   session: ReviewSession;
   view: ReturnType<ReviewSession['view']>;
@@ -621,6 +627,7 @@ function ReviewChatPane({
   chatRef: React.RefObject<HTMLDivElement>;
   answerRef: React.RefObject<HTMLTextAreaElement>;
   canMinimize: boolean;
+  onAnswerEditDirty(dirty: boolean): void;
 }) {
   const { activeQuestion, remainingQuestionCount, reviewCompleted, currentStage } = view;
   const resultAvailable = session.result !== null;
@@ -672,7 +679,7 @@ function ReviewChatPane({
             </div>
           </>
         )}
-        {session.answerEditSupported && <AnswerManager session={session} />}
+        {session.answerEditSupported && <AnswerManager session={session} onDirty={onAnswerEditDirty} />}
         {session.messages.map((message, i) => (
           <ChatBubble
             key={i}
@@ -762,9 +769,13 @@ function ReviewChatPane({
   );
 }
 
-function AnswerManager({session}: {session: ReviewSession}) {
+function AnswerManager({session, onDirty}: {session: ReviewSession; onDirty(dirty: boolean): void}) {
   const [editing, setEditing] = useState<string | null>(null);
   const [text, setText] = useState('');
+  const original = session.editableAnswers.find((a) => a.question_id === editing);
+  const dirty = editing !== null && text !== String(original?.answer ?? '');
+  useEffect(() => { onDirty(dirty); }, [dirty, onDirty]);
+  useEffect(() => () => onDirty(false), [onDirty]);
   return <details>
     <summary>답변 수정·취소</summary>
     <p>답변 변경과 문서 반영 취소는 별도입니다. 이미 적용한 문장은 자동 삭제되지 않으며, 영향을 받은 문장은 반영 취소 후 재검토해야 합니다.</p>
