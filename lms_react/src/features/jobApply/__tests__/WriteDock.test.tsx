@@ -139,5 +139,7 @@ describe('쓰기 창의 공고 요건', () => {
     const note = document.querySelector('[role="note"]');
     expect(note?.textContent).toContain('마감된 공고입니다');
     expect(note?.textContent).toContain('미리 사용해 보실 수 있어요');
+    expect(button('공고 요건 보기').textContent).toContain('주요 업무 1'); // 요건 목록도 함께
+    expect(document.body.textContent).not.toContain('공고 요건을 불러오고 있어요');
   });
 });

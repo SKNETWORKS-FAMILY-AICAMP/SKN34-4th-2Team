@@ -7,10 +7,13 @@ class Gateway:
     def __init__(self):
         self.items = {}
 
-    def create_tailored_resume(self, cohort_id, resume_id, uid, source, purpose='review'):
+    def create_tailored_resume(self, cohort_id, resume_id, uid, source, purpose='review', existing_only=False):
         key = (cohort_id, resume_id, source['job_id'], source['snapshot_hash'])
         if purpose == 'apply':
             key += ('apply',)
+        if key not in self.items and existing_only:
+            from app.review_workflow import ReviewConflict
+            raise ReviewConflict('selected_job_closed')
         if key not in self.items:
             self.items[key] = {
                 'tailored_resume_id': 'apply-1' if purpose == 'apply' else 'tailored-1', 'baseResumeId': resume_id,
@@ -129,3 +132,24 @@ def test_deletes_only_the_selected_tailored_resume():
     remaining = service.list('user-1', 'c', 'r')
     assert len(remaining) == 1
     assert remaining[0].job_id == 'job-2'
+
+
+def test_closed_posting_opens_only_an_existing_cover_letter():
+    # 2026-10-14: a saved cover letter could not even be opened once its posting closed (422).
+    import pytest
+    from app.review_workflow import ReviewConflict
+    state = {'closed': False}
+    def load(job_id):
+        return {'closed': state['closed'],
+                'source': {'job_id': job_id, 'company': 'A사', 'title': '백엔드 개발자', 'snapshot_hash': 'job-hash'}}
+    service = TailoredResumeService(Gateway(), load)
+    apply = TailoredResumeCreateRequest(cohort_id='cohort-1', resume_id='resume-1', selected_job_id='job-1', purpose='apply')
+    made = service.create('user-1', apply)
+    state['closed'] = True
+    assert service.create('user-1', apply).tailored_resume_id == made.tailored_resume_id  # Still opens.
+    other = TailoredResumeCreateRequest(cohort_id='cohort-1', resume_id='resume-2', selected_job_id='job-1', purpose='apply')
+    with pytest.raises(ReviewConflict):  # A new cover letter on a closed posting is not created.
+        service.create('user-1', other)
+    review = TailoredResumeCreateRequest(cohort_id='cohort-1', resume_id='resume-1', selected_job_id='job-1')
+    with pytest.raises(ReviewConflict):  # Resume review stays closed.
+        service.create('user-1', review)

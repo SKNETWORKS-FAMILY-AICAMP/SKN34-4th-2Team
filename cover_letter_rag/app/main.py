@@ -409,13 +409,14 @@ def _create_tailored(resolve_uid, request, background, gateway, settings):
         jobs = {}
 
         def load_job(job_id):
-            jobs[job_id] = load_selected_job(settings.matching_job_store_path, job_id)
+            # 마감된 공고도 읽는다 — 이미 만든 자소서만 열고(existing_only), 새 사본 · 이력서 첨삭 사본은 막는다
+            jobs[job_id] = load_selected_job(settings.matching_job_store_path, job_id, allow_closed=True)
             return jobs[job_id]
 
         service = TailoredResumeService(gateway, load_job)
         created = service.create(uid, request)
         job = jobs.get(request.selected_job_id)
-        if job and settings.openai_api_key:
+        if job and not job.get('closed') and settings.openai_api_key:
             # 맞춤본을 만들고 첨삭 시작을 누르기까지 몇 초가 걸린다. 그 사이 공고 요건을 정리해 두면 첫
             # 첨삭이 요건 정리(약 4초)를 기다리지 않는다. 실패해도 첫 첨삭이 다시 만든다.
             background.add_task(_warm_job_requirements, gateway, settings, job)

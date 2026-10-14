@@ -34,8 +34,14 @@ class TailoredResumeService:
 
     def create(self, uid: str, request: TailoredResumeCreateRequest) -> TailoredResumeResponse:
         job = self._job_loader(request.selected_job_id)
+        closed = bool(job.get('closed'))
+        if closed and request.purpose != 'apply':
+            # 이력서 첨삭 사본은 마감된 공고면 열지도 만들지도 않는다
+            from app.review_workflow import ReviewConflict
+            raise ReviewConflict('selected_job_closed')
         data = self._gateway.create_tailored_resume(
             request.cohort_id, request.resume_id, uid, job['source'], purpose=request.purpose,
+            **({'existing_only': True} if closed else {}),
         )
         return TailoredResumeResponse(
             **_summary(data).model_dump(),

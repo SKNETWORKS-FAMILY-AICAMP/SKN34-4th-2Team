@@ -174,6 +174,7 @@ class FirebaseGateway:
 
     def create_tailored_resume(
         self, cohort_id: str, resume_id: str, uid: str, job_source: dict[str, Any], purpose: str = 'review',
+        existing_only: bool = False,
     ) -> dict[str, Any]:
         """Clone an owned base resume once per immutable job snapshot.
 
@@ -250,6 +251,9 @@ class FirebaseGateway:
                 return {"tailored_resume_id": tailored_id, **payload, **meta,
                         "title": title or existing[1], "status": existing[7],
                         "content": self._json_object(existing[8]) or payload["content"]}
+            if existing_only:
+                # 마감된 공고 — 이미 만든 자소서만 연다. 새로 뜨지 않는다.
+                raise ReviewConflict('selected_job_closed')
             created = conn.execute(
                 """INSERT INTO resumes (legacy_id, cohort_id, user_id, title, status, content,
                    is_base_resume, base_resume_id, linked_job_id, revision_count, created_at, updated_at)

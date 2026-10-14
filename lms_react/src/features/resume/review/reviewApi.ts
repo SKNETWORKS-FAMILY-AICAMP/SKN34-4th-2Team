@@ -32,6 +32,8 @@ function failureMessage(status: number, detail: string | undefined): string {
       return '저장된 원 질문을 찾을 수 없어 답변을 안전하게 변경할 수 없습니다.';
     case '409:selected_job_closed':
     case '409:selected_job_expired':
+    case '422:selected_job_closed': // 사본 만들기 창구는 막힘을 422 로 돌려준다
+    case '422:selected_job_expired':
       return '선택한 공고가 마감되어 맞춤 첨삭을 할 수 없습니다. 다른 공고를 선택해 주세요.';
     case '422:selected_job_full_text_unavailable':
       return '이 공고는 상세 내용이 이미지뿐이라 원문 근거 첨삭을 할 수 없습니다. 텍스트 공고를 선택해 주세요.';
