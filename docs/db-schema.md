@@ -16,7 +16,7 @@ ETL: [`scripts/firestore_to_postgres/etl.py`](../scripts/firestore_to_postgres/e
 ```powershell
 $env:GOOGLE_APPLICATION_CREDENTIALS = "C:\Users\playdata2\SKN34-4th-2Team\secrets\firebase-adminsdk.json"
 $env:FIREBASE_PROJECT_ID = "skn34-3rd-2team"
-$env:DATABASE_URL = "postgresql://postgres:<password>@127.0.0.1:5432/lms"
+$env:DATABASE_URL = "postgresql://postgres:<DB_PASSWORD>@127.0.0.1:5432/lms"
 python scripts/firestore_to_postgres/etl.py
 ```
 

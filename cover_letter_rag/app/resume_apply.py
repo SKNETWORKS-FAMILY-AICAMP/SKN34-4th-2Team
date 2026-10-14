@@ -4,13 +4,12 @@ import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import Field
-from firebase_admin import firestore
 from google.api_core.exceptions import GoogleAPIError
 from google.auth.exceptions import GoogleAuthError
 
 from app.models import StrictModel
 from app.config import get_settings
-from app.firebase_gateway import FirebaseGateway, FirebaseAuthenticationError, ResumeAccessError, ResumeNotFoundError, extract_bearer_token
+from app.firebase_gateway import FirebaseAuthenticationError, ResumeAccessError, ResumeNotFoundError, extract_bearer_token
 from app.review_workflow import digest, ReviewConflict, ReviewInputError
 
 ID = r'^[A-Za-z0-9_-]{1,100}$'
@@ -151,6 +150,9 @@ def mutate(gateway, uid, request, undo=False):
 
 
 def _mutate_in_memory(gateway, uid, request, undo=False):
+    # Legacy Firestore transaction path; PostgreSQL uses gateway.apply_or_undo.
+    from firebase_admin import firestore
+
     resume_ref = (
         gateway._tailored_ref(request.cohort_id, request.resume_id, request.tailored_resume_id)
         if request.tailored_resume_id

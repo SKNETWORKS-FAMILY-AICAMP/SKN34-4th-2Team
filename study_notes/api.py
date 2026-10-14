@@ -15,7 +15,6 @@ import threading
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from firebase_admin import auth, firestore
 from pydantic import BaseModel, Field
 
 from chatbot.api import _firebase_app
@@ -155,6 +154,8 @@ class Session:
 def _session(authorization: str | None = Header(default=None)) -> Session:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Firebase 로그인이 필요합니다")
+    from firebase_admin import auth, firestore
+
     app = _firebase_app()
     try:
         uid = auth.verify_id_token(authorization[7:].strip(), app=app).get("uid")

@@ -50,7 +50,6 @@ def test_invalid_edits_rejected(mode):
 
 @pytest.fixture
 def gateway(monkeypatch):
-    from app import resume_apply
     store = {'users/u': {'isActive': True, 'cohortId': 'c'},
              'resume': {'userId': 'u', 'status': 'writing', 'content': deepcopy(CONTENT)},
              'review': {'userId': 'u', 'response': review()}}
@@ -70,7 +69,8 @@ def gateway(monkeypatch):
                 store[path] = {**(store.get(path, {}) if update else {}), **value}
             return result
         return run
-    monkeypatch.setattr(resume_apply.firestore, 'transactional', transactional)
+    from firebase_admin import firestore
+    monkeypatch.setattr(firestore, 'transactional', transactional)
     db = SimpleNamespace(collection=lambda name: Ref(name), transaction=Tx)
     return SimpleNamespace(_db=db, _resume_ref=lambda *args: Ref('resume'), _review_ref=lambda *args: Ref('review'), store=store)
 
