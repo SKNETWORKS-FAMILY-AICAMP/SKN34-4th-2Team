@@ -39,7 +39,7 @@ jobs:
         run: |
           docker run --rm --network none -e DJANGO_DEBUG=1 -e AUTH_SESSION_BACKEND=memory -e LMS_INLINE_PUBLISH=0 -e DJANGO_SECRET_KEY=synthetic-ci-only-key-at-least-32-characters lms-api:ci python manage.py test lms.test_auth_security lms.test_review_jobs lms.test_review_timeout lms.test_question_workflow_proxy
           docker build -f deploy/ai-test.Dockerfile -t lms-ai:test .
-          docker run --rm --network none -e OPENAI_API_KEY=synthetic-offline -e LANGSMITH_TRACING=false -e LANGCHAIN_TRACING_V2=false -e PYTHONPATH=/app:/app/cover_letter_rag lms-ai:test python -m pytest cover_letter_rag/tests/test_question_workflow.py cover_letter_rag/tests/test_resume_review_batch.py cover_letter_rag/tests/test_resume_review_pipeline.py cover_letter_rag/tests/test_v2_spelling_fixes.py -q -p no:cacheprovider
+          docker run --rm --network none -e OPENAI_API_KEY=synthetic-offline -e LANGSMITH_TRACING=false -e LANGCHAIN_TRACING_V2=false -e PYTHONPATH=/app:/app/cover_letter_rag lms-ai:test python -m pytest cover_letter_rag/tests/test_firebase_boundary.py cover_letter_rag/tests/test_resume_apply.py cover_letter_rag/tests/test_question_workflow.py cover_letter_rag/tests/test_resume_review_batch.py cover_letter_rag/tests/test_resume_review_pipeline.py cover_letter_rag/tests/test_v2_spelling_fixes.py -q -p no:cacheprovider
       - name: Save verified build for main deployment
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: |

@@ -1,6 +1,11 @@
 # scripts
 
-개발 환경 준비, Firebase 초기 데이터, 서버 실행을 돕는 스크립트 모음이다. 모두 **레포 루트에서** 실행한다.
+4차 PostgreSQL 이전 도구와 3차 Firebase 보관 도구가 함께 있다. 모두 **레포 루트에서** 실행한다.
+
+현재 AWS 배포는 [배포 안내](../deploy/DEPLOYMENT.md)와 [CI/CD](../deploy/CI-CD.md)를 따른다.
+`start-backend.ps1`의 기본 Firebase Storage 동기화와 아래 Firebase 시드는 **3차 전용**이다.
+4차는 PostgreSQL `jobs` 스키마를 사용하므로 Firebase 시드·SQLite 다운로드를 초기 설정으로 실행하지 않는다.
+통합 AI 서버만 켜려면 현재 가상환경에서 `python -m uvicorn app.integrated:app --app-dir cover_letter_rag --port 8000`을 실행한다.
 Node 스크립트는 처음 한 번 `cd scripts; npm install`이 필요하다.
 
 ## 서버·환경
@@ -21,7 +26,7 @@ powershell -ExecutionPolicy Bypass -File scripts\sync-functions-env.ps1
 `start-backend.ps1`은 `playdata_venv` 가상환경이 있어야 하고, 포트가 이미 쓰이고 있으면 멈춘다.
 서버는 `0.0.0.0`에 열리므로 같은 네트워크의 다른 기기에서도 접속할 수 있다.
 
-## Firebase 초기 데이터
+## 3차 보관용 Firebase 초기 데이터
 
 | 스크립트 | npm 명령 | 하는 일 |
 |---|---|---|

@@ -1,4 +1,18 @@
-# PLAYDATA LXP — React 프로토타입
+# PLAYDATA LXP — React 프론트엔드
+
+현재 4차 운영 화면은 Django `/api`로 인증·데이터를 요청하고 PostgreSQL/S3 및 AI 서버와 연결된다.
+계정은 관리자가 발급하며, 아래 초기 프로토타입의 데모 계정/비밀번호는 운영 로그인 안내가 아니다.
+
+```bash
+npm ci
+npm run dev
+npm test
+npm run build
+```
+
+배포는 [배포 안내](../deploy/DEPLOYMENT.md)와 [CI/CD](../deploy/CI-CD.md)를 따른다.
+
+## 초기 프로토타입 기록 (현재 운영 동작과 다름)
 
 Flutter 앱(`lib/`)을 React + TypeScript + Vite로 옮긴 프로토타입입니다. 학생·강사·관리자
 세 역할의 화면 전부가 들어 있고, 데이터는 Flutter의 데모 저장소(`lib/shared/demo/`)를

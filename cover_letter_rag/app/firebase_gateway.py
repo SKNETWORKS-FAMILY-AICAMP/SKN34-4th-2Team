@@ -8,8 +8,6 @@ import threading
 import time
 from contextlib import contextmanager
 
-import firebase_admin
-from firebase_admin import auth, credentials
 from app.review_workflow import ReviewConflict
 
 from app.config import Settings
@@ -92,7 +90,11 @@ class ResumeAccessError(Exception):
 
 
 class FirebaseGateway:
-    """Firebase Admin boundary used only by the backend."""
+    """Shared PostgreSQL operations plus legacy Firebase authentication/Firestore hooks.
+
+    The historical name is retained for callers and tests. Production v2 uses
+    PostgresReviewGateway; only legacy Firebase paths load Firebase Admin.
+    """
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -130,6 +132,9 @@ class FirebaseGateway:
 
     @staticmethod
     def _initialize_app(settings: Settings):
+        import firebase_admin
+        from firebase_admin import credentials
+
         try:
             return firebase_admin.get_app()
         except ValueError:
@@ -137,6 +142,8 @@ class FirebaseGateway:
             return firebase_admin.initialize_app(credentials.ApplicationDefault(), options)
 
     def verify_id_token(self, id_token: str) -> str:
+        from firebase_admin import auth
+
         try:
             decoded = auth.verify_id_token(id_token, app=self._app)
         except (ValueError, auth.InvalidIdTokenError, auth.ExpiredIdTokenError) as exc:

@@ -45,12 +45,12 @@ openpyxl>=3.1
 xlrd>=2
 python-docx>=1.1,<2
 
-# 공고 데이터 공유 (Firebase Storage)
+# 3차 호환 경로: 직접 Firebase 토큰 인증 / Firestore / 공유 SQLite 이전 도구
+# 현재 Django 프록시는 초기화하지 않는다. 구형 경로를 폐기하기 전까지 SDK는 유지한다.
 firebase-admin>=7,<8
 pypdf>=5,<7
 
-# 학생 챗봇의 TO-BE 문맥 조회 (PostgreSQL / Redis / S3)
-psycopg[binary]>=3.1
+# 학생 챗봇 문맥 조회 (PostgreSQL 드라이버는 위의 pool 포함 항목 사용 / Redis / S3)
 redis>=5.0,<6
 boto3>=1.35,<2
 
