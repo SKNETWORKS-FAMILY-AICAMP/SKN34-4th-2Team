@@ -9,8 +9,8 @@
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
         "StringEquals": {
-          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:SKNETWORKS-FAMILY-AICAMP/SKN34-4th-2Team:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub": "repo:SKNETWORKS-FAMILY-AICAMP@169222902/SKN34-4th-2Team@1373784236:ref:refs/heads/main",
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
         }
       }
     }
