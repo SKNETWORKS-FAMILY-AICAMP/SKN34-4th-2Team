@@ -406,6 +406,7 @@ def test_job_requirements_proxy_returns_saved_requirements_and_blocks_closed_job
         # The writing window of an existing cover letter still shows the posting's requirements.
         allowed = client.post('/api/v1/resumes/job-requirements/proxy', json={'job_id': 'saramin:1', 'allow_closed': True})
         assert allowed.status_code == 200 and allowed.json()['requirements'][0]['id'] == 'req-1'
+        assert allowed.json()['job_closed'] is True  # The writing window shows the closed-posting notice.
     finally: app.dependency_overrides.clear()
 
 

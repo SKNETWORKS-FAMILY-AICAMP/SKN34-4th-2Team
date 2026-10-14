@@ -171,6 +171,8 @@ def job_requirements_as_user(
             {'id': item.id, 'group': item.group, 'label': item.label, 'posting_quote': item.posting_quote}
             for item in requirements
         ],
+        # 마감된 공고(allow_closed 로 읽은 자소서 쓰기 창) — 창 맨 위에 안내를 띄운다
+        **({'job_closed': True} if job['closed'] else {}),
     }
 
 

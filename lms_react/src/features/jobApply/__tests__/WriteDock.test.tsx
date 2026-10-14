@@ -129,5 +129,15 @@ describe('쓰기 창의 공고 요건', () => {
     await act(async () => { await Promise.resolve(); });
     expect(api.requirements).toHaveBeenCalledWith('SARAMIN-1', true); // 이미 만든 자소서 — 마감 공고 요건도 본다
     expect(button('공고 요건 보기').textContent).toContain('주요 업무 1');
+    expect(document.querySelector('[role="note"]')).toBeNull(); // 열린 공고는 안내 없음
+  });
+
+  it('마감된 공고의 자소서는 창 맨 위에 「미리 사용해 보실 수 있어요」 안내를 띄운다', async () => {
+    api.requirements.mockResolvedValueOnce({ job_closed: true, requirements: [{ id: 'R9', group: 'task', label: '데이터 분석', posting_quote: '데이터 분석 업무' }] });
+    act(() => button('열기2').click());
+    await act(async () => { await Promise.resolve(); });
+    const note = document.querySelector('[role="note"]');
+    expect(note?.textContent).toContain('마감된 공고입니다');
+    expect(note?.textContent).toContain('미리 사용해 보실 수 있어요');
   });
 });

@@ -53,6 +53,9 @@ export function WriteDockHost({ children }: { children: ReactNode }) {
   /** 내려둔 동안 끝났다 — 막대를 초록(실패면 빨강)으로 바꾸고 「열기」를 보인다 */
   const [finished, setFinished] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  /** 이 자소서의 공고가 마감됐는가 — 요건을 읽을 때 · 답을 쓸 때 서버가 알려 준다 */
+  const [jobClosed, setJobClosed] = useState(false);
+  useEffect(() => setJobClosed(false), [target?.editId]);
   const [, tick] = useState(0);
   const statusRef = useRef(status);
   const minimizedRef = useRef(minimized);
@@ -149,9 +152,15 @@ export function WriteDockHost({ children }: { children: ReactNode }) {
                 </button>
               </header>
               <div className="aw-body">
-                <RequirementBar key={target.editId} jobId={target.jobId} given={target.requirements} />
+                {jobClosed && (
+                  <div className="apply-warn" role="note">
+                    <span>마감된 공고입니다. 자소서 쓰기 · 다듬기는 미리 사용해 보실 수 있어요(마감 당시 공고 요건 기준).</span>
+                  </div>
+                )}
+                <RequirementBar key={target.editId} jobId={target.jobId} given={target.requirements}
+                  onClosed={() => setJobClosed(true)} />
                 <QuestionWorkflowAnswers key={target.editId} resumeId={target.resumeId} tailoredId={target.tailoredId}
-                  editId={target.editId} onStatus={report} />
+                  editId={target.editId} onStatus={report} onJobClosed={() => setJobClosed(true)} />
               </div>
             </div>
           </div>
@@ -228,7 +237,7 @@ const GROUPS: { key: string; label: string }[] = [
  * 공고 요건 — 창이 화면을 덮어 답을 쓰면서 2단계 요건 목록을 볼 수 없었다. 접어 두고 필요할 때 펼친다.
  * 칩에 마우스를 올리면 공고 원문 구절이 보인다.
  */
-function RequirementBar({ jobId, given }: { jobId: string; given?: PostingRequirement[] }) {
+function RequirementBar({ jobId, given, onClosed }: { jobId: string; given?: PostingRequirement[]; onClosed?(): void }) {
   const [rows, setRows] = useState<PostingRequirement[] | null>(given ?? null);
   const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState(false);
@@ -236,7 +245,11 @@ function RequirementBar({ jobId, given }: { jobId: string; given?: PostingRequir
     if (given !== undefined || jobId === '') return undefined;
     let alive = true;
     reviewApi.requirements(jobId, true) // 이미 만든 자소서 — 마감된 공고의 요건도 본다
-      .then((data) => { if (alive) setRows(requirementRows(data)); })
+      .then((data) => {
+        if (!alive) return;
+        setRows(requirementRows(data));
+        if (data.job_closed === true) onClosed?.();
+      })
       .catch(() => { if (alive) setFailed(true); });
     return () => { alive = false; };
   }, [jobId, given]);
