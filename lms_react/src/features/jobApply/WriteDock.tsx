@@ -149,8 +149,8 @@ export function WriteDockHost({ children }: { children: ReactNode }) {
                 </button>
               </header>
               <div className="aw-body">
-                <RequirementBar key={target.editId} jobId={target.jobId} given={target.requirements} />
-                <QuestionWorkflowAnswers key={target.editId} resumeId={target.resumeId} tailoredId={target.tailoredId}
+                <RequirementBar key={`requirements:${target.editId}`} jobId={target.jobId} given={target.requirements} />
+                <QuestionWorkflowAnswers key={`answers:${target.editId}`} resumeId={target.resumeId} tailoredId={target.tailoredId}
                   editId={target.editId} onStatus={report} />
               </div>
             </div>
