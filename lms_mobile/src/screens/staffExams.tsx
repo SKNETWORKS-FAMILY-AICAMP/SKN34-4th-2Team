@@ -122,7 +122,9 @@ export function ExamEditPage({ id }: { id?: string }) {
   const db = useDb();
   const exam = useAssessments().find((row) => row.id === id);
   const questions = useQuestions(id);
-  const submitted = useSubmissions(id).length;
+  // 새 평가(id 없음)에서 useSubmissions() 는 모든 평가의 제출을 돌려준다 — 새 평가가 「이미 n명 제출」로 잠기던 문제
+  const allSubs = useSubmissions(id);
+  const submitted = id ? allSubs.length : 0;
   if (id && !db) return <Screen title="평가 수정" loading />;
   if (id && !exam) return <Screen title="평가 수정" empty emptyText="평가를 찾지 못했습니다." />;
   return <ExamEditor key={exam?.id ?? 'new'} exam={exam} questions={questions} locked={submitted > 0} submitted={submitted} />;
