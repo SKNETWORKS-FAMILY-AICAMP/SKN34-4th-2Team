@@ -27,6 +27,8 @@ export interface WriteTarget {
   jobId: string;
   /** 2단계에서 이미 불러온 공고 요건. 없으면(「내 자소서」에서 바로 열면) 창이 직접 읽는다 */
   requirements?: PostingRequirement[];
+  /** 공고 맞춤 지원 화면이 아는 마감 여부 — 요건을 넘겨 창이 따로 읽지 않을 때도 안내를 띄운다 */
+  closed?: boolean;
 }
 
 interface WriteDockValue {
@@ -55,7 +57,8 @@ export function WriteDockHost({ children }: { children: ReactNode }) {
   const [notice, setNotice] = useState<string | null>(null);
   /** 이 자소서의 공고가 마감됐는가 — 요건을 읽을 때 · 답을 쓸 때 서버가 알려 준다 */
   const [jobClosed, setJobClosed] = useState(false);
-  useEffect(() => setJobClosed(false), [target?.editId]);
+  // 새 자소서(바탕 이력서를 바꿔 다시 연 사본 포함)로 바뀌면 그 공고 상태로 다시 정한다
+  useEffect(() => setJobClosed(target?.closed === true), [target?.editId, target?.closed]);
   const [, tick] = useState(0);
   const statusRef = useRef(status);
   const minimizedRef = useRef(minimized);

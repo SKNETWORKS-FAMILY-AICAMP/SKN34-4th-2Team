@@ -371,6 +371,7 @@ export function JobApplyScreen() {
     jobId: p.job_id,
     // 2단계 요건을 이미 불러왔으면 넘긴다. 아직이면(「내 자소서」에서 바로 열 때) 창이 직접 읽는다
     requirements: requirements.state === 'ready' && posting?.job_id === p.job_id ? requirements.rows : undefined,
+    closed: p.status !== 'OPEN',
   });
 
   const create = async () => {

@@ -39,11 +39,13 @@ let root: Root;
 function Opener() {
   const { openWrite } = useWriteDock();
   const target = (id: string) => ({ resumeId: 'r1', tailoredId: id, editId: `r1/tailored/${id}`, title: `${id} 자소서`,
-    job: '한국투자증권 디지털', jobId: 'SARAMIN-1', requirements: id === 'apply_1' ? GIVEN : undefined });
+    job: '한국투자증권 디지털', jobId: 'SARAMIN-1', requirements: id !== 'apply_2' ? GIVEN : undefined,
+    closed: id === 'apply_3' });
   return (
     <>
       <button type="button" onClick={() => openWrite(target('apply_1'))}>열기1</button>
       <button type="button" onClick={() => openWrite(target('apply_2'))}>열기2</button>
+      <button type="button" onClick={() => openWrite(target('apply_3'))}>열기3</button>
     </>
   );
 }
@@ -141,5 +143,12 @@ describe('쓰기 창의 공고 요건', () => {
     expect(note?.textContent).toContain('미리 사용해 보실 수 있어요');
     expect(button('공고 요건 보기').textContent).toContain('주요 업무 1'); // 요건 목록도 함께
     expect(document.body.textContent).not.toContain('공고 요건을 불러오고 있어요');
+  });
+
+  it('바탕 이력서를 바꿔 요건을 넘겨받아 연 마감 공고 자소서도 안내를 띄운다', async () => {
+    act(() => button('열기3').click());
+    await act(async () => { await Promise.resolve(); });
+    expect(api.requirements).not.toHaveBeenCalled(); // 요건은 넘겨받았다
+    expect(document.querySelector('[role="note"]')?.textContent).toContain('마감된 공고입니다');
   });
 });
