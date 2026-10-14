@@ -212,7 +212,9 @@ ANSWER_PROMPT = """
 
 [정책·공지]
 - 검색 정책의 approval_status가 draft 또는 unverified이면 확정·승인된 규정으로 단정하지 말고
-  검토 중인 자료임을 안내한다. 연결된 조문도 같은 상태로 취급한다.
+  draft는 초안, unverified는 승인 여부가 확인되지 않은 자료임을 안내한다.
+  테스트용·미승인 자료의 구체적 제한은 유지한다. 이 상태만으로 실제 심사가 진행 중이라고 말하지 않는다.
+  연결된 조문도 같은 상태로 취급한다.
 - context_truncated가 true이거나 unresolved_article_refs가 있으면 필요한 참조 근거가
   일부 확보되지 않았음을 밝히고, 누락된 조건·예외를 추측하여 자격이나 적용 결과를 확정하지 않는다.
 - 정책은 기본 규칙, 공지는 변경·예외·시행 안내다. 공지가 있다는 이유만으로 우선하지 말고 같은 주제를
@@ -269,16 +271,19 @@ ANSWER_PROMPT = """
   "이번 단위기간 기준을 충족했다"고 말하지 말고 전체 기간의 목표와 구분한다.
   모든 숫자는 이번 요청의 제공된 값만 사용한다. 특정 학생의 숫자를 예시에서 가져오지 않는다.
 - 단위기간 날짜는 제공된 periods와 current_unit_period를 사용한다.
-  schedule_status가 generated_unconfirmed이면 기간이 아직 검토 중이라는 사실을 마지막 주의 문장에 포함한다.
+  schedule_status가 generated_unconfirmed이면 등록 일정으로 생성한 예상 기간이며 확정된 경계가 아님을 밝힌다.
   본문에서 "검토 전 계산 일정"이라는 내부 상태 표현을 반복하지 않으며 확정 일정으로 단정하지 않는다.
   이는 단위기간 경계의 상태다. scheduled_days_source가 curriculum_rows이고 해당 기간의 scheduled_days가 있으면
   "등록 커리큘럼 기준 수업 예정일 N일"로 안내한다. 기간 경계가 검토 전이라는 이유로 이 수치를 무시하지 않는다.
   수업일수는 단순 평일 수나 예시 20일로 대체하지 않는다. scheduled_days가 없으면 임의의 날짜 수를 가정하지 않는다.
   날짜만 제공된 경우 출석률이나 장려금 충족 여부까지 추정하지 않는다.
-- calculation_rules.review_status가 unverified이면 계산 기준도 검토 중이라는 사실을 마지막 주의 문장에 포함한다.
-  일정·계산 기준·참조 정책의 검토 상태와 지급 미확정 안내는 실제 제공된 상태에 맞춰 마지막에 한 번으로 모은다.
-  예: "현재 등록 일정과 검토 중인 기준에 따른 예상이며, 실제 장려금 지급 여부는 별도 확인이 필요해요."
-  일정 경계도 검토 중이면 "단위기간 구분과 계산 기준은 검토 중이며, 실제 지급 여부는 별도 확인이 필요해요."처럼 밝힌다.
+- calculation_rules.review_status가 unverified이면 승인 여부가 확인되지 않은 계산 기준이다.
+  generated_unconfirmed와 unverified는 실제 심사 진행 여부를 나타내지 않는다. 승인된 상태로 바꾸거나 확정값으로 단정하지 않는다.
+  일반 출석 현황에는 "현재 등록 일정·정책 기준으로 계산한 예상이에요."처럼 짧게 한 번 안내한다.
+  초안·테스트용·미승인 자료 등 구체적 제한이 제공되면 그 제한도 숨기지 않는다.
+  장려금·수당·지급 여부를 묻는 경우에만 실제 지급 여부는 별도 확인이 필요하다는 설명을 덧붙인다.
+  내부 계산 기준 label의 "장려금"은 사용자의 지급 질문이 아니다. 서버 답변 범위가 일반 출석 질문이면
+  일반 현황·필요일·기록 미확인·초안 안내에도 지급 주의나 장려금 자격 설명을 추가하지 않는다.
   이 안내를 본문 각 수치 앞에 반복하지 않는다. RAG에서 찾은 숫자로
   서버 결과를 재계산하거나 수료·수당 자격을 판정하지 않는다. in_progress_estimate가 있으면
   attendance_rate는 "기록된 N일 중 인정 출석 M일(P%)"로 설명한다.
@@ -290,6 +295,11 @@ ANSWER_PROMPT = """
   additional_normal_attendance_days_needed가 null이면 과거/당일 미확인 기록 또는 미래 선등록 기록을 먼저 확인해야 하므로
   앞으로 필요한 출석일을 확정하지 않는다. unrecorded_future_days만 앞으로 남은 예정일로 설명한다.
   reachable_with_future_normal_attendance가 false면 현재 기록 기준 남은 정상 출석만으로는 목표에 도달하지 못한다고 안내한다.
+  유효한 계산에서 additional_normal_attendance_days_needed가 0이고 reachable_with_future_normal_attendance가 true이면
+  현재 기록상 전체 기간 목표의 필요 인정일수에 이미 도달했다고 안내한다.
+  이 경우 "남은 수업에 출석하면 목표를 맞출 수 있다"고 아직 미달인 것처럼 말하지 않는다.
+  남은 일정의 정상 출석과 기록 확인은 권하되 지급 확정이나 향후 예외 출결에도 결과가 불변이라고 단정하지 않는다.
+  필요일이 양수면 제공된 필요일을 안내하고, null이나 도달 불가 상태를 이미 도달로 바꾸지 않는다.
   additional_absence_equivalent_if_one_more_exception이 1이면 반드시 "지각·조퇴·외출이 1회 더 누적되면
   결석 환산이 1일 추가된다"는 조건을 답변에 포함한다. 추가 출석일 안내에는 projection_assumption을 함께 반영한다.
 - 다음 수업에 지각/조퇴/외출/결석/정상 출석하면 어떻게 되는지 묻는 가상 질문은
@@ -304,8 +314,8 @@ ANSWER_PROMPT = """
 - final_rate_if_all_remaining_absent는 그 상황을 직접 물을 때만 제공한다. 지각·조퇴·외출의 결석 환산 규칙과
   exception_count_until_next_absence_equivalent만큼 더 누적되면 결석 환산 1일이 추가됨을 경고한다.
 - attendance_rate가 null이고 in_progress_estimate도 없으면 수치나 충족 여부를 추측하지 않는다.
-  requirement_met과 모든 진행 중 계산은 예상치이지 장려금 지급 확정이 아니다. 증빙·행정 처리 등 다른
-  지급 요건이 있을 수 있으므로 정상 출석과 기록 확인을 권한다.
+  requirement_met과 모든 진행 중 계산은 예상치이지 지급 확정이 아니다.
+  정상 출석과 기록 확인을 권하며, 지급 요건 설명은 장려금·수당·지급 질문에만 덧붙인다.
 """.strip()
 
 BLOCKED_ANSWER = "저는 LMS 정책, FAQ, 가이드, 공지 또는 전 기수 프로젝트와 관련된 질문만 답변할 수 있어요."

@@ -13,7 +13,7 @@ _UNIT = re.compile(r'단위\s*기간|이번\s*(?:달|월)|장려금|훈련\s*수
 _COMPLETION = re.compile(r'전체\s*(?:과정|훈련(?:\s*기간)?|교육(?:\s*기간)?|기간|출석)|수료|종강까지')
 _TOPIC = re.compile(r'출석|출결|지각|조퇴|외출|결석|장려금|수료')
 _PERSONAL = re.compile(r'(?<![가-힣])(?:내가|내|나의|저의|제가|나는)(?=\s|출석|출결|지각|결석|장려금|수료)')
-_GOAL = re.compile(r'며칠|몇\s*일|얼마|필요|가능|더\s*(?:출석|지각|결석)|넘|달성|현황|상태|어때|받을|계산')
+_GOAL = re.compile(r'며칠|몇\s*일|얼마|필요|가능|더\s*(?:출석|지각|결석)|넘|달성|현황|상태|어때|괜찮|받을|계산')
 _GENERAL = re.compile(r'기준|공식|계산법|규정|조건|자격|마감|신청|정의')
 _COMPARE = re.compile(r'둘\s*다|두\s*(?:기준|기간)|각각|비교|모두|함께')
 _CHOICE = re.compile(r'모르|헷갈|어느|인지.*인지|인가.*인가')
@@ -167,4 +167,11 @@ def scoped_question(decision: BasisDecision) -> str:
         return decision.question
     label = {'unit': '이번 단위기간 장려금', 'completion': '전체 훈련기간 수료',
              'both': '단위기간 장려금과 전체 훈련기간 수료를 각각'}[decision.basis]
-    return f'{decision.question}\n[사용자가 확인한 개인 출석 계산 기준: {label}]'
+    # The calculation label is not a request about allowance eligibility/payment.
+    payment_requested = bool(re.search(r'지급|입금|수령', decision.question) or (
+        re.search(r'장려금|수당', decision.question)
+        and re.search(r'받|자격|대상|조건|나오|신청', decision.question)))
+    guidance = ('지급 관련 질문: 지급 확정과 출석 계산을 구분한다.' if payment_requested else
+                '일반 출석 질문: 지급 주의·장려금 자격 설명을 추가하지 않는다.')
+    return (f'{decision.question}\n[사용자가 확인한 개인 출석 계산 기준: {label}]'
+            f'\n[서버 답변 범위: {guidance}]')
