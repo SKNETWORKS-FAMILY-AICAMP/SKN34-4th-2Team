@@ -27,6 +27,8 @@ export interface WriteTarget {
   jobId: string;
   /** 2단계에서 이미 불러온 공고 요건. 없으면(「내 자소서」에서 바로 열면) 창이 직접 읽는다 */
   requirements?: PostingRequirement[];
+  /** 공고 맞춤 지원 화면이 아는 마감 여부 — 요건을 넘겨 창이 따로 읽지 않을 때도 안내를 띄운다 */
+  closed?: boolean;
 }
 
 interface WriteDockValue {
@@ -53,6 +55,10 @@ export function WriteDockHost({ children }: { children: ReactNode }) {
   /** 내려둔 동안 끝났다 — 막대를 초록(실패면 빨강)으로 바꾸고 「열기」를 보인다 */
   const [finished, setFinished] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  /** 이 자소서의 공고가 마감됐는가 — 요건을 읽을 때 · 답을 쓸 때 서버가 알려 준다 */
+  const [jobClosed, setJobClosed] = useState(false);
+  // 새 자소서(바탕 이력서를 바꿔 다시 연 사본 포함)로 바뀌면 그 공고 상태로 다시 정한다
+  useEffect(() => setJobClosed(target?.closed === true), [target?.editId, target?.closed]);
   const [, tick] = useState(0);
   const statusRef = useRef(status);
   const minimizedRef = useRef(minimized);
@@ -149,9 +155,15 @@ export function WriteDockHost({ children }: { children: ReactNode }) {
                 </button>
               </header>
               <div className="aw-body">
-                <RequirementBar key={`requirements:${target.editId}`} jobId={target.jobId} given={target.requirements} />
+                {jobClosed && (
+                  <div className="apply-warn" role="note">
+                    <span>마감된 공고입니다. 자소서 쓰기 · 다듬기는 미리 사용해 보실 수 있어요(마감 당시 공고 요건 기준).</span>
+                  </div>
+                )}
+                <RequirementBar key={`requirements:${target.editId}`} jobId={target.jobId} given={target.requirements}
+                  onClosed={() => setJobClosed(true)} />
                 <QuestionWorkflowAnswers key={`answers:${target.editId}`} resumeId={target.resumeId} tailoredId={target.tailoredId}
-                  editId={target.editId} onStatus={report} />
+                  editId={target.editId} onStatus={report} onJobClosed={() => setJobClosed(true)} />
               </div>
             </div>
           </div>
@@ -187,7 +199,7 @@ function WriteDockBar({ status, finished, elapsed, onOpen }: {
   const title = failed ? '자소서 초안을 쓰지 못했어요' : finished ? '자소서 초안 완료' : status.busy ? '자소서 초안 쓰는 중' : '자소서 쓰기';
   const detail = failed ? '창을 열어 다시 시도해 주세요'
     : finished ? '결과를 확인해 주세요'
-      : status.busy ? `${status.label} · 보통 1분 남짓 걸려요` : '창을 내려두었어요';
+      : status.busy ? `${status.label} · 보통 2분~3분 남짓 걸려요` : '창을 내려두었어요';
   return (
     <div className="rv-dockbar-wrap aw-dockbar-wrap">
       <div className={`rv-dockbar is-${tone}${finished ? ' is-finished' : ''}`} role="status" aria-live="polite"
@@ -228,15 +240,19 @@ const GROUPS: { key: string; label: string }[] = [
  * 공고 요건 — 창이 화면을 덮어 답을 쓰면서 2단계 요건 목록을 볼 수 없었다. 접어 두고 필요할 때 펼친다.
  * 칩에 마우스를 올리면 공고 원문 구절이 보인다.
  */
-function RequirementBar({ jobId, given }: { jobId: string; given?: PostingRequirement[] }) {
+function RequirementBar({ jobId, given, onClosed }: { jobId: string; given?: PostingRequirement[]; onClosed?(): void }) {
   const [rows, setRows] = useState<PostingRequirement[] | null>(given ?? null);
   const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState(false);
   useEffect(() => {
     if (given !== undefined || jobId === '') return undefined;
     let alive = true;
-    reviewApi.requirements(jobId)
-      .then((data) => { if (alive) setRows(requirementRows(data)); })
+    reviewApi.requirements(jobId, true) // 이미 만든 자소서 — 마감된 공고의 요건도 본다
+      .then((data) => {
+        if (!alive) return;
+        setRows(requirementRows(data));
+        if (data.job_closed === true) onClosed?.();
+      })
       .catch(() => { if (alive) setFailed(true); });
     return () => { alive = false; };
   }, [jobId, given]);
@@ -244,7 +260,10 @@ function RequirementBar({ jobId, given }: { jobId: string; given?: PostingRequir
 
   if (failed) return <p className="hint aw-reqs">공고 요건을 불러오지 못했어요. 공고 맞춤 지원 2단계에서 볼 수 있어요.</p>;
   if (rows === null) return <p className="hint aw-reqs">공고 요건을 불러오고 있어요…</p>;
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    // 요건 문장 없이 분야 목록 · 이미지만 있는 공고 — 칸이 사라지면 고장처럼 보여 한 줄로 알린다
+    return <p className="hint aw-reqs">이 공고는 요건을 글로 적지 않았어요. 자소서는 이력서 · 메모를 바탕으로 써요.</p>;
+  }
   const groups = GROUPS.map((g) => ({ ...g, rows: rows.filter((r) => r.group === g.key) })).filter((g) => g.rows.length > 0);
   return (
     <section className={`aw-reqs${open ? ' is-open' : ''}`}>

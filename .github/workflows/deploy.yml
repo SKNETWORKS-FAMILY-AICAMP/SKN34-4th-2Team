@@ -1,49 +1,96 @@
-name: deploy
-
+name: verify-and-deploy
 on:
-  workflow_dispatch:
+  pull_request:
+    branches: [develop, main]
   push:
-    branches: [main]
-
+    branches: [develop, main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  web:
+  verify:
     runs-on: ubuntu-latest
-    env:
-      AWS_ROLE_CONFIGURED: ${{ secrets.AWS_ROLE_ARN != '' }}
-    defaults:
-      run:
-        working-directory: lms_react
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
-      - run: npm ci
-      - run: npm test
-      - name: Build web
+          cache: npm
+          cache-dependency-path: lms_react/package-lock.json
+      - name: Deployment regression tests
+        run: python3 -m unittest discover -s deploy/tests -v
+      - name: React tests and production build
+        working-directory: lms_react
         env:
-          # GitHub → Settings → Variables → VITE_API_BASE (없으면 /api)
-          VITE_API_BASE: ${{ vars.VITE_API_BASE != '' && vars.VITE_API_BASE || '/api' }}
-        run: npm run build
-      - name: Upload web dist
-        if: ${{ env.AWS_ROLE_CONFIGURED == 'true' }}
-        run: echo "Configure AWS_ROLE_ARN, WEB_S3_BUCKET, CLOUDFRONT_ID to enable s3 sync"
-
-  api:
+          VITE_API_BASE: /api
+        run: |
+          npm ci
+          npm test -- --maxWorkers=2
+          npm run build
+      - name: Build API and AI images
+        run: |
+          docker build --label org.opencontainers.image.revision="$GITHUB_SHA" -f lms_api/Dockerfile -t lms-api:ci .
+          docker build --label org.opencontainers.image.revision="$GITHUB_SHA" -f deploy/ai.Dockerfile -t lms-ai:ci .
+      - name: Backend regressions without production credentials
+        run: |
+          docker run --rm --network none -e DJANGO_DEBUG=1 -e AUTH_SESSION_BACKEND=memory -e LMS_INLINE_PUBLISH=0 -e DJANGO_SECRET_KEY=synthetic-ci-only-key-at-least-32-characters lms-api:ci python manage.py test lms.test_auth_security lms.test_review_jobs lms.test_review_timeout lms.test_question_workflow_proxy
+          docker build -f deploy/ai-test.Dockerfile -t lms-ai:test .
+          docker run --rm --network none -e OPENAI_API_KEY=synthetic-offline -e LANGSMITH_TRACING=false -e LANGCHAIN_TRACING_V2=false -e PYTHONPATH=/app:/app/cover_letter_rag lms-ai:test python -m pytest cover_letter_rag/tests/test_question_workflow.py cover_letter_rag/tests/test_resume_review_batch.py cover_letter_rag/tests/test_resume_review_pipeline.py cover_letter_rag/tests/test_v2_spelling_fixes.py -q -p no:cacheprovider
+      - name: Save verified build for main deployment
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          mkdir -p release
+          docker save lms-api:ci lms-ai:ci | gzip > release/images.tar.gz
+          cp -r lms_react/dist release/web
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        with:
+          name: verified-release
+          path: release/
+          retention-days: 2
+  deploy:
+    needs: verify
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
     env:
-      AWS_ROLE_CONFIGURED: ${{ secrets.AWS_ROLE_ARN != '' }}
-      EC2_HOST_CONFIGURED: ${{ secrets.EC2_HOST != '' }}
+      AWS_REGION: us-east-1
+      REGISTRY: 711425439897.dkr.ecr.us-east-1.amazonaws.com
     steps:
-      - uses: actions/checkout@v4
-      - name: Build image
-        run: docker build -f lms_api/Dockerfile -t lms-api .
-      # 챗봇 · 공부방 노트 · 첨삭 · 공고 추천. 이게 없으면 배포해도 그 기능들이 갈 곳이 없다.
-      - name: Build AI image
-        run: docker build -f deploy/ai.Dockerfile -t lms-ai .
-      - name: Push ECR
-        if: ${{ env.AWS_ROLE_CONFIGURED == 'true' }}
-        run: echo "Configure AWS_ROLE_ARN and ECR_REPOSITORY to enable push (lms-api, lms-ai 둘 다)"
-      - name: Deploy EC2
-        if: ${{ env.EC2_HOST_CONFIGURED == 'true' }}
-        run: echo "Configure EC2_HOST to docker compose -f docker-compose.prod.yml pull && up -d"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: verified-release
+          path: release
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c # v4
+        with:
+          role-to-assume: arn:aws:iam::711425439897:role/skn34-github-main-deploy
+          aws-region: us-east-1
+          role-session-name: gha-${{ github.run_id }}
+      - name: Push verified images to ECR
+        run: |
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+          docker load -i release/images.tar.gz
+          for service in api ai; do
+            image="$REGISTRY/lms-$service:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+            docker tag "lms-$service:ci" "$image"
+            docker push "$image"
+            digest=$(aws ecr describe-images --repository-name "lms-$service" --image-ids "imageTag=$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --query 'imageDetails[0].imageDigest' --output text)
+            echo "${service^^}_IMAGE=$REGISTRY/lms-$service@$digest" >> "$GITHUB_ENV"
+          done
+      - name: Deploy with health checks and rollback
+        run: |
+          python3 -m pip install 'boto3>=1.35,<2'
+          python3 deploy/release.py --api-image "$API_IMAGE" --ai-image "$AI_IMAGE" --release "$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --web release/web
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "Source: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f release-result.json ]; then cat release-result.json >> "$GITHUB_STEP_SUMMARY"; fi

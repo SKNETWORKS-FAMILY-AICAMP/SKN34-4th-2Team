@@ -137,6 +137,8 @@ def _warm_job_requirements(gateway, settings, job):
 
 class ProxyJobRequirementsRequest(StrictModel):
     job_id: str = Field(min_length=1, max_length=200)
+    # 이미 만든 자소서의 쓰기 창이 볼 때만 — 마감된 공고의 요건도 보여 준다
+    allow_closed: bool = False
 
 
 @app.post('/api/v1/resumes/job-requirements/proxy')
@@ -154,7 +156,7 @@ def job_requirements_as_user(
     from app.job_requirements import build_requirement_extractor, load_or_extract_requirements
     from app.matching_handoff import load_selected_job
     try:
-        job = load_selected_job(settings.matching_job_store_path, request.job_id)
+        job = load_selected_job(settings.matching_job_store_path, request.job_id, allow_closed=request.allow_closed)
         extractor = build_requirement_extractor(settings) if settings.openai_api_key else None
         requirements = load_or_extract_requirements(gateway, extractor, job['text'], job['source'])
     except ReviewConflict as exc:
@@ -169,6 +171,8 @@ def job_requirements_as_user(
             {'id': item.id, 'group': item.group, 'label': item.label, 'posting_quote': item.posting_quote}
             for item in requirements
         ],
+        # 마감된 공고(allow_closed 로 읽은 자소서 쓰기 창) — 창 맨 위에 안내를 띄운다
+        **({'job_closed': True} if job['closed'] else {}),
     }
 
 
@@ -248,7 +252,7 @@ def question_answer_as_user(
         tailored = gateway.get_owned_tailored_resume(
             request.cohort_id, request.resume_id, request.tailored_resume_id, request.uid,
         )
-        job = load_selected_job(settings.matching_job_store_path, tailored.get('jobId') or '')
+        job = load_selected_job(settings.matching_job_store_path, tailored.get('jobId') or '', allow_closed=True)  # 자소서
         requirements = load_or_extract_requirements(
             gateway, build_requirement_extractor(settings), job['text'], job['source'],
         )
@@ -345,14 +349,16 @@ def question_workflow_as_user(
                 written=item.written if item else str(saved.get('answer') or '')))
         if not questions:
             raise ReviewInputError('company_question_not_found')
-        job = load_selected_job(settings.matching_job_store_path, tailored.get('jobId') or '')
+        # 자소서는 공고가 마감돼도 마저 쓰고 고친다(이력서 첨삭 · 새 사본은 막는다)
+        job = load_selected_job(settings.matching_job_store_path, tailored.get('jobId') or '', allow_closed=True)
         requirements = load_or_extract_requirements(
             gateway, build_requirement_extractor(settings), job['text'], job['source'],
         )
         result = QuestionWorkflow(llm).run(content=content, questions=questions, job=job, requirements=requirements,
                                            only=request.only, saved_plan=request.plan,
                                            stage=request.stage, answers=request.answers)
-        return {**result, 'requirements': [{'id': r.id, 'group': r.group, 'label': r.label} for r in requirements]}
+        return {**result, 'requirements': [{'id': r.id, 'group': r.group, 'label': r.label} for r in requirements],
+                'job_closed': job['closed']}
     except ResumeAccessError as exc:
         raise HTTPException(status_code=403, detail='Resume access denied') from exc
     except ResumeNotFoundError as exc:
@@ -403,13 +409,14 @@ def _create_tailored(resolve_uid, request, background, gateway, settings):
         jobs = {}
 
         def load_job(job_id):
-            jobs[job_id] = load_selected_job(settings.matching_job_store_path, job_id)
+            # 마감된 공고도 읽는다 — 자소서 사본은 연다(미리 써 보기). 이력서 첨삭 사본은 서비스가 막는다
+            jobs[job_id] = load_selected_job(settings.matching_job_store_path, job_id, allow_closed=True)
             return jobs[job_id]
 
         service = TailoredResumeService(gateway, load_job)
         created = service.create(uid, request)
         job = jobs.get(request.selected_job_id)
-        if job and settings.openai_api_key:
+        if job and not job.get('closed') and settings.openai_api_key:
             # 맞춤본을 만들고 첨삭 시작을 누르기까지 몇 초가 걸린다. 그 사이 공고 요건을 정리해 두면 첫
             # 첨삭이 요건 정리(약 4초)를 기다리지 않는다. 실패해도 첫 첨삭이 다시 만든다.
             background.add_task(_warm_job_requirements, gateway, settings, job)

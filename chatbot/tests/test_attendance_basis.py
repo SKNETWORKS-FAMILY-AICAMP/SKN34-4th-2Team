@@ -57,6 +57,31 @@ class AttendanceBasisTests(TestCase):
             with self.subTest(question=question):
                 self.assertEqual(self.request(question).basis, expected)
 
+    def test_colloquial_attendance_health_keeps_explicit_scope(self):
+        for question, expected in (
+            ('이번달 출석 괜찮나', 'unit'),
+            ('이번 달 출결 괜찮아?', 'unit'),
+            ('내 이번월 출석 괜찮은가요?', 'unit'),
+            ('전체 훈련기간 출석 괜찮나?', 'completion'),
+        ):
+            with self.subTest(question=question):
+                self.assertEqual(self.request(question).basis, expected)
+        self.assertTrue(basis.resolve_attendance_basis('내 출석률 80% 넘으려면 며칠 더 출석해야 해?').needs_clarification)
+        self.assertIsNone(basis.resolve_attendance_basis('이번달 공지 괜찮나').basis)
+
+    def test_calculation_label_does_not_invent_payment_intent(self):
+        for question in ('이번달 출석 괜찮나', '이번 단위기간 며칠 더 출석해야 해?', '장려금 기준으로 알려줘'):
+            scoped = basis.scoped_question(basis.BasisDecision('unit', question))
+            self.assertIn('계산 기준: 이번 단위기간 장려금', scoped)
+            self.assertIn('서버 답변 범위: 일반 출석 질문', scoped)
+        for question in ('이번달 장려금 받을 수 있어?', '장려금 자격이 되나요?', '이번달 지급 확정인가요?'):
+            self.assertIn('서버 답변 범위: 지급 관련 질문',
+                          basis.scoped_question(basis.BasisDecision('unit', question)))
+        selection = basis.resolve_attendance_basis('이번 단위기간', {'pending': True})
+        self.assertEqual(selection.basis, 'unit')
+        self.assertIn('장려금', selection.question)  # Canonical calculation scope only.
+        self.assertIn('서버 답변 범위: 일반 출석 질문', basis.scoped_question(selection))
+
     def test_followup_preserves_user_selected_basis_and_both_requires_reconfirmation(self):
         for first, expected in (('이번 단위기간 출석 어때?', 'unit'),
                                 ('전체 훈련기간 수료 기준으로 알려줘', 'completion')):

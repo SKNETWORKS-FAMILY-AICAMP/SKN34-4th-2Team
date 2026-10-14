@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../app/App';
 import {
@@ -39,9 +39,20 @@ async function flush(times = 12): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
   }
+  // Lazy route imports can take longer on a cold runner than twelve ticks.
+  await vi.waitFor(async () => {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container.querySelector('.screen-loading')).toBeNull();
+  }, { timeout: 4000, interval: 20 });
 }
 
 async function render(initialPath = '/'): Promise<void> {
+  if (container?.isConnected) {
+    act(() => root.unmount());
+    container.remove();
+  }
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);

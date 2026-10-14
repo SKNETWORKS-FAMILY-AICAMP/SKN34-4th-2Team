@@ -1,127 +1,50 @@
-# PLAYDATA LMS PostgreSQL Redesign - Requirements
+# LXP 2.0 요구사항 명세서
 
-> 상태: **통합 직전 Freeze Candidate**
->
-> 원칙: 실제 운영 요구사항을 우선하고, `feature/test`의 기존 Firestore → PostgreSQL 구조는 마이그레이션 자산으로 재사용한다.
+현재 `develop`의 웹·API·AI 구현을 기준으로 기능과 인수 기준을 정리한다. 구현 코드의 존재와 실제 운영 환경의 검증 완료는 구분한다.
 
-## 1. 핵심 운영 도메인
+## 사용자와 접근 범위
 
-### 사용자 / 기수
-- 사용자는 현재 역할 하나를 가진다: student / instructor / admin.
-- 학생·강사는 현재 기수를 최대 하나 가진다.
-- `users.cohort_id`로 현재 기수를 참조한다.
-- 역할/기수 변경 이력 테이블은 만들지 않는다.
-- 업무 이력에는 필요 시 발생 당시 `cohort_id`를 저장한다.
+- 학생은 본인 자료와 접근 가능한 소속 기수 자료를 이용한다.
+- 강사는 담당 기수의 수업 자료·자리 확인·평가·복습 문제를 관리한다.
+- 관리자는 기수·계정·출결·제출·공지 등 운영 업무를 처리한다.
+- 역할·기수·소유권은 Django에서 확인한다. AI가 선택한 도구나 검색 조건만으로 권한을 결정하지 않는다.
 
-### 좌석 / 착석 확인
-- 현재 좌석 레이아웃은 기수별 JSONB로 저장한다.
-- 과거 좌석 레이아웃 이력은 핵심 요구사항이 아니다.
-- 교시별 착석 확인은 Attendance와 분리한다.
+## 기능 요구사항
 
-### 제출 관리
-- 행정성 제출은 `submission_tasks` / `submission_responses`로 관리한다.
-- 하나의 제출 요청을 여러 기수에 배포할 수 있다.
-- Google Form / 내부 Form / 파일 / 링크 제출 확장을 허용한다.
-- 제출 상태는 가능한 경우 `due_at`, `submitted_at`으로 파생한다.
+| ID | 요구사항 | 인수 기준 | 구현 근거 |
+| --- | --- | --- | --- |
+| AUTH-01 | JWT 인증·역할별 접근 | 미인증과 권한 밖 요청을 서버에서 제한한다. | [인증](../../lms_api/lms/jwt_auth.py) · [권한](../../lms_api/lms/permissions.py) |
+| CHAT-01 | 학생 문서·데이터 질의 | 질문에 필요한 정책·공지·프로젝트·본인 문맥만 조회한다. | [학생 챗봇](../features/student-chatbot.md) |
+| DATA-01 | 정책 문서 적재 | 파일과 기수를 확인하고 조문·조건·예외를 보존해 적재한다. 성공한 업로드만 활성화한다. | [문서 적재](../../chatbot/cohort_document_rag.py) |
+| DATA-02 | 공지 이미지 검색 | 이미지에서 추출한 텍스트를 본문·기수와 함께 검색 인덱스에 반영한다. | [공지 벡터](../../lms_api/lms/notice_vectors.py) |
+| STUDY-01 | 수업 노트 생성·재사용 | 선택한 수업 자료로 노트를 생성하고 동일 자료의 저장본을 재사용한다. | [공부방](../features/study-room.md) |
+| STUDY-02 | 복습 문제·연습장 | 수업·개인 문제를 구분하고 실행·채점·풀이 기록·문제 신고를 지원한다. 학생 응답에서 숨긴 테스트를 제외한다. | [문제 처리](../../lms_api/lms/practice_auto.py) |
+| TUTOR-01 | 단계별 코드 튜터 | 서버가 본인 풀이와 힌트 단계를 관리하며 대화를 다시 조회할 수 있다. 답안 노출 규칙을 적용한다. | [튜터](../features/code-tutor.md) |
+| JOB-01 | 자연어 공고 검색 | 직무·지역·경력 등 조건과 후속 질문을 반영하고 실제 저장된 공고로 답한다. | [채용공고](../features/job-postings.md) |
+| JOB-02 | 이력서 기반 공고 추천 | 필수 조건과 마감을 확인하고 추천 근거의 인용을 원문과 대조한다. | [추천 구현](../../job_matching_bot/api/service.py) |
+| RESUME-01 | 공고 맞춤 첨삭 | 저장된 이력서·선택 공고의 근거로 수정안을 만들고, 기본 이력서와 맞춤 사본을 구분한다. | [첨삭](../features/resume-review.md) |
+| RESUME-02 | 선택 적용·되돌리기 | 학생이 선택한 수정만 반영하며 버전·원문 충돌을 확인한다. | [적용·복원](../../cover_letter_rag/app/resume_apply.py) |
+| APPLY-01 | 지원 문항 작성 | 문항을 입력·추출·확인하고 검증된 경험을 근거로 초안을 작성한다. | [문항 처리](../../cover_letter_rag/app/question_workflow/) |
+| ADMIN-01 | 관리자 자연어 조회·제안 | 실제 운영 데이터로 답하고 알림·공지는 확인 카드로 제안한다. | [관리자 AI](../features/admin-assistant.md) |
+| ADMIN-02 | 실행 카드 검증 | 관리자가 실행할 때 서명·유효기간·사용자·기수·실행 대상을 다시 확인한다. | [실행 처리](../../lms_api/lms/admin_assistant.py) |
+| ARCHIVE-01 | 운영 기록 내보내기 | 출결 신청·설문·자리 점검·착석 확인의 선택 범위를 Excel·CSV·Word로 생성한다. PDF는 인쇄에서 저장한다. | [내보내기](../../lms_react/src/features/export/tableExport.ts) |
+| LMS-01 | 기수·공지·출결·제출 관리 | 사용자 역할에 맞는 목록·조회·처리 기능을 제공하고 중복 요청을 제한한다. | [업무 API](../../lms_api/lms/api.py) |
+| LMS-02 | 평가·기록실·마일리지 | 평가 응시·채점, 기록 승인, 마일리지 원장·구매 승인을 구분한다. | [데이터 모델](../../lms_api/lms/models.py) |
+| OPS-01 | 예약·후속 작업 | 공지·수업 동기화·복습 출제·첨삭 후속 작업의 상태와 실패를 처리한다. | [예약 작업](../../lms_api/lms/tasks.py) · [첨삭 작업](../../lms_api/lms/review_jobs.py) |
 
-### 출결
-- 고용24 비콘이 실제 출결 원천이다.
-- 프로젝트에서는 실시간 연동 대신 예시 출결 데이터를 사용한다.
-- `attendances`는 학생별 일일 최종 출결이다.
-- 출결 Google Form은 병가/휴가/지각 등 이슈 파악과 증빙 확인을 위한 별도 입력이다.
-- 출결 이슈와 최종 Attendance는 별도 엔터티다.
+## 데이터·품질 요구사항
 
-### 기록실
-- 실제 유형: certification / study / blog / study_cert / precourse_quiz.
-- 학생이 제출하고 관리자가 승인/반려한다.
-- 반려 후 재제출은 새 레코드로 생성한다.
-- 증빙 파일은 복수 첨부 가능하며 S3에 저장한다.
-- 승인된 기록은 마일리지 자동 적립 규칙의 입력이다.
+| ID | 요구사항 | 확인 기준 |
+| --- | --- | --- |
+| NFR-01 | 저장소 역할 분리 | PostgreSQL은 업무 원본, S3는 파일, Pinecone은 검색 인덱스, Redis는 큐·캐시를 담당한다. |
+| NFR-02 | 근거와 사실 보존 | 문서 속 지시를 따르지 않으며 원문에 없는 경험·수치·기술을 사실로 추가하지 않는다. |
+| NFR-03 | 상태·장애 처리 | 작업 진행·실패를 표시하고 정책 활성 전환, 첨삭 재개, 중복 발행 방지를 검증한다. |
+| NFR-04 | 데이터 변경 추적 | 스키마는 마이그레이션으로 관리하고 수집 원본·출처·기수·문서 식별 정보를 보존한다. |
+| NFR-05 | 배포 상태 구분 | 빌드 설정과 실제 AWS 배포·HTTPS 동작을 별도로 확인한다. |
+| NFR-06 | 검증 결과 기록 | 테스트 범위·일자·실행 환경을 기록하며 선별 테스트를 전체 통과로 해석하지 않는다. |
+| NFR-07 | 웹·모바일 통합 서비스 기반 | 3차 Flutter·Firebase 중심 로컬 구조를 4차 React 웹·Expo 모바일, Django API·FastAPI AI 기반으로 확장하고 AWS 배포 구성과 실제 운영 상태를 구분한다. [현행 아키텍처](../architecture/system-architecture.md) |
+| NFR-08 | 다양한 화면 크기 지원 | 좁은 화면에서는 주요 레이아웃을 단일 열로 재배치하고, 표·긴 콘텐츠는 가로 스크롤로 확인한다. [웹 레이아웃](../../lms_react/src/app/styles.css) · [공통 UI](../../lms_react/src/ui/ui.css) |
 
-### 성취도 평가
-- 강사가 생성/수정/발행/채점한다.
-- 관리자는 조회 중심이다.
-- 학생은 평가당 1회 응시한다.
-- 문항은 multiple_choice / short_answer.
-- 자동 점수와 강사 확정 점수를 분리한다.
-- 단답형 표현 차이로 오답 처리된 경우 강사가 정정 가능하다.
-- 학생은 제출 직후 결과/정답/해설을 확인한다.
-- AI는 커리큘럼 기반 문제 초안을 만들고 강사가 검수 후 발행한다.
-- 응시자가 없는 평가는 삭제 가능하며, 응시 이력이 있으면 폐기/비공개를 우선한다.
+## 검증 범위
 
-### 복습 문제 / 파이썬 연습장
-- 기수와 수업 날짜별로 복습 문제 세트를 생성한다.
-- 문제 유형은 concept / code_output / code_blank / code_fix / code_write를 지원한다.
-- 학생별 문제 통과 여부, 누적 시도 횟수와 마지막 응답 시각을 관리한다.
-- 학생은 문제 오류를 신고할 수 있고, 강사는 숨김/유지 결정을 내릴 수 있다.
-- 수업 파일별 출제 범위를 보존해 다음 생성 작업이 새 범위부터 이어지도록 한다.
-- 문제 생성에 사용한 모델과 소스 파일을 추적한다.
-- hidden tests와 reference solution은 학생용 API 응답에 포함하지 않는다.
-- 학생이 제출한 코드는 Django/Celery 애플리케이션 프로세스에서 직접 실행하지 않고 격리된 실행 환경에서 채점한다.
-
-### 마일리지
-- `mileage_transactions`가 원장이다.
-- 구매 요청 시에는 차감하지 않고 관리자 승인 시 차감한다.
-- 승인 후 환불/회수는 원거래 수정 대신 반대 거래를 생성한다.
-- 관리자 수동 지급/차감이 가능하다.
-- 상품 분류: gifticon / book / online_course.
-- 가격 방식: fixed / variable.
-- variable 상품은 실제 가격과 구매 링크를 학생이 입력한다.
-- 종강 2주 후 남은 마일리지는 소멸 거래로 처리한다.
-- 기수별 카테고리 한도 및 적립 규칙을 관리한다.
-
-## 2. Career / Resume
-
-### 이력서
-- 학생은 하나 이상의 이력서를 작성할 수 있다.
-- 기본 이력서(`is_base_resume`)를 지정할 수 있다.
-- 공고 맞춤 이력서는 자신이 파생된 기본 이력서를 `base_resume_id`로 참조한다.
-- 공고 맞춤 이력서는 대상 채용공고를 `linked_job_id`로 참조한다.
-- 기본 이력서가 삭제되어도 맞춤 이력서와 당시 작성 내용은 보존하고 파생 연결만 해제한다.
-- 이력서는 기본정보, 핵심역량, 경력, 학력, 기술스택, 자격증, 수상, 교육, 활동, 프로젝트, 자기소개서 등 구조화된 섹션을 가진다.
-- 이력서 화면은 문서 단위 편집 비중이 높으므로 본문은 `content JSONB`를 유지한다.
-- Legacy `sections JSONB`는 폐기하지 않고 `content.section_status`에 병합한다.
-- 강사/관리자는 학생 이력서를 조회하고 섹션 단위 피드백을 남길 수 있다.
-- 저장 시 revision snapshot을 남길 수 있다.
-- 표시용 `user_display_name`, `author_name`은 관계형 원본에 중복 저장하지 않는 것을 기본으로 한다.
-
-### Skill
-- Career AI와 채용공고 매칭에서 기술은 검색/집계/그래프 연결의 핵심 축이므로 `users.skills text[]`를 최종 구조로 사용하지 않는다.
-- `skills` 마스터와 `user_skills` 관계 테이블을 둔다.
-- 학생 기술은 출처(source)와 숙련도/근거를 확장할 수 있어야 한다.
-- 프로젝트 기술과 채용공고 요구 기술도 동일 Skill ID를 참조할 수 있도록 설계한다.
-
-### Job Preference
-- 한 학생당 현재 취업 선호 설정 하나를 둔다.
-- 희망 직무/지역/고용형태/기업 조건 등은 변경 가능성이 높으므로 `user_job_preferences.preferences JSONB`를 허용한다.
-- 매칭에 자주 쓰이는 핵심 속성이 생기면 이후 컬럼으로 승격한다.
-
-### Career AI
-- PostgreSQL이 학생/이력서/프로젝트/Skill/채용공고 분석 결과의 원본이다.
-- Pinecone은 의미 검색 후보 추출용이다.
-- Neo4j는 Student-Experience-Project-Skill-Job-Company 관계 탐색과 설명 가능한 추천에 사용한다.
-- AI가 생성한 문장은 근거가 존재하는 경험만 사용해야 한다.
-- 근거가 부족하면 사실을 만들지 않고 확인 질문 또는 gap으로 남긴다.
-- `job_requirement_profiles`, `resume_ai_reviews`, `resume_ai_applications`는 PostgreSQL에 유지한다.
-
-## 3. 재사용 우선 도메인
-다음은 `feature/test` 관계형 구조를 우선 재사용한다.
-
-- 공지: notices / scheduled_notices / alert_popups / alert_popup_dismissals
-- 커리큘럼: schedules / curriculum_pdfs / curriculum_sheets / curriculum_rows / materials
-- 프로젝트 팀: project_teams / project_team_members
-- 학습실: inflearn_packages / youtube_recommendations / recommendation_events / study_sources / study_notes
-- AI 운영 로그: ai_generation_logs / ai_question_feedback / ai_eval_runs
-- 사용자 보조: todos / student_intakes / system_cache
-
-### 제외
-- posts / post_comments: 현재 운영 데이터 0건이므로 우선 제외
-- qna_threads / qna_messages: 현재 운영 데이터 0건이므로 우선 제외
-- youtube_curriculum_cache: Redis 사용
-
-## 4. 저장소 역할
-- PostgreSQL: canonical source of truth
-- S3: 파일 바이트
-- Redis: Cache / Celery broker / 임시 데이터
-- Pinecone: vector retrieval index
-- Neo4j: Career graph projection
+인수 기준은 [통합 테스트 시나리오](../deliverables/test-plan-results.md#42-통합-테스트-시나리오---계획)와 연결한다. 실제 LLM·클라우드 연동, 모바일 기기 동작과 운영 배포 완료는 별도 확인 대상이다.

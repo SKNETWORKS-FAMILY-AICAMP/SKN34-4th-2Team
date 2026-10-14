@@ -4,6 +4,7 @@ import { updateResume, useResume } from '../../data/repository';
 import type { ResumeCompanyQuestion, ResumeContent } from '../../domain/types';
 import { Icon } from '../../ui/Icon';
 import { Button, TextArea } from '../../ui/components';
+import { AutoTextarea } from '../resume/ResumeSections';
 import { reviewApi, type Json } from '../resume/review/reviewApi';
 
 /**
@@ -152,9 +153,11 @@ export interface WritingStatus {
   label: string;
 }
 
-export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus }: {
+export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus, onJobClosed }: {
   resumeId: string; tailoredId: string; editId: string;
   onStatus?(status: WritingStatus): void;
+  /** 공고가 마감됐다고 서버가 알려 줄 때 — 쓰기 창이 맨 위에 안내를 띄운다 */
+  onJobClosed?(): void;
 }) {
   const resume = useResume(editId);
   /** 가장 최근 본문 — 여러 칸이 연달아 저장할 때 서로의 변경을 덮지 않도록 여기에 이어 쓴다(QuestionAnswers 와 같은 까닭) */
@@ -221,6 +224,7 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
     })) }));
     setResults((r) => ({ ...r, ...next }));
     if (data.plan !== undefined && data.plan !== null) setPlan(data.plan as Json);
+    if (data.job_closed === true) onJobClosed?.();
     return next;
   };
 
@@ -370,7 +374,8 @@ export function QuestionWorkflowAnswers({ resumeId, tailoredId, editId, onStatus
                 onBlur={() => { if (memoOf(q) !== (q.memo ?? '')) void persist({ [q.id]: { memo: memoOf(q) } }).catch(() => undefined); }} />
             </div>
 
-            <TextArea rows={7} value={text} aria-label={`문항 ${i + 1} 답변`} placeholder="AI 초안을 받거나 직접 써 보세요."
+            {/* 이력서 칸처럼 글만큼 늘어난다 — 긴 답도 안쪽 스크롤 없이 한눈에(7줄은 기본 높이) */}
+            <AutoTextarea rows={7} value={text} aria-label={`문항 ${i + 1} 답변`} placeholder="AI 초안을 받거나 직접 써 보세요."
               onChange={(e) => {
                 setTexts((t) => ({ ...t, [q.id]: e.target.value }));
                 setSaved((s) => ({ ...s, [q.id]: 'idle' }));
