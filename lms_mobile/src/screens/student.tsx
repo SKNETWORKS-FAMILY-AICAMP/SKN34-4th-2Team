@@ -1792,43 +1792,7 @@ export function SettingsPage() {
   );
 }
 
-export function MyPage() {
-  const { user } = useSession();
-  const [motto, setMotto] = useState(user?.motto ?? '');
-  const [roles, setRoles] = useState(user?.jobPreferences.targetRoles.join(', ') ?? '');
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
-  return (
-    <Screen title="마이페이지">
-      <Card style={{ alignItems: 'center', gap: 8, paddingVertical: 24 }}>
-        <Avatar name={user?.displayName} size={72} />
-        <T variant="title">{user?.displayName}</T>
-        <T variant="caption" tone="secondary">{user?.email}</T>
-        {user?.cohortName ? <Badge label={user.cohortName} tone="primary" /> : null}
-      </Card>
-      <Card style={{ gap: 14 }}>
-        <Field label="좌우명" value={motto} onChangeText={setMotto} placeholder="나를 표현하는 한 줄" />
-        <Field label="희망 직무 (쉼표로 구분)" value={roles} onChangeText={setRoles} placeholder="백엔드, 데이터 엔지니어" />
-        {message ? <T variant="caption" tone={message.ok ? 'success' : 'error'}>{message.text}</T> : null}
-        <Btn
-          label="저장"
-          icon="check"
-          onPress={() => {
-            if (!user) return;
-            void import('../data/people')
-              .then(({ updateProfile }) =>
-                updateProfile(user.uid, {
-                  motto,
-                  jobPreferences: { ...user.jobPreferences, targetRoles: roles.split(',').map((item) => item.trim()).filter(Boolean) },
-                }),
-              )
-              .then(() => setMessage({ ok: true, text: '저장했습니다.' }))
-              .catch((error: unknown) => setMessage({ ok: false, text: error instanceof Error ? error.message : '저장하지 못했습니다.' }));
-          }}
-        />
-      </Card>
-    </Screen>
-  );
-}
+export { MyPage } from './mypage';
 
 function topicParticle(word: string): string {
   const code = word.charCodeAt(word.length - 1);
