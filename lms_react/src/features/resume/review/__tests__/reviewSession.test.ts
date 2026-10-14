@@ -731,3 +731,21 @@ describe('수정안에서 바뀐 글자만 굵게', () => {
     expect(changedRevisionSpans('같음', '같음')).toEqual([{ text: '같음', changed: false }]);
   });
 });
+
+it('완료 저장 실패는 창을 유지하고 재시도 성공 후에만 닫는다', async () => {
+ const {session,closed,detach}=makeSession();
+ session.result={...firstReview,questions:[],sentence_reviews:[]};
+ session.tailoredResumeId='tailored_1';
+ (session as unknown as {retryableReview: boolean}).retryableReview = true;
+ api.saveSession.mockRejectedValueOnce(new Error('save unavailable'));
+ api.promote.mockResolvedValue('promoted');
+ await session.completeReview();
+ expect(api.saveSession).toHaveBeenCalled();
+ expect(closed).toHaveLength(0);
+ expect(session.error).toContain('저장하지 못했어요');
+ expect(api.promote).not.toHaveBeenCalled();
+ api.saveSession.mockResolvedValue(undefined);
+ await session.completeReview();
+ expect(closed).toEqual(['promoted']);
+ detach();
+});

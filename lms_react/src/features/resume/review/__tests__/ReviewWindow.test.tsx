@@ -440,3 +440,18 @@ describe('첨삭 창', () => {
     expect(text()).toContain('남은 질문 약 1개');
   });
 });
+
+it('하단 완료 버튼도 미저장 답변 확인 취소 시 내용을 보존한다', async () => {
+ const saved = {version:1,resume_id:'r1',job_id:'JOB-1',result:{...review,questions:[],sentence_reviews:[],telemetry:{answer_edit_supported:true},confirmed_answers:[{question_id:'old',question:'Experience?',answer:'Stored answer'}]},messages:[],question_queue:[],suggestion_queue:[],gap_audit_started:true,gap_audit_finished:true};
+ act(()=>root.render(<MemoryRouter><ReviewDockHost><Opener saved={saved} /></ReviewDockHost></MemoryRouter>));
+ await settle();
+ act(()=>button('답변 수정')!.click());
+ const input=document.querySelector('[aria-label="수정할 답변"]') as HTMLTextAreaElement;
+ act(()=>{Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')!.set!.call(input,'Unsaved answer');input.dispatchEvent(new Event('input',{bubbles:true}));});
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+ const finish=document.querySelector('.rv-done > button') as HTMLButtonElement;
+ expect(finish).not.toBeNull();
+ await act(async()=>finish.click());await settle();
+ expect(document.querySelector('.rv-window')).not.toBeNull();
+ confirm.mockRestore();
+});
