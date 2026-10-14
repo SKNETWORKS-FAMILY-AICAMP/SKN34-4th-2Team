@@ -27,6 +27,28 @@ class AttendanceGuidanceTests(TestCase):
         self.assertEqual(e['additional_normal_attendance_days_needed'],1)
         self.assertEqual(e['unrecorded_future_days'],3)
 
+    def test_target_already_reached_without_claiming_final_payment(self):
+        e = self.estimate(['absent']*2+['present']*15,today_offset=16)
+        self.assertEqual(e['recorded_scheduled_days'],17)
+        self.assertEqual(e['recognized_attendance_days'],15)
+        self.assertEqual(e['attendance_rate'],88.2)
+        self.assertEqual(e['full_period_required_recognized_days'],15)
+        self.assertEqual(e['additional_normal_attendance_days_needed'],0)
+        self.assertTrue(e['reachable_with_future_normal_attendance'])
+        self.assertTrue(e['is_provisional'])
+
+    def test_answer_policy_separates_zero_unknown_and_unreachable(self):
+        # Contract test only: actual natural-language compliance needs live review.
+        from chatbot.student_chatbot import ANSWER_PROMPT
+        self.assertIn('additional_normal_attendance_days_needed가 0', ANSWER_PROMPT)
+        self.assertIn('이미 도달', ANSWER_PROMPT)
+        self.assertIn('null이나 도달 불가 상태를 이미 도달로 바꾸지 않는다', ANSWER_PROMPT)
+        self.assertIn('실제 심사 진행 여부를 나타내지 않는다', ANSWER_PROMPT)
+        self.assertIn('장려금·수당·지급 여부를 묻는 경우에만', ANSWER_PROMPT)
+        self.assertIn('테스트용·미승인 자료의 구체적 제한은 유지', ANSWER_PROMPT)
+        self.assertNotIn('기간이 아직 검토 중이라는 사실', ANSWER_PROMPT)
+        self.assertNotIn('계산 기준도 검토 중이라는 사실', ANSWER_PROMPT)
+
     def test_new_late_day_adds_record_and_absence_conversion(self):
         e = self.estimate(['late']*6+['present']*8+['officialLeave'],today_offset=14)
         self.assertEqual(e['absence_equivalent_days'],2)
