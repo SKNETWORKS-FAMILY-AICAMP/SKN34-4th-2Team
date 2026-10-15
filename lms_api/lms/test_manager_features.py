@@ -1,6 +1,7 @@
 """불시 점검 · 지정 알림 · 출결 신청 · 관리자 AI 어시스턴트 — DB 없이 도는 검사."""
 
 import json
+import sqlite3
 from datetime import date
 from types import SimpleNamespace
 from unittest import TestCase
@@ -18,7 +19,7 @@ from lms.attendance_requests import (
     public_request,
     resulting_status,
 )
-from lms.manager_commands import op_save_presence_check, set_alert_targets
+from lms.manager_commands import op_delete_presence_check, op_save_presence_check, set_alert_targets
 
 STAFF = {"id": 4, "role": "admin", "cohort_id": 2, "is_active": True, "display_name": "매니저"}
 
@@ -73,6 +74,76 @@ class PresenceCheckTests(TestCase):
     def test_student_cannot_save(self):
         with self.assertRaises(PermissionError):
             op_save_presence_check(Mock(), {"id": 1, "role": "student"}, {})
+
+
+class PresenceCheckMutationTests(TestCase):
+    """실제 PK 스키마로 조회 SQL을 실행해 legacy_id 회귀를 검출한다."""
+
+    def setUp(self):
+        self.db = sqlite3.connect(":memory:")
+        self.addCleanup(self.db.close)
+        self.db.execute("CREATE TABLE presence_checks (id INTEGER PRIMARY KEY, cohort_id INTEGER)")
+        self.db.execute("INSERT INTO presence_checks VALUES (31, 2)")
+        self.cur = Mock()
+        self.cur.fetchall.return_value = [("uid-a", 8)]
+
+        def execute(sql, args):
+            if sql.startswith("SELECT") and "FROM presence_checks" in sql:
+                result = self.db.execute(sql.replace("%s", "?"), args)
+                self.cur.fetchone.return_value = result.fetchone()
+                self.cur.description = result.description
+
+        self.cur.execute.side_effect = execute
+        self.payload = {
+            "id": "31", "cohortId": "cohort_34", "checkedAt": "2026-10-15T10:09:00+09:00",
+            "items": [{"userId": "uid-a", "state": "absent", "reason": "병원"}],
+        }
+
+    @patch("lms.manager_commands.resolve_cohort", return_value=2)
+    def test_edit_existing_check_replaces_items(self, _cohort):
+        self.assertEqual(op_save_presence_check(self.cur, STAFF, self.payload), {"id": "31"})
+        calls = self.cur.execute.call_args_list
+        update = next(c for c in calls if "UPDATE presence_checks" in c.args[0])
+        self.assertEqual(update.args[1][-1], 31)
+        self.assertTrue(any("DELETE FROM presence_check_items" in c.args[0] for c in calls))
+        self.assertEqual(calls[-1].args[1], [31, 8, "absent", "병원"])
+        self.assertFalse(any("INSERT INTO presence_checks " in c.args[0] for c in calls))
+
+    def test_delete_existing_check_removes_items_then_header(self):
+        self.assertEqual(op_delete_presence_check(self.cur, STAFF, {"id": "31"}), {"ok": True})
+        calls = self.cur.execute.call_args_list
+        self.assertEqual(calls[-2].args, ("DELETE FROM presence_check_items WHERE presence_check_id = %s", [31]))
+        self.assertEqual(calls[-1].args, ("DELETE FROM presence_checks WHERE id = %s", [31]))
+
+    @patch("lms.manager_commands.resolve_cohort", return_value=2)
+    def test_edit_cannot_move_check_from_other_cohort(self, _cohort):
+        self.db.execute("UPDATE presence_checks SET cohort_id = 3")
+        with self.assertRaises(PermissionError):
+            op_save_presence_check(self.cur, STAFF, self.payload)
+        self.assertFalse(any("DELETE" in c.args[0] or "UPDATE" in c.args[0] for c in self.cur.execute.call_args_list))
+
+    def test_instructor_cannot_delete_other_cohort(self):
+        with self.assertRaises(PermissionError):
+            op_delete_presence_check(self.cur, {**STAFF, "role": "instructor", "cohort_id": 3}, {"id": "31"})
+        self.assertEqual(self.cur.execute.call_count, 1)
+
+    def test_student_cannot_delete(self):
+        with self.assertRaises(PermissionError):
+            op_delete_presence_check(self.cur, {**STAFF, "role": "student"}, {"id": "31"})
+        self.cur.execute.assert_not_called()
+
+    @patch("lms.manager_commands.resolve_cohort", return_value=2)
+    def test_missing_check_edit_fails_and_delete_is_idempotent(self, _cohort):
+        with self.assertRaises(KeyError):
+            op_save_presence_check(self.cur, STAFF, {**self.payload, "id": "99"})
+        self.assertEqual(op_delete_presence_check(self.cur, STAFF, {"id": "99"}), {"ok": True})
+        self.assertFalse(any("DELETE" in c.args[0] for c in self.cur.execute.call_args_list))
+
+    def test_invalid_ids_fail_before_sql(self):
+        for value in (None, "bad", 0, -1, 1.5, True, str(2 ** 63)):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                op_delete_presence_check(self.cur, STAFF, {"id": value})
+        self.cur.execute.assert_not_called()
 
 
 class AlertTargetTests(TestCase):
