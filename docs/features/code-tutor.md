@@ -62,4 +62,6 @@ flowchart TD
 - [튜터 화면](../../lms_react/src/features/practice/TutorPanel.tsx)
 - [Django API](../../lms_api/lms/api.py)
 
+[테스트 계획 및 결과](../reports/test_report_code_tutor.md)
+
 [README로 돌아가기](../../README.md#features)

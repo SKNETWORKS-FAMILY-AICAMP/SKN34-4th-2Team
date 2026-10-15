@@ -78,4 +78,6 @@ flowchart TD
 - [지원 문항 계획·작성](../../cover_letter_rag/app/question_workflow/)
 - [Django API](../../lms_api/lms/api.py)
 
+[테스트 계획 및 결과](../reports/test_report_resume_review.md)
+
 [README로 돌아가기](../../README.md#features)

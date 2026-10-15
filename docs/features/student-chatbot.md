@@ -74,4 +74,6 @@ flowchart TD
 - [정책 구조·청킹](../../vectordb/policy_ingestion.py) · [공지 이미지 추출·벡터 동기화](../../lms_api/lms/notice_vectors.py)
 - [Django API](../../lms_api/lms/api.py)
 
+[테스트 계획 및 결과](../reports/test_report_student_chatbot.md)
+
 [README로 돌아가기](../../README.md#features)
