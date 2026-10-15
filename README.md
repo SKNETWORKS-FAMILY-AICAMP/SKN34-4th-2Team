@@ -348,7 +348,7 @@ React 웹·Expo 앱의 요청은 Django에서 인증·권한을 확인한 뒤 �
 | FastAPI | 학생 챗봇·채용 추천·첨삭·학습 AI를 하나의 서비스로 제공한다. |
 | PostgreSQL·S3·Pinecone | 각각 업무 원본, 파일, 의미 검색 인덱스를 저장한다. |
 | Redis·Celery | 작업 큐·결과·캐시, 예약 공지·동기화·복습 출제·첨삭 후속 작업을 처리한다. |
-| GitHub Actions | 웹 테스트·빌드와 API·AI 컨테이너 이미지 빌드를 수행하도록 구성한다. |
+| GitHub Actions | 코드 변경 시 테스트·이미지 빌드를 검증하고, main에서는 ECR → EC2(API·AI) → S3·CloudFront(웹) 순서로 자동 배포한다. 상태 확인과 실패 시 복구 절차를 포함한다. 문서만 변경한 경우 변경 분류 검사만 실행한다. |
 
 [서비스 경계·포트·데이터 흐름 상세](docs/architecture/system-architecture.md)
 
@@ -530,6 +530,31 @@ S3에 원본 파일을 저장하고 PostgreSQL에는 객체 키를 기록한다.
 
 학생 챗봇의 추가 조회 범위, 채용 회귀의 기대 계약, 관리자 학생 입력 필터를 후속 검토 대상으로 기록한다. 추천의 사람 적합도, 브라우저 전체 흐름, AWS 배포·Expo 실기기는 미검증이다. [종합 보고서·PDF](docs/deliverables/test-plan-results.md)에서 실행 근거와 한계를 확인한다.
 
+### 후속 회귀 검증 및 배포 확인
+
+위 표는 10월 14일 AI 평가 당시의 기록이다. 이후 확인한 결과는 범위를 구분해 별도로 기록한다.
+
+| 확인일 | 대상 | 결과·근거 | 확인 범위 |
+| --- | --- | --- | --- |
+| 2026-10-15 | 불시 점검·관리자 기능 | 관련 테스트 77개 통과 · [PR #83](https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN34-4th-2Team/pull/83) | 수정·삭제 ID 조회, 기수별 권한 등. 운영 출석 기록을 수정·삭제한 검증은 아니다. |
+| 2026-10-15 | 학습실·연습장 | React 테스트 98개 및 프로덕션 빌드 통과 · [PR #83](https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN34-4th-2Team/pull/83) | 튜터 기본 열기·접기·문제 이동, 풀이 상태 유지 등. 실제 모델 품질 평가와 구분한다. |
+| 2026-10-15 | AWS 자동 배포 | main `785f874` 검증·배포 성공 · [실행 결과](https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN34-4th-2Team/actions/runs/38667962775) | 웹·API·AI 배포 및 배포 스크립트의 상태 확인. 전체 사용자 시나리오와 모바일 실기기 검증을 대체하지 않는다. |
+
+### 대표 사용자 테스트 시나리오
+
+| 시나리오 | 입력·조작 | 기대 결과 | 검증 근거 |
+| --- | --- | --- | --- |
+| 불시 점검 수정·삭제 | 기존 점검 ID로 학생 상태 수정 또는 삭제 요청 | 같은 점검을 갱신·삭제하고, 권한 없는 기수의 요청은 거절한다. | [관리자 기능 테스트](lms_api/lms/test_manager_features.py), 합성 데이터 기반 |
+| 복습 중 튜터 접기 | 복습 진입 → AI 튜터 버튼 → 다음 문제 → AI 튜터 버튼 | 처음에는 열리고, 접은 뒤 문제 이동에도 접힘을 유지한다. 다시 열면 현재 문제를 안내한다. | [집중형 복습 테스트](lms_react/src/features/practice/__tests__/focusedPractice.test.tsx), 화면 컴포넌트 기반 |
+| 첨삭 내용 보호 | 미저장 답변 작성 → 닫기 → 취소 / 종료 중 저장 실패 | 취소 시 작성 내용을 유지하고, 저장 실패 시 창을 닫거나 완료 처리하지 않는다. | [닫기 확인 PR #74](https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN34-4th-2Team/pull/74) · [종료 저장 PR #75](https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN34-4th-2Team/pull/75) |
+
+### 향후 개선 계획
+
+- **AI 평가 보완:** 기존 보고서의 실패·오류 케이스를 재현하고, 기대값 변경과 실제 기능 결함을 구분해 회귀 검증한다. 추천 적합도와 답변의 사실성을 사람 평가로 보완한다.
+- **사용자 흐름 자동 검증:** 로그인부터 첨삭 저장·재열기, 출결 처리까지 브라우저 E2E 테스트를 추가하고, 모바일 실기기와 키보드·좁은 화면 접근성을 확인한다.
+- **응답 시간·비용 측정:** 기능별 처리 시간·실패율·토큰 사용량을 같은 조건에서 측정해 캐시·검색·생성 단계의 개선 우선순위를 정한다. 측정하지 않은 성능 향상 수치는 제시하지 않는다.
+- **운영 검증 확대:** 격리 환경에서 저장 실패·작업 지연·배포 복구 시나리오를 검증하고, 서비스 상태를 확인할 수 있는 지표와 알림을 보완한다.
+
 ---
 
 ## 17. 필수 산출물 위치
@@ -538,7 +563,7 @@ S3에 원본 파일을 저장하고 PostgreSQL에는 객체 키를 기록한다.
 | --- | --- |
 | 요구사항 정의서 | [양식 기반 Excel](docs/deliverables/requirements.xlsx) · [요구사항·구현 근거](docs/requirements/requirements.md) |
 | 화면설계서 | [PDF](docs/deliverables/screen-design.pdf) · [화면별 동작·경로](docs/deliverables/screen-design.md) |
-| 개발된 LLM 연동 웹 애플리케이션 | [React 웹](lms_react/) · [Django API](lms_api/) · [통합 AI](cover_letter_rag/app/integrated.py) · [Expo 앱](lms_expo/) · [실행방법](#22-실행-방법) |
+| 개발된 LLM 연동 웹 애플리케이션 | [React 웹](lms_react/) · [Django API](lms_api/) · [통합 AI](cover_letter_rag/app/integrated.py) · [Expo 앱](lms_mobile/) · [실행방법](#22-실행-방법) |
 | 시스템 구성도 | [전체 아키텍처 이미지](assets/readme_image/system_architecture_readme.png) · [서비스·데이터 흐름 상세](docs/architecture/system-architecture.md) |
 | 테스트 계획 및 결과 보고서 | [PDF](docs/deliverables/test-plan-results.pdf) · [보고서 원문](docs/deliverables/test-plan-results.md) |
 
@@ -550,7 +575,26 @@ S3에 원본 파일을 저장하고 PostgreSQL에는 객체 키를 기록한다.
 
 ## 18. 트러블슈팅
 
+### 불시 점검 수정·삭제 시 500 오류
 
+- **문제:** 새 점검은 등록되지만 점검 이력의 수정·삭제 요청이 500 오류로 실패했다.
+- **원인:** 공통 조회 함수가 먼저 `legacy_id`를 조회했으나, `presence_checks` 테이블에는 해당 컬럼이 없었다.
+- **해결:** 점검 전용 조회에서 숫자 기본 키 `id`를 사용하도록 변경하고, 잘못된 ID와 기수별 접근 권한을 검증했다. DB 스키마와 운영 기록은 변경하지 않았다.
+- **검증:** 실제 조회 컬럼을 가진 메모리 DB로 SQL을 검사하고 수정·삭제·권한 회귀 테스트를 추가했다. 관련 관리자 기능 테스트 77개가 통과했다. [PR #83](https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN34-4th-2Team/pull/83)
+
+### 자소서 창의 공고 요건 패널 중복 표시
+
+- **문제:** 문항 전환 등 화면 상태가 바뀔 때 상단의 공고 요건 패널이 여러 개로 누적됐다.
+- **원인:** 형제 컴포넌트가 같은 React `key`를 사용해 컴포넌트 구분이 충돌했다.
+- **해결:** 형제 컴포넌트별로 서로 다른 `key`를 부여했다. 공고 요건 캐시나 백엔드는 이 수정에 포함하지 않았다.
+- **검증:** 반복 전환·최소화 후 재열기·상태 변경에도 패널이 하나만 남는 테스트를 추가했다. 관련 테스트 15개와 타입 검사를 통과했다. [PR #72](https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN34-4th-2Team/pull/72)
+
+### 첨삭 종료 시 미저장 내용 보호
+
+- **문제:** 미저장 내용이 있는 종료 경로와 저장 요청 실패 상황에서도 사용자가 작업을 끝낸 것으로 오해할 수 있었다.
+- **원인:** 일부 완료 버튼이 공통 닫기 확인을 거치지 않았고, 세션 저장 실패를 흡수한 뒤 완료 처리를 이어가는 경로가 있었다.
+- **해결:** 미저장 내용이 있을 때 닫기 확인을 적용하고 취소하면 편집 상태를 유지했다. 이력서 첨삭 완료 처리에서는 세션 저장 성공을 확인한 후 종료하며, 실패 시 오류를 알리고 다시 시도할 수 있게 했다.
+- **검증:** 닫기 취소·완료 경로·저장 실패의 회귀 테스트를 추가했다. [PR #74](https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN34-4th-2Team/pull/74) · [PR #75](https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN34-4th-2Team/pull/75)
 
 ---
 
@@ -559,11 +603,13 @@ S3에 원본 파일을 저장하고 PostgreSQL에는 객체 키를 기록한다.
 | 구분 | 협업 기준 |
 | --- | --- |
 |작&#8288;업&nbsp;관&#8288;리| GitHub 이슈에 기능 범위와 확인할 결과를 기록하고 프로젝트 보드로 진행 상태를 관리한다. |
-|G&#8288;i&#8288;t&#8288;H&#8288;u&#8288;b&nbsp;F&#8288;l&#8288;o&#8288;w| 이슈를 등록하고 `develop`에서 기능·수정 브랜치를 만들어 작업한다. 변경 사항은 PR로 공유해 리뷰 후 `develop`에 병합하며, `main`은 배포 workflow의 기준으로 관리한다. |
+|브랜치·배포 흐름| 이슈를 등록하고 `develop`에서 기능·수정 브랜치를 만들어 작업한다. 변경 사항은 PR로 공유해 리뷰 후 `develop`에 통합하고, 검증한 내용을 `main`에 병합해 자동 배포한다. 문서만 바뀌면 앱 빌드·배포는 생략하고, 수동 실행은 전체 검증을 수행한다. |
 |P&#8288;R| 관련 이슈, 변경 내용, 검증 결과를 남기고 리뷰 후 병합한다. |
 |데&#8288;이&#8288;터&#8288;·&#8288;A&#8288;P&#8288;I| 모델·마이그레이션·응답 형식이 바뀌면 소비하는 웹·AI 코드와 문서를 함께 확인한다. |
 |환&#8288;경&nbsp;설&#8288;정| `.env.example`에 필요한 키를 공유하고 실제 비밀값은 각 실행 환경에 별도로 설정한다. |
 |문&#8288;서| 기능 명세는 `docs/features/`, 검증 기록은 `docs/validation/`에 모으고 README에서 연결한다. |
+
+실제 협업 사례: [점검 오류·튜터 수정의 develop 통합 #83](https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN34-4th-2Team/pull/83) → [main 배포 PR #84](https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN34-4th-2Team/pull/84). 배포 순서·권한·실패 복구와 문서 변경 분기는 [CI/CD 운영 문서](deploy/CI-CD.md)를 따른다.
 
 ---
 
