@@ -1,9 +1,9 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Children, Fragment, isValidElement, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from 'react';
+import { Children, Fragment, isValidElement, useEffect, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   Pressable,
   RefreshControl,
@@ -16,7 +16,7 @@ import {
   type TextStyle,
   type ViewStyle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { elevation, hit, radius, typography, type TypeVariant } from '../theme/tokens';
 import { useTheme } from '../theme/Theme';
@@ -98,6 +98,37 @@ export function goBack() {
   else router.replace('/');
 }
 
+/**
+ * 키보드가 이 View 아래쪽을 얼마나 덮는지 — 화면(창) 좌표로 직접 잰다.
+ * RN 의 KeyboardAvoidingView 는 부모 기준 위치로 계산해서 상단 안전 영역(노치)만큼 덜 올려,
+ * 채팅 맨 아래가 키보드에 가려졌다. 안드로이드는 창이 줄어들면 덮는 높이가 0 으로 나와 두 번 올리지 않는다.
+ */
+function useKeyboardOverlap(ref: RefObject<View | null>): number {
+  const [overlap, setOverlap] = useState(0);
+  useEffect(() => {
+    const ios = Platform.OS === 'ios';
+    const show = Keyboard.addListener(ios ? 'keyboardWillChangeFrame' : 'keyboardDidShow', (event) => {
+      const keyboardTop = event.endCoordinates.screenY;
+      const node = ref.current;
+      if (!node) return;
+      node.measureInWindow((_x, y, _w, height) => {
+        const next = Math.max(0, Math.round(y + height - keyboardTop));
+        if (ios && event.duration) Keyboard.scheduleLayoutAnimation(event);
+        setOverlap(next);
+      });
+    });
+    const hide = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', (event) => {
+      if (ios && event.duration) Keyboard.scheduleLayoutAnimation(event);
+      setOverlap(0);
+    });
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [ref]);
+  return overlap;
+}
+
 export function Screen({
   title,
   loading,
@@ -139,6 +170,10 @@ export function Screen({
   const ownScrollRef = useRef<ScrollView>(null);
   const scrollRef = externalScrollRef ?? ownScrollRef;
   const [pulling, setPulling] = useState(false);
+  const bodyRef = useRef<View>(null);
+  const insets = useSafeAreaInsets();
+  // 입력줄(Composer)이 아래 안전 영역만큼 스스로 띄우므로 그만큼은 빼고 올린다
+  const keyboardPad = Math.max(0, useKeyboardOverlap(bodyRef) - insets.bottom);
   const narrow = TABLET_MAX_WIDTH !== null && !fullWidth ? { width: '100%' as const, maxWidth: TABLET_MAX_WIDTH, alignSelf: 'center' as const } : null;
   const pull = onRefresh
     ? () => {
@@ -169,7 +204,7 @@ export function Screen({
           {right}
         </View>
       )}
-      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View ref={bodyRef} style={[styles.fill, { paddingBottom: keyboardPad }]}>
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator color={palette.primary} />
@@ -185,7 +220,9 @@ export function Screen({
           <ScrollView
             ref={scrollRef}
             onContentSizeChange={stickToBottom ? () => scrollRef.current?.scrollToEnd({ animated: true }) : undefined}
-            contentContainerStyle={[styles.body, narrow]}
+            // 키보드가 올라와 보이는 칸이 줄면 맨 아래 대화가 보이게 다시 내린다
+            onLayout={stickToBottom ? () => scrollRef.current?.scrollToEnd({ animated: true }) : undefined}
+            contentContainerStyle={[styles.body, stickToBottom && styles.chatBody, narrow]}
             keyboardShouldPersistTaps="handled"
             refreshControl={
               pull ? (
@@ -197,7 +234,7 @@ export function Screen({
           </ScrollView>
         )}
         {footer}
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -680,6 +717,8 @@ const styles = StyleSheet.create({
   title: { flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '700' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
   body: { padding: 16, gap: 12, paddingBottom: 96 },
+  /** 채팅은 떠 있는 버튼이 없으니 마지막 말풍선 아래를 비우지 않는다 */
+  chatBody: { paddingBottom: 16 },
   card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius, padding: 16, gap: 4 },
   flush: { padding: 0, gap: 0, overflow: 'hidden' },
   divider: { height: StyleSheet.hairlineWidth, marginLeft: 16 },
