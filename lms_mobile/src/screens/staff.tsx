@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
 import { RoutePaths } from '@web/app/routePaths';
 import { ClassPeriods, currentPeriod, nearestPeriod } from '@web/domain/constants';
@@ -499,13 +499,34 @@ function useCohortRoll() {
   const published = room !== undefined && assignment?.status === 'published';
   // 호명은 이름 차례대로. 좌석 순서로 부르면 옆자리가 비었을 때 헷갈린다.
   const roll = [...students].sort((a, b) => a.displayName.localeCompare(b.displayName, 'ko'));
+  // 좌석 배치에 적힌 학생 id 가 지금 학생 목록과 맞지 않으면(예전 id 로 저장된 배치) 이름이 비고 칸을 눌러도 명단과 안 이어졌다.
+  // 그럴 땐 학생의 좌석 번호(seatNumber)와 칸 번호를 맞춰 학생을 찾는다.
+  const seatUserIds = useMemo(() => {
+    const known = new Set(students.map((row) => row.uid));
+    const bySeatNumber = new Map<string, string>(students.filter((row) => row.seatNumber != null).map((row) => [String(row.seatNumber), row.uid]));
+    const out: Record<string, string> = {};
+    for (const cell of room?.cells ?? []) {
+      if (cell.type !== 'seat' || !cell.seatId) continue;
+      const stored = assignment?.assignments?.[cell.seatId];
+      const uid = stored && known.has(stored) ? stored : bySeatNumber.get(String(Number(cell.label)));
+      if (uid) out[cell.seatId] = uid;
+    }
+    return out;
+  }, [students, room, assignment]);
+  const seatNames = useMemo(() => {
+    const nameOf = new Map<string, string>(students.map((row) => [row.uid, row.displayName]));
+    return Object.fromEntries(Object.entries(seatUserIds).map(([seatId, uid]) => [seatId, nameOf.get(uid) ?? assignment?.seatNames?.[seatId] ?? '']));
+  }, [seatUserIds, students, assignment]);
   const seatLabelOf = (uid: string | undefined) => {
-    const seatId = Object.entries(assignment?.assignments ?? {}).find(([, owner]) => owner === uid)?.[0];
-    if (seatId === undefined) return '좌석 없음';
+    const seatId = Object.entries(seatUserIds).find(([, owner]) => owner === uid)?.[0];
+    if (seatId === undefined) {
+      const own = students.find((row) => row.uid === uid)?.seatNumber;
+      return own != null ? `${own}번` : '좌석 없음';
+    }
     return `${room?.cells.find((cell) => cell.seatId === seatId)?.label ?? seatId}번`;
   };
   const seating: SpotSeating | undefined =
-    published && assignment !== undefined ? { grid: room, seatUserIds: assignment.assignments, seatNames: assignment.seatNames } : undefined;
+    published && assignment !== undefined && room !== undefined ? { grid: room, seatUserIds, seatNames } : undefined;
   return { user, students, roll, seatLabelOf, seating };
 }
 
