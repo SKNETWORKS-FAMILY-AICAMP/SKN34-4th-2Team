@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from lms.commands import _require_staff, resolve_cohort, resolve_row
+from lms.commands import _require_staff, resolve_cohort
 from lms.permissions import can_access_cohort
 
 KST = ZoneInfo("Asia/Seoul")
@@ -62,6 +62,19 @@ def cohort_students(cur, cohort_id: int, uids: list[str] | None = None) -> dict[
 # ── 불시 자리 점검 ─────────────────────────────────────
 
 
+def _presence_check(cur, public_id):
+    # 이 테이블에는 legacy_id가 없으며 API도 숫자 PK를 문자열로 반환한다.
+    try:
+        pk = int(str(public_id))
+    except (TypeError, ValueError):
+        raise ValueError("invalid presence check id") from None
+    if not 0 < pk <= 9223372036854775807:
+        raise ValueError("invalid presence check id")
+    cur.execute("SELECT id, cohort_id FROM presence_checks WHERE id = %s", [pk])
+    row = cur.fetchone()
+    return {"id": row[0], "cohort_id": row[1]} if row else None
+
+
 def op_save_presence_check(cur, user, p):
     """점검 한 번을 통째로 저장한다. id 가 있으면 그 점검을 고쳐 쓴다(학생 줄은 모두 새로)."""
     _require_staff(user)
@@ -90,7 +103,7 @@ def op_save_presence_check(cur, user, p):
 
     row_id = p.get("id")
     if row_id:
-        row = resolve_row(cur, "presence_checks", row_id)
+        row = _presence_check(cur, row_id)
         if not row:
             raise KeyError("presence_check")
         if row["cohort_id"] != cohort_id:
@@ -120,7 +133,7 @@ def op_save_presence_check(cur, user, p):
 
 def op_delete_presence_check(cur, user, p):
     _require_staff(user)
-    row = resolve_row(cur, "presence_checks", p.get("id"))
+    row = _presence_check(cur, p.get("id"))
     if not row:
         return {"ok": True}
     if not can_access_cohort(user, row["cohort_id"]):

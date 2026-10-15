@@ -169,7 +169,11 @@ describe('집중형 복습', () => {
 
   it('문제 이동 후 선택 답안·출력 답안·실행 결과가 유지되고 튜터는 선택 문제를 따라간다', async () => {
     await render();
+    expect(host.querySelector('.tutor')?.getAttribute('data-target')).toBe('0');
+    expect(button('AI 튜터').getAttribute('aria-expanded')).toBe('true');
+    await click(button('AI 튜터'));
     expect(host.querySelector('.tutor')).toBeNull();
+    expect(button('AI 튜터').getAttribute('aria-expanded')).toBe('false');
     expect(panel().textContent).toContain('개념 문제');
     await click(panel().querySelector('input[type=radio]')!);
     const first = panel();
@@ -181,6 +185,7 @@ describe('집중형 복습', () => {
     await type(third.querySelector('textarea')!, 'def answer():\n    return 33');
     await click(button('실행', third));
     expect(third.textContent).toContain('12');
+    expect(host.querySelector('.tutor')).toBeNull();
     await click(button('AI 튜터'));
     expect(host.querySelector('.tutor')?.getAttribute('data-target')).toBe('2');
     await click(button('이전'));
@@ -204,6 +209,7 @@ describe('집중형 복습', () => {
   it('focus와 목록 이동을 적용하고 숨긴 문제는 번호를 유지한 채 건너뛴다', async () => {
     reviews = [{ setId: set.id, index: 1, decision: 'hidden', decidedBy: 'teacher', decidedAt: new Date() }];
     await render(set.id, 3);
+    expect(host.querySelector('.tutor')?.getAttribute('data-target')).toBe('2');
     expect(panel().textContent).toContain('함수 문제');
     expect(host.querySelector('.pf-navigation')?.textContent).toContain('문제 3');
     expect(host.querySelector('.pf-navigation')?.textContent).toContain('2 / 2');
