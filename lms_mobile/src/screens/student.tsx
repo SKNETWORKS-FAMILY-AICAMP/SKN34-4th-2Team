@@ -55,6 +55,7 @@ import { useRooms, useTeams } from '../data/seating';
 import { useNotes } from '../data/study';
 import { appNav, navIcon, navLabel } from '../nav/webNav';
 import { MarkdownView } from '../ui/MarkdownView';
+import { ChatMarkdown, SelectableText } from '../ui/SelectableText';
 import { SeatGrid } from '../ui/SeatGrid';
 import {
   Avatar,
@@ -1394,7 +1395,7 @@ function ChatBubble({ line, botName }: { line: ChatLine; botName: string }) {
             borderColor: palette.border,
           }}
         >
-          {mine ? <Text style={{ color: '#fff', fontSize: 15 }}>{line.text}</Text> : <MarkdownBlock text={line.text} />}
+          {mine ? <SelectableText text={line.text} style={{ color: '#fff', fontSize: 15 }} /> : <ChatMarkdown text={line.text} />}
         </View>
       </View>
     </View>
@@ -1692,7 +1693,7 @@ function BotBubble({ message, onVote }: { message: BotMessage; onVote: (feedback
           gap: 6,
         }}
       >
-        {mine ? <Text style={{ color: '#fff', fontSize: 15 }}>{message.text}</Text> : <MarkdownBlock text={message.text} />}
+        {mine ? <SelectableText text={message.text} style={{ color: '#fff', fontSize: 15 }} /> : <ChatMarkdown text={message.text} />}
         {!mine && !message.streaming && message.text ? (
           <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 4 }}>
             {(['up', 'down'] as const).map((kind) => (

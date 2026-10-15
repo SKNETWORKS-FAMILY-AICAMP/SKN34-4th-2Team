@@ -9,12 +9,14 @@ import type { Palette } from '../theme/tokens';
 
 const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
 const CELL_MIN = 112;
+/** 안드로이드만 Text 에서 손잡이로 일부를 고를 수 있다 — iOS 는 SelectableText 가 입력칸으로 대신한다 */
+export const NATIVE_SELECT = Platform.OS === 'android';
 
 function trimEnd(content: string): string {
   return content.endsWith('\n') ? content.slice(0, -1) : content;
 }
 
-function CodeBlock({ code, lang, palette }: { code: string; lang?: string; palette: Palette }) {
+export function CodeBlock({ code, lang, palette }: { code: string; lang?: string; palette: Palette }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
     void Clipboard.setStringAsync(code).then(() => {
@@ -49,6 +51,12 @@ function rulesFor(palette: Palette): RenderRules {
   return {
     fence: code,
     code_block: code,
+    // 문단 · 제목 · 목록의 글자 묶음 — 안드로이드는 길게 눌러 손잡이로 골라 복사한다
+    textgroup: (node, children: ReactNode[], _parent, styles) => (
+      <Text key={node.key} selectable={NATIVE_SELECT} style={styles.textgroup}>
+        {children}
+      </Text>
+    ),
     table: (node, children: ReactNode[]) => (
       <ScrollView key={node.key} horizontal showsHorizontalScrollIndicator style={styles.tableScroll}>
         <View style={[styles.table, { borderColor: palette.border }]}>{children}</View>

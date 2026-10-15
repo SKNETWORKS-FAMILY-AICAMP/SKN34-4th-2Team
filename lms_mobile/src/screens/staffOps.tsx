@@ -15,6 +15,7 @@ import { navLabel } from '../nav/webNav';
 import { useTheme } from '../theme/Theme';
 import { ChipRow, JobNotice, PersonPicker, SectionLabel, ToggleRow, confirmAction, errorText, useJob } from '../ui/form';
 import { SeatGrid } from '../ui/SeatGrid';
+import { SelectableText } from '../ui/SelectableText';
 import { Badge, Btn, Callout, Card, Chip, Composer, EmptyState, Field, ListGroup, ListItem, Muted, Screen, Segmented, StatTile, T, fmt } from '../ui/kit';
 
 function Actions({ children }: { children: ReactNode }) {
@@ -435,7 +436,7 @@ export function AssistantPage() {
               borderColor: palette.border,
             }}
           >
-            <T style={{ color: mine ? '#fff' : palette.text }}>{message.content}</T>
+            <SelectableText text={message.content} style={{ fontSize: 15, color: mine ? '#fff' : palette.text }} />
           </View>
         );
       })}
