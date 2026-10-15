@@ -41,6 +41,7 @@ const WIDE_MIN = 700;
 const PANE_MIN = 240;
 const SEAT_COL = 44;
 const TOGGLE_COMPACT = 42;
+const ROSTER_W = 320;
 
 function clockOf(at: Date): string {
   return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
@@ -364,7 +365,7 @@ export function SpotCheckRunner({
         <JobNotice notice={job.notice} />
 
         <View style={{ flexDirection: 'row', gap: 12, height: paneHeight }}>
-          <Card style={{ flex: 11, padding: 0, gap: 0, overflow: 'hidden' }}>
+          <Card style={{ flex: 1, padding: 0, gap: 0, overflow: 'hidden' }}>
             <PaneHead title="좌석 배치" hint="칸을 누를 때마다 유 → 무" />
             {seating === undefined ? (
               <EmptyState icon="event-seat" text="확정된 좌석 배치가 없습니다. 오른쪽 명단에서 표시해 주세요." />
@@ -379,7 +380,8 @@ export function SpotCheckRunner({
             )}
           </Card>
 
-          <Card style={{ flex: 9, padding: 0, gap: 0, overflow: 'hidden' }}>
+          {/* 명단은 이름 · 좌석 · 유/무만 들어가면 된다 — 남는 폭은 좌석 배치도에 준다 */}
+          <Card style={{ width: ROSTER_W, padding: 0, gap: 0, overflow: 'hidden' }}>
             <View
               style={{
                 flexDirection: 'row',

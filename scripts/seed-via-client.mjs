@@ -1,3 +1,5 @@
+import { requireLegacyEnv } from "./legacy-env.mjs";
+
 /**
  * Firebase Client SDK — 계정 + 기수만 생성 (샘플 데이터 없음)
  * 실행: node scripts/seed-via-client.mjs
@@ -18,7 +20,7 @@ import {
 import { getFunctions, httpsCallable } from "firebase/functions";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCd6amu1653Fc071OYeI_Fjfi6hMQvNih8",
+  apiKey: requireLegacyEnv('LEGACY_FIREBASE_WEB_API_KEY'),
   authDomain: "skn34-3rd-2team.firebaseapp.com",
   projectId: "skn34-3rd-2team",
   storageBucket: "skn34-3rd-2team.firebasestorage.app",
@@ -32,19 +34,19 @@ const COHORT_NAME = "SK네트웍스 Family AI 캠프 34기";
 const ACCOUNTS = [
   {
     email: "admin@playdata.co.kr",
-    password: "Playdata123!",
+    password: requireLegacyEnv('LEGACY_SEED_PASSWORD'),
     displayName: "PLAYDATA 관리자",
     role: "admin",
   },
   {
     email: "student@playdata.co.kr",
-    password: "Playdata123!",
+    password: requireLegacyEnv('LEGACY_SEED_PASSWORD'),
     displayName: "학생",
     role: "student",
   },
   {
     email: "instructor@playdata.co.kr",
-    password: "Playdata123!",
+    password: requireLegacyEnv('LEGACY_SEED_PASSWORD'),
     displayName: "PLAYDATA 강사",
     role: "instructor",
   },

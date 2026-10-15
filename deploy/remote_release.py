@@ -50,6 +50,12 @@ def docker_python(service, code):
     return subprocess.check_output(['docker', 'exec', 'deploy-' + service + '-1', 'python', '-c', code], text=True)
 
 
+def ecr_password(service):
+    # ECR metadata contains a datetime; transfer only the required token in memory.
+    token = docker_python(service, "import boto3;print(boto3.client('ecr',region_name='us-east-1').get_authorization_token()['authorizationData'][0]['authorizationToken'])").strip()
+    return base64.b64decode(token).decode().split(':', 1)[1]
+
+
 def consumer(enable):
     operation = 'add_consumer' if enable else 'cancel_consumer'
     docker_python('worker', "from lms_server.celery import app; assert app.control." + operation + "('celery',reply=True,timeout=5)")
@@ -102,8 +108,7 @@ def main(service, image, release, phase):
             raise RuntimeError('Unexpected Compose location')
         atomic_write(record, json.dumps({'image': current['Config']['Image'], 'id': current['Image'], 'files': files}).encode())
         # EC2 role supplies ECR read credentials; no long-lived key or token in SSM.
-        auth = json.loads(docker_python(service, "import boto3,json;print(json.dumps(boto3.client('ecr',region_name='us-east-1').get_authorization_token()['authorizationData'][0]))"))
-        password = base64.b64decode(auth['authorizationToken']).decode().split(':', 1)[1]
+        password = ecr_password(service)
         with tempfile.TemporaryDirectory(prefix='ecr-', dir=folder) as config:
             run(['docker', '--config', config, 'login', '--username', 'AWS', '--password-stdin', REGISTRY], input=password, text=True, capture_output=True)
             run(['docker', '--config', config, 'pull', image])

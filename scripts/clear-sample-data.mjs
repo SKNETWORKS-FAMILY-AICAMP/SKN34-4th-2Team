@@ -1,3 +1,5 @@
+import { requireLegacyEnv } from "./legacy-env.mjs";
+
 /**
  * Firebase에 들어간 샘플 데이터 삭제 + 프로필 초기화
  * 실행: node scripts/clear-sample-data.mjs
@@ -16,7 +18,7 @@ import {
 } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCd6amu1653Fc071OYeI_Fjfi6hMQvNih8",
+  apiKey: requireLegacyEnv('LEGACY_FIREBASE_WEB_API_KEY'),
   authDomain: "skn34-3rd-2team.firebaseapp.com",
   projectId: "skn34-3rd-2team",
   storageBucket: "skn34-3rd-2team.firebasestorage.app",
@@ -26,9 +28,9 @@ const firebaseConfig = {
 
 const COHORT_ID = "cohort_34";
 const ADMIN_EMAIL = "admin@playdata.co.kr";
-const ADMIN_PASSWORD = "Playdata123!";
+const ADMIN_PASSWORD = requireLegacyEnv('LEGACY_SEED_PASSWORD');
 const STUDENT_EMAIL = "student@playdata.co.kr";
-const STUDENT_PASSWORD = "Playdata123!";
+const STUDENT_PASSWORD = requireLegacyEnv('LEGACY_SEED_PASSWORD');
 
 const SUBCOLLECTIONS = [
   "schedules",

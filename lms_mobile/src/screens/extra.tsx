@@ -1,22 +1,26 @@
 import * as ImagePicker from 'expo-image-picker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useNavigation } from 'expo-router';
+import { Children, useEffect, useRef, useState, type ReactNode } from 'react';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { formatPostingText, type PostingBlock } from '@web/features/jobs/postingText';
 import { COMMON_QUESTIONS } from '@web/features/jobApply/companyQuestions';
-import { ResumeStatusLabels } from '@web/domain/constants';
+import { ResumeSectionKeys, ResumeStatusLabels, computeSections } from '@web/domain/constants';
+import { groupResumes, isApplyCopy, isTailored, withoutPromotedWorkCopies } from '@web/features/resume/resumeGroups';
 import type { Resume, ResumeContent } from '@web/domain/types';
 
 import { useSession } from '../auth/session';
+import { refreshBootstrap } from '../data/query';
+import { useDismissedToday, useSeenAlerts, visibleAlerts } from '../data/alertSeen';
 import { featuredPostings, fetchApplyLink, fetchPosting, type Posting } from '../data/jobs';
-import { requestReview, updateResume, useFeedbacks, useResumes, createResume, setBaseResume, deleteResume } from '../data/resumes';
+import { updateResume, useFeedbacks, useResumes, createResume, setBaseResume, deleteResume } from '../data/resumes';
 import { useAlerts, dismissAlertToday, markAlertRead } from '../data/notices';
-import { Btn, Card, Field, Muted, Row, Screen, T, goBack, todayKey } from '../ui/kit';
-import { confirmAction } from '../ui/form';
+import { Badge, Btn, Card, Chip, EmptyState, Field, Muted, Row, Screen, Segmented, T, goBack, todayKey } from '../ui/kit';
+import { ChipRow, confirmAction } from '../ui/form';
 import { useTheme } from '../theme/Theme';
+import { TechStackEditor } from '../ui/TechStackEditor';
 import { elevation } from '../theme/tokens';
 
 function section(body: string) {
@@ -46,85 +50,758 @@ function emptyContent(name: string): ResumeContent {
   };
 }
 
-export function ResumeListPage({ canApprove = false }: { canApprove?: boolean }) {
-  const { user } = useSession();
-  const resumes = useResumes().filter((resume) => (canApprove ? true : resume.userId === user?.uid));
+const STATUS_TONE: Record<string, 'warning' | 'info' | 'success'> = { draft: 'warning', feedbackRequested: 'info', approved: 'success' };
+
+/** 웹 이력서 관리의 「채운 섹션」 — 내용 모양이 조금 달라도 빈 값으로 채워 센다 */
+function filledCount(resume: Resume): number {
+  const c = (resume.content ?? {}) as Partial<ResumeContent>;
+  const base = emptyContent('');
+  const list = <K extends keyof ResumeContent>(key: K) => (Array.isArray(c[key]) ? c[key] : base[key]) as ResumeContent[K];
+  try {
+    const done = computeSections({
+      ...base,
+      basicInfo: { ...base.basicInfo, ...(c.basicInfo ?? {}) },
+      coreCompetencies: { ...base.coreCompetencies, ...(c.coreCompetencies ?? {}) },
+      experience: list('experience'),
+      education: list('education'),
+      techStack: list('techStack'),
+      certifications: list('certifications'),
+      awards: list('awards'),
+      trainingExperience: list('trainingExperience'),
+      otherActivities: list('otherActivities'),
+      projects: list('projects'),
+      selfIntroduction: { ...base.selfIntroduction, ...(c.selfIntroduction ?? {}) },
+    });
+    return ResumeSectionKeys.filter((key) => done[key] === true).length;
+  } catch {
+    return 0;
+  }
+}
+
+function dateOf(value?: Date | string | null): string {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** 카드 한 줄 끝에 붙이는 작은 채움 표시 — 막대를 따로 한 줄로 두면 카드가 위아래로 커 보였다 */
+function MiniProgress({ filled, total }: { filled: number; total: number }) {
+  const { palette } = useTheme();
   return (
-    <Screen title="이력서">
-      {!canApprove ? <Btn label="새 이력서" onPress={() => router.push('/(student)/resume/new' as never)} /> : null}
-      {resumes.map((resume) => (
-        <Row
-          key={resume.id}
-          title={resume.title}
-          subtitle={`${resume.userDisplayName ?? ''} · ${ResumeStatusLabels[resume.status] ?? '작성 중'}`}
-          onPress={() => router.push(`${canApprove ? '/(admin)/resume' : '/(student)/resume'}/${encodeURIComponent(resume.id)}` as never)}
-        />
-      ))}
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }} accessibilityLabel={`섹션 ${total}개 중 ${filled}개 작성`}>
+      <View style={{ width: 52, height: 4, borderRadius: 2, backgroundColor: palette.surfaceVariant, overflow: 'hidden' }}>
+        <View style={{ width: `${(filled / total) * 100}%`, height: 4, borderRadius: 2, backgroundColor: palette.success }} />
+      </View>
+      <T variant="caption" tone="secondary">
+        <T variant="caption" style={{ fontWeight: '700' }}>{filled}</T>/{total}
+      </T>
+    </View>
+  );
+}
+
+function openResume(id: string) {
+  router.push(`/(student)/resume/${encodeURIComponent(id)}` as never);
+}
+
+/** 바탕 이력서 카드 — 맞춤 이력서는 카드 안 아래쪽에 작은 줄로 펼친다 */
+function ResumeCard({ resume, isBase, tailored }: { resume: Resume; isBase?: boolean; tailored: Resume[] }) {
+  const { palette } = useTheme();
+  const [open, setOpen] = useState(false);
+  const total = ResumeSectionKeys.length;
+  const meta = [
+    dateOf(resume.updatedAt) ? `수정 ${dateOf(resume.updatedAt)}` : '',
+    resume.feedbackCount > 0 ? `피드백 ${resume.feedbackCount}` : '피드백 없음',
+  ].filter(Boolean).join(' · ');
+  return (
+    <Card style={[{ padding: 0, overflow: 'hidden' }, isBase ? { borderColor: palette.primary, borderWidth: 1.5 } : null]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${resume.title} 열기`}
+        onPress={() => openResume(resume.id)}
+        style={({ pressed }) => ({ paddingHorizontal: 18, paddingVertical: 14, gap: 8, opacity: pressed ? 0.85 : 1 })}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+          <View style={{ flex: 1, gap: 2 }}>
+            {isBase ? (
+              <T variant="label" tone="primary">기본 이력서</T>
+            ) : null}
+            <T variant="subtitle" numberOfLines={2}>{resume.title}</T>
+          </View>
+          <Badge label={ResumeStatusLabels[resume.status] ?? '작성 중'} tone={STATUS_TONE[resume.status] ?? 'warning'} />
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <T variant="caption" tone="secondary" style={{ flex: 1 }} numberOfLines={1}>{meta}</T>
+          <MiniProgress filled={filledCount(resume)} total={total} />
+        </View>
+      </Pressable>
+      {tailored.length > 0 ? (
+        <View style={{ borderTopWidth: 1, borderTopColor: palette.divider }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`맞춤 이력서 ${tailored.length}개 ${open ? '접기' : '펼치기'}`}
+            onPress={() => setOpen((prev) => !prev)}
+            style={({ pressed }) => ({
+              minHeight: 44,
+              paddingHorizontal: 18,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              backgroundColor: pressed ? palette.surfaceVariant : 'transparent',
+            })}
+          >
+            <MaterialIcons name="subdirectory-arrow-right" size={18} color={palette.success} />
+            <T variant="body" tone="success" style={{ flex: 1, fontWeight: '600' }}>맞춤 이력서 {tailored.length}개</T>
+            <MaterialIcons name={open ? 'expand-less' : 'expand-more'} size={22} color={palette.textSecondary} />
+          </Pressable>
+          {open ? (
+            <View style={{ paddingHorizontal: 14, paddingBottom: 14, gap: 8 }}>
+              {tailored.map((child) => (
+                <Pressable
+                  key={child.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${child.title} 열기`}
+                  onPress={() => openResume(child.id)}
+                  style={({ pressed }) => ({
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                    borderRadius: 12,
+                    backgroundColor: palette.surfaceVariant,
+                    opacity: pressed ? 0.85 : 1,
+                  })}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <T variant="body" style={{ flex: 1, fontWeight: '600' }} numberOfLines={1}>{child.title}</T>
+                    <MiniProgress filled={filledCount(child)} total={total} />
+                    <Badge label={ResumeStatusLabels[child.status] ?? '작성 중'} tone={STATUS_TONE[child.status] ?? 'warning'} />
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+    </Card>
+  );
+}
+
+/** 학생 이력서 목록 — 바탕 이력서만 카드로, 그걸로 만든 맞춤 이력서는 「맞춤 N」을 누르면 밑에 작은 카드로 */
+function MyResumeList() {
+  const { user } = useSession();
+  const { palette } = useTheme();
+  const all = useResumes().filter((resume) => resume.userId === user?.uid);
+  const resumes = withoutPromotedWorkCopies(all.filter((resume) => !isApplyCopy(resume)));
+  const base = resumes.find((resume) => resume.isBaseResume) ?? resumes.find((resume) => !isTailored(resume)) ?? resumes[0];
+  const grouped = groupResumes(resumes, base);
+  const cards = [
+    ...(base ? [{ resume: base, children: grouped.baseTailored, isBase: true }] : []),
+    ...grouped.rows.map((row) => ({ ...row, isBase: false })),
+  ];
+  return (
+    <Screen
+      title="이력서"
+      onRefresh={refreshBootstrap}
+      right={
+        <Pressable accessibilityRole="button" accessibilityLabel="새 이력서" hitSlop={8} onPress={() => router.push('/(student)/resume/new' as never)}>
+          <MaterialIcons name="add" size={26} color={palette.primary} />
+        </Pressable>
+      }
+    >
+      {cards.length === 0 ? (
+        <Card style={{ gap: 12 }}>
+          <EmptyState icon="description" text="작성한 이력서가 없습니다." />
+          <Btn label="새 이력서 만들기" icon="add" onPress={() => router.push('/(student)/resume/new' as never)} />
+        </Card>
+      ) : null}
+      <View style={{ gap: 16 }}>
+        {cards.map((row) => (
+          <ResumeCard key={row.resume.id} resume={row.resume} isBase={row.isBase} tailored={row.children} />
+        ))}
+      </View>
     </Screen>
+  );
+}
+
+export function ResumeListPage({ canApprove = false }: { canApprove?: boolean }) {
+  if (!canApprove) return <MyResumeList />;
+  return <ReviewerResumeList />;
+}
+
+type ReviewFilter = 'requested' | 'approved' | 'all';
+
+/**
+ * 관리자 · 강사의 이력서 목록 — 웹 ReviewerResumesScreen 과 같다.
+ * 작성 중인 이력서는 아직 학생의 것이라 올리지 않는다: 피드백을 요청했거나 승인한 것만, 최근 수정 순.
+ * 공고 맞춤 지원에서 만든 자소서(지원용 사본)와 편집용 사본으로 옮긴 첨삭 작업본은 뺀다.
+ */
+function ReviewerResumeList() {
+  const all = useResumes();
+  const { user } = useSession();
+  const { palette } = useTheme();
+  const [filter, setFilter] = useState<ReviewFilter>('requested');
+  const base = user?.role === 'instructor' ? '/(instructor)/resume' : '/(admin)/resume';
+  const time = (r: Resume) => (r.updatedAt ? new Date(r.updatedAt).getTime() : 0);
+  const resumes = withoutPromotedWorkCopies(all)
+    .filter((r) => !isApplyCopy(r))
+    .filter((r) => r.status === 'feedbackRequested' || r.status === 'approved')
+    .sort((a, b) => time(b) - time(a));
+  const counts: Record<ReviewFilter, number> = {
+    requested: resumes.filter((r) => r.status === 'feedbackRequested').length,
+    approved: resumes.filter((r) => r.status === 'approved').length,
+    all: resumes.length,
+  };
+  const shown = filter === 'all' ? resumes : resumes.filter((r) => (filter === 'requested' ? r.status === 'feedbackRequested' : r.status === 'approved'));
+  const subtitle =
+    user?.role === 'instructor'
+      ? `${user.cohortName || '담당 기수'} · 피드백을 요청했거나 승인한 이력서만 보입니다.`
+      : '보고 있는 기수의 이력서입니다. 피드백을 요청했거나 승인한 것만 보입니다.';
+
+  return (
+    <Screen title="이력서 관리" onRefresh={refreshBootstrap}>
+      <T variant="caption" tone="secondary">{subtitle}</T>
+      <Segmented
+        options={[
+          { key: 'requested', label: `피드백 요청 ${counts.requested}` },
+          { key: 'approved', label: `승인 ${counts.approved}` },
+          { key: 'all', label: `전체 ${counts.all}` },
+        ]}
+        value={filter}
+        onChange={setFilter}
+      />
+      {shown.length === 0 ? (
+        <Card>
+          <EmptyState icon="description" text={resumes.length === 0 ? '피드백을 요청한 이력서가 없습니다' : '이 묶음에 해당하는 이력서가 없습니다'} />
+        </Card>
+      ) : (
+        shown.map((resume) => {
+          const done = computeSections(resume.content);
+          const filled = ResumeSectionKeys.filter((key) => done[key]).length;
+          const approved = resume.status === 'approved';
+          return (
+            <Card key={resume.id} onPress={() => router.push(`${base}/${encodeURIComponent(resume.id)}` as never)} style={{ gap: 6, paddingVertical: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <T variant="label" tone="secondary" style={{ flex: 1 }} numberOfLines={1}>{resume.userDisplayName ?? resume.userId}</T>
+                <Badge label={ResumeStatusLabels[resume.status] ?? ''} tone={approved ? 'success' : 'info'} />
+              </View>
+              <T variant="subtitle" numberOfLines={2}>{resume.title}</T>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <T variant="caption" tone="secondary" style={{ flex: 1 }} numberOfLines={1}>
+                  {resume.updatedAt ? `수정 ${new Date(resume.updatedAt).toLocaleDateString('ko-KR')}` : '수정일 없음'} ·{' '}
+                  {resume.feedbackCount ? `피드백 ${resume.feedbackCount}건` : '아직 남긴 피드백 없음'}
+                </T>
+                <MiniProgress filled={filled} total={ResumeSectionKeys.length} />
+                <MaterialIcons name="chevron-right" size={20} color={palette.textHint} />
+              </View>
+            </Card>
+          );
+        })
+      )}
+    </Screen>
+  );
+}
+
+type IntroKey = keyof ResumeContent['selfIntroduction'];
+
+/** 편집 화면에서 「추가」로 여러 개 넣는 섹션 */
+type ListKey = 'experience' | 'education' | 'projects' | 'certifications' | 'awards' | 'trainingExperience' | 'otherActivities';
+
+const INTRO_FIELDS: { key: IntroKey; label: string }[] = [
+  { key: 'growth', label: '성장 과정' },
+  { key: 'motivation', label: '지원 동기' },
+  { key: 'intro', label: '자기소개' },
+  { key: 'challenge', label: '도전 경험' },
+  { key: 'strengthsWeaknesses', label: '성격의 장단점' },
+  { key: 'aspiration', label: '입사 후 포부' },
+];
+
+const EDU_STATUS = [
+  { key: '졸업', label: '졸업' },
+  { key: '재학', label: '재학' },
+  { key: '수료', label: '수료' },
+];
+
+function newId(): string {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/** 넓은 화면(아이패드)에서는 칸을 두 줄로 나란히 놓는다 */
+function Pair({ wide, children }: { wide: boolean; children: ReactNode }) {
+  if (!wide) return <View style={{ gap: 12 }}>{children}</View>;
+  return <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>{Children.map(children, (child) => <View style={{ flexBasis: '48%', flexGrow: 1 }}>{child}</View>)}</View>;
+}
+
+function SectionCard({ title, onAdd, children }: { title: string; onAdd?: () => void; children: ReactNode }) {
+  return (
+    <Card style={{ gap: 12 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <T variant="subtitle">{title}</T>
+        {onAdd ? (
+          <View style={{ minWidth: 92 }}>
+            <Btn label="추가" icon="add" tone="soft" onPress={onAdd} />
+          </View>
+        ) : null}
+      </View>
+      {children}
+    </Card>
+  );
+}
+
+function ItemBox({ onRemove, children }: { onRemove: () => void; children: ReactNode }) {
+  const { palette } = useTheme();
+  return (
+    <View style={{ gap: 10, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceVariant }}>
+      {children}
+      <Pressable accessibilityRole="button" accessibilityLabel="이 항목 삭제" onPress={onRemove} style={{ alignSelf: 'flex-end', paddingVertical: 6, paddingHorizontal: 4 }}>
+        <T variant="caption" tone="error">이 항목 삭제</T>
+      </Pressable>
+    </View>
   );
 }
 
 export function ResumeEditPage({ id }: { id: string }) {
   const { user } = useSession();
-  const existing = useResumes().find((resume) => resume.id === id);
-  const [title, setTitle] = useState(existing?.title ?? '새 이력서');
-  const [name, setName] = useState(existing?.content.basicInfo.name ?? user?.displayName ?? '');
-  const [phone, setPhone] = useState(existing?.content.basicInfo.phone ?? '');
-  const [growth, setGrowth] = useState(existing?.content.selfIntroduction.growth.body ?? '');
-  const [motivation, setMotivation] = useState(existing?.content.selfIntroduction.motivation.body ?? '');
-  const [message, setMessage] = useState('');
-  const mine = useResumes().filter((resume) => resume.userId === user?.uid);
+  const { width } = useWindowDimensions();
+  const wide = width >= 700;
+  const resumes = useResumes();
+  const existing = resumes.find((resume) => resume.id === id);
+  const mine = resumes.filter((resume) => resume.userId === user?.uid);
   const feedbacks = useFeedbacks(existing?.id ?? '');
-  const [review, setReview] = useState('');
+  const [title, setTitle] = useState(existing?.title ?? '새 이력서');
+  const [draft, setDraft] = useState<ResumeContent>(() => existing?.content ?? emptyContent(user?.displayName ?? ''));
+  const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  function content(): ResumeContent {
-    const base = existing?.content ?? emptyContent(name);
-    return {
-      ...base,
-      basicInfo: { ...base.basicInfo, name, phone },
-      selfIntroduction: { ...base.selfIntroduction, growth: section(growth), motivation: section(motivation) },
-    };
+  // 마지막으로 저장(또는 불러온) 내용 — 이것과 다르면 「저장 안 된 변경」이다
+  const snap = (t: string, c: ResumeContent) => JSON.stringify([t, c]);
+  const savedSnap = useRef<string | null>(null);
+  // 처음 연 상태를 기준으로 삼는다 — 아무것도 안 고친 새 이력서는 「저장 안 됨」이 아니다
+  if (savedSnap.current === null) savedSnap.current = snap(title, draft);
+  // 새 이력서는 처음 저장할 때 만들어지고, 그 뒤로는 그 id 를 고친다
+  const [createdId, setCreatedId] = useState('');
+  const targetId = existing?.id ?? createdId;
+  const dirty = snap(title, draft) !== savedSnap.current;
+
+  // 처음 열 때 아직 목록이 안 와 있었으면, 도착한 내용으로 채운다
+  const [loadedId, setLoadedId] = useState(existing?.id ?? '');
+  useEffect(() => {
+    if (existing && loadedId !== existing.id) {
+      setLoadedId(existing.id);
+      setTitle(existing.title);
+      setDraft(existing.content);
+      savedSnap.current = snap(existing.title, existing.content);
+    }
+  }, [existing, loadedId]);
+
+  const patch = (change: Partial<ResumeContent>) => setDraft((prev) => ({ ...prev, ...change }));
+  const basic = (key: keyof ResumeContent['basicInfo'], value: string) => patch({ basicInfo: { ...draft.basicInfo, [key]: value } });
+  const intro = (key: IntroKey, body: string) =>
+    patch({ selfIntroduction: { ...draft.selfIntroduction, [key]: { ...(draft.selfIntroduction[key] ?? section('')), body } } });
+  function editList<K extends ListKey>(key: K, index: number, change: Partial<ResumeContent[K][number]>) {
+    patch({ [key]: draft[key].map((row, i) => (i === index ? { ...row, ...change } : row)) } as Partial<ResumeContent>);
+  }
+  function removeFrom<K extends ListKey | 'techStack'>(key: K, index: number) {
+    patch({ [key]: draft[key].filter((_, i) => i !== index) } as Partial<ResumeContent>);
   }
 
+  /** 웹과 같다 — 비어 있는 칸만 마이페이지 값으로 채우고, 이력서에 없는 기술 스택을 숙련도째 더한다 */
+  const fillFromMyPage = () => {
+    if (!user) return;
+    const info = draft.basicInfo;
+    const next = {
+      ...info,
+      name: info.name || user.displayName || '',
+      email: info.email || user.personalEmail || user.email || '',
+      birthDate: info.birthDate || (user.birthDate ?? '').replace(/-/g, '.'),
+      githubUrl: info.githubUrl || (user.socialLinks?.github ?? ''),
+      blogUrl: info.blogUrl || (user.socialLinks?.blog ?? ''),
+    };
+    const filledFields = (Object.keys(next) as (keyof typeof next)[]).filter((key) => next[key] !== info[key]).length;
+    const norm = (name: string) => name.replace(/\s+/g, '').toLowerCase();
+    const have = new Set(draft.techStack.map((row) => norm(row.name)));
+    const freshTech = (user.techStack ?? []).filter((row) => row.name.trim() && !have.has(norm(row.name)));
+    patch({
+      basicInfo: next,
+      techStack: [...draft.techStack, ...freshTech.map((row) => ({ id: newId(), name: row.name.trim(), level: row.level ?? '' }))],
+    });
+    const parts = [filledFields > 0 ? `기본 정보 ${filledFields}칸` : '', freshTech.length > 0 ? `기술 ${freshTech.length}개` : ''].filter(Boolean);
+    setMessage(parts.length > 0 ? `마이페이지에서 ${parts.join(' · ')}를 채웠어요. 저장을 눌러 주세요.` : '채울 마이페이지 정보가 없어요.');
+  };
+
+  const clock = () => new Date().toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' });
+
+  /** 지금 내용을 저장한다. auto 면 조용히(자동 저장), 실패해도 다음에 다시 시도한다 */
+  const persist = async (auto = false): Promise<boolean> => {
+    if (!user) return false;
+    const current = snap(title, draft);
+    if (current === savedSnap.current) return true;
+    setSaving(true);
+    if (!auto) setMessage('');
+    try {
+      if (targetId) {
+        await updateResume(targetId, { title, content: draft });
+      } else {
+        const newId = await createResume(
+          { title, content: draft, userId: user.uid, userDisplayName: user.displayName, status: 'draft', sections: {}, isBaseResume: false, feedbackCount: 0, lastSeenFeedbackCount: 0, readFeedbackIds: [], revisionCount: 0 } as Omit<Resume, 'id' | 'updatedAt'>,
+          user.cohortId,
+        );
+        setCreatedId(newId);
+      }
+      savedSnap.current = current;
+      setMessage(auto ? `자동 저장됨 · ${clock()}` : `저장했습니다 · ${clock()}`);
+      return true;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '저장하지 못했습니다.');
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+  const save = () => {
+    if (!saving) void persist(false);
+  };
+
+  // 자동 저장 — 이미 만들어진 이력서는 입력을 멈추고 2.5초 뒤 저장한다(새 이력서는 처음 한 번은 직접 저장)
+  useEffect(() => {
+    if (!dirty || !targetId || saving) return;
+    const timer = setTimeout(() => void persist(true), 2500);
+    return () => clearTimeout(timer);
+  }, [title, draft, targetId, saving]);
+
+  // 저장 안 된 내용이 있는데 뒤로 가면 묻는다
+  const navigation = useNavigation();
+  const leaveGuard = useRef({ dirty, persist });
+  leaveGuard.current = { dirty, persist };
+  useEffect(() => {
+    return navigation.addListener('beforeRemove', (event) => {
+      if (!leaveGuard.current.dirty) return;
+      event.preventDefault();
+      Alert.alert('저장하지 않은 내용이 있어요', '이대로 나가면 고친 내용이 사라져요.', [
+        { text: '계속 쓰기', style: 'cancel' },
+        { text: '저장하지 않고 나가기', style: 'destructive', onPress: () => navigation.dispatch(event.data.action) },
+        {
+          text: '저장하고 나가기',
+          onPress: () => {
+            void leaveGuard.current.persist(false).then((ok) => {
+              if (ok) navigation.dispatch(event.data.action);
+            });
+          },
+        },
+      ]);
+    });
+  }, [navigation]);
+
   return (
-    <Screen title="이력서 편집">
-      <Field label="제목" value={title} onChangeText={setTitle} />
-      <Field label="이름" value={name} onChangeText={setName} />
-      <Field label="전화" value={phone} onChangeText={setPhone} />
-      <Field label="성장 과정" value={growth} onChangeText={setGrowth} multiline />
-      <Field label="지원 동기" value={motivation} onChangeText={setMotivation} multiline />
-      {message ? <T tone="secondary">{message}</T> : null}
-      <Btn label="저장" onPress={() => {
-        if (!user) return;
-        const patch = { title, content: content(), userId: user.uid, userDisplayName: user.displayName, status: 'draft' as const, sections: {}, isBaseResume: false, feedbackCount: 0, lastSeenFeedbackCount: 0, readFeedbackIds: [], revisionCount: 0 };
-        const job = existing
-          ? updateResume(existing.id, patch)
-          : createResume(patch, user.cohortId).then(() => undefined);
-        void job.then(() => setMessage('저장했습니다.')).catch((error: unknown) => setMessage(error instanceof Error ? error.message : '실패'));
-      }} />
+    <Screen
+      title="이력서 편집"
+      footer={
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 18 }}>
+          <T variant="caption" tone={dirty && !saving ? 'warning' : 'secondary'} style={{ flex: 1 }} numberOfLines={2}>
+            {saving ? '저장 중…' : dirty ? (targetId ? '고친 내용이 있어요 · 곧 자동 저장돼요' : '아직 저장하지 않았어요') : message || (existing ? ResumeStatusLabels[existing.status] ?? '작성 중' : '아직 저장하지 않았어요')}
+          </T>
+          <View style={{ minWidth: 120 }}>
+            <Btn label={saving ? '저장 중…' : '저장'} icon="save" disabled={saving || !dirty} onPress={save} />
+          </View>
+        </View>
+      }
+    >
+      <Field label="이력서 제목" value={title} onChangeText={setTitle} />
+
+      <SectionCard title="기본 정보">
+        {!existing || existing.userId === user?.uid ? (
+          <Btn label="마이페이지 정보로 빈 칸 채우기" icon="person" tone="soft" onPress={fillFromMyPage} />
+        ) : null}
+        <Pair wide={wide}>
+          <Field label="이름" value={draft.basicInfo.name} onChangeText={(v) => basic('name', v)} />
+          <Field label="생년월일" value={draft.basicInfo.birthDate} onChangeText={(v) => basic('birthDate', v)} placeholder="YYYY-MM-DD" />
+          <Field label="전화" value={draft.basicInfo.phone} onChangeText={(v) => basic('phone', v)} placeholder="010-0000-0000" />
+          <Field label="이메일" value={draft.basicInfo.email} onChangeText={(v) => basic('email', v)} keyboard="email-address" />
+          <Field label="GitHub" value={draft.basicInfo.githubUrl} onChangeText={(v) => basic('githubUrl', v)} keyboard="url" />
+          <Field label="블로그" value={draft.basicInfo.blogUrl} onChangeText={(v) => basic('blogUrl', v)} keyboard="url" />
+        </Pair>
+      </SectionCard>
+
+      <SectionCard title="핵심 역량">
+        <Field label="한 문단 소개" value={draft.coreCompetencies?.text ?? ''} onChangeText={(text) => patch({ coreCompetencies: { text } })} multiline />
+      </SectionCard>
+
+      <SectionCard
+        title="경력"
+        onAdd={() => patch({ experience: [...draft.experience, { id: newId(), company: '', role: '', startDate: '', endDate: '', isCurrent: false, description: '' }] })}
+      >
+        {draft.experience.length === 0 ? <Muted>추가 버튼으로 경력을 넣어 주세요.</Muted> : null}
+        {draft.experience.map((row, i) => (
+          <ItemBox key={row.id} onRemove={() => removeFrom('experience', i)}>
+            <Pair wide={wide}>
+              <Field label="회사" value={row.company} onChangeText={(v) => editList('experience', i, { company: v })} />
+              <Field label="직무" value={row.role} onChangeText={(v) => editList('experience', i, { role: v })} />
+              <Field label="시작" value={row.startDate} onChangeText={(v) => editList('experience', i, { startDate: v })} placeholder="YYYY-MM" />
+              <Field label="종료" value={row.endDate} onChangeText={(v) => editList('experience', i, { endDate: v })} placeholder="YYYY-MM 또는 재직 중" />
+            </Pair>
+            <Field label="한 일" value={row.description} onChangeText={(v) => editList('experience', i, { description: v })} multiline />
+          </ItemBox>
+        ))}
+      </SectionCard>
+
+      <SectionCard
+        title="학력"
+        onAdd={() => patch({ education: [...draft.education, { id: newId(), school: '', major: '', startDate: '', endDate: '', status: '졸업' }] })}
+      >
+        {draft.education.length === 0 ? <Muted>추가 버튼으로 학력을 넣어 주세요.</Muted> : null}
+        {draft.education.map((row, i) => (
+          <ItemBox key={row.id} onRemove={() => removeFrom('education', i)}>
+            <Pair wide={wide}>
+              <Field label="학교" value={row.school} onChangeText={(v) => editList('education', i, { school: v })} />
+              <Field label="전공" value={row.major} onChangeText={(v) => editList('education', i, { major: v })} />
+              <Field label="입학" value={row.startDate} onChangeText={(v) => editList('education', i, { startDate: v })} placeholder="YYYY-MM" />
+              <Field label="졸업" value={row.endDate} onChangeText={(v) => editList('education', i, { endDate: v })} placeholder="YYYY-MM" />
+            </Pair>
+            <ChipRow label="상태" options={EDU_STATUS} value={row.status || '졸업'} onChange={(status) => editList('education', i, { status })} />
+          </ItemBox>
+        ))}
+      </SectionCard>
+
+      <SectionCard title="기술 스택">
+        <TechStackEditor items={draft.techStack} onChange={(next) => patch({ techStack: next })} newId={newId} />
+      </SectionCard>
+
+      <SectionCard
+        title="자격증"
+        onAdd={() => patch({ certifications: [...draft.certifications, { id: newId(), name: '', issuer: '', acquiredDate: '' }] })}
+      >
+        {draft.certifications.length === 0 ? <Muted>추가 버튼으로 자격증을 넣어 주세요.</Muted> : null}
+        {draft.certifications.map((row, i) => (
+          <ItemBox key={row.id} onRemove={() => removeFrom('certifications', i)}>
+            <Pair wide={wide}>
+              <Field label="자격증 이름" value={row.name} onChangeText={(v) => editList('certifications', i, { name: v })} />
+              <Field label="발행 기관" value={row.issuer} onChangeText={(v) => editList('certifications', i, { issuer: v })} />
+              <Field label="취득일" value={row.acquiredDate} onChangeText={(v) => editList('certifications', i, { acquiredDate: v })} placeholder="YYYY-MM" />
+            </Pair>
+          </ItemBox>
+        ))}
+      </SectionCard>
+
+      <SectionCard
+        title="수상"
+        onAdd={() => patch({ awards: [...draft.awards, { id: newId(), name: '', organization: '', date: '', description: '' }] })}
+      >
+        {draft.awards.length === 0 ? <Muted>추가 버튼으로 수상 내역을 넣어 주세요.</Muted> : null}
+        {draft.awards.map((row, i) => (
+          <ItemBox key={row.id} onRemove={() => removeFrom('awards', i)}>
+            <Pair wide={wide}>
+              <Field label="수상명" value={row.name} onChangeText={(v) => editList('awards', i, { name: v })} />
+              <Field label="수여 기관" value={row.organization} onChangeText={(v) => editList('awards', i, { organization: v })} />
+              <Field label="수상일" value={row.date} onChangeText={(v) => editList('awards', i, { date: v })} placeholder="YYYY-MM" />
+            </Pair>
+            <Field label="설명" value={row.description} onChangeText={(v) => editList('awards', i, { description: v })} multiline />
+          </ItemBox>
+        ))}
+      </SectionCard>
+
+      <SectionCard
+        title="교육 이력"
+        onAdd={() => patch({ trainingExperience: [...draft.trainingExperience, { id: newId(), course: '', organization: '', startDate: '', endDate: '', description: '' }] })}
+      >
+        {draft.trainingExperience.length === 0 ? <Muted>추가 버튼으로 교육 이력을 넣어 주세요.</Muted> : null}
+        {draft.trainingExperience.map((row, i) => (
+          <ItemBox key={row.id} onRemove={() => removeFrom('trainingExperience', i)}>
+            <Pair wide={wide}>
+              <Field label="교육 과정" value={row.course} onChangeText={(v) => editList('trainingExperience', i, { course: v })} />
+              <Field label="교육 기관" value={row.organization} onChangeText={(v) => editList('trainingExperience', i, { organization: v })} />
+              <Field label="시작" value={row.startDate} onChangeText={(v) => editList('trainingExperience', i, { startDate: v })} placeholder="YYYY-MM" />
+              <Field label="종료" value={row.endDate} onChangeText={(v) => editList('trainingExperience', i, { endDate: v })} placeholder="YYYY-MM" />
+            </Pair>
+            <Field label="내용" value={row.description} onChangeText={(v) => editList('trainingExperience', i, { description: v })} multiline />
+          </ItemBox>
+        ))}
+      </SectionCard>
+
+      <SectionCard
+        title="기타 활동"
+        onAdd={() => patch({ otherActivities: [...draft.otherActivities, { id: newId(), name: '', startDate: '', endDate: '', description: '' }] })}
+      >
+        {draft.otherActivities.length === 0 ? <Muted>추가 버튼으로 동아리 · 봉사 · 대외활동을 넣어 주세요.</Muted> : null}
+        {draft.otherActivities.map((row, i) => (
+          <ItemBox key={row.id} onRemove={() => removeFrom('otherActivities', i)}>
+            <Pair wide={wide}>
+              <Field label="활동 이름" value={row.name} onChangeText={(v) => editList('otherActivities', i, { name: v })} />
+              <Field label="시작" value={row.startDate} onChangeText={(v) => editList('otherActivities', i, { startDate: v })} placeholder="YYYY-MM" />
+              <Field label="종료" value={row.endDate} onChangeText={(v) => editList('otherActivities', i, { endDate: v })} placeholder="YYYY-MM" />
+            </Pair>
+            <Field label="내용" value={row.description} onChangeText={(v) => editList('otherActivities', i, { description: v })} multiline />
+          </ItemBox>
+        ))}
+      </SectionCard>
+
+      <SectionCard
+        title="프로젝트"
+        onAdd={() => patch({ projects: [...draft.projects, { id: newId(), name: '', startDate: '', endDate: '', role: '', techStack: '', description: '', url: '' }] })}
+      >
+        {draft.projects.length === 0 ? <Muted>추가 버튼으로 프로젝트를 넣어 주세요.</Muted> : null}
+        {draft.projects.map((row, i) => (
+          <ItemBox key={row.id} onRemove={() => removeFrom('projects', i)}>
+            <Pair wide={wide}>
+              <Field label="프로젝트 이름" value={row.name} onChangeText={(v) => editList('projects', i, { name: v })} />
+              <Field label="역할" value={row.role} onChangeText={(v) => editList('projects', i, { role: v })} />
+              <Field label="사용 기술" value={row.techStack} onChangeText={(v) => editList('projects', i, { techStack: v })} />
+              <Field label="링크" value={row.url} onChangeText={(v) => editList('projects', i, { url: v })} keyboard="url" />
+              <Field label="시작" value={row.startDate} onChangeText={(v) => editList('projects', i, { startDate: v })} placeholder="YYYY-MM" />
+              <Field label="종료" value={row.endDate} onChangeText={(v) => editList('projects', i, { endDate: v })} placeholder="YYYY-MM" />
+            </Pair>
+            <Field label="설명" value={row.description} onChangeText={(v) => editList('projects', i, { description: v })} multiline />
+          </ItemBox>
+        ))}
+      </SectionCard>
+
+      <SectionCard title="자기소개서">
+        <Pair wide={wide}>
+          {INTRO_FIELDS.map((field) => {
+            const body = draft.selfIntroduction[field.key]?.body ?? '';
+            return <Field key={field.key} label={`${field.label} · ${body.length}자`} value={body} onChangeText={(v) => intro(field.key, v)} multiline />;
+          })}
+        </Pair>
+      </SectionCard>
+
       {existing ? (
-        <>
-          <Btn label="기본 이력서로" tone="ghost" onPress={() => void setBaseResume(existing.id, mine)} />
-          <Btn label="PDF로 공유" tone="ghost" onPress={() => void printResume(existing)} />
-          <Btn label="첨삭 받기" tone="ghost" onPress={() => {
-            void requestReview(existing.id).then((result) => {
-              const lines = (result.suggestions ?? []).map((item) => item.reason).join('\n');
-              setReview(result.summary ?? (lines || '제안이 없습니다.'));
-            }).catch((error: unknown) => setReview(error instanceof Error ? error.message : '첨삭에 실패했습니다.'));
-          }} />
-          <Btn label="삭제" tone="danger" onPress={() => confirmAction('이력서 삭제', `'${existing.title}' 이력서를 삭제할까요?`, () => {
-            void deleteResume(existing.id).then(goBack).catch((error: unknown) => setMessage(error instanceof Error ? error.message : '삭제에 실패했습니다.'));
+        <View style={{ gap: 8 }}>
+          <Btn label="기본 이력서로 지정" tone="ghost" onPress={() => void setBaseResume(existing.id, mine)} />
+          <Btn label="PDF로 공유" tone="ghost" onPress={() => void printResume({ ...existing, title, content: draft })} />
+          <Btn label="이력서 삭제" tone="danger" onPress={() => confirmAction('이력서 삭제', `'${existing.title}' 이력서를 삭제할까요?`, () => {
+            void deleteResume(existing.id).then(() => {
+              leaveGuard.current.dirty = false; // 지운 이력서는 저장할 것도 없다
+              goBack();
+            }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : '삭제에 실패했습니다.'));
           })} />
-        </>
+        </View>
       ) : null}
-      {review ? <Card><T>{review}</T></Card> : null}
+      {feedbacks.length > 0 ? <Muted>강사 피드백</Muted> : null}
       {feedbacks.map((row) => <Row key={row.id} title={row.authorName} subtitle={row.content} />)}
     </Screen>
   );
 }
 
+/**
+ * 관리자 · 강사가 학생 이력서를 볼 때 — 읽기 전용.
+ * 예전엔 학생용 편집 화면을 그대로 열어, 글자를 건드리면 학생 이력서에 자동 저장되고 삭제 · 기본 지정 버튼도 보였다.
+ */
+export function ResumeViewPage({ id }: { id: string }) {
+  const { palette } = useTheme();
+  const resume = useResumes().find((row) => row.id === id);
+  const feedbacks = useFeedbacks(id);
+  if (!resume) return <Screen title="이력서" empty emptyText="이력서를 찾지 못했습니다." />;
+  const c = resume.content;
+  const period = (a?: string, b?: string) => [a, b].filter(Boolean).join(' ~ ');
+  const line = (...parts: (string | undefined)[]) => parts.map((part) => part?.trim()).filter(Boolean).join(' · ');
+  const all: { title: string; rows: { head: string; sub?: string; body?: string }[] }[] = [
+    { title: '경력', rows: c.experience.map((r) => ({ head: line(r.company, r.role), sub: period(r.startDate, r.isCurrent ? '재직 중' : r.endDate), body: r.description })) },
+    { title: '학력', rows: c.education.map((r) => ({ head: line(r.school, r.major), sub: line(period(r.startDate, r.endDate), r.status) })) },
+    { title: '프로젝트', rows: c.projects.map((r) => ({ head: line(r.name, r.role), sub: line(period(r.startDate, r.endDate), r.techStack), body: [r.description, r.url].filter(Boolean).join('\n') })) },
+    { title: '자격증', rows: c.certifications.map((r) => ({ head: r.name, sub: line(r.issuer, r.acquiredDate) })) },
+    { title: '수상', rows: c.awards.map((r) => ({ head: r.name, sub: line(r.organization, r.date), body: r.description })) },
+    { title: '교육 이력', rows: c.trainingExperience.map((r) => ({ head: line(r.course, r.organization), sub: period(r.startDate, r.endDate), body: r.description })) },
+    { title: '기타 활동', rows: c.otherActivities.map((r) => ({ head: r.name, sub: period(r.startDate, r.endDate), body: r.description })) },
+  ];
+  const items = all.filter((section) => section.rows.some((row) => row.head || row.body));
+  const intro = c.companyQuestions?.length
+    ? c.companyQuestions.map((q) => ({ label: q.question, body: q.answer }))
+    : INTRO_FIELDS.map((f) => ({ label: f.label, body: c.selfIntroduction[f.key]?.body ?? '' }));
+  const contact = line(c.basicInfo.name, c.basicInfo.birthDate, c.basicInfo.phone, c.basicInfo.email);
+  const links = [c.basicInfo.githubUrl, c.basicInfo.blogUrl].filter(Boolean);
+
+  return (
+    <Screen title="이력서 보기">
+      <Card style={{ gap: 6 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <T variant="title" style={{ flex: 1 }}>{resume.title}</T>
+          <Badge label={ResumeStatusLabels[resume.status] ?? '작성 중'} tone={resume.status === 'approved' ? 'success' : resume.status === 'feedbackRequested' ? 'info' : 'neutral'} />
+        </View>
+        <T variant="caption" tone="secondary">
+          {line(resume.userDisplayName, resume.isBaseResume ? '기본 이력서' : undefined, resume.updatedAt ? `수정 ${new Date(resume.updatedAt).toLocaleDateString('ko-KR')}` : undefined)}
+        </T>
+      </Card>
+      <View style={{ flexDirection: 'row', gap: 8, padding: 12, borderRadius: 12, backgroundColor: palette.primaryLight }}>
+        <MaterialIcons name="visibility" size={18} color={palette.primary} />
+        <T variant="caption" style={{ flex: 1, color: palette.primary }}>읽기 전용입니다. 피드백 작성 · 승인은 PC 웹에서 할 수 있습니다.</T>
+      </View>
+
+      {contact || links.length ? (
+        <Card style={{ gap: 4 }}>
+          <T variant="label" tone="secondary">기본 정보</T>
+          {contact ? <T>{contact}</T> : null}
+          {links.map((url) => (
+            <Pressable key={url} onPress={() => void Linking.openURL(url)}>
+              <T tone="primary" numberOfLines={1}>{url}</T>
+            </Pressable>
+          ))}
+        </Card>
+      ) : null}
+      {c.coreCompetencies?.text?.trim() ? (
+        <Card style={{ gap: 4 }}>
+          <T variant="label" tone="secondary">핵심 역량</T>
+          <T>{c.coreCompetencies.text}</T>
+        </Card>
+      ) : null}
+      {c.techStack.length ? (
+        <Card style={{ gap: 8 }}>
+          <T variant="label" tone="secondary">기술 스택</T>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            {c.techStack.map((t) => <Badge key={t.id ?? t.name} label={t.level ? `${t.name} · ${t.level}` : t.name} tone="primary" />)}
+          </View>
+        </Card>
+      ) : null}
+      {items.map((section) => (
+        <Card key={section.title} style={{ gap: 10 }}>
+          <T variant="label" tone="secondary">{section.title}</T>
+          {section.rows.map((row, index) => (
+            <View key={`${section.title}-${index}`} style={{ gap: 2 }}>
+              {row.head ? <T variant="subtitle">{row.head}</T> : null}
+              {row.sub ? <T variant="caption" tone="secondary">{row.sub}</T> : null}
+              {row.body?.trim() ? <T style={{ marginTop: 2 }}>{row.body}</T> : null}
+            </View>
+          ))}
+        </Card>
+      ))}
+      {intro.some((q) => q.body.trim()) ? (
+        <Card style={{ gap: 12 }}>
+          <T variant="label" tone="secondary">자기소개서</T>
+          {intro.filter((q) => q.body.trim()).map((q) => (
+            <View key={q.label} style={{ gap: 4 }}>
+              <T variant="subtitle">{q.label}</T>
+              <T>{q.body}</T>
+            </View>
+          ))}
+        </Card>
+      ) : null}
+
+      <Btn label="PDF로 공유" icon="ios-share" tone="ghost" onPress={() => void printResume(resume)} />
+      {feedbacks.length > 0 ? <Muted>강사 피드백</Muted> : null}
+      {feedbacks.map((row) => <Row key={row.id} title={row.authorName} subtitle={row.content} />)}
+    </Screen>
+  );
+}
+
+function esc(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+}
+
 async function printResume(resume: Resume): Promise<void> {
-  const html = `<h1>${resume.title}</h1><p>${resume.content.basicInfo.name}</p><p>${resume.content.selfIntroduction.growth.body}</p><p>${resume.content.selfIntroduction.motivation.body}</p>`;
+  const c = resume.content;
+  const block = (heading: string, body: string) => (body.trim() ? `<h3>${esc(heading)}</h3><p>${esc(body)}</p>` : '');
+  const html = [
+    `<html><head><meta charset="utf-8"><style>body{font-family:-apple-system,sans-serif;padding:24px;color:#111}h1{margin:0 0 4px}h2{margin:24px 0 8px;border-bottom:1px solid #ddd;padding-bottom:4px}h3{margin:14px 0 4px}p{margin:0;line-height:1.6}</style></head><body>`,
+    `<h1>${esc(resume.title)}</h1>`,
+    `<p>${esc([c.basicInfo.name, c.basicInfo.phone, c.basicInfo.email, c.basicInfo.githubUrl, c.basicInfo.blogUrl].filter(Boolean).join(' · '))}</p>`,
+    c.coreCompetencies?.text ? `<h2>핵심 역량</h2><p>${esc(c.coreCompetencies.text)}</p>` : '',
+    c.experience.length ? `<h2>경력</h2>${c.experience.map((r) => block(`${r.company} · ${r.role} (${r.startDate}~${r.endDate})`, r.description || ' ')).join('')}` : '',
+    c.education.length ? `<h2>학력</h2>${c.education.map((r) => `<p>${esc(`${r.school} ${r.major} · ${r.status} (${r.startDate}~${r.endDate})`)}</p>`).join('')}` : '',
+    c.techStack.length ? `<h2>기술 스택</h2><p>${esc(c.techStack.map((t) => t.name).join(', '))}</p>` : '',
+    c.certifications?.length ? `<h2>자격증</h2>${c.certifications.map((r) => `<p>${esc([r.name, r.issuer, r.acquiredDate].filter(Boolean).join(' · '))}</p>`).join('')}` : '',
+    c.awards?.length ? `<h2>수상</h2>${c.awards.map((r) => block([r.name, r.organization, r.date].filter(Boolean).join(' · '), r.description || ' ')).join('')}` : '',
+    c.trainingExperience?.length ? `<h2>교육 이력</h2>${c.trainingExperience.map((r) => block(`${r.course} · ${r.organization} (${r.startDate}~${r.endDate})`, r.description || ' ')).join('')}` : '',
+    c.otherActivities?.length ? `<h2>기타 활동</h2>${c.otherActivities.map((r) => block(`${r.name} (${r.startDate}~${r.endDate})`, r.description || ' ')).join('')}` : '',
+    c.projects.length ? `<h2>프로젝트</h2>${c.projects.map((r) => block(`${r.name} · ${r.role} (${r.startDate}~${r.endDate})`, [r.techStack, r.description, r.url].filter(Boolean).join('\n') || ' ')).join('')}` : '',
+    `<h2>자기소개서</h2>${INTRO_FIELDS.map((f) => block(f.label, c.selfIntroduction[f.key]?.body ?? '')).join('')}`,
+    '</body></html>',
+  ].join('');
   const file = await Print.printToFileAsync({ html });
   if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(file.uri);
 }
@@ -208,15 +885,18 @@ function plain(text: string): string {
 export function AlertHost() {
   const { user } = useSession();
   const { palette } = useTheme();
-  const alerts = useAlerts().filter((popup) => popup.isActive);
+  const seen = useSeenAlerts();
+  const dismissed = useDismissedToday(user?.uid ?? '', todayKey());
+  const alerts = visibleAlerts(useAlerts());
   const [hidden, setHidden] = useState<string[]>([]);
-  const queue = alerts.filter((popup) => !hidden.includes(popup.id));
+  // 이 계정이 이미 확인한 알림 · 오늘 하루 닫은 알림은 다시 띄우지 않는다 — 종 아이콘(알림 목록)에서 다시 볼 수 있다
+  const queue = alerts.filter((popup) => !hidden.includes(popup.id) && !seen.has(popup.id) && !dismissed.has(popup.id));
   const current = queue[0];
   if (!user) return null;
 
   const close = (dismissToday: boolean) => {
     if (!current) return;
-    if (dismissToday) void dismissAlertToday(current.id, todayKey());
+    if (dismissToday) void dismissAlertToday(current.id, todayKey(), user?.uid).catch(() => undefined);
     else markAlertRead(current.id);
     setHidden((prev) => [...prev, current.id]);
   };
@@ -244,6 +924,73 @@ export function AlertHost() {
         </View>
       </View>
     </Modal>
+  );
+}
+
+/** 종 아이콘에서 여는 알림 목록 — 확인한 알림 팝업도 다시 볼 수 있다 */
+export function AlertsPage() {
+  const { user } = useSession();
+  const { palette } = useTheme();
+  const seen = useSeenAlerts();
+  const alerts = [...visibleAlerts(useAlerts())].sort(
+    (a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime(),
+  );
+  const [openId, setOpenId] = useState<string | null>(null);
+  const toggle = (id: string) => {
+    setOpenId((prev) => (prev === id ? null : id));
+    if (!seen.has(id)) markAlertRead(id);
+  };
+  return (
+    <Screen title="알림" onRefresh={refreshBootstrap}>
+      {alerts.length === 0 ? <Card><EmptyState icon="notifications-none" text="지금 받은 알림이 없습니다." /></Card> : null}
+      {alerts.map((popup) => {
+        const unread = !seen.has(popup.id);
+        const open = openId === popup.id;
+        return (
+          <Card key={popup.id} onPress={() => toggle(popup.id)} style={{ gap: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: unread ? palette.error : 'transparent' }} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <T variant="subtitle" numberOfLines={open ? undefined : 1} style={{ fontWeight: unread ? '700' : '500' }}>{popup.title}</T>
+                <T variant="caption" tone="secondary">
+                  {[popup.authorName, dateOf(popup.createdAt)].filter(Boolean).join(' · ')}
+                </T>
+              </View>
+              <MaterialIcons name={open ? 'expand-less' : 'expand-more'} size={22} color={palette.textSecondary} />
+            </View>
+            {open ? (
+              <View style={{ gap: 10, paddingLeft: 18 }}>
+                <T style={{ lineHeight: 22 }}>{popup.content}</T>
+                {popup.linkUrl ? <Btn label="링크 열기" icon="open-in-new" tone="ghost" onPress={() => void Linking.openURL(popup.linkUrl ?? '')} /> : null}
+              </View>
+            ) : null}
+          </Card>
+        );
+      })}
+    </Screen>
+  );
+}
+
+/** 대시보드 위의 종 — 안 읽은 알림 수를 빨간 점으로 */
+export function AlertBell() {
+  const { palette } = useTheme();
+  const seen = useSeenAlerts();
+  const unread = visibleAlerts(useAlerts()).filter((popup) => !seen.has(popup.id)).length;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={unread > 0 ? `알림 ${unread}개 안 읽음` : '알림'}
+      hitSlop={8}
+      onPress={() => router.push('/(student)/alerts' as never)}
+      style={({ pressed }) => ({ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? palette.primaryLight : 'transparent' })}
+    >
+      <MaterialIcons name={unread > 0 ? 'notifications-active' : 'notifications-none'} size={24} color={unread > 0 ? palette.primary : palette.textSecondary} />
+      {unread > 0 ? (
+        <View style={{ position: 'absolute', top: 4, right: 3, minWidth: 17, height: 17, paddingHorizontal: 4, borderRadius: 9, backgroundColor: palette.error, alignItems: 'center', justifyContent: 'center' }}>
+          <T variant="label" style={{ color: '#fff', fontSize: 10 }}>{unread > 9 ? '9+' : unread}</T>
+        </View>
+      ) : null}
+    </Pressable>
   );
 }
 

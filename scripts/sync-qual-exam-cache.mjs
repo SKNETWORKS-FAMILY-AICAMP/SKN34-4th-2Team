@@ -1,3 +1,5 @@
+import { requireLegacyEnv } from "./legacy-env.mjs";
+
 /**
  * 로컬 PC에서 공공 API → Firestore 캐시 동기화
  * Cloud Functions(asia-northeast3)에서 apis.data.go.kr 연결 타임아웃 시 캐시 fallback용
@@ -6,7 +8,7 @@
  *   cd functions && npm install && node ../scripts/sync-qual-exam-cache.mjs
  *
  * 환경변수 (선택):
- *   ADMIN_EMAIL, ADMIN_PASSWORD — 기본값: admin@playdata.co.kr / Playdata123!
+ *   ADMIN_EMAIL, ADMIN_PASSWORD — 비밀번호는 환경변수로만 제공
  */
 import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
@@ -19,7 +21,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const year = new Date().getFullYear();
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCd6amu1653Fc071OYeI_Fjfi6hMQvNih8",
+  apiKey: requireLegacyEnv('LEGACY_FIREBASE_WEB_API_KEY'),
   authDomain: "skn34-3rd-2team.firebaseapp.com",
   projectId: "skn34-3rd-2team",
   storageBucket: "skn34-3rd-2team.firebasestorage.app",
@@ -82,7 +84,7 @@ async function fetchAllPages(year, key) {
 async function main() {
   const key = loadEnvKey();
   const adminEmail = process.env.ADMIN_EMAIL ?? "admin@playdata.co.kr";
-  const adminPassword = process.env.ADMIN_PASSWORD ?? "Playdata123!";
+  const adminPassword = process.env.ADMIN_PASSWORD ?? requireLegacyEnv('LEGACY_SEED_PASSWORD');
 
   console.log(`Fetching ${year} schedules from public API...`);
   const { items, totalCount } = await fetchAllPages(year, key);

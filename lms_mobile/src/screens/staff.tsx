@@ -47,7 +47,13 @@ export function StaffHome({ role }: { role: 'instructor' | 'admin' }) {
   const issues = useIssues().filter((row) => row.status === 'submitted');
   const home = role === 'admin' ? RoutePaths.admin : RoutePaths.instructor;
   return (
-    <Screen title={navLabel(home, role === 'admin' ? '대시보드' : '자리 확인')} back={false} left={<MenuButton />} onRefresh={refreshBootstrap}>
+    <Screen
+      title={navLabel(home, role === 'admin' ? '대시보드' : '자리 확인')}
+      back={false}
+      left={<MenuButton />}
+      right={role === 'admin' ? <SpotCheckButton /> : undefined}
+      onRefresh={refreshBootstrap}
+    >
       <Card>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
           <Avatar name={user?.displayName} />
@@ -71,6 +77,31 @@ export function StaffHome({ role }: { role: 'instructor' | 'admin' }) {
       {role === 'admin' ? <CohortPicker /> : null}
       <StaffMenuList role={role} />
     </Screen>
+  );
+}
+
+/** 관리자가 가장 많이 쓰는 불시 점검 — 대시보드 오른쪽 위에서 바로 연다 */
+function SpotCheckButton() {
+  const { palette } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="불시 점검"
+      onPress={() => push('/(admin)/attendance/spot')}
+      style={({ pressed }) => ({
+        height: 40,
+        paddingHorizontal: 14,
+        borderRadius: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: palette.primary,
+        opacity: pressed ? 0.85 : 1,
+      })}
+    >
+      <MaterialIcons name="fact-check" size={18} color="#fff" />
+      <T variant="subtitle" style={{ color: '#fff', fontSize: 14 }}>불시 점검</T>
+    </Pressable>
   );
 }
 
@@ -341,7 +372,7 @@ function QuestForm({ quest, onDone }: { quest?: Quest; onDone: () => void }) {
 
 // ── 출석 관리 ──────────────────────────────────────────
 
-export function AttendanceAdminPage() {
+export function AttendanceAdminPage({ initialTab = 'requests' }: { initialTab?: 'requests' | 'spot' | 'history' } = {}) {
   const issues = [...useIssues()].sort(
     (a, b) => Number(b.status === 'submitted') - Number(a.status === 'submitted') || b.dateKey.localeCompare(a.dateKey),
   );
@@ -350,7 +381,7 @@ export function AttendanceAdminPage() {
   const { width } = useWindowDimensions();
   const { user, students, roll, seatLabelOf, seating } = useCohortRoll();
   const checks = useSpotChecks().filter((row) => row.cohortId === user?.cohortId);
-  const [tab, setTab] = useState<'requests' | 'spot' | 'history'>('requests');
+  const [tab, setTab] = useState<'requests' | 'spot' | 'history'>(initialTab);
   const [editingCheck, setEditingCheck] = useState<SpotCheck | undefined>(undefined);
   const [savedNotice, setSavedNotice] = useState(false);
   const [comments, setComments] = useState<Record<string, string>>({});
@@ -361,7 +392,7 @@ export function AttendanceAdminPage() {
   };
   const pending = issues.filter((issue) => issue.status === 'submitted').length;
   return (
-    <Screen title={navLabel(RoutePaths.adminAttendance, '출석 관리')} onRefresh={refreshBootstrap}>
+    <Screen fullWidth title={navLabel(RoutePaths.adminAttendance, '출석 관리')} onRefresh={refreshBootstrap}>
       <Segmented
         options={[
           { key: 'requests', label: pending > 0 ? `출결 신청 ${pending}` : '출결 신청' },
@@ -650,7 +681,7 @@ export function PresencePage({ home = false }: { home?: boolean }) {
   );
 
   return (
-    <Screen title={title} back={!home} left={home ? <MenuButton /> : undefined} onRefresh={refreshBootstrap}>
+    <Screen fullWidth title={title} back={!home} left={home ? <MenuButton /> : undefined} onRefresh={refreshBootstrap}>
       <T tone="secondary">
         {user?.cohortName || '기수 없음'} · 진행 중: {running === null ? '쉬는 시간' : `${running.label} 교시`}
       </T>

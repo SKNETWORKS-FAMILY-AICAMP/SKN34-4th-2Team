@@ -1,3 +1,5 @@
+import { requireLegacyEnv } from "./legacy-env.mjs";
+
 /**
  * 가상 이력서를 특정 계정 아래에 넣는다 (Firebase Client SDK).
  *
@@ -36,7 +38,7 @@ import {
 } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCd6amu1653Fc071OYeI_Fjfi6hMQvNih8",
+  apiKey: requireLegacyEnv('LEGACY_FIREBASE_WEB_API_KEY'),
   authDomain: "skn34-3rd-2team.firebaseapp.com",
   projectId: "skn34-3rd-2team",
   storageBucket: "skn34-3rd-2team.firebasestorage.app",

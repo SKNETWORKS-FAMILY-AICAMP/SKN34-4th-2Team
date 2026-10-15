@@ -12,10 +12,8 @@ import traceback
 from functools import lru_cache
 from typing import Any, Iterator
 
-import firebase_admin
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
-from firebase_admin import auth, credentials
 from pydantic import BaseModel, Field
 
 from chatbot.database import connect
@@ -106,6 +104,10 @@ _parse_schedule_date = parse_schedule_date
 
 @lru_cache
 def _firebase_app():
+    """Initialize Firebase only for the legacy direct-token endpoints."""
+    import firebase_admin
+    from firebase_admin import credentials
+
     try:
         return firebase_admin.get_app()
     except ValueError:
@@ -118,6 +120,8 @@ def _student_session(authorization: str | None = Header(default=None)) -> dict[s
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Firebase 로그인이 필요합니다")
     try:
+        from firebase_admin import auth
+
         app = _firebase_app()
         uid = auth.verify_id_token(authorization[7:].strip(), app=app).get("uid")
         if not isinstance(uid, str) or not uid:

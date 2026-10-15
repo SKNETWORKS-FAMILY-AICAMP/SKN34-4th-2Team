@@ -475,7 +475,7 @@ export function RoomsPage() {
   const rooms = (db?.seatingRooms ?? []).filter((room) => !user?.cohortId || room.cohortId === user.cohortId);
   const publishedId = user?.cohortId ? db?.seatingMeta?.[user.cohortId]?.publishedRoomId : undefined;
   return (
-    <Screen title={navLabel(RoutePaths.adminSeating, '좌석 배치')} onRefresh={refreshBootstrap}>
+    <Screen fullWidth title={navLabel(RoutePaths.adminSeating, '좌석 배치')} onRefresh={refreshBootstrap}>
       <Muted>배치 편집(자리 바꾸기 · 강의실 틀 만들기)은 넓은 화면이 필요해 PC 웹에서 합니다. 앱에서는 확인만 할 수 있습니다.</Muted>
       {rooms.length === 0 ? <Card><EmptyState icon="event-seat" text="등록된 강의실이 없습니다." /></Card> : null}
       {rooms.map((room) => {
@@ -499,7 +499,6 @@ export function RoomsPage() {
           </Card>
         );
       })}
-      <Btn label="PC 웹에서 편집하기" icon="computer" tone="ghost" onPress={() => router.push('/(admin)/desktop/seating' as never)} />
     </Screen>
   );
 }

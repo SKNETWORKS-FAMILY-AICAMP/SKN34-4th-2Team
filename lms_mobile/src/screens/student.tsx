@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Alert, Linking, Pressable, Text, View, useWindowDimensions } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import {
@@ -35,6 +35,11 @@ import type {
 } from '@web/domain/types';
 
 import { useSession } from '../auth/session';
+import { MileageCard, MileageTile } from '../ui/MileageCard';
+import { RobotHead } from '../ui/RobotHead';
+import { openManualPdf } from '../manual/open';
+import { quickTopics } from '@web/features/chatbot/chatbotAnswers';
+import { AlertBell } from './extra';
 import { useIssues, submitAttendanceRequest, cancelAttendanceRequest } from '../data/attendance';
 import { useFormResponses, useFormTasks, markFormResponded, submitFormResponse } from '../data/forms';
 import { WEB_URL } from '../data/http';
@@ -60,7 +65,6 @@ import {
   Chip,
   Composer,
   EmptyState,
-  Fab,
   Field,
   ListGroup,
   ListItem,
@@ -78,10 +82,51 @@ import {
   type Tone,
 } from '../ui/kit';
 import { useTheme } from '../theme/Theme';
-import { AlertHost } from './extra';
 import { EvidencePicker, type PickedFile } from './records';
 function go(path: string) {
   router.push(path as never);
+}
+
+/** 탭 화면 맨 위 카드 — 대시보드 · 학습실 · 마일리지가 같은 크기 · 구성(동그라미 52 + 세 줄)으로 맞춘다 */
+function TopCard({
+  leading,
+  eyebrow,
+  title,
+  sub,
+  onPress,
+  primary,
+}: {
+  leading: ReactNode;
+  eyebrow: string;
+  title: string;
+  sub: string;
+  onPress?: () => void;
+  primary?: boolean;
+}) {
+  const { palette } = useTheme();
+  const fg = primary ? '#fff' : undefined;
+  return (
+    <Card onPress={onPress} style={primary ? { backgroundColor: palette.primary, borderColor: palette.primary } : undefined}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+        <View style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center' }}>{leading}</View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <T variant="caption" tone="primary" style={[{ fontWeight: '600' }, primary ? { color: 'rgba(255,255,255,0.88)' } : null]} numberOfLines={1}>{eyebrow}</T>
+          <T variant="title" style={fg ? { color: fg } : undefined} numberOfLines={1}>{title}</T>
+          <T variant="caption" tone="secondary" style={primary ? { color: 'rgba(255,255,255,0.85)' } : undefined} numberOfLines={1}>{sub}</T>
+        </View>
+        {onPress ? <MaterialIcons name="chevron-right" size={22} color={primary ? 'rgba(255,255,255,0.85)' : palette.textHint} /> : null}
+      </View>
+    </Card>
+  );
+}
+
+function IconCircle({ name, primary }: { name: IconName; primary?: boolean }) {
+  const { palette } = useTheme();
+  return (
+    <View style={{ width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: primary ? 'rgba(255,255,255,0.18)' : palette.primaryLight }}>
+      <MaterialIcons name={name} size={26} color={primary ? '#fff' : palette.primary} />
+    </View>
+  );
 }
 
 export function DashboardPage() {
@@ -89,6 +134,10 @@ export function DashboardPage() {
   const boot = useBootstrap();
   const db = boot.data;
   const { palette } = useTheme();
+  const [rowWidth, setRowWidth] = useState(0);
+  const wideRow = rowWidth >= 640;
+  const cardWidth = Math.min(Math.floor((rowWidth - 12) / 2), 420);
+  const landscape = rowWidth >= 1000;
   const notices = useNotices().slice(0, 5);
   const tasks = useFormTasks();
   const responses = useFormResponses();
@@ -104,6 +153,16 @@ export function DashboardPage() {
       !responses.some((row) => row.taskId === task.id && row.userId === user?.uid),
   );
   const studentMenu = appNav('student').flatMap((section) => section.items);
+  const quickActions = (
+    <Card style={{ paddingVertical: 14 }}>
+      <View style={{ flexDirection: 'row' }}>
+        {[RoutePaths.records, RoutePaths.assessments, RoutePaths.forms, RoutePaths.seating].map((path) => {
+          const item = studentMenu.find((row) => row.webPath === path);
+          return item ? <QuickAction key={path} icon={item.icon} label={item.label} onPress={() => go(item.href)} /> : null;
+        })}
+      </View>
+    </Card>
+  );
   const attendanceLabel = navLabel(RoutePaths.attendanceRequest, '출결 신청');
   const hour = new Date().getHours();
   const greeting = hour < 12 ? '좋은 아침이에요' : hour < 18 ? '오늘도 힘내요' : '오늘도 수고했어요';
@@ -113,6 +172,8 @@ export function DashboardPage() {
       title={navLabel(RoutePaths.dashboard, '대시보드')}
       back={false}
       right={
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+        <AlertBell />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={attendanceLabel}
@@ -131,51 +192,52 @@ export function DashboardPage() {
           <MaterialIcons name={navIcon(RoutePaths.attendanceRequest, 'event-busy')} size={18} color={palette.primary} />
           <Text style={{ color: palette.primary, fontSize: 14, fontWeight: '600' }}>{attendanceLabel}</Text>
         </Pressable>
+        </View>
       }
       loading={boot.isLoading}
       error={boot.isError && !db ? '대시보드를 불러오지 못했습니다.' : null}
       onRefresh={refreshBootstrap}
-      footer={<Fab icon="smart-toy" label="챗봇" onPress={() => go('/(student)/chat')} />}
+      footer={<ChatbotLauncher />}
     >
-      <AlertHost />
+      <TopCard
+        leading={<Avatar name={user?.displayName} />}
+        eyebrow={user?.cohortName || '기수 없음'}
+        title={`${user?.displayName ?? ''}님`}
+        sub={greeting}
+        onPress={() => go('/(student)/mypage')}
+      />
 
-      <Card onPress={() => go('/(student)/mypage')}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-          <Avatar name={user?.displayName} />
-          <View style={{ flex: 1, gap: 2 }}>
-            <T variant="caption" tone="primary" style={{ fontWeight: '600' }}>{user?.cohortName || '기수 없음'}</T>
-            <T variant="title">{user?.displayName}님</T>
-            <T variant="caption" tone="secondary">{greeting}</T>
-          </View>
-          <MaterialIcons name="chevron-right" size={22} color={palette.textHint} />
+      {/* 마일리지는 웹과 같은 신용카드 모양 — 아이패드는 큰 카드 옆에 오늘 출결, 폰은 원래 크기 칸 두 개 */}
+      <View
+        onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
+        style={{ flexDirection: 'row', gap: 12 }}
+      >
+        {wideRow ? (
+          <Pressable
+            onPress={() => go('/(student)/(tabs)/mileage')}
+            accessibilityRole="button"
+            style={({ pressed }) => ({ opacity: pressed ? 0.9 : 1 })}
+          >
+            <MileageCard balance={user?.mileageBalance ?? 0} holderName={user?.displayName} width={cardWidth} />
+          </Pressable>
+        ) : (
+          <MileageTile balance={user?.mileageBalance ?? 0} onPress={() => go('/(student)/(tabs)/mileage')} />
+        )}
+        {/* 아이패드 가로는 오른쪽이 너무 비어 보여서 오늘 출결 아래에 바로가기를 같이 둔다 */}
+        <View style={{ flex: 1, gap: 12 }}>
+          <StatTile
+            icon="event-available"
+            label="오늘 출결"
+            value={status ? AttendanceLabels[status] ?? status : '기록 없음'}
+            tone={statusTone}
+            centered={wideRow}
+            onPress={() => go('/(student)/attendance')}
+          />
+          {landscape ? quickActions : null}
         </View>
-      </Card>
-
-      <View style={{ flexDirection: 'row', gap: 12 }}>
-        <StatTile
-          icon="savings"
-          label="마일리지"
-          value={`${(user?.mileageBalance ?? 0).toLocaleString('ko-KR')} P`}
-          tone="warning"
-          onPress={() => go('/(student)/(tabs)/mileage')}
-        />
-        <StatTile
-          icon="event-available"
-          label="오늘 출결"
-          value={status ? AttendanceLabels[status] ?? status : '기록 없음'}
-          tone={statusTone}
-          onPress={() => go('/(student)/attendance')}
-        />
       </View>
 
-      <Card style={{ paddingVertical: 14 }}>
-        <View style={{ flexDirection: 'row' }}>
-          {[RoutePaths.records, RoutePaths.assessments, RoutePaths.forms, RoutePaths.seating].map((path) => {
-            const item = studentMenu.find((row) => row.webPath === path);
-            return item ? <QuickAction key={path} icon={item.icon} label={item.label} onPress={() => go(item.href)} /> : null;
-          })}
-        </View>
-      </Card>
+      {landscape ? null : quickActions}
 
       {pendingForms.length > 0 ? (
         <>
@@ -554,7 +616,7 @@ export function SeatingPage() {
   const mySeat = room?.cells.find((cell) => cell.seatId === mySeatId);
 
   return (
-    <Screen title="자리 배치" onRefresh={refreshBootstrap}>
+    <Screen fullWidth title="자리 배치" onRefresh={refreshBootstrap}>
       <T tone="secondary">{where === '' ? '확정된 강의실 자리를 확인하세요.' : `${where} · 내 자리는 파랗게 표시됩니다.`}</T>
       {room === undefined ? (
         <Card><EmptyState icon="event-seat" text="좌석 배치가 아직 준비되지 않았습니다." /></Card>
@@ -994,23 +1056,16 @@ export function StudyPage() {
   const days = lessonDays(sets, notes).slice(0, 14);
   return (
     <Screen title="학습실" back={false} onRefresh={refreshBootstrap}>
-      <View style={{ flexDirection: 'row', gap: 12 }}>
-        <StatTile icon="menu-book" label="공부 노트" value={`${notes.length}개`} tone="primary" onPress={() => go('/(student)/notes')} />
-        <StatTile icon="replay" label="오답 · 복습" value="다시 풀기" tone="error" onPress={() => go('/(student)/wrong')} />
-      </View>
-      <Card onPress={() => go('/(student)/desktop/playground')}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <View style={{ width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.surfaceVariant }}>
-            <MaterialIcons name="terminal" size={22} color={palette.textSecondary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <T variant="subtitle">코드 연습장</T>
-            <T variant="caption" tone="secondary">편집기가 필요해 PC 웹에서 열립니다</T>
-          </View>
-          <MaterialIcons name="open-in-new" size={20} color={palette.textHint} />
-        </View>
-      </Card>
-
+      <TopCard
+        leading={<IconCircle name="menu-book" />}
+        eyebrow="공부 노트"
+        title={`노트 ${notes.length}개`}
+        sub={days.length > 0 ? `최근 수업 ${days.length}일 · 눌러서 노트 보기` : '눌러서 노트 보기'}
+        onPress={() => go('/(student)/notes')}
+      />
+      <ListGroup>
+        <ListItem title="오답 · 복습" subtitle="틀린 문제 다시 풀기" left={<MenuIcon name="replay" />} onPress={() => go('/(student)/wrong')} />
+      </ListGroup>
       <SectionHeader title="최근 수업" />
       {days.length === 0 ? (
         <Card><EmptyState icon="event-note" text="아직 수업 기록이 없습니다" /></Card>
@@ -1044,36 +1099,54 @@ function formatLessonDate(key: string): string {
   return date.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' });
 }
 
+/** 카드 밑 적립 · 사용 합계 — 한 장 안에서 세로줄로 나눠 초록 / 빨강으로 구분한다 */
+function MileageTotals({ earned, spent }: { earned: number; spent: number }) {
+  const { palette } = useTheme();
+  // 한 줄짜리 얇은 칸 — 아이콘 · 이름 · 값을 가로로 붙여 위아래 높이를 줄였다
+  const half = (icon: IconName, label: string, value: string, color: string) => (
+    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 9, paddingHorizontal: 12 }}>
+      <MaterialIcons name={icon} size={16} color={color} />
+      <T variant="caption" tone="secondary">{label}</T>
+      <Text style={{ flex: 1, textAlign: 'right', color, fontSize: 15, fontWeight: '700' }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+        {value}
+      </Text>
+    </View>
+  );
+  return (
+    <Card style={{ padding: 0, flexDirection: 'row', alignItems: 'stretch', overflow: 'hidden' }}>
+      {half('trending-up', '총 적립', `+${earned.toLocaleString('ko-KR')} P`, palette.success)}
+      <View style={{ width: 1, marginVertical: 8, backgroundColor: palette.border }} />
+      {half('trending-down', '총 사용', `-${spent.toLocaleString('ko-KR')} P`, palette.error)}
+    </Card>
+  );
+}
+
 export function MileagePage() {
   const { user } = useSession();
   const { palette } = useTheme();
+  const { width } = useWindowDimensions();
+  const [areaWidth, setAreaWidth] = useState(0);
   const tx = useTransactions(user?.uid);
   const earned = tx.filter((row) => row.amount > 0).reduce((sum, row) => sum + row.amount, 0);
   const spent = tx.filter((row) => row.amount < 0).reduce((sum, row) => sum - row.amount, 0);
-  return (
-    <Screen title="마일리지" back={false} onRefresh={refreshBootstrap}>
-      <View style={{ borderRadius: 18, padding: 20, gap: 14, backgroundColor: palette.primary }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <MaterialIcons name="savings" size={20} color="rgba(255,255,255,0.9)" />
-          <Text style={{ color: 'rgba(255,255,255,0.9)', fontWeight: '600' }}>보유 마일리지</Text>
-        </View>
-        <Text style={{ color: '#fff', fontSize: 34, fontWeight: '800', letterSpacing: -0.6 }}>
-          {(user?.mileageBalance ?? 0).toLocaleString('ko-KR')} <Text style={{ fontSize: 20 }}>P</Text>
-        </Text>
-        <View style={{ flexDirection: 'row', gap: 16 }}>
-          <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>적립 +{earned.toLocaleString('ko-KR')}</Text>
-          <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>사용 -{spent.toLocaleString('ko-KR')}</Text>
-        </View>
+  const cardWidth = Math.min(areaWidth || width - 32, 420);
+
+  const card = <MileageCard balance={user?.mileageBalance ?? 0} holderName={user?.displayName} width={cardWidth} />;
+
+  const totals = <MileageTotals earned={earned} spent={spent} />;
+
+  const actions = (
+    <Card style={{ paddingVertical: 14 }}>
+      <View style={{ flexDirection: 'row' }}>
+        <QuickAction icon="storefront" label="상점" onPress={() => go('/(student)/shop')} />
+        <QuickAction icon="shopping-cart" label="장바구니" onPress={() => go('/(student)/cart')} />
+        <QuickAction icon="emoji-events" label="퀘스트" onPress={() => go('/(student)/quests')} />
       </View>
+    </Card>
+  );
 
-      <Card style={{ paddingVertical: 14 }}>
-        <View style={{ flexDirection: 'row' }}>
-          <QuickAction icon="storefront" label="상점" onPress={() => go('/(student)/shop')} />
-          <QuickAction icon="shopping-cart" label="장바구니" onPress={() => go('/(student)/cart')} />
-          <QuickAction icon="emoji-events" label="퀘스트" onPress={() => go('/(student)/quests')} />
-        </View>
-      </Card>
-
+  const history = (
+    <>
       <SectionHeader title="적립 · 사용 내역" />
       {tx.length === 0 ? (
         <Card><EmptyState icon="receipt-long" text="아직 내역이 없습니다" /></Card>
@@ -1101,6 +1174,19 @@ export function MileagePage() {
           })}
         </ListGroup>
       )}
+    </>
+  );
+
+  return (
+    <Screen title="마일리지" back={false} onRefresh={refreshBootstrap}>
+      <View onLayout={(event) => setAreaWidth(event.nativeEvent.layout.width)} style={{ gap: 12 }}>
+        <View style={{ alignItems: 'center', gap: 14, paddingVertical: 4 }}>
+          {card}
+          <View style={{ width: cardWidth }}>{totals}</View>
+        </View>
+        {actions}
+        {history}
+      </View>
     </Screen>
   );
 }
@@ -1399,15 +1485,256 @@ function ChatScreen({
   );
 }
 
+/**
+ * 학생 챗봇 — 웹 `features/chatbot/ChatbotHost.tsx` 와 같은 흐름.
+ * 처음엔 「자주 묻는 질문」 칩(웹과 같은 목록)을 보여 주고, 칩을 누르면 준비된 답을 흘려 보낸 뒤
+ * 그 주제의 이어 묻기 칩을 띄운다. 이어 묻기와 직접 쓴 질문은 서버 챗봇(스트림)으로 묻는다.
+ */
+type BotMessage = { id: string; role: 'user' | 'bot'; text: string; streaming?: boolean; feedback?: 'up' | 'down' };
+let chatbotMemory: { messages: BotMessage[]; topic: string | null } = { messages: [], topic: null };
+
 export function ChatPage() {
+  const { palette } = useTheme();
+  const [messages, setMessagesState] = useState<BotMessage[]>(chatbotMemory.messages);
+  const [topic, setTopicState] = useState<string | null>(chatbotMemory.topic);
+  const [draft, setDraft] = useState('');
+  const [thinking, setThinking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const alive = useRef(true);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      timers.current.forEach((timer) => clearTimeout(timer));
+    };
+  }, []);
+
+  const setMessages = (next: (prev: BotMessage[]) => BotMessage[]) =>
+    setMessagesState((prev) => {
+      const value = next(prev);
+      chatbotMemory = { ...chatbotMemory, messages: value };
+      return value;
+    });
+  const setTopic = (value: string | null) => {
+    chatbotMemory = { ...chatbotMemory, topic: value };
+    setTopicState(value);
+  };
+
+  /** 준비된 답을 몇 글자씩 흘려보낸다 — 웹과 같은 속도(0.7초 뒤, 22ms 마다 6글자) */
+  const stream = (text: string) => {
+    const id = `bot-${Date.now()}`;
+    setThinking(true);
+    setBusy(true);
+    timers.current.push(
+      setTimeout(() => {
+        if (!alive.current) return;
+        setThinking(false);
+        setMessages((m) => [...m, { id, role: 'bot', text: '', streaming: true }]);
+        let cursor = 0;
+        const tick = () => {
+          if (!alive.current) return;
+          cursor = Math.min(text.length, cursor + 6);
+          const slice = text.slice(0, cursor);
+          setMessages((m) => m.map((msg) => (msg.id === id ? { ...msg, text: slice } : msg)));
+          if (cursor < text.length) timers.current.push(setTimeout(tick, 22));
+          else {
+            setMessages((m) => m.map((msg) => (msg.id === id ? { ...msg, streaming: false } : msg)));
+            setBusy(false);
+          }
+        };
+        tick();
+      }, 700),
+    );
+  };
+
+  const ask = (question: string) => {
+    if (busy) return;
+    setMessages((m) => [...m, { id: `user-${Date.now()}`, role: 'user', text: question }]);
+    setThinking(true);
+    setBusy(true);
+    const id = `bot-${Date.now()}`;
+    let received = '';
+    const put = (text: string, streaming: boolean) => {
+      if (!alive.current) return;
+      setMessages((items) =>
+        items.some((item) => item.id === id)
+          ? items.map((item) => (item.id === id ? { ...item, text, streaming } : item))
+          : [...items, { id, role: 'bot', text, streaming }],
+      );
+    };
+    void streamChatbot(question, (partial) => {
+      received = partial;
+      setThinking(false);
+      put(partial, true);
+    })
+      .then((answer) => put(answer, false))
+      .catch((error: unknown) => {
+        const reason = error instanceof Error ? error.message : '학습 도우미에 잠시 연결하지 못했습니다. 잠시 후 다시 시도하세요.';
+        put(received ? `${received}\n\n${reason}` : reason, false);
+      })
+      .finally(() => {
+        if (!alive.current) return;
+        setThinking(false);
+        setBusy(false);
+      });
+  };
+
+  const openTopic = (title: string) => {
+    const found = quickTopics.find((item) => item.title === title);
+    if (!found || busy) return;
+    setTopic(title);
+    setMessages((m) => [...m, { id: `user-${Date.now()}`, role: 'user', text: title }]);
+    stream(found.answer);
+  };
+
+  const reset = () => {
+    timers.current.forEach((timer) => clearTimeout(timer));
+    timers.current = [];
+    chatbotMemory = { messages: [], topic: null };
+    setMessagesState([]);
+    setTopicState(null);
+    setThinking(false);
+    setBusy(false);
+  };
+
+  const followUps = quickTopics.find((item) => item.title === topic)?.followUps ?? [];
+
   return (
-    <ChatScreen
+    <Screen
       title="학습 도우미"
-      botName="학습 도우미"
-      intro="안녕하세요! 수업 내용이나 LMS 사용법에 대해 무엇이든 물어보세요."
-      suggestions={['오늘 수업 요약해줘', '출결 신청은 어떻게 해?', '마일리지는 어디에 써?']}
-      ask={streamChatbot}
-    />
+      stickToBottom
+      right={
+        messages.length > 0 && !busy ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="새 대화" hitSlop={8} onPress={reset}>
+            <MaterialIcons name="refresh" size={22} color={palette.textSecondary} />
+          </Pressable>
+        ) : null
+      }
+      footer={
+        <Composer
+          value={draft}
+          onChangeText={setDraft}
+          onSend={() => {
+            const question = draft.trim();
+            if (!question || busy) return;
+            setDraft('');
+            ask(question);
+          }}
+          busy={busy}
+        />
+      }
+    >
+      {/* 웹 챗봇 패널 머리 — 로봇 · 이름 · 안내 */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 4 }}>
+        <RobotHead size={44} />
+        <View style={{ flex: 1 }}>
+          <T variant="subtitle">학습 도우미</T>
+          <T variant="caption" tone="secondary">LMS 정책·출결·프로젝트를 물어보세요</T>
+        </View>
+      </View>
+
+      {messages.length === 0 ? (
+        <View style={{ gap: 10 }}>
+          <T tone="secondary">자주 묻는 질문을 골라 보세요.</T>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            {quickTopics.map((item) => (
+              <Chip key={item.title} label={item.title} onPress={() => openTopic(item.title)} />
+            ))}
+          </View>
+        </View>
+      ) : null}
+
+      {messages.map((message) => (
+        <BotBubble
+          key={message.id}
+          message={message}
+          onVote={(feedback) => setMessages((m) => m.map((x) => (x.id === message.id ? { ...x, feedback } : x)))}
+        />
+      ))}
+
+      {thinking ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <RobotHead size={36} />
+          <T variant="caption" tone="hint">답변을 생성하고 있어요…</T>
+        </View>
+      ) : null}
+
+      {followUps.length > 0 && !thinking && !busy ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginLeft: 44 }}>
+          {followUps.map((item) => (
+            <Chip key={item.question} label={item.question} onPress={() => ask(item.question)} />
+          ))}
+        </View>
+      ) : null}
+    </Screen>
+  );
+}
+
+function BotBubble({ message, onVote }: { message: BotMessage; onVote: (feedback: 'up' | 'down') => void }) {
+  const { palette } = useTheme();
+  const mine = message.role === 'user';
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: mine ? 'flex-end' : 'flex-start', alignItems: 'flex-start', gap: 8 }}>
+      {mine ? null : <RobotHead size={36} />}
+      <View
+        style={{
+          maxWidth: '80%',
+          paddingHorizontal: 14,
+          paddingVertical: 10,
+          borderRadius: 18,
+          borderTopRightRadius: mine ? 4 : 18,
+          borderTopLeftRadius: mine ? 18 : 4,
+          backgroundColor: mine ? palette.primary : palette.surface,
+          borderWidth: mine ? 0 : 0.5,
+          borderColor: palette.border,
+          gap: 6,
+        }}
+      >
+        {mine ? <Text style={{ color: '#fff', fontSize: 15 }}>{message.text}</Text> : <MarkdownBlock text={message.text} />}
+        {!mine && !message.streaming && message.text ? (
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 4 }}>
+            {(['up', 'down'] as const).map((kind) => (
+              <Pressable
+                key={kind}
+                accessibilityRole="button"
+                accessibilityLabel={kind === 'up' ? '도움이 됐어요' : '아쉬워요'}
+                accessibilityState={{ selected: message.feedback === kind }}
+                hitSlop={6}
+                onPress={() => onVote(kind)}
+                style={{
+                  paddingHorizontal: 6,
+                  paddingVertical: 2,
+                  borderRadius: 8,
+                  backgroundColor: message.feedback === kind ? palette.primaryLight : 'transparent',
+                }}
+              >
+                <Text style={{ fontSize: 14, opacity: message.feedback && message.feedback !== kind ? 0.4 : 1 }}>{kind === 'up' ? '👍' : '👎'}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+/** 대시보드 오른쪽 아래 로봇 — 누르면 머리가 한 번 튀고 챗봇이 열린다(웹과 같은 동작) */
+function ChatbotLauncher() {
+  const [bounce, setBounce] = useState(0);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="학생 챗봇 열기"
+      onPress={() => {
+        setBounce((value) => value + 1);
+        setTimeout(() => go('/(student)/chat'), 260);
+      }}
+      style={({ pressed }) => ({ position: 'absolute', right: 8, bottom: 12, opacity: pressed ? 0.85 : 1 })}
+    >
+      <RobotHead size={84} bounce={bounce} />
+    </Pressable>
   );
 }
 
@@ -1432,7 +1759,8 @@ export function CoachPage() {
 
 export function SettingsPage() {
   const { palette, mode, setMode } = useTheme();
-  const { signOut } = useSession();
+  const { signOut, user } = useSession();
+  const [manualBusy, setManualBusy] = useState(false);
   return (
     <Screen title="설정">
       <T variant="label" tone="secondary" style={{ marginLeft: 4 }}>화면 테마</T>
@@ -1445,6 +1773,22 @@ export function SettingsPage() {
         value={mode}
         onChange={setMode}
       />
+      <T variant="label" tone="secondary" style={{ marginLeft: 4, marginTop: 8 }}>도움말</T>
+      <ListGroup>
+        <ListItem title="이용 안내 다시 보기" left={<MenuIcon name="help-outline" />} onPress={() => go('/tour?replay=1')} />
+        <ListItem
+          title="PDF 매뉴얼 보기"
+          subtitle={manualBusy ? '설명서를 만드는 중…' : '기능별 자세한 사용 설명서'}
+          left={<MenuIcon name="picture-as-pdf" />}
+          onPress={() => {
+            if (manualBusy || !user) return;
+            setManualBusy(true);
+            void openManualPdf(user.role)
+              .catch((error: unknown) => Alert.alert('설명서를 열지 못했습니다', error instanceof Error ? error.message : '잠시 후 다시 시도해 주세요.'))
+              .finally(() => setManualBusy(false));
+          }}
+        />
+      </ListGroup>
       <T variant="label" tone="secondary" style={{ marginLeft: 4, marginTop: 8 }}>계정</T>
       <ListGroup>
         <ListItem title="비밀번호 변경" left={<MenuIcon name="lock-outline" />} onPress={() => go('/change-password')} />
@@ -1462,43 +1806,7 @@ export function SettingsPage() {
   );
 }
 
-export function MyPage() {
-  const { user } = useSession();
-  const [motto, setMotto] = useState(user?.motto ?? '');
-  const [roles, setRoles] = useState(user?.jobPreferences.targetRoles.join(', ') ?? '');
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
-  return (
-    <Screen title="마이페이지">
-      <Card style={{ alignItems: 'center', gap: 8, paddingVertical: 24 }}>
-        <Avatar name={user?.displayName} size={72} />
-        <T variant="title">{user?.displayName}</T>
-        <T variant="caption" tone="secondary">{user?.email}</T>
-        {user?.cohortName ? <Badge label={user.cohortName} tone="primary" /> : null}
-      </Card>
-      <Card style={{ gap: 14 }}>
-        <Field label="좌우명" value={motto} onChangeText={setMotto} placeholder="나를 표현하는 한 줄" />
-        <Field label="희망 직무 (쉼표로 구분)" value={roles} onChangeText={setRoles} placeholder="백엔드, 데이터 엔지니어" />
-        {message ? <T variant="caption" tone={message.ok ? 'success' : 'error'}>{message.text}</T> : null}
-        <Btn
-          label="저장"
-          icon="check"
-          onPress={() => {
-            if (!user) return;
-            void import('../data/people')
-              .then(({ updateProfile }) =>
-                updateProfile(user.uid, {
-                  motto,
-                  jobPreferences: { ...user.jobPreferences, targetRoles: roles.split(',').map((item) => item.trim()).filter(Boolean) },
-                }),
-              )
-              .then(() => setMessage({ ok: true, text: '저장했습니다.' }))
-              .catch((error: unknown) => setMessage({ ok: false, text: error instanceof Error ? error.message : '저장하지 못했습니다.' }));
-          }}
-        />
-      </Card>
-    </Screen>
-  );
-}
+export { MyPage } from './mypage';
 
 function topicParticle(word: string): string {
   const code = word.charCodeAt(word.length - 1);

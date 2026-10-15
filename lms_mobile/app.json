@@ -13,7 +13,8 @@
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         }
-      }
+      },
+      "bundleIdentifier": "com.FOvia.lxp"
     },
     "android": {
       "adaptiveIcon": {
@@ -22,7 +23,8 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.FOvia.lxp"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -55,6 +57,11 @@
           "color": "#0284c7"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "7194b1b9-3f5f-4138-b8a0-0547b445a10a"
+      }
+    }
   }
 }

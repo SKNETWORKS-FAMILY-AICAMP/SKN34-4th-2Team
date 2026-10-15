@@ -1,3 +1,5 @@
+import { requireLegacyEnv } from "./legacy-env.mjs";
+
 /**
  * 프로덕션 Firebase 초기 데이터 시드 (계정 + 기수만)
  * 실행: node scripts/setup-production.mjs
@@ -12,12 +14,12 @@ const COHORT_NAME = "SK네트웍스 Family AI 캠프 34기";
 const ACCOUNTS = {
   admin: {
     email: "admin@playdata.co.kr",
-    password: "Playdata123!",
+    password: requireLegacyEnv('LEGACY_SEED_PASSWORD'),
     displayName: "PLAYDATA 관리자",
   },
   student: {
     email: "student@playdata.co.kr",
-    password: "Playdata123!",
+    password: requireLegacyEnv('LEGACY_SEED_PASSWORD'),
     displayName: "학생",
   },
 };
