@@ -4,6 +4,7 @@ import type { SeatingCell, SeatingGrid } from '@web/domain/types';
 import { useMemo, useState } from 'react';
 import { Pressable, Text, View, type ViewStyle } from 'react-native';
 
+import { useUsers } from '../data/people';
 import { useTheme } from '../theme/Theme';
 
 export type SeatMark = 'unknown' | 'confirmed' | 'held';
@@ -96,12 +97,15 @@ export function SeatGrid({
   const mapW = track * grid.cols;
   const mapH = grid.rows * seatH + Math.max(0, grid.rows - 1) * rowGap;
   const [picked, setPicked] = useState<string | null>(null);
+  // 저장된 좌석 이름(seatNames)이 비어 있으면 배정된 학생 이름으로 채운다 — 웹 좌석 배치와 같은 결과
+  const users = useUsers();
+  const nameById = useMemo(() => new Map(users.map((user) => [user.uid, user.displayName])), [users]);
 
   const seatOf = (cell: SeatingCell) => {
     const userId = cell.type === 'seat' ? seatUserIds[cell.seatId] : undefined;
     return {
       userId,
-      name: cell.type === 'seat' ? seatNames[cell.seatId] : undefined,
+      name: cell.type === 'seat' ? seatNames?.[cell.seatId] || (userId !== undefined ? nameById.get(userId) : undefined) : undefined,
       mark: userId !== undefined && markOf ? markOf(userId) : ('unknown' as SeatMark),
     };
   };
@@ -135,6 +139,7 @@ export function SeatGrid({
               caption={!compact && seatH >= 58 ? highlightCaption : undefined}
               mark={mark}
               markText={markLabels?.[mark]}
+              fillMark={markLabels !== undefined}
               layout={layout}
               onPress={
                 cell.type !== 'seat'
@@ -217,6 +222,7 @@ function Cell({
   caption,
   mark,
   markText,
+  fillMark,
   layout,
   onPress,
 }: {
@@ -232,6 +238,8 @@ function Cell({
   mark: SeatMark;
   /** 넘겨받으면 아이콘 대신 이 글자로 표시한다 */
   markText?: string;
+  /** 불시 점검 — 유 · 무를 글자 대신 칸 색으로 칠한다 */
+  fillMark?: boolean;
   layout: Layout;
   onPress?: () => void;
 }) {
@@ -276,6 +284,12 @@ function Cell({
 
   const filled = occupied && name !== undefined && name !== '';
   const markColor = mark === 'confirmed' ? palette.success : palette.warning;
+  const painted = fillMark === true && mark !== 'unknown';
+  // 이름 글자 크기는 칸 폭으로 정한다 — 자동 줄이기(adjustsFontSizeToFit)는 iOS 에서 처음 그릴 때 글자가 비어
+  // 보이다가 칸을 눌러 다시 그려야 나타났다(불시 점검에서 유 · 무를 눌러야 이름이 보이던 문제)
+  const nameSize = Math.max(8, Math.min(small ? 10 : 11, Math.floor((seatW - 6) / 3.4)));
+  const compactNameSize = Math.max(7, Math.min(10, Math.floor((seatW - 2) / 3.2)));
+  const ink = mine || painted ? '#fff' : undefined;
   const seatStyle = [
     frame,
     {
@@ -286,6 +300,11 @@ function Cell({
       overflow: 'hidden' as const,
       borderColor: mine ? palette.primaryDark : picked ? palette.text : `${palette.primary}59`,
       backgroundColor: mine ? palette.primary : filled || !compact ? palette.primaryLight : palette.surface,
+    },
+    // 불시 점검: 유는 초록, 무는 주황으로 칸 전체를 칠한다 — 멀리서도 어디까지 봤는지 한눈에 보이게
+    painted && {
+      backgroundColor: mark === 'confirmed' ? palette.success : palette.warning,
+      borderColor: mark === 'confirmed' ? palette.success : palette.warning,
     },
     (mine || picked) && {
       borderLeftWidth: frame.borderLeftWidth ? 2.5 : 0,
@@ -307,10 +326,8 @@ function Cell({
     return (
       <Pressable accessibilityRole="button" accessibilityLabel={`${cell.label}번 ${filled ? name : '빈 자리'}`} onPress={onPress} style={seatStyle}>
         <Text
-          style={{ fontSize: 8, fontWeight: '600', color: mine ? '#fff' : palette.textSecondary }}
+          style={{ fontSize: 8, fontWeight: '600', color: ink ?? palette.textSecondary }}
           numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.7}
         >
           {cell.label}
         </Text>
@@ -318,17 +335,16 @@ function Cell({
           style={{
             alignSelf: 'stretch',
             textAlign: 'center',
-            fontSize: 10,
-            fontWeight: mine ? '800' : '600',
-            color: mine ? '#fff' : filled ? palette.text : palette.textHint,
+            fontSize: compactNameSize,
+            fontWeight: mine || painted ? '800' : '600',
+            color: ink ?? (filled ? palette.text : palette.textHint),
           }}
           numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.45}
+          ellipsizeMode="clip"
         >
           {filled ? name : '—'}
         </Text>
-        {mark !== 'unknown' ? (
+        {mark !== 'unknown' && !painted ? (
           <View style={{ position: 'absolute', top: 2, right: 2, width: 6, height: 6, borderRadius: 3, backgroundColor: markColor }} />
         ) : null}
       </Pressable>
@@ -344,18 +360,17 @@ function Cell({
       accessibilityLabel={onPress ? `${cell.label}번 ${filled ? name : '빈 자리'}${markText ? ` ${markText}` : ''}` : undefined}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-        {mark !== 'unknown' && markText ? (
+        {painted ? null : mark !== 'unknown' && markText ? (
           <Text style={{ fontSize: small ? 9 : 10, fontWeight: '800', color: markColor }}>{markText}</Text>
         ) : mark !== 'unknown' ? (
           <MaterialIcons name={mark === 'confirmed' ? 'check-circle' : 'pause-circle'} size={small ? 10 : 12} color={markColor} />
         ) : null}
-        <Text style={{ fontSize: small ? 9 : 10, fontWeight: '600', color: mine ? '#fff' : palette.textSecondary }}>{cell.label}번</Text>
+        <Text style={{ fontSize: small ? 9 : 10, fontWeight: '600', color: ink ?? palette.textSecondary }}>{cell.label}번</Text>
       </View>
       <Text
         numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.7}
-        style={{ fontSize: small ? 10 : 11, fontWeight: mine ? '800' : '500', color: mine ? '#fff' : filled ? palette.text : palette.textSecondary }}
+        ellipsizeMode="clip"
+        style={{ alignSelf: 'stretch', textAlign: 'center', fontSize: nameSize, fontWeight: mine || painted ? '800' : '500', color: ink ?? (filled ? palette.text : palette.textSecondary) }}
       >
         {filled ? name : '—'}
       </Text>

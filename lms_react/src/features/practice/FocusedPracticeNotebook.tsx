@@ -43,6 +43,15 @@ export function FocusedPracticeNotebook({ nb, mode, focusProblem, focusRequest, 
   const heading = useRef<HTMLDivElement>(null);
   const listId = useId();
   const setActiveId = nb.setActiveId;
+  const tutorInitialized = useRef(false);
+  const openTutorFor = tutor?.openFor;
+
+  // 첫 문제를 불러온 뒤 한 번만 연다. 사용자가 접은 뒤에는 문제를 이동해도 다시 열지 않는다.
+  useEffect(() => {
+    if (!tutorInitialized.current && selected && openTutorFor?.([selected.id])) {
+      tutorInitialized.current = true;
+    }
+  }, [selected?.id, openTutorFor]);
 
   // 이미 열린 탭을 링크로 다시 열 때도 지정 문제로 이동한다.
   useEffect(() => {

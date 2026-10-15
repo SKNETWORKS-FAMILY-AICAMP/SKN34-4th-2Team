@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
 import { RoutePaths } from '@web/app/routePaths';
 import { ClassPeriods, currentPeriod, nearestPeriod } from '@web/domain/constants';
@@ -47,7 +47,13 @@ export function StaffHome({ role }: { role: 'instructor' | 'admin' }) {
   const issues = useIssues().filter((row) => row.status === 'submitted');
   const home = role === 'admin' ? RoutePaths.admin : RoutePaths.instructor;
   return (
-    <Screen title={navLabel(home, role === 'admin' ? '대시보드' : '자리 확인')} back={false} left={<MenuButton />} onRefresh={refreshBootstrap}>
+    <Screen
+      title={navLabel(home, role === 'admin' ? '대시보드' : '자리 확인')}
+      back={false}
+      left={<MenuButton />}
+      right={role === 'admin' ? <SpotCheckButton /> : undefined}
+      onRefresh={refreshBootstrap}
+    >
       <Card>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
           <Avatar name={user?.displayName} />
@@ -71,6 +77,31 @@ export function StaffHome({ role }: { role: 'instructor' | 'admin' }) {
       {role === 'admin' ? <CohortPicker /> : null}
       <StaffMenuList role={role} />
     </Screen>
+  );
+}
+
+/** 관리자가 가장 많이 쓰는 불시 점검 — 대시보드 오른쪽 위에서 바로 연다 */
+function SpotCheckButton() {
+  const { palette } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="불시 점검"
+      onPress={() => push('/(admin)/attendance/spot')}
+      style={({ pressed }) => ({
+        height: 40,
+        paddingHorizontal: 14,
+        borderRadius: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: palette.primary,
+        opacity: pressed ? 0.85 : 1,
+      })}
+    >
+      <MaterialIcons name="fact-check" size={18} color="#fff" />
+      <T variant="subtitle" style={{ color: '#fff', fontSize: 14 }}>불시 점검</T>
+    </Pressable>
   );
 }
 
@@ -341,7 +372,7 @@ function QuestForm({ quest, onDone }: { quest?: Quest; onDone: () => void }) {
 
 // ── 출석 관리 ──────────────────────────────────────────
 
-export function AttendanceAdminPage() {
+export function AttendanceAdminPage({ initialTab = 'requests' }: { initialTab?: 'requests' | 'spot' | 'history' } = {}) {
   const issues = [...useIssues()].sort(
     (a, b) => Number(b.status === 'submitted') - Number(a.status === 'submitted') || b.dateKey.localeCompare(a.dateKey),
   );
@@ -350,7 +381,7 @@ export function AttendanceAdminPage() {
   const { width } = useWindowDimensions();
   const { user, students, roll, seatLabelOf, seating } = useCohortRoll();
   const checks = useSpotChecks().filter((row) => row.cohortId === user?.cohortId);
-  const [tab, setTab] = useState<'requests' | 'spot' | 'history'>('requests');
+  const [tab, setTab] = useState<'requests' | 'spot' | 'history'>(initialTab);
   const [editingCheck, setEditingCheck] = useState<SpotCheck | undefined>(undefined);
   const [savedNotice, setSavedNotice] = useState(false);
   const [comments, setComments] = useState<Record<string, string>>({});
@@ -361,7 +392,7 @@ export function AttendanceAdminPage() {
   };
   const pending = issues.filter((issue) => issue.status === 'submitted').length;
   return (
-    <Screen title={navLabel(RoutePaths.adminAttendance, '출석 관리')} onRefresh={refreshBootstrap}>
+    <Screen fullWidth title={navLabel(RoutePaths.adminAttendance, '출석 관리')} onRefresh={refreshBootstrap}>
       <Segmented
         options={[
           { key: 'requests', label: pending > 0 ? `출결 신청 ${pending}` : '출결 신청' },
@@ -468,13 +499,34 @@ function useCohortRoll() {
   const published = room !== undefined && assignment?.status === 'published';
   // 호명은 이름 차례대로. 좌석 순서로 부르면 옆자리가 비었을 때 헷갈린다.
   const roll = [...students].sort((a, b) => a.displayName.localeCompare(b.displayName, 'ko'));
+  // 좌석 배치에 적힌 학생 id 가 지금 학생 목록과 맞지 않으면(예전 id 로 저장된 배치) 이름이 비고 칸을 눌러도 명단과 안 이어졌다.
+  // 그럴 땐 학생의 좌석 번호(seatNumber)와 칸 번호를 맞춰 학생을 찾는다.
+  const seatUserIds = useMemo(() => {
+    const known = new Set(students.map((row) => row.uid));
+    const bySeatNumber = new Map<string, string>(students.filter((row) => row.seatNumber != null).map((row) => [String(row.seatNumber), row.uid]));
+    const out: Record<string, string> = {};
+    for (const cell of room?.cells ?? []) {
+      if (cell.type !== 'seat' || !cell.seatId) continue;
+      const stored = assignment?.assignments?.[cell.seatId];
+      const uid = stored && known.has(stored) ? stored : bySeatNumber.get(String(Number(cell.label)));
+      if (uid) out[cell.seatId] = uid;
+    }
+    return out;
+  }, [students, room, assignment]);
+  const seatNames = useMemo(() => {
+    const nameOf = new Map<string, string>(students.map((row) => [row.uid, row.displayName]));
+    return Object.fromEntries(Object.entries(seatUserIds).map(([seatId, uid]) => [seatId, nameOf.get(uid) ?? assignment?.seatNames?.[seatId] ?? '']));
+  }, [seatUserIds, students, assignment]);
   const seatLabelOf = (uid: string | undefined) => {
-    const seatId = Object.entries(assignment?.assignments ?? {}).find(([, owner]) => owner === uid)?.[0];
-    if (seatId === undefined) return '좌석 없음';
+    const seatId = Object.entries(seatUserIds).find(([, owner]) => owner === uid)?.[0];
+    if (seatId === undefined) {
+      const own = students.find((row) => row.uid === uid)?.seatNumber;
+      return own != null ? `${own}번` : '좌석 없음';
+    }
     return `${room?.cells.find((cell) => cell.seatId === seatId)?.label ?? seatId}번`;
   };
   const seating: SpotSeating | undefined =
-    published && assignment !== undefined ? { grid: room, seatUserIds: assignment.assignments, seatNames: assignment.seatNames } : undefined;
+    published && assignment !== undefined && room !== undefined ? { grid: room, seatUserIds, seatNames } : undefined;
   return { user, students, roll, seatLabelOf, seating };
 }
 
@@ -650,7 +702,7 @@ export function PresencePage({ home = false }: { home?: boolean }) {
   );
 
   return (
-    <Screen title={title} back={!home} left={home ? <MenuButton /> : undefined} onRefresh={refreshBootstrap}>
+    <Screen fullWidth title={title} back={!home} left={home ? <MenuButton /> : undefined} onRefresh={refreshBootstrap}>
       <T tone="secondary">
         {user?.cohortName || '기수 없음'} · 진행 중: {running === null ? '쉬는 시간' : `${running.label} 교시`}
       </T>

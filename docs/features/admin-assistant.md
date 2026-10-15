@@ -80,4 +80,6 @@ Excel·CSV·Word 파일을 생성하며 PDF는 브라우저 인쇄 창에서 저
 - [출결 신청](../../lms_react/src/features/attendance/AttendanceRequestsPanel.tsx) · [설문 결과](../../lms_react/src/features/forms/AdminFormScreens.tsx)
 - [자리 점검](../../lms_react/src/features/manager/SpotCheck.tsx) · [착석 확인](../../lms_react/src/features/admin/RollCallRecords.tsx)
 
+[테스트 계획 및 결과](../reports/test_report_admin_assistant.md)
+
 [README로 돌아가기](../../README.md#features)

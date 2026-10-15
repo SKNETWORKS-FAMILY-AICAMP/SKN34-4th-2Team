@@ -76,4 +76,6 @@ flowchart TD
 - [공고 대화 흐름](../../job_matching_bot/docs/chatbot.md)
 - [Django API](../../lms_api/lms/api.py)
 
+[테스트 계획 및 결과](../reports/test_report_job_postings.md)
+
 [README로 돌아가기](../../README.md#features)

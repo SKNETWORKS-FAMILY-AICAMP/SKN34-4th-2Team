@@ -19,10 +19,15 @@ export async function fetchBootstrap(): Promise<Database> {
   return mapBootstrap(data);
 }
 
+/** 앱이 앞에 떠 있는 동안 이 간격으로 다시 받아 새 공지 · 알림이 새로고침 없이 뜨게 한다 */
+export const LIVE_REFRESH_MS = 15_000;
+
 export function useBootstrap() {
   return useQuery({
     queryKey: queryKeys.bootstrap,
     queryFn: fetchBootstrap,
+    refetchInterval: LIVE_REFRESH_MS,
+    refetchIntervalInBackground: false,
   });
 }
 

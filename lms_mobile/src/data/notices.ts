@@ -129,11 +129,18 @@ async function call(request: () => Promise<unknown>): Promise<void> {
   await refresh();
 }
 
+/** 학생이 알림을 확인했다 — 서버에 계정별로 남고(관리자 「읽음 n/m」), 다음 bootstrap 의 alertReadIds 로 돌아온다 */
 export function markAlertRead(popupId: string): void {
+  patchBootstrap((db) => (db.alertReadIds.includes(popupId) ? {} : { alertReadIds: [...db.alertReadIds, popupId] }));
   void http.post(`/alert-popups/${popupId}/read`).catch(() => undefined);
 }
 
-export async function dismissAlertToday(popupId: string, dateKey: string): Promise<void> {
+export async function dismissAlertToday(popupId: string, dateKey: string, uid?: string): Promise<void> {
+  if (uid) {
+    patchBootstrap((db) => ({
+      alertDismissals: { ...db.alertDismissals, [uid]: { ...(db.alertDismissals[uid] ?? {}), [popupId]: dateKey } },
+    }));
+  }
   await http.post(`/alert-popups/${popupId}/dismiss`, { dateKey });
 }
 
